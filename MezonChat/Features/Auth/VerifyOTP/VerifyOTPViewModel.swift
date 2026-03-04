@@ -12,12 +12,15 @@ final class VerifyOTPViewModel: BaseViewModel {
     let resendTrigger = PassthroughSubject<Void, Never>()
 
     var onVerifySuccess: ((User, MezonSession) -> Void)?
+    var onResendSuccess: (() -> Void)?
 
     let otpContext: OTPContext
+    private(set) var currentReqId: String
     private var cooldownTimer: AnyCancellable?
 
     init(otpContext: OTPContext) {
         self.otpContext = otpContext
+        self.currentReqId = otpContext.reqId
         super.init()
         bindValidation()
         bindSubmit()
@@ -51,7 +54,7 @@ final class VerifyOTPViewModel: BaseViewModel {
         errorMessage = nil
         do {
             let session = try await MezonHTTPClient.shared.confirmAuthenticateOTP(
-                reqId: otpContext.reqId,
+                reqId: currentReqId,
                 otp: otpCode
             )
             SessionStore.save(session)
@@ -66,7 +69,7 @@ final class VerifyOTPViewModel: BaseViewModel {
             )
             onVerifySuccess?(user, session)
         } catch {
-            errorMessage = "Mã OTP không đúng. Vui lòng thử lại."
+            errorMessage = L(L10n.OTPVerify.otpNotMatch)
             AppLogger.app.error("OTP verify failed: \(error)")
         }
         isLoading = false
@@ -81,20 +84,24 @@ final class VerifyOTPViewModel: BaseViewModel {
             switch otpContext.type {
             case .email:
                 let res = try await MezonHTTPClient.shared.authenticateEmailOTPRequest(email: otpContext.target)
-                if res.reqId == nil {
-                    errorMessage = "Không thể gửi lại OTP. Vui lòng thử lại."
+                guard let newReqId = res.reqId else {
+                    errorMessage = L(L10n.OTPVerify.resendFailed)
                     isLoading = false
                     return
                 }
+                currentReqId = newReqId
             case .sms:
                 let res = try await MezonHTTPClient.shared.authenticateSMSOTPRequest(phone: otpContext.target)
-                if res.reqId == nil {
-                    errorMessage = "Không thể gửi lại OTP. Vui lòng thử lại."
+                guard let newReqId = res.reqId else {
+                    errorMessage = L(L10n.OTPVerify.resendFailed)
                     isLoading = false
                     return
                 }
+                currentReqId = newReqId
             }
+            otpCode = ""
             startCooldown()
+            onResendSuccess?()
         } catch {
             errorMessage = error.localizedDescription
         }

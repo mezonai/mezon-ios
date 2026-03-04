@@ -101,7 +101,10 @@ final class ChannelListViewController: BaseViewController {
         viewModel.$errorMessage
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
-            .sink { msg in AppLogger.network.error("[ChannelList] \(msg)") }
+            .sink { msg in
+                AppLogger.network.error("[ChannelList] \(msg)")
+                Toast.error(msg)
+            }
             .store(in: &cancellables)
     }
 

@@ -37,4 +37,15 @@ extension UIColor {
 
     static var mezonUnreadBadge:         UIColor { .systemRed }
     static var mezonMention:             UIColor { theme.textWarning.withAlphaComponent(0.3) }
+
+    static var loginGradientColors:      [UIColor] { theme.loginGradientColors }
+    static var loginInputBg:             UIColor { theme.loginInputBg }
+    static var loginInputBorder:         UIColor { theme.loginInputBorder }
+    static var loginPlaceholder:         UIColor { theme.loginPlaceholder }
+    static var loginButtonBg:            UIColor { theme.loginButtonBg }
+    static var loginButtonBgDisabled:    UIColor { theme.loginButtonBgDisabled }
+    static var loginAlternativeText:     UIColor { theme.loginAlternativeText }
+    static var loginTitleColor:          UIColor { theme.loginTitleColor }
+    static var loginSubtitleColor:       UIColor { theme.loginSubtitleColor }
+    static var loginInputTextColor:      UIColor { theme.loginInputTextColor }
 }

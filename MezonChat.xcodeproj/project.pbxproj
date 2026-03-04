@@ -24,6 +24,7 @@
 		5559A7D9DDDAE40F7AD92961 /* SplashViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243F73240E9CAC19CAC0296A /* SplashViewController.swift */; };
 		5D261893375D7DD1EEEB8191 /* ChannelListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */; };
 		6736F0425023F3915858931A /* UITextField+Combine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870DB30B5C60BCDE3D98E8DD /* UITextField+Combine.swift */; };
+		6911295A5A03A73EF85BCFF6 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EE90084FB51B72FB971B6F /* Secrets.swift */; };
 		6FC06A68E221D1EFCDAA4B03 /* UIButton+Combine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8052FEB6D65C869BEDC75F13 /* UIButton+Combine.swift */; };
 		743016BAAD3CB0F90E758122 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7595BD459C34777F031BAEF6 /* AppTheme.swift */; };
 		769C338E9CC06768CCEB7FD8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 633FB25A726D9F54EB42E9C8 /* Assets.xcassets */; };
@@ -37,6 +38,7 @@
 		97445407959986C39506D0C4 /* AppThemeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD94BB519169EBB90AFFA4AF /* AppThemeViewController.swift */; };
 		97A30D3D6FB785C3CA7ACE80 /* ClanListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E60777456DDAD63B416663 /* ClanListViewController.swift */; };
 		9AF3D581EF829233942B2A3F /* MessageRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BAB1E8D8F11B5C96A943A71 /* MessageRepository.swift */; };
+		9F395F3689E8AFA9197AB617 /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 334E37ED61EB2B23530C2BEF /* Toast.swift */; };
 		A585745863D22A16A52173D7 /* realtime.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = F178B60FCDEA18D0A0446101 /* realtime.pb.swift */; };
 		A82056FA9E67776CF96152EC /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 669FD97A7E79BBE8EEE7099E /* LanguageManager.swift */; };
 		B2178ADF745E1D703DF9C34F /* HomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75893DF34997CEC77A9E2240 /* HomeViewController.swift */; };
@@ -77,11 +79,13 @@
 		243F73240E9CAC19CAC0296A /* SplashViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashViewController.swift; sourceTree = "<group>"; };
 		267A903865A2A46F3B23A2F4 /* UIView+Layout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIView+Layout.swift"; sourceTree = "<group>"; };
 		2E302FC2CE9133A53B5F3FC1 /* AppCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCoordinator.swift; sourceTree = "<group>"; };
+		334E37ED61EB2B23530C2BEF /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		3F04D58486584D14707CB965 /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListViewController.swift; sourceTree = "<group>"; };
 		452D34F20659EEA219CF298D /* api.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = api.pb.swift; sourceTree = "<group>"; };
 		49B4B0D34E8E2DF4206A9468 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		4B14DAAEB6FF3F647B2BF095 /* ScreenScale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenScale.swift; sourceTree = "<group>"; };
+		58EE90084FB51B72FB971B6F /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
 		5A95A25CF1FC49B257509C4C /* MainCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainCoordinator.swift; sourceTree = "<group>"; };
 		60049A348E6DE2167FBD443F /* UIViewControllerPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIViewControllerPreview.swift; sourceTree = "<group>"; };
 		602206C8B8207D648AD95F59 /* Channel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Channel.swift; sourceTree = "<group>"; };
@@ -172,6 +176,7 @@
 				2DADAE560BB5BF63C47E135C /* Extensions */,
 				0BE9B2A97A3BDE6F4A1E1629 /* Localization */,
 				4CE22FB1EEF0940BD4F2F6B1 /* Theme */,
+				C98A169F52C816558D7DCE1B /* UI */,
 				6BD6638833F4B91C6C50A7E0 /* Utils */,
 			);
 			path = Core;
@@ -270,6 +275,7 @@
 				1416EB5037A997A574CCF342 /* MezonSession.swift */,
 				73957FF0BDC829F39062DFF4 /* MezonSession+Proto.swift */,
 				D78559B57838DAE838F649EE /* MezonSocket.swift */,
+				58EE90084FB51B72FB971B6F /* Secrets.swift */,
 				6C44C6AB27450CFE50259EDF /* SessionRefreshManager.swift */,
 			);
 			path = Networking;
@@ -337,6 +343,14 @@
 				7621AE7ADAA6132FD343CC21 /* Resources */,
 			);
 			path = MezonChat;
+			sourceTree = "<group>";
+		};
+		C98A169F52C816558D7DCE1B /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				334E37ED61EB2B23530C2BEF /* Toast.swift */,
+			);
+			path = UI;
 			sourceTree = "<group>";
 		};
 		C9B73172DE556C0DB5457D20 /* DI */ = {
@@ -519,9 +533,11 @@
 				7FC9B98EF2654DD4B0D6F88F /* MezonSocket.swift in Sources */,
 				F3BF2F6EECACD8C81C1B0FE2 /* SceneDelegate.swift in Sources */,
 				2F10E07A316146934A9D26C3 /* ScreenScale.swift in Sources */,
+				6911295A5A03A73EF85BCFF6 /* Secrets.swift in Sources */,
 				E043AB4EE8D03C8003BAA30B /* SessionRefreshManager.swift in Sources */,
 				5559A7D9DDDAE40F7AD92961 /* SplashViewController.swift in Sources */,
 				B6DEA77396C6722DD5CA0449 /* ThemeManager.swift in Sources */,
+				9F395F3689E8AFA9197AB617 /* Toast.swift in Sources */,
 				6FC06A68E221D1EFCDAA4B03 /* UIButton+Combine.swift in Sources */,
 				F54E2364A35CA65C63D9A8C4 /* UIColor+Theme.swift in Sources */,
 				6736F0425023F3915858931A /* UITextField+Combine.swift in Sources */,

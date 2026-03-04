@@ -5,32 +5,35 @@ final class VerifyOTPViewController: BaseViewController {
 
     private let viewModel: VerifyOTPViewModel
 
-
-    private lazy var backButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        btn.setTitle(" Quay lại", for: .normal)
-        btn.tintColor = .systemIndigo
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
+    private lazy var gradientLayer: CAGradientLayer = {
+        let layer = CAGradientLayer()
+        layer.locations = [0, 0.5, 1]
+        return layer
     }()
 
     private lazy var titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 26.sf, weight: .bold)
-        l.textColor = .label
+        l.font = .systemFont(ofSize: 24.sf, weight: .bold)
+        l.textColor = .loginTitleColor
         l.textAlignment = .center
-        l.text = "Nhập mã OTP"
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
 
-    private lazy var subtitleLabel: UILabel = {
+    private lazy var instructionLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15.sf)
-        l.textColor = .secondaryLabel
+        l.font = .systemFont(ofSize: 14.sf)
+        l.textColor = .loginSubtitleColor
         l.textAlignment = .center
-        l.numberOfLines = 0
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private lazy var targetLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 15.sf, weight: .semibold)
+        l.textColor = .loginTitleColor
+        l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
@@ -47,42 +50,29 @@ final class VerifyOTPViewController: BaseViewController {
         return sv
     }()
 
-    private lazy var submitButton: UIButton = {
+    private lazy var actionButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setTitle("Xác nhận", for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         btn.setTitleColor(.white, for: .normal)
         btn.setTitleColor(UIColor.white.withAlphaComponent(0.5), for: .disabled)
-        btn.backgroundColor = .systemIndigo
-        btn.layer.cornerRadius = 14.sw
+        btn.layer.cornerRadius = 12.sw
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
     }()
 
-    private lazy var resendButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setTitle("Gửi lại mã", for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 15.sf)
-        btn.setTitleColor(.systemIndigo, for: .normal)
-        btn.setTitleColor(.secondaryLabel, for: .disabled)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
-
-    private lazy var errorLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 13.sf)
-        l.textColor = .systemRed
-        l.textAlignment = .center
-        l.numberOfLines = 0
-        l.isHidden = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
+    private lazy var alternativeSection: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.spacing = 6.sh
+        sv.alignment = .center
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
     }()
 
     private lazy var loadingIndicator: UIActivityIndicatorView = {
         let ai = UIActivityIndicatorView(style: .medium)
         ai.hidesWhenStopped = true
+        ai.color = .white
         ai.translatesAutoresizingMaskIntoConstraints = false
         return ai
     }()
@@ -98,71 +88,104 @@ final class VerifyOTPViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
-        setupBindings()
-        digitFields.first?.becomeFirstResponder()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleLanguageChange),
+            name: LanguageManager.didChangeNotification,
+            object: nil
+        )
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        gradientLayer.frame = view.bounds
     }
 
 
     override func setupUI() {
-        view.backgroundColor = .systemBackground
+        view.layer.insertSublayer(gradientLayer, at: 0)
         navigationController?.setNavigationBarHidden(true, animated: false)
 
-        let ctx = viewModel.otpContext
-        let medium = ctx.type == .email ? "email" : "số điện thoại"
-        subtitleLabel.text = "Mã OTP đã được gửi đến \(medium)\n\(ctx.target)"
+        let instructionStack = UIStackView(arrangedSubviews: [instructionLabel, targetLabel])
+        instructionStack.axis = .vertical
+        instructionStack.spacing = 4.sh
+        instructionStack.alignment = .center
+        instructionStack.translatesAutoresizingMaskIntoConstraints = false
 
         let contentStack = UIStackView(arrangedSubviews: [
-            titleLabel, subtitleLabel,
+            titleLabel,
+            instructionStack,
             otpStack,
-            submitButton, resendButton, errorLabel,
+            actionButton,
+            alternativeSection,
         ])
         contentStack.axis = .vertical
-        contentStack.spacing = 16.sh
-        contentStack.setCustomSpacing(8.sh, after: titleLabel)
-        contentStack.setCustomSpacing(28.sh, after: subtitleLabel)
+        contentStack.spacing = 0
+        contentStack.setCustomSpacing(12.sh, after: titleLabel)
+        contentStack.setCustomSpacing(28.sh, after: instructionStack)
         contentStack.setCustomSpacing(28.sh, after: otpStack)
+        contentStack.setCustomSpacing(16.sh, after: actionButton)
+        contentStack.setCustomSpacing(6.sh, after: alternativeSection)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
-        view.addSubview(backButton)
-        view.addSubview(contentStack)
+        let scroll = UIScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.keyboardDismissMode = .onDrag
+        view.addSubview(scroll)
+        scroll.addSubview(contentStack)
         view.addSubview(loadingIndicator)
 
         NSLayoutConstraint.activate([
-            backButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8.sh),
-            backButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
+            scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
 
-            contentStack.topAnchor.constraint(equalTo: backButton.bottomAnchor, constant: 32.sh),
-            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24.sw),
-            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24.sw),
+            contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 60.sh),
+            contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 24.sw),
+            contentStack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -24.sw),
+            contentStack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -40.sh),
+            contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -48.sw),
 
             otpStack.heightAnchor.constraint(equalToConstant: 56.sh),
-            submitButton.heightAnchor.constraint(equalToConstant: 52.sh),
+            actionButton.heightAnchor.constraint(equalToConstant: 52.sh),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
+
+        applyTheme()
+        refreshLocalizedStrings()
+        updateActionButton()
+        digitFields.first?.becomeFirstResponder()
     }
 
 
     override func setupBindings() {
-        backButton.tapPublisher
-            .sink { [weak self] in self?.navigationController?.popViewController(animated: true) }
-            .store(in: &cancellables)
+        viewModel.onResendSuccess = { [weak self] in
+            self?.clearOTPFields()
+        }
 
-        submitButton.tapPublisher
-            .sink { [weak self] in self?.viewModel.submitTrigger.send() }
-            .store(in: &cancellables)
-
-        resendButton.tapPublisher
-            .sink { [weak self] in self?.viewModel.resendTrigger.send() }
+        actionButton.tapPublisher
+            .sink { [weak self] in
+                guard let self else { return }
+                if self.viewModel.resendCooldown == 0 {
+                    self.viewModel.resendTrigger.send()
+                } else {
+                    self.viewModel.submitTrigger.send()
+                }
+            }
             .store(in: &cancellables)
 
         viewModel.$isSubmitEnabled
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] enabled in
-                self?.submitButton.isEnabled = enabled
-                UIView.animate(withDuration: 0.2) { self?.submitButton.alpha = enabled ? 1 : 0.5 }
+            .sink { [weak self] _ in self?.updateActionButton() }
+            .store(in: &cancellables)
+
+        viewModel.$resendCooldown
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateActionButton()
             }
             .store(in: &cancellables)
 
@@ -170,36 +193,115 @@ final class VerifyOTPViewController: BaseViewController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] loading in
                 if loading { self?.loadingIndicator.startAnimating() } else { self?.loadingIndicator.stopAnimating() }
-                self?.submitButton.isUserInteractionEnabled = !loading
-                self?.resendButton.isUserInteractionEnabled = !loading
+                self?.actionButton.isUserInteractionEnabled = !loading
             }
             .store(in: &cancellables)
 
         viewModel.$errorMessage
             .receive(on: DispatchQueue.main)
             .sink { [weak self] msg in
-                self?.errorLabel.text = msg
-                self?.errorLabel.isHidden = msg == nil
-                if msg != nil { self?.shakeOTPFields() }
-            }
-            .store(in: &cancellables)
-
-        viewModel.$resendCooldown
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] seconds in
-                if seconds > 0 {
-                    self?.resendButton.setTitle("Gửi lại sau \(seconds)s", for: .normal)
-                    self?.resendButton.isEnabled = false
-                } else {
-                    self?.resendButton.setTitle("Gửi lại mã", for: .normal)
-                    self?.resendButton.isEnabled = true
-                }
+                guard let msg else { return }
+                Toast.error(msg)
+                self?.shakeOTPFields()
             }
             .store(in: &cancellables)
 
         for field in digitFields {
             field.addTarget(self, action: #selector(digitFieldChanged(_:)), for: .editingChanged)
         }
+    }
+
+
+    override func applyTheme() {
+        let attrs = ThemeManager.shared.attributes
+        gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
+
+        titleLabel.textColor = attrs.loginTitleColor
+        instructionLabel.textColor = attrs.loginSubtitleColor
+        targetLabel.textColor = attrs.loginTitleColor
+
+        actionButton.backgroundColor = (viewModel.resendCooldown == 0 || viewModel.isSubmitEnabled)
+            ? attrs.loginButtonBg
+            : attrs.loginButtonBgDisabled
+
+        digitFields.forEach { tf in
+            tf.backgroundColor = attrs.loginInputBg
+            tf.layer.borderColor = attrs.loginInputBorder.cgColor
+            tf.textColor = attrs.loginInputTextColor
+        }
+
+        if let hintLabel = alternativeSection.arrangedSubviews.first as? UILabel {
+            hintLabel.textColor = attrs.loginAlternativeText
+        }
+        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton {
+            changeBtn.setTitleColor(attrs.textLink, for: .normal)
+        }
+    }
+
+
+    @objc private func handleLanguageChange() {
+        refreshLocalizedStrings()
+    }
+
+
+    private func refreshLocalizedStrings() {
+        titleLabel.text = L(L10n.OTPVerify.loginToMezon)
+        instructionLabel.text = L(L10n.OTPVerify.enterCodeFrom)
+        targetLabel.text = viewModel.otpContext.target
+        updateAlternativeSection()
+        updateActionButton()
+    }
+
+
+    private func updateAlternativeSection() {
+        alternativeSection.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        let hintLabel = UILabel()
+        hintLabel.text = L(L10n.OTPVerify.didNotReceive)
+        hintLabel.font = .systemFont(ofSize: 14.sf)
+        hintLabel.textColor = .loginAlternativeText
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        alternativeSection.addArrangedSubview(hintLabel)
+
+        let changeLink = UIButton(type: .system)
+        let changeTitle = viewModel.otpContext.type == .email
+            ? L(L10n.OTPVerify.changeEmail)
+            : L(L10n.OTPVerify.changePhone)
+        changeLink.setTitle(changeTitle, for: .normal)
+        changeLink.titleLabel?.font = .systemFont(ofSize: 14.sf)
+        changeLink.setTitleColor(.mezonLink, for: .normal)
+        changeLink.addAction(UIAction { [weak self] _ in
+            self?.navigationController?.popToRootViewController(animated: true)
+        }, for: .touchUpInside)
+        alternativeSection.addArrangedSubview(changeLink)
+    }
+
+
+    private func updateActionButton() {
+        let cd = viewModel.resendCooldown
+        let canVerify = viewModel.isSubmitEnabled
+
+        UIView.performWithoutAnimation {
+            if cd > 0 {
+                actionButton.setTitle("\(L(L10n.OTPVerify.verifyOTP)) (\(cd))", for: .normal)
+                actionButton.isEnabled = canVerify
+            } else {
+                actionButton.setTitle(L(L10n.OTPVerify.resendOTP), for: .normal)
+                actionButton.isEnabled = true
+            }
+
+            actionButton.backgroundColor = actionButton.isEnabled
+                ? ThemeManager.shared.attributes.loginButtonBg
+                : ThemeManager.shared.attributes.loginButtonBgDisabled
+            actionButton.layoutIfNeeded()
+        }
+    }
+
+
+    private func clearOTPFields() {
+        digitFields.forEach { $0.text = "" }
+        viewModel.otpCode = ""
+        digitFields.first?.becomeFirstResponder()
     }
 
 
@@ -240,8 +342,7 @@ final class VerifyOTPViewController: BaseViewController {
         tf.textAlignment = .center
         tf.font = .systemFont(ofSize: 22.sf, weight: .semibold)
         tf.layer.cornerRadius = 12.sw
-        tf.layer.borderWidth = 1.5
-        tf.layer.borderColor = UIColor.separator.cgColor
+        tf.layer.borderWidth = 1
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.delegate = self
         return tf

@@ -41,6 +41,16 @@ struct ThemeAttributes {
     let headerInfor: UIColor
     let descInfor: UIColor
     let textSuccess: UIColor
+    let loginGradientColors: [UIColor]
+    let loginInputBg: UIColor
+    let loginInputBorder: UIColor
+    let loginPlaceholder: UIColor
+    let loginButtonBg: UIColor
+    let loginButtonBgDisabled: UIColor
+    let loginAlternativeText: UIColor
+    let loginTitleColor: UIColor
+    let loginSubtitleColor: UIColor
+    let loginInputTextColor: UIColor
 
     var swatchColor: UIColor { primary }
 }
@@ -119,7 +129,17 @@ private extension ThemeAttributes {
         borderInfor:      hex("#3b82f6", alpha: 0.50),
         headerInfor:      hex("#60a5fa"),
         descInfor:        hex("#93c5fd", alpha: 0.80),
-        textSuccess:      hex("#00d4aa")
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#1c1d22"), hex("#2a2d31"), hex("#1c1d22")],
+        loginInputBg:     hex("#2a2e31"),
+        loginInputBorder: hex("#3e4045"),
+        loginPlaceholder: hex("#7b7b83"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#4a4d51"),
+        loginAlternativeText: hex("#7b7b83"),
+        loginTitleColor:  hex("#ffffff"),
+        loginSubtitleColor: hex("#b0b0b0"),
+        loginInputTextColor: hex("#ffffff")
     )
 
     static let light = ThemeAttributes(
@@ -161,7 +181,17 @@ private extension ThemeAttributes {
         borderInfor:      hex("#3b82f6", alpha: 0.50),
         headerInfor:      hex("#60a5fa"),
         descInfor:        hex("#93c5fd", alpha: 0.80),
-        textSuccess:      hex("#00d4aa")
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#f0edfd"), hex("#beb5f8"), hex("#9774fa")],
+        loginInputBg:     hex("#ffffff"),
+        loginInputBorder: hex("#cccccc"),
+        loginPlaceholder: hex("#a8a8a8"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#88888c"),
+        loginAlternativeText: hex("#5e5e5e"),
+        loginTitleColor:  hex("#191919"),
+        loginSubtitleColor: hex("#505050"),
+        loginInputTextColor: hex("#191919")
     )
 
     static let sunrise = ThemeAttributes(
@@ -203,7 +233,17 @@ private extension ThemeAttributes {
         borderInfor:      hex("#3b82f6", alpha: 0.50),
         headerInfor:      hex("#60a5fa"),
         descInfor:        hex("#93c5fd", alpha: 0.80),
-        textSuccess:      hex("#00d4aa")
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#ead9e0"), hex("#f5d0da"), hex("#e8b8c5")],
+        loginInputBg:     hex("#ffffff"),
+        loginInputBorder: hex("#cccccc"),
+        loginPlaceholder: hex("#a8a8a8"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#88888c"),
+        loginAlternativeText: hex("#5e5e5e"),
+        loginTitleColor:  hex("#191919"),
+        loginSubtitleColor: hex("#505050"),
+        loginInputTextColor: hex("#191919")
     )
 
     static let redDark = ThemeAttributes(
@@ -245,7 +285,17 @@ private extension ThemeAttributes {
         borderInfor:      hex("#3b82f6", alpha: 0.50),
         headerInfor:      hex("#60a5fa"),
         descInfor:        hex("#93c5fd", alpha: 0.80),
-        textSuccess:      hex("#00d4aa")
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#1a0d2e"), hex("#3d2563"), hex("#610101")],
+        loginInputBg:     hex("#2a2e31"),
+        loginInputBorder: hex("#3e4045"),
+        loginPlaceholder: hex("#7b7b83"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#4a4d51"),
+        loginAlternativeText: hex("#aeaeae"),
+        loginTitleColor:  hex("#ffffff"),
+        loginSubtitleColor: hex("#b0b0b0"),
+        loginInputTextColor: hex("#ffffff")
     )
 
     static let purpleHaze = ThemeAttributes(
@@ -287,7 +337,17 @@ private extension ThemeAttributes {
         borderInfor:      hex("#3b82f6", alpha: 0.50),
         headerInfor:      hex("#60a5fa"),
         descInfor:        hex("#93c5fd", alpha: 0.80),
-        textSuccess:      hex("#00d4aa")
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#f0edfd"), hex("#beb5f8"), hex("#9774fa")],
+        loginInputBg:     hex("#ffffff"),
+        loginInputBorder: hex("#cccccc"),
+        loginPlaceholder: hex("#a8a8a8"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#88888c"),
+        loginAlternativeText: hex("#5e5e5e"),
+        loginTitleColor:  hex("#191919"),
+        loginSubtitleColor: hex("#505050"),
+        loginInputTextColor: hex("#191919")
     )
 
     static let abyssDark = ThemeAttributes(
@@ -329,7 +389,17 @@ private extension ThemeAttributes {
         borderInfor:      hex("#3b82f6", alpha: 0.50),
         headerInfor:      hex("#60a5fa"),
         descInfor:        hex("#93c5fd", alpha: 0.80),
-        textSuccess:      hex("#00d4aa")
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#110B33"), hex("#21165c"), hex("#19153C")],
+        loginInputBg:     hex("#2a2e31"),
+        loginInputBorder: hex("#3e4045"),
+        loginPlaceholder: hex("#7b7b83"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#4a4d51"),
+        loginAlternativeText: hex("#7b7b83"),
+        loginTitleColor:  hex("#ffffff"),
+        loginSubtitleColor: hex("#b0b0b0"),
+        loginInputTextColor: hex("#ffffff")
     )
 }
 

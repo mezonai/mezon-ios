@@ -55,26 +55,45 @@ enum L10n {
 
 
     enum Login {
-        static let welcomeBack    = "login.welcomeBack"
-        static let email          = "login.email"
-        static let password       = "login.password"
-        static let logIn          = "login.logIn"
-        static let otp            = "login.otp"
-        static let sendOTP        = "login.sendOTP"
-        static let resendOTP      = "login.resendOTP"
-        static let loginFailed    = "login.loginFailed"
-        static let phone          = "login.phone"
-        static let enterEmail     = "login.enterEmail"
-        static let enterPhone     = "login.enterPhone"
+        static let welcomeBack         = "login.welcomeBack"
+        static let email               = "login.email"
+        static let password            = "login.password"
+        static let logIn               = "login.logIn"
+        static let otp                 = "login.otp"
+        static let sendOTP             = "login.sendOTP"
+        static let resendOTP           = "login.resendOTP"
+        static let loginFailed         = "login.loginFailed"
+        static let phone               = "login.phone"
+        static let enterEmail          = "login.enterEmail"
+        static let enterPhone          = "login.enterPhone"
+        static let chooseAnotherOption = "login.chooseAnotherOption"
+        static let emailAddress        = "login.emailAddress"
+        static let send                = "login.send"
+        static let showPassword        = "login.showPassword"
+        static let cannotAccessYourEmail  = "login.cannotAccessYourEmail"
+        static let cannotAccessYourPhone  = "login.cannotAccessYourPhone"
+        static let passwordNotSet      = "login.passwordNotSet"
+        static let loginWithSMS        = "login.loginWithSMS"
+        static let loginWithEmailOTP   = "login.loginWithEmailOTP"
+        static let loginWithPassword   = "login.loginWithPassword"
+        static let invalidPhoneNumber  = "login.invalidPhoneNumber"
+        static let loginTooFast       = "login.loginTooFast"
+        static let resendInSeconds    = "login.resendInSeconds"
+        static let selectCountry      = "login.selectCountry"
     }
 
 
     enum OTPVerify {
-        static let title          = "otpVerify.loginToMezon"
+        static let loginToMezon   = "otpVerify.loginToMezon"
+        static let enterCodeFrom  = "otpVerify.enterCodeFrom"
         static let verifyOTP      = "otpVerify.verifyOTP"
         static let resendOTP      = "otpVerify.resendOTP"
         static let otpNotMatch    = "otpVerify.otpNotMatch"
         static let didNotReceive  = "otpVerify.didNotReceiveCode"
+        static let changeEmail    = "otpVerify.changeEmail"
+        static let changePhone    = "otpVerify.changePhone"
+        static let resendFailed   = "otpVerify.resendFailed"
+        static let sendOtpError   = "otpVerify.sendOtpError"
     }
 
 
@@ -159,12 +178,31 @@ extension L10n {
         "login.phone":          "Phone number",
         "login.enterEmail":     "Enter your email",
         "login.enterPhone":     "Enter your phone",
+        "login.chooseAnotherOption":   "Or choose another option",
+        "login.emailAddress":   "Email address",
+        "login.send":           "Send OTP",
+        "login.showPassword":   "Show password",
+        "login.cannotAccessYourEmail":  "Couldn't access your email inbox?",
+        "login.cannotAccessYourPhone":  "Couldn't access your phone number?",
+        "login.passwordNotSet": "Password hasn't been set yet?",
+        "login.loginWithSMS":   "Login with SMS OTP",
+        "login.loginWithEmailOTP": "Login with Email OTP",
+        "login.loginWithPassword": "Login with Email & Password",
+        "login.invalidPhoneNumber": "Invalid phone number",
+        "login.loginTooFast":   "Please wait before trying again",
+        "login.resendInSeconds": "Resend in %ds",
+        "login.selectCountry":  "Select country code",
 
-        "otpVerify.loginToMezon":      "Log in to Mezon",
+        "otpVerify.loginToMezon":      "Log in to Mezon account",
+        "otpVerify.enterCodeFrom":     "Enter code from",
         "otpVerify.verifyOTP":         "Verify OTP",
         "otpVerify.resendOTP":         "Resend OTP",
         "otpVerify.otpNotMatch":       "OTP invalid",
         "otpVerify.didNotReceiveCode": "Didn't receive a code?",
+        "otpVerify.changeEmail":       "Change Email",
+        "otpVerify.changePhone":       "Change Phone",
+        "otpVerify.resendFailed":      "Failed to resend OTP. Please try again.",
+        "otpVerify.sendOtpError":      "Failed to receive OTP. Please try again.",
 
         "clan.createClan":  "Create Clan",
         "clan.members":     "Members",
@@ -232,12 +270,31 @@ extension L10n {
         "login.phone":          "Số điện thoại",
         "login.enterEmail":     "Nhập email của bạn",
         "login.enterPhone":     "Nhập số điện thoại của bạn",
+        "login.chooseAnotherOption":   "Hoặc chọn phương thức khác",
+        "login.emailAddress":   "Địa chỉ email",
+        "login.send":           "Gửi OTP",
+        "login.showPassword":   "Hiển thị mật khẩu",
+        "login.cannotAccessYourEmail":  "Không thể truy cập hộp thư?",
+        "login.cannotAccessYourPhone":  "Không thể truy cập số điện thoại?",
+        "login.passwordNotSet": "Chưa đặt mật khẩu?",
+        "login.loginWithSMS":   "Đăng nhập bằng SMS OTP",
+        "login.loginWithEmailOTP": "Đăng nhập bằng Email OTP",
+        "login.loginWithPassword": "Đăng nhập bằng Email & Mật khẩu",
+        "login.invalidPhoneNumber": "Số điện thoại không hợp lệ",
+        "login.loginTooFast":   "Vui lòng đợi trước khi thử lại",
+        "login.resendInSeconds": "Gửi lại sau %ds",
+        "login.selectCountry":  "Chọn mã vùng",
 
         "otpVerify.loginToMezon":      "Đăng nhập tài khoản Mezon",
+        "otpVerify.enterCodeFrom":     "Nhập mã từ",
         "otpVerify.verifyOTP":         "Xác thực OTP",
         "otpVerify.resendOTP":         "Gửi lại OTP",
         "otpVerify.otpNotMatch":       "Mã OTP không hợp lệ",
         "otpVerify.didNotReceiveCode": "Không nhận được mã?",
+        "otpVerify.changeEmail":       "Đổi Email",
+        "otpVerify.changePhone":       "Đổi số điện thoại",
+        "otpVerify.resendFailed":      "Không thể gửi lại OTP. Vui lòng thử lại.",
+        "otpVerify.sendOtpError":      "Không thể gửi mã OTP. Vui lòng thử lại.",
 
         "clan.createClan":  "Tạo Clan",
         "clan.members":     "Thành viên",
