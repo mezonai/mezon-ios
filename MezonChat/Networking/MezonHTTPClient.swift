@@ -63,13 +63,13 @@ final class MezonHTTPClient {
 
     func authenticateSMSOTPRequest(phone: String) async throws -> OTPRequestResponse {
         struct Account: Encodable {
-            let phone: String
+            let phoneno: String
             let vars: [String: String]
         }
         struct Body: Encodable { let account: Account }
         return try await post(
             path: "/v2/account/authenticate/smsotp",
-            body: Body(account: Account(phone: phone, vars: ["m": "true"])),
+            body: Body(account: Account(phoneno: phone, vars: ["m": "true"])),
             auth: .serverKey
         )
     }

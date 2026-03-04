@@ -108,12 +108,12 @@ final class LoginViewModel: BaseViewModel {
                 email: email.trimmingCharacters(in: .whitespaces)
             )
             guard let reqId = res.reqId else {
-                errorMessage = "Failed to receive OTP. Please try again."
+                errorMessage = L(L10n.OTPVerify.sendOtpError)
                 isLoading = false
                 return
             }
             startCooldown()
-            onOTPRequired?(OTPContext(reqId: reqId, target: email, type: .email))
+            onOTPRequired?(OTPContext(reqId: reqId, target: email.trimmingCharacters(in: .whitespaces), type: .email))
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -127,15 +127,18 @@ final class LoginViewModel: BaseViewModel {
         errorMessage = nil
         let fullPhone = buildFullPhone()
         do {
+            AppLogger.network.info("Sending SMS OTP request for phone: \(fullPhone)")
             let res = try await MezonHTTPClient.shared.authenticateSMSOTPRequest(phone: fullPhone)
             guard let reqId = res.reqId else {
-                errorMessage = "Failed to receive OTP. Please try again."
+                errorMessage = L(L10n.OTPVerify.sendOtpError)
                 isLoading = false
                 return
             }
+            AppLogger.network.info("SMS OTP request success, reqId: \(reqId)")
             startCooldown()
             onOTPRequired?(OTPContext(reqId: reqId, target: fullPhone, type: .sms))
         } catch {
+            AppLogger.app.error("SMS OTP request failed: \(error)")
             errorMessage = error.localizedDescription
         }
         isLoading = false
