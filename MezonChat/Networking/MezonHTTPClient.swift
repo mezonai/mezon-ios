@@ -1,0 +1,264 @@
+import Foundation
+import SwiftProtobuf
+
+final class MezonHTTPClient {
+
+    static let shared = MezonHTTPClient()
+
+    private let urlSession: URLSession
+    private var authBaseURL: URL = MezonConfig.authBaseURL
+    private var protoBaseURL: URL = MezonConfig.protoBaseURL
+
+    private init() {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.waitsForConnectivity = true
+        urlSession = URLSession(configuration: config)
+    }
+
+    func updateBaseURL(from session: MezonSession) {
+        guard let apiURL = session.apiURL else { return }
+        let cleaned = stripDefaultPort(apiURL)
+        guard let url = URL(string: cleaned) else { return }
+        protoBaseURL = url
+        AppLogger.network.info("MezonHTTPClient protoBaseURL updated to \(url)")
+    }
+
+    private func stripDefaultPort(_ urlString: String) -> String {
+        guard var components = URLComponents(string: urlString) else { return urlString }
+        let isHTTPS = components.scheme?.lowercased() == "https"
+        if isHTTPS && components.port == 443 {
+            components.port = nil
+        }
+        return components.string ?? urlString
+    }
+
+    func authenticateEmail(email: String, password: String) async throws -> MezonSession {
+        struct Account: Encodable {
+            let email: String
+            let password: String
+            let vars: [String: String]
+        }
+        struct Body: Encodable { let account: Account }
+        return try await post(
+            path: "/v2/account/authenticate/email",
+            queryItems: [URLQueryItem(name: "create", value: "false")],
+            body: Body(account: Account(email: email, password: password, vars: ["m": "true"])),
+            auth: .serverKey
+        )
+    }
+
+    func authenticateEmailOTPRequest(email: String) async throws -> OTPRequestResponse {
+        struct Account: Encodable {
+            let email: String
+            let vars: [String: String]
+        }
+        struct Body: Encodable { let account: Account }
+        return try await post(
+            path: "/v2/account/authenticate/emailotp",
+            body: Body(account: Account(email: email, vars: ["m": "true"])),
+            auth: .serverKey
+        )
+    }
+
+    func authenticateSMSOTPRequest(phone: String) async throws -> OTPRequestResponse {
+        struct Account: Encodable {
+            let phone: String
+            let vars: [String: String]
+        }
+        struct Body: Encodable { let account: Account }
+        return try await post(
+            path: "/v2/account/authenticate/smsotp",
+            body: Body(account: Account(phone: phone, vars: ["m": "true"])),
+            auth: .serverKey
+        )
+    }
+
+    func confirmAuthenticateOTP(reqId: String, otp: String) async throws -> MezonSession {
+        struct Body: Encodable {
+            let req_id: String
+            let otp_code: String
+        }
+        return try await post(
+            path: "/v2/account/authenticate/confirmotp",
+            body: Body(req_id: reqId, otp_code: otp),
+            auth: .serverKey
+        )
+    }
+
+    func sessionRefresh(refreshToken: String) async throws -> MezonSession {
+        var req = Mezon_Api_SessionRefreshRequest()
+        req.token = refreshToken
+        req.vars = ["m": "true"]
+        let apiSession: Mezon_Api_Session = try await postProto(
+            path: "/mezon.api.Mezon/SessionRefresh",
+            message: req,
+            auth: .serverKey
+        )
+        return MezonSession(from: apiSession)
+    }
+
+    func sessionLogout(session: MezonSession, deviceId: String = "", platform: String = "") async throws {
+        struct Body: Encodable {
+            let token: String
+            let refresh_token: String
+            let device_id: String
+            let platform: String
+        }
+        let _: EmptyResponse = try await post(
+            path: "/v2/session/logout",
+            body: Body(token: session.token, refresh_token: session.refreshToken,
+                       device_id: deviceId, platform: platform),
+            auth: .bearer(session.token)
+        )
+    }
+
+    func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID      = clanId
+        req.limit       = 500
+        req.state       = 1
+        req.page        = 0
+        req.channelType = 0
+        req.isMobile    = true
+        let response: Mezon_Api_ChannelDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channeldesc
+    }
+
+    func listClanDescs(token: String) async throws -> [Mezon_Api_ClanDesc] {
+        var req = Mezon_Api_ListClanDescRequest()
+        req.limit = 100
+        let response: Mezon_Api_ClanDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListClanDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.clandesc
+    }
+
+    func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
+        let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
+        return try await execute(req)
+    }
+
+    func getProto<Response: SwiftProtobuf.Message>(path: String, token: String) async throws -> Response {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(path: path, message: empty, auth: .bearer(token))
+    }
+
+    func post<Body: Encodable, Response: Decodable>(
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        body: Body,
+        auth: AuthMethod
+    ) async throws -> Response {
+        let req = try buildRequest(method: "POST", path: path, queryItems: queryItems, body: body, auth: auth)
+        return try await execute(req)
+    }
+
+    func postProto<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod
+    ) async throws -> Response {
+        let url = protoBaseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/proto", forHTTPHeaderField: "Accept")
+        switch auth {
+        case .serverKey:
+            request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
+        case .bearer(let token):
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try message.serializedData()
+
+        AppLogger.network.debug("→ POST (proto) \(url.absoluteString)")
+        let (data, response) = try await urlSession.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        AppLogger.network.debug("← \(http.statusCode) \(url.path) (\(data.count) bytes)")
+
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+        }
+
+        return try Response(serializedBytes: data)
+    }
+
+    enum AuthMethod {
+        case serverKey
+        case bearer(String)
+    }
+
+    private func buildRequest<Body: Encodable>(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem],
+        body: Body?,
+        auth: AuthMethod
+    ) throws -> URLRequest {
+        var components = URLComponents(url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        if !queryItems.isEmpty { components.queryItems = queryItems }
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        switch auth {
+        case .serverKey:
+            request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
+        case .bearer(let token):
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        if let body {
+            request.httpBody = try JSONEncoder().encode(body)
+        }
+        return request
+    }
+
+    private func execute<T: Decodable>(_ request: URLRequest) async throws -> T {
+        AppLogger.network.debug("→ \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "")")
+        let (data, response) = try await urlSession.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw MezonError.invalidResponse
+        }
+        AppLogger.network.debug("← \(http.statusCode) \(request.url?.path ?? "")")
+
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+        }
+
+        if T.self == EmptyResponse.self { return EmptyResponse() as! T }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+}
+
+private struct EmptyBody: Encodable {}
+struct EmptyResponse: Decodable {}
+struct APIError: Decodable { let message: String?; let code: Int? }
+
+enum MezonError: LocalizedError {
+    case invalidResponse
+    case httpError(statusCode: Int, message: String)
+    case socketError(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:              return "Invalid server response."
+        case .httpError(let c, let msg):    return "HTTP \(c): \(msg)"
+        case .socketError(let msg):         return "Socket: \(msg)"
+        }
+    }
+}

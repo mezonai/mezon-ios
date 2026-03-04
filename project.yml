@@ -1,0 +1,90 @@
+name: MezonChat
+
+packages:
+  SwiftProtobuf:
+    url: https://github.com/apple/swift-protobuf
+    from: "1.28.0"
+
+options:
+  bundleIdPrefix: mezon
+  deploymentTarget:
+    iOS: "15.0"
+  defaultConfig: Debug
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_PREVIEWS: YES
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+configs:
+  Debug: debug
+  Release: release
+
+targets:
+  MezonChat:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    dependencies:
+      - package: SwiftProtobuf
+        product: SwiftProtobuf
+    sources:
+      - path: MezonChat
+        excludes:
+          - "**/.DS_Store"
+          - "**/Secrets.example.swift"
+    resources:
+      - path: MezonChat/Resources/Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
+        PRODUCT_NAME: Mezon
+        MARKETING_VERSION: "1.2.86"
+        CURRENT_PROJECT_VERSION: "86"
+        INFOPLIST_FILE: MezonChat/Resources/Info.plist
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      configs:
+        Debug:
+          DEBUG_INFORMATION_FORMAT: dwarf
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+    info:
+      path: MezonChat/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Mezon
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+          ImageName: SplashScreen
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppleMusicUsageDescription: "We need access to Apple Music to play your selected songs"
+        NSBluetoothAlwaysUsageDescription: "We need needs to use Bluetooth to detect connected headsets for mezon meeting"
+        NSBluetoothPeripheralUsageDescription: "We need needs to use Bluetooth to detect connected headsets for mezon meeting"
+        NSCameraUsageDescription: "Mezon app needs access to the camera to call video or take add pricture send to chat"
+        NSLocationAlwaysAndWhenInUseUsageDescription: "We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app."
+        NSLocationWhenInUseUsageDescription: "We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app."
+        NSMicrophoneUsageDescription: "Allow Mezon access to your microphone to enable voice chat"
+        NSPasteboardUsageDescription: "Mezon needs access to the clipboard to paste content/images from other apps"
+        NSPhotoLibraryAddUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
+        NSPhotoLibraryUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
