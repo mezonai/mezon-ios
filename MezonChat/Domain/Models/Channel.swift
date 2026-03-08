@@ -5,18 +5,18 @@ struct Channel: Identifiable, Equatable, Hashable, Codable {
     var name: String
     var description: String?
     let type: ChannelType
-    let clanId: String?         // nil for DMs
+    let clanId: String?
     var memberIds: [String]
     var lastMessage: Message?
     var unreadCount: Int
     var isArchived: Bool
 
     enum ChannelType: String, Codable, Equatable {
-        case text           // text channel inside a clan
-        case voice          // voice channel
-        case directMessage  // 1-to-1 DM
-        case groupDM        // group DM (no clan)
-        case announcement   // read-only broadcast channel
+        case text
+        case voice
+        case directMessage
+        case groupDM
+        case announcement
     }
 }
 

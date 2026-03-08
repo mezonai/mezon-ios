@@ -31,6 +31,8 @@ extension UIColor {
     static var incomingBubble:           UIColor { theme.secondaryLight }
 
     static var mezonLink:                UIColor { theme.textLink }
+    static var colorAvatarDefault:       UIColor { theme.colorAvatarDefault }
+    static var textRoleLink:             UIColor { theme.textRoleLink }
     static var mezonError:               UIColor { .systemRed }
     static var mezonSuccess:             UIColor { theme.textSuccess }
     static var mezonWarning:             UIColor { theme.textWarning }

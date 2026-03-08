@@ -4,18 +4,18 @@ import Combine
 final class AppCoordinator: BaseCoordinator {
 
     private let window: UIWindow
-    private let context: AppContext
+    private let sharedContext: SharedAccountContext
     private var cancellables = Set<AnyCancellable>()
 
-    init(window: UIWindow, context: AppContext) {
+    init(window: UIWindow, sharedContext: SharedAccountContext) {
         self.window = window
-        self.context = context
+        self.sharedContext = sharedContext
     }
 
     override func start() {
         showLoading()
 
-        context.$isSessionReady
+        sharedContext.appContext.$isSessionReady
             .filter { $0 }
             .first()
             .receive(on: DispatchQueue.main)
@@ -26,7 +26,7 @@ final class AppCoordinator: BaseCoordinator {
     }
 
     private func startMain() {
-        context.$isLoggedIn
+        sharedContext.appContext.$isLoggedIn
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
             .sink { [weak self] isLoggedIn in
@@ -42,7 +42,7 @@ final class AppCoordinator: BaseCoordinator {
 
     private func showAuth() {
         childCoordinators.removeAll()
-        let coordinator = AuthCoordinator(context: context)
+        let coordinator = AuthCoordinator(context: sharedContext.appContext)
         addChild(coordinator)
         let nav = coordinator.navigationController
         nav.modalPresentationStyle = .fullScreen
@@ -53,7 +53,7 @@ final class AppCoordinator: BaseCoordinator {
 
     private func showMain() {
         childCoordinators.removeAll()
-        let coordinator = MainCoordinator(context: context)
+        let coordinator = MainCoordinator(sharedContext: sharedContext)
         addChild(coordinator)
         window.rootViewController = coordinator.tabBarController
         coordinator.start()

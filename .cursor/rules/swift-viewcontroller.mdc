@@ -1,0 +1,40 @@
+---
+description: ViewController patterns và lifecycle
+globs: **/*ViewController.swift
+alwaysApply: false
+---
+
+# ViewController Design Pattern
+
+## Base
+- Kế thừa `BaseViewController` (có `cancellables`)
+- Override: `setupUI()`, `setupBindings()`, `applyTheme()`
+
+## Lifecycle
+```swift
+override func setupUI() {
+    // Add subviews, constraints
+    viewModel.start()  // Gọi khi cần load data
+}
+
+override func setupBindings() {
+    viewModel.$items
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in self?.tableView.reloadData() }
+        .store(in: &cancellables)
+}
+```
+
+## Layout
+- Dùng Auto Layout, `translatesAutoresizingMaskIntoConstraints = false`
+- Constraint tới `view.safeAreaLayoutGuide` khi cần safe area
+- Màu: `UIColor.theme` / `UIColor.mezonBackground`...
+- Kích thước: `16.sw`, `44.sh`, `15.sf` (font)
+
+## Keyboard
+- Lắng nghe `UIResponder.keyboardWillShowNotification`, `keyboardWillHideNotification`
+- Cập nhật bottom constraint: `constant = -keyboardHeight` khi show
+
+## Theme
+- Gọi `applyTheme()` trong `configure` của cell nếu cell tự quản lý theme
+- Listen `ThemeManager.didChangeNotification` (BaseViewController đã xử lý)

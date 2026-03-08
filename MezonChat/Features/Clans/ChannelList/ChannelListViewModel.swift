@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftProtobuf
 
 struct ChannelCategory {
     let id: Int64
@@ -11,7 +12,8 @@ struct ChannelCategory {
 enum ChannelType: Int32 {
     case text      = 1
     case voice     = 2
-    case thread    = 3
+    case group     = 3
+    case thread    = 4
     case streaming = 9
     case app       = 5
     case forum     = 10
@@ -37,13 +39,14 @@ final class ChannelListViewModel: BaseViewModel {
 
     @Published private(set) var categories: [ChannelCategory] = []
     @Published var selectedChannelId: Int64?
+    @Published var selectedChannel: Mezon_Api_ChannelDescription?
 
     private(set) var clanId: Int64 = 0
     private(set) var clanName: String = ""
-    private let context: AppContext
+    private let sharedContext: SharedAccountContext
 
-    init(context: AppContext) {
-        self.context = context
+    init(sharedContext: SharedAccountContext) {
+        self.sharedContext = sharedContext
         super.init()
     }
 
@@ -55,19 +58,23 @@ final class ChannelListViewModel: BaseViewModel {
 
     func fetchChannels() async {
         guard clanId != 0 else { return }
-        guard let token = context.session?.token else {
+        guard let token = sharedContext.session?.token else {
             print("[ChannelListViewModel] no session token")
             return
         }
 
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
+        let store = sharedContext.sharedDataStore.channelsStore
+        store.setLoading(true, clanId: clanId)
+        store.setError(nil, clanId: clanId)
+        defer { store.setLoading(false, clanId: clanId) }
 
         do {
             let descs = try await MezonHTTPClient.shared.listChannelDescs(clanId: clanId, token: token)
+            store.setChannels(descs, clanId: clanId)
             categories = groupByCategory(descs)
+            AppLogger.app.debug("[ChannelListViewModel] fetched \(descs.count) channels → ChannelsStore")
         } catch {
+            store.setError(error.localizedDescription, clanId: clanId)
             errorMessage = error.localizedDescription
             print("[ChannelListViewModel] fetchChannels error: \(error)")
         }
@@ -80,6 +87,8 @@ final class ChannelListViewModel: BaseViewModel {
 
     func select(channel: Mezon_Api_ChannelDescription) {
         selectedChannelId = channel.channelID
+        selectedChannel = channel
+        sharedContext.sharedDataStore.channelsStore.setSelectedChannel(clanId: clanId, channelId: channel.channelID)
     }
 
     private func groupByCategory(_ channels: [Mezon_Api_ChannelDescription]) -> [ChannelCategory] {

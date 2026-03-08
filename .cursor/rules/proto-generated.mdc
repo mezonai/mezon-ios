@@ -1,0 +1,28 @@
+---
+description: Proto types và Generated code
+globs: **/Generated/**/*.swift
+alwaysApply: false
+---
+
+# Proto & Generated
+
+## KHÔNG sửa file trong Generated/
+
+- `api.pb.swift`, `realtime.pb.swift` - auto-generated
+- Muốn thay đổi: sửa proto trong mezon-protocol, chạy `bash scripts/gen-proto.sh`
+
+## Types
+
+- Request: `Mezon_Api_ListXRequest`, `Mezon_Realtime_ChannelJoin`...
+- Response: `Mezon_Api_ChannelMessageList`, `Mezon_Api_ChannelDescList`...
+- Field: camelCase trong Swift (clanID, channelID, messageID)
+
+## Int64 vs String
+
+- Swift proto dùng Int64 cho id
+- Convert: `"\(api.messageID)"` khi cần String
+
+## Realtime (Socket)
+
+- `Mezon_Realtime_Envelope` - wrap message
+- `channelMessage` → append vào `MessagesStore` (MezonSocket.messagesStore). Các event khác: `onTyping`, `onReaction`, v.v. - set closure

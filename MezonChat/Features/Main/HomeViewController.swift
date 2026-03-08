@@ -8,13 +8,15 @@ final class HomeViewController: UIViewController {
 
     private let clanVM: ClanListViewModel
     private let channelVM: ChannelListViewModel
+    private let sharedContext: SharedAccountContext
 
     private let clanSidebarWidth: CGFloat = Constants.Layout.clanSidebarWidth
     private var cancellables = Set<AnyCancellable>()
 
-    init(clanVM: ClanListViewModel, channelVM: ChannelListViewModel) {
+    init(clanVM: ClanListViewModel, channelVM: ChannelListViewModel, sharedContext: SharedAccountContext) {
         self.clanVM        = clanVM
         self.channelVM     = channelVM
+        self.sharedContext = sharedContext
         self.clanListVC    = ClanListViewController(viewModel: clanVM)
         self.channelListVC = ChannelListViewController(viewModel: channelVM)
         super.init(nibName: nil, bundle: nil)
@@ -26,6 +28,7 @@ final class HomeViewController: UIViewController {
         super.viewDidLoad()
         embedChildren()
         bindClanSelection()
+        bindChannelSelection()
         bindThemeButton()
     }
 
@@ -73,15 +76,28 @@ final class HomeViewController: UIViewController {
     }
 
     private func bindClanSelection() {
-        clanVM.$selectedClanId
+        sharedContext.sharedDataStore.clansStore.$selectedClanId
             .compactMap { [weak self] clanId -> (Int64, String)? in
                 guard let clanId, let self else { return nil }
-                let name = self.clanVM.clans.first(where: { $0.clanID == clanId })?.clanName ?? ""
+                let name = self.sharedContext.sharedDataStore.clansStore.clans.first(where: { $0.clanID == clanId })?.clanName ?? ""
                 return (clanId, name)
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] clanId, clanName in
                 self?.channelListVC.configure(clanId: clanId, clanName: clanName)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func bindChannelSelection() {
+        channelVM.$selectedChannel
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] channel in
+                guard let self else { return }
+                let vm = ChannelMessagesViewModel(clanId: self.channelVM.clanId, channel: channel, sharedContext: self.sharedContext)
+                let chatVC = ChannelMessagesViewController(viewModel: vm)
+                self.navigationController?.pushViewController(chatVC, animated: true)
             }
             .store(in: &cancellables)
     }

@@ -32,6 +32,7 @@ targets:
     dependencies:
       - package: SwiftProtobuf
         product: SwiftProtobuf
+      - sdk: libsqlite3.tbd
     sources:
       - path: MezonChat
         excludes:

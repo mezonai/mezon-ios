@@ -11,6 +11,19 @@ enum L10n {
         static let profile       = "tab.profile"
     }
 
+    enum Profile {
+        static let addStatus         = "profile.addStatus"
+        static let editProfile       = "profile.editProfile"
+        static let balance           = "profile.balance"
+        static let transferFunds     = "profile.transferFunds"
+        static let historyTransaction = "profile.historyTransaction"
+        static let mezonMemberSince   = "profile.mezonMemberSince"
+        static let yourFriends       = "profile.yourFriends"
+        static let copyUserId        = "profile.copyUserId"
+        static let userIdCopied      = "profile.userIdCopied"
+        static let currency          = "profile.currency"
+    }
+
 
     enum Common {
         static let settings       = "common.settings"
@@ -108,6 +121,17 @@ enum L10n {
         static let thread         = "channel.thread"
     }
 
+    enum ChannelMessages {
+        static let emptyMessages  = "channelMessages.emptyMessages"
+        static let todayAt        = "channelMessages.todayAt"
+        static let yesterdayAt   = "channelMessages.yesterdayAt"
+        static let writeMessage   = "channelMessages.writeMessage"
+    }
+
+    enum DirectMessage {
+        static let you        = "directMessage.you"
+        static let addFriend = "directMessage.addFriend"
+    }
 
     enum Error {
         static let networkError       = "error.networkError"
@@ -211,6 +235,25 @@ extension L10n {
         "channel.label":  "channel",
         "channel.thread": "Threads",
 
+        "channelMessages.emptyMessages": "No messages yet",
+        "channelMessages.todayAt": "Today at %@",
+        "channelMessages.yesterdayAt": "Yesterday at %@",
+        "channelMessages.writeMessage": "Write message...",
+
+        "directMessage.addFriend": "Add Friend",
+        "directMessage.you": "You",
+
+        "profile.addStatus": "Add Status",
+        "profile.editProfile": "Edit Profile",
+        "profile.balance": "Balance",
+        "profile.transferFunds": "Transfer Funds",
+        "profile.historyTransaction": "History Transaction",
+        "profile.mezonMemberSince": "Mezon Member Since",
+        "profile.yourFriends": "Your Friends",
+        "profile.copyUserId": "Copy User ID",
+        "profile.userIdCopied": "User ID copied",
+        "profile.currency": "đồng",
+
         "error.networkError":           "Network Error",
         "error.connectionFailed":       "Connection failed. Please try again.",
         "error.somethingWentWrong":     "Something went wrong",
@@ -302,6 +345,25 @@ extension L10n {
 
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",
+
+        "channelMessages.emptyMessages": "Chưa có tin nhắn",
+        "channelMessages.todayAt": "Hôm nay lúc %@",
+        "channelMessages.yesterdayAt": "Hôm qua lúc %@",
+        "channelMessages.writeMessage": "Nhập tin nhắn...",
+
+        "directMessage.addFriend": "Thêm bạn",
+        "directMessage.you": "Bạn",
+
+        "profile.addStatus": "Thêm trạng thái",
+        "profile.editProfile": "Chỉnh sửa hồ sơ",
+        "profile.balance": "Số dư",
+        "profile.transferFunds": "Chuyển tiền",
+        "profile.historyTransaction": "Lịch sử giao dịch",
+        "profile.mezonMemberSince": "Thành viên Mezon từ",
+        "profile.yourFriends": "Bạn bè",
+        "profile.copyUserId": "Sao chép User ID",
+        "profile.userIdCopied": "Đã sao chép User ID",
+        "profile.currency": "đồng",
 
         "error.networkError":           "Lỗi kết nối mạng",
         "error.connectionFailed":       "Kết nối thất bại. Vui lòng thử lại.",

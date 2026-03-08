@@ -86,6 +86,15 @@ final class MezonHTTPClient {
         )
     }
 
+    func getAccount(token: String) async throws -> Mezon_Api_Account {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetAccount",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func sessionRefresh(refreshToken: String) async throws -> MezonSession {
         var req = Mezon_Api_SessionRefreshRequest()
         req.token = refreshToken
@@ -95,7 +104,7 @@ final class MezonHTTPClient {
             message: req,
             auth: .serverKey
         )
-        return MezonSession(from: apiSession)
+        return MezonSession.fromProto(apiSession)
     }
 
     func sessionLogout(session: MezonSession, deviceId: String = "", platform: String = "") async throws {
@@ -129,6 +138,22 @@ final class MezonHTTPClient {
         return response.channeldesc
     }
 
+    func listDirectMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID      = 0
+        req.limit       = 500
+        req.state       = 1
+        req.page        = 1
+        req.channelType = 3
+        req.isMobile    = true
+        let response: Mezon_Api_ChannelDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channeldesc
+    }
+
     func listClanDescs(token: String) async throws -> [Mezon_Api_ClanDesc] {
         var req = Mezon_Api_ListClanDescRequest()
         req.limit = 100
@@ -138,6 +163,75 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.clandesc
+    }
+
+    func getUserProfileOnClan(clanId: Int64, token: String) async throws -> Mezon_Api_ClanProfile {
+        var req = Mezon_Api_ClanProfileRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetUserProfileOnClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func sendChannelMessage(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        content: String,
+        mentions: [Mezon_Api_MessageMention] = [],
+        attachments: [Mezon_Api_MessageAttachment] = [],
+        references: [Mezon_Api_MessageRef] = [],
+        anonymous: Bool = false,
+        mentionEveryone: Bool = false,
+        avatar: String = "",
+        topicId: Int64 = 0,
+        token: String
+    ) async throws -> Mezon_Realtime_ChannelMessageAck {
+        var req = Mezon_Realtime_ChannelMessageSend()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.mode = mode
+        req.isPublic = isPublic
+        req.content = content
+        req.mentions = mentions
+        req.attachments = attachments
+        req.references = references
+        req.anonymousMessage = anonymous
+        req.mentionEveryone = mentionEveryone
+        req.avatar = avatar
+        req.topicID = topicId
+        print("sendChannelMessage: \(req)")
+        return try await postProto(
+            path: "/mezon.api.Mezon/SendChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelMessages(
+        clanId: Int64,
+        channelId: Int64,
+        messageId: Int64 = 0,
+        direction: Int32 = 2,
+        limit: Int32 = 50,
+        topicId: Int64 = 0,
+        token: String
+    ) async throws -> Mezon_Api_ChannelMessageList {
+        var req = Mezon_Api_ListChannelMessagesRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.messageID = messageId
+        req.direction = direction
+        req.limit = limit
+        req.topicID = topicId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelMessages",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
