@@ -3,35 +3,46 @@ import Combine
 
 final class ClanListViewModel: BaseViewModel {
 
-    @Published private(set) var clans: [Mezon_Api_ClanDesc] = []
-    @Published var selectedClanId: Int64?
+    private let sharedContext: SharedAccountContext
 
-    private let context: AppContext
-
-    init(context: AppContext) {
-        self.context = context
+    init(sharedContext: SharedAccountContext) {
+        self.sharedContext = sharedContext
         super.init()
     }
 
+    var clansStore: ClansStore { sharedContext.sharedDataStore.clansStore }
+
+    var clans: [Mezon_Api_ClanDesc] { clansStore.clans }
+
+    var selectedClanId: Int64? {
+        get { clansStore.selectedClanId }
+        set { clansStore.selectedClanId = newValue }
+    }
+
+    var isClansLoading: Bool { clansStore.isLoading }
+
+    var clansError: String? { clansStore.error }
+
     @MainActor
     func loadClans() {
-        guard let token = context.session?.token else { return }
-        isLoading = true
-        errorMessage = nil
+        guard let token = sharedContext.session?.token else { return }
+        let store = clansStore
+        store.setLoading(true)
+        store.setError(nil)
         Task {
+            defer { store.setLoading(false) }
             do {
                 let result = try await MezonHTTPClient.shared.listClanDescs(token: token)
-                clans = result.sorted { $0.clanOrder < $1.clanOrder }
-                if selectedClanId == nil { selectedClanId = clans.first?.clanID }
+                store.setClans(result)
+                AppLogger.app.debug("[ClanListViewModel] fetched \(result.count) clans → SharedDataStore")
             } catch {
-                errorMessage = error.localizedDescription
+                store.setError(error.localizedDescription)
                 AppLogger.app.error("loadClans failed: \(error)")
             }
-            isLoading = false
         }
     }
 
     func select(clan: Mezon_Api_ClanDesc) {
-        selectedClanId = clan.clanID
+        clansStore.selectClan(clan)
     }
 }

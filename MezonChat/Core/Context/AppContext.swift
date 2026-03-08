@@ -9,8 +9,10 @@ final class AppContext: ObservableObject {
     @Published var isSessionReady: Bool = false
 
     private(set) var session: MezonSession?
+    private weak var sharedDataStore: SharedDataStore?
 
-    init() {
+    init(sharedDataStore: SharedDataStore? = nil) {
+        self.sharedDataStore = sharedDataStore
         restoreAndRefreshSession()
     }
 
@@ -56,6 +58,8 @@ final class AppContext: ObservableObject {
         isLoggedIn = true
         MezonHTTPClient.shared.updateBaseURL(from: saved)
 
+        sharedDataStore?.hydrateFromPostbox()
+
         SessionRefreshManager.shared.refreshOnAppLaunch(
             session: saved,
             onSuccess: { [weak self] newSession in
@@ -77,9 +81,23 @@ final class AppContext: ObservableObject {
         self.session = session
         SessionStore.save(session)
         MezonHTTPClient.shared.updateBaseURL(from: session)
+
+        sharedDataStore?.authStore.setSession(session)
+        AppLogger.app.info("[Auth] Session refreshed — token: \(session.token.prefix(50))...")
+
         if connectSocket {
-            MezonSocket.shared.connect(token: session.token, wsHostOverride: session.wsHostname)
+            MezonSocket.shared.connect(token: session.token, wsHostOverride: nil)
         }
         if let user { currentUser = user }
+
+        Task { @MainActor in
+            do {
+                let account = try await MezonHTTPClient.shared.getAccount(token: session.token)
+                sharedDataStore?.authStore.setAccount(account)
+                currentUser = sharedDataStore?.authStore.user ?? currentUser
+            } catch {
+                AppLogger.network.warning("[Auth] getAccount failed: \(error)")
+            }
+        }
     }
 }

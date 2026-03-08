@@ -32,6 +32,7 @@ targets:
     dependencies:
       - package: SwiftProtobuf
         product: SwiftProtobuf
+      - sdk: libsqlite3.tbd
     sources:
       - path: MezonChat
         excludes:
@@ -39,6 +40,7 @@ targets:
           - "**/Secrets.example.swift"
     resources:
       - path: MezonChat/Resources/Assets.xcassets
+      - path: MezonChat/Resources/Images.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile

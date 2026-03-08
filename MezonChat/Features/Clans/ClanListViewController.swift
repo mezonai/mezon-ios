@@ -4,7 +4,7 @@ import Combine
 final class ClanListViewController: BaseViewController {
 
     private let viewModel: ClanListViewModel
-
+    private let sharedDataStore: ClansStore
 
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
@@ -55,6 +55,7 @@ final class ClanListViewController: BaseViewController {
 
     init(viewModel: ClanListViewModel) {
         self.viewModel = viewModel
+        self.sharedDataStore = viewModel.clansStore
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -119,25 +120,27 @@ final class ClanListViewController: BaseViewController {
     }
 
     override func setupBindings() {
-        viewModel.$clans
+        let store = viewModel.clansStore
+
+        store.$clans
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.collectionView.reloadData() }
+            .sink { [weak self] (_: [Mezon_Api_ClanDesc]) in self?.collectionView.reloadData() }
             .store(in: &cancellables)
 
-        viewModel.$isLoading
+        store.$isLoading
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
+            .sink { [weak self] (loading: Bool) in
                 if loading { self?.loadingIndicator.startAnimating() }
                 else { self?.loadingIndicator.stopAnimating() }
             }
             .store(in: &cancellables)
 
-        viewModel.$selectedClanId
+        store.$selectedClanId
             .receive(on: DispatchQueue.main)
             .scan((previous: Int64?.none, current: Int64?.none)) { acc, newId in
                 (previous: acc.current, current: newId)
             }
-            .sink { [weak self] previous, current in
+            .sink { [weak self] (previous: Int64?, current: Int64?) in
                 guard let self else { return }
                 var paths: [IndexPath] = []
                 if let prev = previous,

@@ -15,8 +15,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let window = UIWindow(windowScene: windowScene)
         self.window = window
 
-        let context = AppContext()
-        let coordinator = AppCoordinator(window: window, context: context)
+        let sharedDataStore = SharedDataStore()
+        let appContext = AppContext(sharedDataStore: sharedDataStore)
+        MezonSocket.shared.messagesStore = sharedDataStore.messagesStore
+        let sharedContext = SharedAccountContext(appContext: appContext, sharedDataStore: sharedDataStore)
+        let coordinator = AppCoordinator(window: window, sharedContext: sharedContext)
         appCoordinator = coordinator
         coordinator.start()
 

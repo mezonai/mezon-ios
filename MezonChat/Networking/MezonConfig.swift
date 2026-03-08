@@ -15,16 +15,25 @@ enum MezonConfig {
     static var profileImgURL: String { env.profileImgURL }
 
     static func wsURL(token: String, wsHostOverride: String? = nil) -> URL {
-        if let override = wsHostOverride {
+        if let override = wsHostOverride, !override.isEmpty {
+            let host: String
+            if override.contains("://"), let url = URL(string: override), let h = url.host, !h.isEmpty {
+                host = h
+            } else if !override.contains("://") {
+                host = override
+            } else {
+                return env.wsURL(token: token)
+            }
             var components = URLComponents()
             components.scheme = env.useSSL ? "wss" : "ws"
-            components.host = override
+            components.host = host
             components.path = "/ws"
             components.queryItems = [
                 URLQueryItem(name: "token", value: token),
                 URLQueryItem(name: "format", value: "protobuf"),
             ]
-            return components.url!
+            guard let url = components.url else { return env.wsURL(token: token) }
+            return url
         }
         return env.wsURL(token: token)
     }

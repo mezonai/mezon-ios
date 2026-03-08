@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProtobuf
 
 struct MezonSession: Codable {
     let token: String
@@ -41,21 +42,21 @@ struct MezonSession: Codable {
         case isRemember      = "is_remember"
     }
 
-    init(from decoder: Decoder) throws {
+    init(from decoder: Swift.Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        token        = try c.decode(String.self, forKey: .token)
-        refreshToken = try c.decode(String.self, forKey: .refreshToken)
-        created      = try c.decodeIfPresent(Bool.self, forKey: .created) ?? false
-        apiURL       = try c.decodeIfPresent(String.self, forKey: .apiURL)
-        wsURL        = try c.decodeIfPresent(String.self, forKey: .wsURL)
-        userId       = try c.decodeIfPresent(String.self, forKey: .userId)
-        username     = try c.decodeIfPresent(String.self, forKey: .username)
-        idToken      = try c.decodeIfPresent(String.self, forKey: .idToken)
-        isRemember   = try c.decodeIfPresent(Bool.self, forKey: .isRemember)
+        token        = try c.decode(String.self, forKey: CodingKeys.token)
+        refreshToken = try c.decode(String.self, forKey: CodingKeys.refreshToken)
+        created      = try c.decodeIfPresent(Bool.self, forKey: CodingKeys.created) ?? false
+        apiURL       = try c.decodeIfPresent(String.self, forKey: CodingKeys.apiURL)
+        wsURL        = try c.decodeIfPresent(String.self, forKey: CodingKeys.wsURL)
+        userId       = try c.decodeIfPresent(String.self, forKey: CodingKeys.userId)
+        username     = try c.decodeIfPresent(String.self, forKey: CodingKeys.username)
+        idToken      = try c.decodeIfPresent(String.self, forKey: CodingKeys.idToken)
+        isRemember   = try c.decodeIfPresent(Bool.self, forKey: CodingKeys.isRemember)
 
-        if let ts = try? c.decode(Int64.self, forKey: .expiresAt) {
+        if let ts = try? c.decode(Int64.self, forKey: CodingKeys.expiresAt) {
             expiresAt = Date(timeIntervalSince1970: TimeInterval(ts))
-        } else if let ts = try? c.decode(Double.self, forKey: .expiresAt) {
+        } else if let ts = try? c.decode(Double.self, forKey: CodingKeys.expiresAt) {
             expiresAt = Date(timeIntervalSince1970: ts)
         } else {
             expiresAt = Date().addingTimeInterval(3600)
@@ -74,6 +75,45 @@ struct MezonSession: Codable {
         try c.encodeIfPresent(username, forKey: .username)
         try c.encodeIfPresent(idToken, forKey: .idToken)
         try c.encodeIfPresent(isRemember, forKey: .isRemember)
+    }
+
+    static func fromProto(_ proto: Mezon_Api_Session) -> MezonSession {
+        MezonSession(
+            token: proto.token,
+            refreshToken: proto.refreshToken,
+            expiresAt: Date().addingTimeInterval(3600),
+            created: proto.created,
+            apiURL: proto.apiURL.isEmpty ? nil : proto.apiURL,
+            wsURL: proto.wsURL.isEmpty ? nil : proto.wsURL,
+            userId: proto.userID != 0 ? String(proto.userID) : nil,
+            username: nil,
+            idToken: proto.idToken.isEmpty ? nil : proto.idToken,
+            isRemember: proto.isRemember
+        )
+    }
+
+    private init(
+        token: String,
+        refreshToken: String,
+        expiresAt: Date,
+        created: Bool,
+        apiURL: String?,
+        wsURL: String?,
+        userId: String?,
+        username: String?,
+        idToken: String?,
+        isRemember: Bool?
+    ) {
+        self.token = token
+        self.refreshToken = refreshToken
+        self.expiresAt = expiresAt
+        self.created = created
+        self.apiURL = apiURL
+        self.wsURL = wsURL
+        self.userId = userId
+        self.username = username
+        self.idToken = idToken
+        self.isRemember = isRemember
     }
 }
 

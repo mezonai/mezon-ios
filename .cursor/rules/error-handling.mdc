@@ -1,0 +1,31 @@
+---
+description: Error handling patterns
+globs: **/*.swift
+alwaysApply: false
+---
+
+# Error Handling
+
+## API errors
+```swift
+do {
+    let result = try await api.call()
+    items = result
+} catch {
+    errorMessage = error.localizedDescription
+    AppLogger.network.error("Context: \(error)")
+}
+```
+
+## User-facing
+- Dùng `Toast.error(message)` - không dùng UIAlertController cho lỗi đơn giản
+- ViewModel: `@Published var errorMessage` → binding hiển thị Toast trong sink
+
+## Logging
+- `AppLogger.app.debug/info/error`
+- `AppLogger.network.debug/error` cho API
+- Không `print()` cho production logs
+
+## Validation
+- Login/OTP: validate trước khi gọi API
+- Trả message rõ ràng cho user (vd: "Invalid email format")
