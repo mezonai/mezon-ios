@@ -17,6 +17,144 @@ Part of the [Mezon ecosystem](https://github.com/mezonai/mezon) – the Live, Wo
 
 ---
 
+## 🏗 Architecture
+
+### High-Level Patterns
+
+| Pattern | Role |
+|--------|------|
+| **MVVM** | ViewModel handles business logic; View (ViewController) binds via Combine |
+| **Coordinator** | Navigation and flow orchestration isolated from ViewControllers |
+| **Repository** | Data abstraction over API and local storage |
+| **Centralized Store** | Domain stores (Auth, Clans, Channels, Messages) with Combine reactivity |
+| **Layered** | Application → Core → Domain → Features → Networking → Persistence |
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    APPLICATION LAYER                              │
+│  SceneDelegate → AppCoordinator → AuthCoordinator / MainCoordinator│
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+┌─────────────────────────────────────────────────────────────────┐
+│                    CORE / CONTEXT                                │
+│  AppContext  ──→  SharedAccountContext  ──→  SharedDataStore     │
+│  (session, user)     (injection point)      AuthStore            │
+│                                            ClansStore            │
+│                                            ChannelsStore         │
+│                                            MessagesStore         │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+┌─────────────────────┐  ┌─────────────────────┐  ┌──────────────┐
+│     NETWORKING      │  │    PERSISTENCE       │  │   FEATURES   │
+│  MezonHTTPClient    │  │  MezonPostbox        │  │  ViewModel   │
+│  MezonSocket        │  │  (SQLite3)           │  │  ViewController│
+│  (REST + WebSocket) │  │  UserDefaults        │  │  (MVVM)      │
+└─────────────────────┘  └─────────────────────┘  └──────────────┘
+```
+
+### MVVM Flow
+
+```
+View (ViewController)  ←──Combine──→  ViewModel  ←──→  Store / Repository
+       ↑ sink($published)                    ↑
+       └────────────────────────────────────┘
+```
+
+---
+
+## 📁 Project Structure
+
+```
+MezonChat/
+├── Application/           # App lifecycle & coordination
+│   ├── AppDelegate.swift
+│   ├── AppCoordinator.swift
+│   ├── SceneDelegate.swift
+│   └── SplashViewController.swift
+│
+├── Core/                  # Shared infrastructure
+│   ├── Base/              # Base classes
+│   │   ├── BaseCoordinator.swift
+│   │   ├── BaseViewController.swift
+│   │   └── BaseViewModel.swift
+│   ├── Context/           # Global state
+│   │   ├── AppContext.swift
+│   │   ├── SharedAccountContext.swift
+│   │   ├── SharedDataStore.swift
+│   │   └── Store/
+│   │       ├── AuthStore.swift
+│   │       ├── ClansStore.swift
+│   │       ├── ChannelsStore.swift
+│   │       └── .....swift
+│   ├── Extensions/
+│   ├── Localization/      # L10n, LanguageManager
+│   ├── Storage/           # MezonPostbox (SQLite)
+│   ├── Theme/             # AppTheme, ThemeManager
+│   ├── UI/                # ImageUtilities, Toast
+│   └── Utils/             # Constants, AppLogger, ScreenScale
+│
+├── Domain/                # Business models & contracts
+│   ├── Models/            # User, Channel, Message, Clan, ....
+│   └── Repositories/      # Protocol definitions
+│
+├── Features/              # Feature modules
+│   ├── Auth/              
+│   ├── Clans/             
+│   ├── Main/              
+│   ├── Messages/         
+│   ├── Profile/
+│   └── ....../
+│
+├── Generated/             # Protobuf-generated Swift
+│   ├── api/
+│   └── rtapi/
+│
+├── Networking/            # HTTP, WebSocket, Session
+│   ├── MezonHTTPClient.swift
+│   ├── MezonSocket.swift
+│   ├── MezonSession.swift
+│   ├── MezonConfig.swift
+│   └── SessionRefreshManager.swift
+│
+└── Resources/             # Assets, localization, Info.plist
+    ├── Assets.xcassets
+    ├── Images.xcassets    # Icons
+    └── Info.plist
+```
+
+---
+
+## 🔧 Technology Stack
+
+### Core Technologies
+
+| Category | Technology | Why |
+|----------|------------|-----|
+| **UI Framework** | UIKit | Mature Coordinator support, complex navigation, iOS 15 compatibility |
+| **Reactive** | Combine | `@Published`, `sink`, publishers for Store ↔ ViewModel ↔ View binding |
+| **Concurrency** | async/await | Clean API calls, token refresh, no callback hell |
+| **Serialization** | SwiftProtobuf | Binary protocol for API & WebSocket, type-safe |
+| **Persistence** | SQLite3 (MezonPostbox) | Offline-first, lightweight, no ORM, native iOS |
+| **Persistence** | UserDefaults | Session, theme, language settings |
+| **Project** | XcodeGen | Deterministic project generation |
+
+### Networking
+
+- **REST API**: `URLSession` + async/await
+- **Real-time**: `URLSessionWebSocketTask` with binary Protobuf
+- **Session**: Auto-refresh via `SessionRefreshManager`
+
+### State Management
+
+- **ObservableObject** + **@Published** for reactive updates
+- **SharedDataStore** aggregates domain stores
+- **SharedAccountContext** injects to Coordinators/ViewModels
+- **MezonPostbox** hydrates state on app launch
+
+---
+
 ## 🚀 Quick Start
 
 ### Requirements
@@ -49,22 +187,6 @@ cp MezonChat/Networking/Secrets.example.swift MezonChat/Networking/Secrets.swift
 1. Open `MezonChat.xcodeproj` in Xcode
 2. Select your development team in **Signing & Capabilities**
 3. Choose a simulator or device and press **⌘R**
-
----
-
-
-## 🔧 Technology Stack
-
-| Layer | Technology |
-|-------|------------|
-| **Language** | Swift 5.9 |
-| **UI** | UIKit, Auto Layout, Combine |
-| **Architecture** | MVVM + Coordinator |
-| **Networking** | URLSession, WebSocket (binary Protobuf) |
-| **Serialization** | SwiftProtobuf |
-| **State** | Combine publishers & subjects |
-| **Project** | XcodeGen, Swift Package Manager |
-| **Design** | Adaptive scaling (ScreenScale), theming |
 
 ---
 
@@ -115,7 +237,11 @@ Production API key is kept out of version control:
 |---------|---------|---------|
 | [SwiftProtobuf](https://github.com/apple/swift-protobuf) | 1.28.0 | Protobuf serialization |
 
-Managed via **Swift Package Manager**. Xcode resolves packages automatically.
+| System | Purpose |
+|--------|---------|
+| **libsqlite3.tbd** | MezonPostbox persistence |
+
+Managed via **Swift Package Manager** + **XcodeGen**.
 
 ---
 
@@ -146,4 +272,3 @@ MIT License – free for personal and commercial use.
 ---
 
 **Built with Swift** • Made with ❤️ by the Mezon Team
-
