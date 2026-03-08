@@ -40,6 +40,7 @@ targets:
           - "**/Secrets.example.swift"
     resources:
       - path: MezonChat/Resources/Assets.xcassets
+      - path: MezonChat/Resources/Images.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile

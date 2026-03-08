@@ -81,6 +81,18 @@ final class ChannelMessagesViewController: BaseViewController {
         return tf
     }()
 
+    private lazy var voiceButton: UIButton = {
+        let btn = UIButton(type: .custom)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        let img = generateTintedImage(
+            image: UIImage(bundleImageName: "Chat/Input/Text/IconMicrophone"),
+            color: UIColor.theme.textStrong
+        )
+        btn.setImage(img, for: .normal)
+        btn.addAction(UIAction { [weak self] _ in self?.onVoiceTapped() }, for: .touchUpInside)
+        return btn
+    }()
+
     private lazy var sendButton: UIButton = {
         var config = UIButton.Configuration.plain()
         config.image = UIImage(systemName: "arrow.up.circle.fill")
@@ -92,6 +104,9 @@ final class ChannelMessagesViewController: BaseViewController {
     }()
 
     private var inputBarBottomConstraint: NSLayoutConstraint?
+
+    private func onVoiceTapped() {
+    }
 
     init(viewModel: ChannelMessagesViewModel) {
         self.viewModel = viewModel
@@ -171,6 +186,7 @@ final class ChannelMessagesViewController: BaseViewController {
         view.addSubview(loadingMoreIndicator)
         view.addSubview(emptyLabel)
         view.addSubview(inputBarView)
+        inputBarView.addSubview(voiceButton)
         inputBarView.addSubview(textField)
         inputBarView.addSubview(sendButton)
 
@@ -201,10 +217,15 @@ final class ChannelMessagesViewController: BaseViewController {
             inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             inputBarView.heightAnchor.constraint(equalToConstant: 56),
 
-            textField.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 12),
+            textField.leadingAnchor.constraint(equalTo: voiceButton.trailingAnchor, constant: 8),
             textField.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
             textField.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
             textField.heightAnchor.constraint(equalToConstant: 36),
+
+            voiceButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 8),
+            voiceButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
+            voiceButton.widthAnchor.constraint(equalToConstant: 44),
+            voiceButton.heightAnchor.constraint(equalToConstant: 44),
 
             sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -8),
             sendButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
@@ -283,6 +304,12 @@ final class ChannelMessagesViewController: BaseViewController {
             attributes: [.foregroundColor: t.textDisabled]
         )
         sendButton.tintColor = t.textRoleLink
+        if let voiceImg = generateTintedImage(
+            image: UIImage(bundleImageName: "Chat/Input/Text/IconMicrophone"),
+            color: t.textStrong
+        ) {
+            voiceButton.setImage(voiceImg, for: .normal)
+        }
     }
 
     private func updateEmptyState() {

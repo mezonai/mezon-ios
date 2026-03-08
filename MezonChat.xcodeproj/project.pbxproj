@@ -28,6 +28,7 @@
 		5559A7D9DDDAE40F7AD92961 /* SplashViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243F73240E9CAC19CAC0296A /* SplashViewController.swift */; };
 		5D261893375D7DD1EEEB8191 /* ChannelListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */; };
 		60CCD3759565C41B4FB94B17 /* ChannelsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DD1E2AB9A607EF59F0D8951 /* ChannelsStore.swift */; };
+		64A7A825E83B5A28C4E0192D /* ImageUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = E322BFBEDA641EC842A02B22 /* ImageUtilities.swift */; };
 		6736F0425023F3915858931A /* UITextField+Combine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 870DB30B5C60BCDE3D98E8DD /* UITextField+Combine.swift */; };
 		6911295A5A03A73EF85BCFF6 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EE90084FB51B72FB971B6F /* Secrets.swift */; };
 		6AED1E304F012765711CDE60 /* SharedDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70582775CACEE88ADF2EF6AF /* SharedDataStore.swift */; };
@@ -67,6 +68,7 @@
 		E2D979E073147845D0E8146C /* UIView+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267A903865A2A46F3B23A2F4 /* UIView+Layout.swift */; };
 		E342C0D1E50231FFFAA2DFDC /* MezonSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1416EB5037A997A574CCF342 /* MezonSession.swift */; };
 		E47A9784467F96E02CAA2B2D /* UserRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB028AC92C62D31BECF64B1A /* UserRepository.swift */; };
+		E82B69D1828A89F7E1D8B941 /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D388AD9E1137A1AC23D34B37 /* Images.xcassets */; };
 		EA022B7BCEFF4FB227411853 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF4ED4198DD88CFB7C45AEA /* AppDelegate.swift */; };
 		EE0E7CF994A0B7DC0FA163E3 /* BaseViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECFAECADAC32CC584F81A9CA /* BaseViewController.swift */; };
 		EF390F826209CB9277A5AAEF /* ChannelListViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29248F2FD36F473495F1516 /* ChannelListViewModel.swift */; };
@@ -139,9 +141,11 @@
 		CA469B0FFA07DAB50E46D354 /* AppContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContext.swift; sourceTree = "<group>"; };
 		CA7D8508E00A74BA9E5CE8B5 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 		D2A2B5FC7A2BFC63CCB9968E /* ChannelMessagesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelMessagesViewModel.swift; sourceTree = "<group>"; };
+		D388AD9E1137A1AC23D34B37 /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Images.xcassets; sourceTree = "<group>"; };
 		D6770D303E39BF3CD083400D /* MezonChat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MezonChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D78559B57838DAE838F649EE /* MezonSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MezonSocket.swift; sourceTree = "<group>"; };
 		E1C5514A582155D4AEC7D444 /* AuthStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+		E322BFBEDA641EC842A02B22 /* ImageUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageUtilities.swift; sourceTree = "<group>"; };
 		EB028AC92C62D31BECF64B1A /* UserRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserRepository.swift; sourceTree = "<group>"; };
 		EB47DA3156024B57B5DAB27A /* BaseViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseViewModel.swift; sourceTree = "<group>"; };
 		EC1D5F664D4C0CCA1E1E6D34 /* ProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewController.swift; sourceTree = "<group>"; };
@@ -378,6 +382,7 @@
 			isa = PBXGroup;
 			children = (
 				633FB25A726D9F54EB42E9C8 /* Assets.xcassets */,
+				D388AD9E1137A1AC23D34B37 /* Images.xcassets */,
 				6DC7E9A39ED29FE9F8A96436 /* Info.plist */,
 			);
 			path = Resources;
@@ -433,6 +438,7 @@
 		C98A169F52C816558D7DCE1B /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				E322BFBEDA641EC842A02B22 /* ImageUtilities.swift */,
 				334E37ED61EB2B23530C2BEF /* Toast.swift */,
 			);
 			path = UI;
@@ -573,6 +579,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				769C338E9CC06768CCEB7FD8 /* Assets.xcassets in Resources */,
+				E82B69D1828A89F7E1D8B941 /* Images.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -611,6 +618,7 @@
 				C8EFE7C608C95748B1468D40 /* Constants.swift in Sources */,
 				A6906F32294AE0E833FC200E /* DmListItemCell.swift in Sources */,
 				B2178ADF745E1D703DF9C34F /* HomeViewController.swift in Sources */,
+				64A7A825E83B5A28C4E0192D /* ImageUtilities.swift in Sources */,
 				5114D238B7CF1464147CA68A /* L10n.swift in Sources */,
 				A82056FA9E67776CF96152EC /* LanguageManager.swift in Sources */,
 				00B3B7C0E978F273C126DC22 /* LanguageSettingsViewController.swift in Sources */,
