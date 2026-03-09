@@ -112,6 +112,16 @@ final class MezonSocket: NSObject {
         onConnected = nil
     }
 
+    func reconnectFromForeground() {
+        guard token != nil || tokenProvider != nil else { return }
+        reconnectAttempts = 0
+        hasTriedRefreshSinceConnect = false
+        AppLogger.app.info("MezonSocket reconnecting from foreground")
+        Task { @MainActor in
+            await performReconnect(useTokenRefresh: tokenProvider != nil)
+        }
+    }
+
     private func cleanupForReconnect() {
         isConnected = false
         webSocketTask?.cancel(with: .goingAway, reason: nil)

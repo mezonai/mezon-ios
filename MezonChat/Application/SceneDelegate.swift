@@ -23,6 +23,19 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         appCoordinator = coordinator
         coordinator.start()
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+
         window.makeKeyAndVisible()
+    }
+
+    @objc private func handleWillEnterForeground() {
+        Task { @MainActor in
+            MezonSocket.shared.reconnectFromForeground()
+        }
     }
 }
