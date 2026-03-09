@@ -5,12 +5,14 @@ import SwiftProtobuf
 final class ProfileViewController: BaseViewController {
 
     private let sharedContext: SharedAccountContext
+    private var scrollViewTopConstraint: NSLayoutConstraint?
 
     private lazy var scrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.translatesAutoresizingMaskIntoConstraints = false
         sv.showsVerticalScrollIndicator = true
         sv.alwaysBounceVertical = true
+        sv.contentInsetAdjustmentBehavior = .never
         return sv
     }()
 
@@ -20,15 +22,14 @@ final class ProfileViewController: BaseViewController {
         s.axis = .vertical
         s.spacing = 0
         s.alignment = .fill
-        s.isLayoutMarginsRelativeArrangement = true
-        s.layoutMargins = UIEdgeInsets(top: 0, left: 20, bottom: 24, right: 20)
         return s
     }()
 
     private lazy var headerBanner: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = UIColor(red: 0.2, green: 0.4, blue: 0.9, alpha: 1)
+        v.backgroundColor = .outgoingBubble
+        v.clipsToBounds = true
         return v
     }()
 
@@ -36,9 +37,16 @@ final class ProfileViewController: BaseViewController {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
         l.text = "mezon"
-        l.font = .systemFont(ofSize: 24, weight: .bold)
+        l.font = .systemFont(ofSize: 36.sf, weight: .bold)
         l.textColor = .white
+        l.textAlignment = .center
         return l
+    }()
+
+    private lazy var avatarContainer: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
     }()
 
     private lazy var avatarImageView: UIImageView = {
@@ -46,10 +54,10 @@ final class ProfileViewController: BaseViewController {
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.layer.cornerRadius = 40
+        iv.layer.cornerRadius = 20.swh
         iv.backgroundColor = .mezonSecondaryBackground
         iv.layer.borderWidth = 3
-        iv.layer.borderColor = UIColor.white.cgColor
+        iv.layer.borderColor = UIColor.mezonBackground.cgColor
         return iv
     }()
 
@@ -57,78 +65,86 @@ final class ProfileViewController: BaseViewController {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.backgroundColor = .mezonSuccess
-        v.layer.cornerRadius = 6
-        v.layer.borderWidth = 2
-        v.layer.borderColor = UIColor.mezonBackground.cgColor
+        v.layer.cornerRadius = 7.swh
+        v.layer.borderWidth = 4
+       v.layer.borderColor = UIColor.mezonSuccess.cgColor
         return v
     }()
 
-    private lazy var addStatusButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "plus.circle.fill")
-        config.title = " \(L(L10n.Profile.addStatus))"
-        config.baseForegroundColor = .white
-        config.imagePadding = 4
-        let btn = UIButton(configuration: config)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.contentHorizontalAlignment = .leading
-        return btn
+    private lazy var statusBubbleView: StatusBubbleView = {
+        let v = StatusBubbleView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
+    private lazy var statusBubbleLabel: UILabel = {
+        let l = UILabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 14.sf, weight: .medium)
+        l.textColor = .mezonTextStrong
+        l.numberOfLines = 1
+        l.lineBreakMode = .byTruncatingTail
+        return l
     }()
 
     private lazy var displayNameLabel: UILabel = {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 22, weight: .bold)
-        l.textColor = .mezonTextPrimary
+        l.font = .systemFont(ofSize: 20.sf, weight: .bold)
+        l.textColor = .mezonTextStrong
         return l
+    }()
+
+    private lazy var nameChevron: UIImageView = {
+        let iv = UIImageView(image: UIImage(systemName: "chevron.down"))
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.tintColor = .mezonTextSecondary
+        iv.setContentHuggingPriority(.required, for: .horizontal)
+        iv.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return iv
+    }()
+
+    private lazy var storeButton: UIButton = {
+        makeRoundedIconButton(imageName: "Profile/Shop/IconShop")
+    }()
+
+    private lazy var settingsButton: UIButton = {
+        let btn = makeRoundedIconButton(imageName: "Profile/Setting/IconSetting")
+        btn.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
+        return btn
     }()
 
     private lazy var usernameLabel: UILabel = {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 15)
-        l.textColor = .mezonTextSecondary
+        l.font = .systemFont(ofSize: 15.sf)
+        l.textColor = .mezonTextPrimary
         return l
     }()
 
-    private lazy var balanceCard: UIView = {
-        makeCardView()
-    }()
+    private lazy var balanceCard: UIView = { makeCardView() }()
+    private weak var balanceRowLabel: UILabel?
 
     private lazy var editProfileButton: UIButton = {
         var config = UIButton.Configuration.filled()
         config.title = L(L10n.Profile.editProfile)
-        config.image = UIImage(systemName: "pencil")
-        config.imagePadding = 8
+        config.image = UIImage(bundleImageName: "Profile/Edit/IconEdit")
+            ?? UIImage(named: "Profile/Edit/IconEdit")
+            ?? UIImage(named: "IconEdit")
+        config.imagePadding = 8.sw
         config.baseForegroundColor = .white
-        config.baseBackgroundColor = .mezonPrimary
-        config.cornerStyle = .medium
+        config.baseBackgroundColor = .outgoingBubble
+        config.cornerStyle = .large
         let btn = UIButton(configuration: config)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
     }()
 
-    private lazy var memberSinceCard: UIView = {
-        makeCardView()
-    }()
+    private lazy var aboutMemberCard: UIView = { makeCardView() }()
 
-    private lazy var memberSinceLabel: UILabel = {
-        let l = UILabel()
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 15)
-        l.textColor = .mezonTextPrimary
-        l.numberOfLines = 2
-        l.text = L(L10n.Profile.mezonMemberSince)
-        return l
-    }()
+    private lazy var friendsCard: UIView = { makeCardView() }()
 
-    private lazy var friendsCard: UIView = {
-        makeCardView()
-    }()
-
-    private lazy var copyUserIdCard: UIView = {
-        makeCardView()
-    }()
+    private lazy var copyUserIdCard: UIView = { makeCardView() }()
 
     init(sharedContext: SharedAccountContext) {
         self.sharedContext = sharedContext
@@ -140,47 +156,24 @@ final class ProfileViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .mezonBackground
+        extendedLayoutIncludesOpaqueBars = true
         setupUI()
         setupBindings()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        let topInset = view.safeAreaInsets.top
+        scrollViewTopConstraint?.constant = -(topInset + 44)
     }
 
     override func setupUI() {
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
 
-        headerBanner.addSubview(mezonLogoLabel)
-        headerBanner.addSubview(avatarImageView)
-        avatarImageView.addSubview(onlineIndicator)
-        headerBanner.addSubview(addStatusButton)
-        contentStack.addArrangedSubview(headerBanner)
-
-        let userInfoStack = UIStackView(arrangedSubviews: [displayNameLabel, usernameLabel])
-        userInfoStack.axis = .vertical
-        userInfoStack.spacing = 4
-        userInfoStack.alignment = .leading
-        userInfoStack.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.addArrangedSubview(userInfoStack)
-
-        let balanceContent = makeBalanceCardContent()
-        balanceCard.addSubview(balanceContent)
-        contentStack.addArrangedSubview(balanceCard)
-
-        contentStack.addArrangedSubview(editProfileButton)
-
-        let memberContent = makeMemberSinceContent()
-        memberSinceCard.addSubview(memberContent)
-        contentStack.addArrangedSubview(memberSinceCard)
-
-        let friendsContent = makeFriendsContent()
-        friendsCard.addSubview(friendsContent)
-        contentStack.addArrangedSubview(friendsCard)
-
-        let copyContent = makeCopyUserIdContent()
-        copyUserIdCard.addSubview(copyContent)
-        contentStack.addArrangedSubview(copyUserIdCard)
-
+        scrollViewTopConstraint = scrollView.topAnchor.constraint(equalTo: view.topAnchor, constant: 0)
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollViewTopConstraint!,
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
@@ -190,37 +183,203 @@ final class ProfileViewController: BaseViewController {
             contentStack.trailingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
-
-            headerBanner.heightAnchor.constraint(equalToConstant: 140),
-            mezonLogoLabel.centerXAnchor.constraint(equalTo: headerBanner.centerXAnchor),
-            mezonLogoLabel.centerYAnchor.constraint(equalTo: headerBanner.centerYAnchor),
-
-            avatarImageView.leadingAnchor.constraint(equalTo: headerBanner.leadingAnchor, constant: 20),
-            avatarImageView.centerYAnchor.constraint(equalTo: headerBanner.centerYAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 80),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 80),
-
-            onlineIndicator.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor),
-            onlineIndicator.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor),
-            onlineIndicator.widthAnchor.constraint(equalToConstant: 14),
-            onlineIndicator.heightAnchor.constraint(equalToConstant: 14),
-
-            addStatusButton.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 16),
-            addStatusButton.centerYAnchor.constraint(equalTo: headerBanner.centerYAnchor),
         ])
 
-        userInfoStack.layoutMargins = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
-        userInfoStack.isLayoutMarginsRelativeArrangement = true
+        setupHeaderBanner()
+        setupAvatarArea()
+        setupUserInfo()
+        setupBalanceCard()
+        setupEditProfileButton()
+        setupAboutMemberCard()
+        setupFriendsCard()
+        setupCopyUserIdCard()
+    }
 
-        balanceCard.layoutMargins = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
-        balanceContent.pinToSuperview()
+    private func setupHeaderBanner() {
+        headerBanner.addSubview(mezonLogoLabel)
+        contentStack.addArrangedSubview(headerBanner)
 
-        editProfileButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
-        contentStack.setCustomSpacing(20, after: userInfoStack)
-        contentStack.setCustomSpacing(16, after: balanceCard)
-        contentStack.setCustomSpacing(16, after: editProfileButton)
-        contentStack.setCustomSpacing(16, after: memberSinceCard)
-        contentStack.setCustomSpacing(16, after: friendsCard)
+        NSLayoutConstraint.activate([
+            headerBanner.heightAnchor.constraint(equalToConstant: 140.sh),
+            mezonLogoLabel.centerXAnchor.constraint(equalTo: headerBanner.centerXAnchor),
+            mezonLogoLabel.centerYAnchor.constraint(equalTo: headerBanner.centerYAnchor, constant: -10.sh),
+        ])
+    }
+
+    private func setupAvatarArea() {
+        let avatarSize: CGFloat = 80.swh
+        let overlapHeight: CGFloat = avatarSize / 2
+
+        statusBubbleView.addSubview(statusBubbleLabel)
+        avatarContainer.addSubviews(avatarImageView, onlineIndicator, statusBubbleView)
+        contentStack.addArrangedSubview(avatarContainer)
+
+        NSLayoutConstraint.activate([
+            avatarContainer.heightAnchor.constraint(equalToConstant: overlapHeight + 8.sh),
+
+            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: 16.sw),
+            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor, constant: -overlapHeight),
+            avatarImageView.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarImageView.heightAnchor.constraint(equalToConstant: avatarSize),
+
+            onlineIndicator.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: -18.sw),
+            onlineIndicator.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: -2.sh),
+            onlineIndicator.widthAnchor.constraint(equalToConstant: 14.swh),
+            onlineIndicator.heightAnchor.constraint(equalToConstant: 14.swh),
+
+            statusBubbleView.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8.sw),
+            statusBubbleView.topAnchor.constraint(equalTo: avatarImageView.topAnchor),
+            statusBubbleView.trailingAnchor.constraint(lessThanOrEqualTo: avatarContainer.trailingAnchor, constant: -16.sw),
+            statusBubbleView.widthAnchor.constraint(greaterThanOrEqualToConstant: 70.sw),
+
+            statusBubbleLabel.topAnchor.constraint(equalTo: statusBubbleView.topAnchor, constant: 8.sh),
+            statusBubbleLabel.leadingAnchor.constraint(equalTo: statusBubbleView.leadingAnchor, constant: 14.sw),
+            statusBubbleLabel.trailingAnchor.constraint(equalTo: statusBubbleView.trailingAnchor, constant: -14.sw),
+            statusBubbleLabel.bottomAnchor.constraint(equalTo: statusBubbleView.bottomAnchor, constant: -(8 + 14).sh),
+        ])
+    }
+
+    private func setupUserInfo() {
+        let nameStack = UIStackView(arrangedSubviews: [displayNameLabel, nameChevron])
+        nameStack.translatesAutoresizingMaskIntoConstraints = false
+        nameStack.axis = .horizontal
+        nameStack.spacing = 6.sw
+        nameStack.alignment = .center
+
+        let rightIcons = UIStackView(arrangedSubviews: [storeButton, settingsButton])
+        rightIcons.translatesAutoresizingMaskIntoConstraints = false
+        rightIcons.axis = .horizontal
+        rightIcons.spacing = 12.sw
+        rightIcons.alignment = .center
+
+        let spacer = UIView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let topRow = UIStackView(arrangedSubviews: [nameStack, spacer, rightIcons])
+        topRow.translatesAutoresizingMaskIntoConstraints = false
+        topRow.axis = .horizontal
+        topRow.alignment = .center
+
+        let infoStack = UIStackView(arrangedSubviews: [topRow, usernameLabel])
+        infoStack.translatesAutoresizingMaskIntoConstraints = false
+        infoStack.axis = .vertical
+        infoStack.spacing = 4.sh
+        infoStack.alignment = .fill
+        infoStack.isLayoutMarginsRelativeArrangement = true
+        infoStack.layoutMargins = UIEdgeInsets(top: 8.sh, left: 16.sw, bottom: 12.sh, right: 16.sw)
+
+        contentStack.addArrangedSubview(infoStack)
+    }
+
+    private func setupBalanceCard() {
+        balanceCard.subviews.forEach { $0.removeFromSuperview() }
+        let balanceContent = makeBalanceCardContent()
+        balanceCard.addSubview(balanceContent)
+        balanceContent.pinEdges(insets: UIEdgeInsets(top: 16.sh, left: 20.sw, bottom: 16.sh, right: 20.sw))
+
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(balanceCard)
+        balanceCard.pinEdges(insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 16.sw))
+
+        contentStack.addArrangedSubview(wrapper)
+        contentStack.setCustomSpacing(16.sh, after: wrapper)
+    }
+
+    private func setupEditProfileButton() {
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(editProfileButton)
+        editProfileButton.pinEdges(insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 16.sw))
+        editProfileButton.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
+
+        contentStack.addArrangedSubview(wrapper)
+        contentStack.setCustomSpacing(16.sh, after: wrapper)
+    }
+
+    private func setupAboutMemberCard() {
+        let aboutContent = makeAboutMemberCardContent()
+        aboutMemberCard.addSubview(aboutContent)
+        aboutContent.pinEdges(insets: UIEdgeInsets(top: 16.sh, left: 20.sw, bottom: 16.sh, right: 20.sw))
+
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(aboutMemberCard)
+        aboutMemberCard.pinEdges(insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 16.sw))
+
+        contentStack.addArrangedSubview(wrapper)
+        contentStack.setCustomSpacing(16.sh, after: wrapper)
+    }
+
+    private func makeAboutMemberCardContent() -> UIView {
+        let aboutMeTitle = UILabel()
+        aboutMeTitle.text = L(L10n.Profile.aboutMe)
+        aboutMeTitle.font = .systemFont(ofSize: 15.sf, weight: .bold)
+        aboutMeTitle.textColor = .mezonTextPrimary
+        let aboutMeValue = UILabel()
+        aboutMeValue.text = "2028"
+        aboutMeValue.font = .systemFont(ofSize: 15.sf)
+        aboutMeValue.textColor = .mezonTextPrimary
+        aboutMeValue.numberOfLines = 0
+
+        let separator = UIView()
+        separator.backgroundColor = .mezonBorder
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+
+        let memberSinceTitle = UILabel()
+        memberSinceTitle.text = L(L10n.Profile.mezonMemberSince)
+        memberSinceTitle.font = .systemFont(ofSize: 15.sf, weight: .bold)
+        memberSinceTitle.textColor = .mezonTextPrimary
+
+        let memberSinceDate = UILabel()
+        memberSinceDate.text = "May 27, 2025"
+        memberSinceDate.font = .systemFont(ofSize: 15.sf)
+        memberSinceDate.textColor = .mezonTextPrimary
+
+        let stack = UIStackView(arrangedSubviews: [
+            aboutMeTitle,
+            aboutMeValue,
+            separator,
+            memberSinceTitle,
+            memberSinceDate,
+        ])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 4.sh
+        stack.alignment = .leading
+        stack.setCustomSpacing(12.sh, after: aboutMeValue)
+        stack.setCustomSpacing(12.sh, after: separator)
+        return stack
+    }
+
+    private func setupFriendsCard() {
+        let friendsContent = makeFriendsContent()
+        friendsCard.addSubview(friendsContent)
+        friendsContent.pinEdges(insets: UIEdgeInsets(top: 12.sh, left: 20.sw, bottom: 12.sh, right: 20.sw))
+
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(friendsCard)
+        friendsCard.pinEdges(insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 16.sw))
+
+        contentStack.addArrangedSubview(wrapper)
+        contentStack.setCustomSpacing(16.sh, after: wrapper)
+    }
+
+    private func setupCopyUserIdCard() {
+        let copyContent = makeCopyUserIdContent()
+        copyUserIdCard.addSubview(copyContent)
+        copyContent.pinEdges(insets: UIEdgeInsets(top: 12.sh, left: 20.sw, bottom: 12.sh, right: 20.sw))
+
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(copyUserIdCard)
+        copyUserIdCard.pinEdges(insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 16.sw))
+
+        contentStack.addArrangedSubview(wrapper)
+        contentStack.setCustomSpacing(24.sh, after: wrapper)
     }
 
     override func setupBindings() {
@@ -235,7 +394,7 @@ final class ProfileViewController: BaseViewController {
 
     private func updateUI(user: User?, account: Mezon_Api_Account?) {
         displayNameLabel.text = user?.displayName ?? "—"
-        usernameLabel.text = user?.username.isEmpty == false ? "@\(user!.username)" : "—"
+        usernameLabel.text = user?.username.isEmpty == false ? user!.username : "—"
 
         if let url = user?.avatarURL ?? account.flatMap({ !$0.logo.isEmpty ? URL(string: $0.logo) : nil }) {
             Task {
@@ -249,24 +408,26 @@ final class ProfileViewController: BaseViewController {
 
         onlineIndicator.isHidden = user?.status != .online
 
-        let createSec = account?.user.createTimeSeconds ?? 0
-        if createSec > 0 {
-            let date = Date(timeIntervalSince1970: TimeInterval(createSec))
-            let formatter = DateFormatter()
-            formatter.dateFormat = "MMMM d, yyyy"
-            formatter.locale = Locale(identifier: "en_US")
-            memberSinceLabel.text = "\(L(L10n.Profile.mezonMemberSince))\n\(formatter.string(from: date))"
+        if let status = user?.status {
+            statusBubbleView.isHidden = false
+            switch status {
+            case .online: statusBubbleLabel.text = "Online"
+            case .idle: statusBubbleLabel.text = "Idle"
+            case .doNotDisturb: statusBubbleLabel.text = "Do Not Disturb"
+            case .offline: statusBubbleLabel.text = "Offline"
+            }
         } else {
-            memberSinceLabel.text = L(L10n.Profile.mezonMemberSince)
+            statusBubbleView.isHidden = true
         }
+
+        balanceRowLabel?.text = "\(L(L10n.Profile.balance)): 0 \(L(L10n.Profile.currency))"
     }
 
     private func makeCardView() -> UIView {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.backgroundColor = .mezonSecondaryBackground
-        v.layer.cornerRadius = 12
-        v.layoutMargins = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+        v.layer.cornerRadius = 12.swh
         return v
     }
 
@@ -274,130 +435,219 @@ final class ProfileViewController: BaseViewController {
         let stack = UIStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
-        stack.spacing = 16
+        stack.spacing = 16.sh
 
-        let balanceRow = makeRow(icon: "checkmark.circle.fill", title: "\(L(L10n.Profile.balance)): 0 \(L(L10n.Profile.currency))")
-        let transferRow = makeRow(icon: "arrow.up.square", title: L(L10n.Profile.transferFunds))
-        let historyRow = makeRow(icon: "folder", title: L(L10n.Profile.historyTransaction))
+        let balanceIcon = makeIconView(imageName: "Profile/Balance/IconBalance", size: 22.swh)
+        balanceIcon.setContentHuggingPriority(.required, for: .horizontal)
+        let balanceTextLabel = UILabel()
+        balanceTextLabel.text = "\(L(L10n.Profile.balance)): 0 \(L(L10n.Profile.currency))"
+        balanceTextLabel.font = .systemFont(ofSize: 15.sf)
+        balanceTextLabel.textColor = .mezonTextPrimary
+        balanceRowLabel = balanceTextLabel
+        let balanceRow = UIStackView(arrangedSubviews: [balanceIcon, balanceTextLabel])
+        balanceRow.axis = .horizontal
+        balanceRow.spacing = 12.sw
+        balanceRow.alignment = .center
+        balanceRow.translatesAutoresizingMaskIntoConstraints = false
+        balanceRow.clipsToBounds = true
+
+        let transferIcon = makeIconView(imageName: "Profile/Transfer/IconTransfer", size: 22.swh)
+        let transferLabel = UILabel()
+        transferLabel.font = .systemFont(ofSize: 15.sf)
+        transferLabel.textColor = .mezonTextPrimary
+        transferLabel.text = L(L10n.Profile.transferFunds)
+        let transferRow = makeIconRow(iconView: transferIcon, label: transferLabel)
+
+        let historyIcon = makeIconView(imageName: "Profile/History/IconHistory", size: 22.swh)
+        let historyLabel = UILabel()
+        historyLabel.font = .systemFont(ofSize: 15.sf)
+        historyLabel.textColor = .mezonTextPrimary
+        historyLabel.text = L(L10n.Profile.historyTransaction)
+        let historyRow = makeIconRow(iconView: historyIcon, label: historyLabel)
 
         stack.addArrangedSubview(balanceRow)
         stack.addArrangedSubview(transferRow)
         stack.addArrangedSubview(historyRow)
-
-        let wrap = UIView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -16),
-        ])
-        return wrap
-    }
-
-    private func makeMemberSinceContent() -> UIView {
-        let wrap = UIView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(memberSinceLabel)
-        NSLayoutConstraint.activate([
-            memberSinceLabel.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 16),
-            memberSinceLabel.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 20),
-            memberSinceLabel.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -20),
-            memberSinceLabel.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -16),
-        ])
-        return wrap
+        return stack
     }
 
     private func makeFriendsContent() -> UIView {
-        let l = UILabel()
-        l.text = L(L10n.Profile.yourFriends)
-        l.font = .systemFont(ofSize: 16, weight: .medium)
-        l.textColor = .mezonTextPrimary
+        let titleLabel = UILabel()
+        titleLabel.text = L(L10n.Profile.yourFriends)
+        titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
+        titleLabel.textColor = .mezonTextStrong
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let avatarsStack = makeFriendAvatarsStack()
 
         let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+        chevron.translatesAutoresizingMaskIntoConstraints = false
         chevron.tintColor = .mezonTextSecondary
+        chevron.setContentHuggingPriority(.required, for: .horizontal)
 
-        let stack = UIStackView(arrangedSubviews: [l, UIView(), chevron])
+        let stack = UIStackView(arrangedSubviews: [titleLabel, avatarsStack, chevron])
         stack.axis = .horizontal
+        stack.spacing = 8.sw
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }
 
-        let wrap = UIView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -16),
-        ])
-        return wrap
+    private func makeFriendAvatarsStack() -> UIView {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        let avatarSize: CGFloat = 28.swh
+        let overlap: CGFloat = 8.sw
+        let count = 4
+
+        var previousView: UIView?
+        for i in 0..<count {
+            let circle = UIView()
+            circle.translatesAutoresizingMaskIntoConstraints = false
+            circle.backgroundColor = .colorAvatarDefault
+            circle.layer.cornerRadius = avatarSize / 2
+            circle.layer.borderWidth = 2
+            circle.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
+            container.addSubview(circle)
+
+            NSLayoutConstraint.activate([
+                circle.widthAnchor.constraint(equalToConstant: avatarSize),
+                circle.heightAnchor.constraint(equalToConstant: avatarSize),
+                circle.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            ])
+
+            if let prev = previousView {
+                circle.leadingAnchor.constraint(equalTo: prev.leadingAnchor, constant: avatarSize - overlap).isActive = true
+            } else {
+                circle.leadingAnchor.constraint(equalTo: container.leadingAnchor).isActive = true
+            }
+
+            if i == count - 1 {
+                circle.trailingAnchor.constraint(equalTo: container.trailingAnchor).isActive = true
+            }
+            previousView = circle
+        }
+
+        container.heightAnchor.constraint(equalToConstant: avatarSize).isActive = true
+        return container
     }
 
     private func makeCopyUserIdContent() -> UIView {
-        let l = UILabel()
-        l.text = L(L10n.Profile.copyUserId)
-        l.font = .systemFont(ofSize: 16, weight: .medium)
-        l.textColor = .mezonTextPrimary
+        let titleLabel = UILabel()
+        titleLabel.text = L(L10n.Profile.copyUserId)
+        titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
+        titleLabel.textColor = .mezonTextStrong
 
-        let icon = UIImageView(image: UIImage(systemName: "doc.on.doc"))
-        icon.tintColor = .mezonTextSecondary
+        let idBadge = UILabel()
+        idBadge.translatesAutoresizingMaskIntoConstraints = false
+        idBadge.text = " ID "
+        idBadge.font = .systemFont(ofSize: 12.sf, weight: .bold)
+        idBadge.textColor = .mezonTextPrimary
+        idBadge.layer.cornerRadius = 4.swh
+        idBadge.layer.borderWidth = 1.5
+        idBadge.layer.borderColor = UIColor.mezonTextSecondary.cgColor
+        idBadge.layer.masksToBounds = true
+        idBadge.textAlignment = .center
+        NSLayoutConstraint.activate([
+            idBadge.widthAnchor.constraint(equalToConstant: 28.sw),
+            idBadge.heightAnchor.constraint(equalToConstant: 20.sh),
+        ])
 
-        let stack = UIStackView(arrangedSubviews: [l, UIView(), icon])
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, spacer, idBadge])
         stack.axis = .horizontal
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let wrap = UIView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(stack)
         let tap = UITapGestureRecognizer(target: self, action: #selector(copyUserIdTapped))
-        wrap.addGestureRecognizer(tap)
-        wrap.isUserInteractionEnabled = true
+        stack.addGestureRecognizer(tap)
+        stack.isUserInteractionEnabled = true
 
-        NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 16),
-            stack.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -16),
-        ])
-        return wrap
+        return stack
     }
 
-    private func makeRow(icon: String, title: String) -> UIView {
-        let iv = UIImageView(image: UIImage(systemName: icon))
-        iv.tintColor = .mezonTextSecondary
-        iv.setContentHuggingPriority(.required, for: .horizontal)
+    private func makeIconView(systemName: String, color: UIColor, size: CGFloat) -> UIImageView {
+        let config = UIImage.SymbolConfiguration(pointSize: size * 0.65, weight: .medium)
+        let iv = UIImageView(image: UIImage(systemName: systemName, withConfiguration: config))
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.tintColor = color
+        iv.contentMode = .center
+        NSLayoutConstraint.activate([
+            iv.widthAnchor.constraint(equalToConstant: size),
+            iv.heightAnchor.constraint(equalToConstant: size),
+        ])
+        return iv
+    }
 
-        let l = UILabel()
-        l.text = title
-        l.font = .systemFont(ofSize: 15)
-        l.textColor = .mezonTextPrimary
+    private func makeIconView(imageName: String, color: UIColor? = nil, size: CGFloat) -> UIImageView {
+        let sourceImage = UIImage(bundleImageName: imageName)
+            ?? UIImage(named: imageName)
+            ?? UIImage(named: (imageName as NSString).lastPathComponent)
+        let img = color != nil
+            ? generateTintedImage(image: sourceImage, color: color!)
+            : sourceImage
+        let iv = UIImageView(image: img)
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.contentMode = .center
+        NSLayoutConstraint.activate([
+            iv.widthAnchor.constraint(equalToConstant: size),
+            iv.heightAnchor.constraint(equalToConstant: size),
+        ])
+        return iv
+    }
 
-        let stack = UIStackView(arrangedSubviews: [iv, l])
+    private func makeIconRow(iconView: UIView, label: UILabel) -> UIStackView {
+        let stack = UIStackView(arrangedSubviews: [iconView, label])
         stack.axis = .horizontal
-        stack.spacing = 12
+        stack.spacing = 12.sw
         stack.alignment = .center
         return stack
+    }
+
+    private func makeRoundedIconButton(systemName: String) -> UIButton {
+        let size: CGFloat = 30.swh
+        let config = UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .medium)
+        let btn = UIButton(type: .system)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.setImage(UIImage(systemName: systemName, withConfiguration: config), for: .normal)
+        btn.tintColor = .mezonTextPrimary
+        btn.backgroundColor = .mezonSecondaryBackground
+        btn.layer.cornerRadius = size / 2
+        NSLayoutConstraint.activate([
+            btn.widthAnchor.constraint(equalToConstant: size),
+            btn.heightAnchor.constraint(equalToConstant: size),
+        ])
+        return btn
+    }
+
+    private func makeRoundedIconButton(imageName: String) -> UIButton {
+        let size: CGFloat = 30.swh
+        let btn = UIButton(type: .custom)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        let sourceImage = UIImage(bundleImageName: imageName)
+            ?? UIImage(named: imageName)
+            ?? UIImage(named: (imageName as NSString).lastPathComponent)
+        let img = generateTintedImage(image: sourceImage, color: .mezonTextPrimary)
+        btn.setImage(img, for: .normal)
+        btn.backgroundColor = .mezonSecondaryBackground
+        btn.layer.cornerRadius = size / 2
+        NSLayoutConstraint.activate([
+            btn.widthAnchor.constraint(equalToConstant: size),
+            btn.heightAnchor.constraint(equalToConstant: size),
+        ])
+        return btn
+    }
+
+    @objc private func settingsTapped() {
+        let vc = SettingsViewController(sharedContext: sharedContext)
+        navigationController?.pushViewController(vc, animated: true)
     }
 
     @objc private func copyUserIdTapped() {
         guard let userId = sharedContext.sharedDataStore.authStore.user?.id else { return }
         UIPasteboard.general.string = userId
         Toast.info(L(L10n.Profile.userIdCopied))
-    }
-}
-
-private extension UIView {
-    func pinToSuperview() {
-        guard let sv = superview else { return }
-        translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            topAnchor.constraint(equalTo: sv.topAnchor),
-            leadingAnchor.constraint(equalTo: sv.leadingAnchor),
-            trailingAnchor.constraint(equalTo: sv.trailingAnchor),
-            bottomAnchor.constraint(equalTo: sv.bottomAnchor),
-        ])
     }
 }
