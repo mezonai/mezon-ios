@@ -7,7 +7,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        MezonEnvironment.current = .prod
+        MezonEnvironment.current = .dev
 
         let env = MezonEnvironment.current
         print("""

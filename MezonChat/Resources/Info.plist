@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.2.86</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSAppleMusicUsageDescription</key>
@@ -29,9 +29,9 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Mezon app needs access to the camera to call video or take add pricture send to chat</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app.</string>
+	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you&apos;re using the app. Your privacy is important to us, and we only access your location while you&apos;re actively using the app.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app.</string>
+	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you&apos;re using the app. Your privacy is important to us, and we only access your location while you&apos;re actively using the app.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Allow Mezon access to your microphone to enable voice chat</string>
 	<key>NSPasteboardUsageDescription</key>

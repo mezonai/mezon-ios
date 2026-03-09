@@ -102,7 +102,7 @@ final class DmListItemCell: UITableViewCell {
     }
 
     func configure(channel: Mezon_Api_ChannelDescription, currentUserId: String?) {
-        let isGroup = channel.type == 3
+        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let displayName = displayName(for: channel)
         nameLabel.text = displayName
 

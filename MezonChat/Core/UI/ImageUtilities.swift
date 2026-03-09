@@ -4,8 +4,6 @@ import UIKit
 
 extension UIImage {
 
-    /// Load image from asset catalog by path (e.g. "Chat/Input/Text/IconMicrophone").
-    /// Uses the main app bundle. Usage: `UIImage(bundleImageName: "Chat/Input/Text/IconMicrophone")`
     convenience init?(bundleImageName name: String) {
         guard let img = UIImage(named: name, in: Bundle.main, compatibleWith: nil),
               let cgImage = img.cgImage else { return nil }

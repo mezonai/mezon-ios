@@ -7,6 +7,10 @@ final class ChannelsStore: ObservableObject {
 
     @Published private(set) var channelsByClan: [Int64: [Mezon_Api_ChannelDescription]] = [:]
     @Published var selectedChannelIdByClan: [Int64: Int64] = [:]
+    @Published private(set) var currentClanId: Int64 = 0
+    @Published private(set) var currentChannelId: Int64 = 0
+    @Published private(set) var currentChannel: Mezon_Api_ChannelDescription?
+    @Published private(set) var cachedClanAvatarByClan: [Int64: String] = [:]
     @Published private(set) var loadingClanIds: Set<Int64> = []
     @Published private(set) var errorsByClan: [Int64: String] = [:]
 
@@ -49,10 +53,29 @@ final class ChannelsStore: ObservableObject {
         channelsByClan[clanId] ?? []
     }
 
+    func setCurrentChannel(clanId: Int64, channel: Mezon_Api_ChannelDescription) {
+        currentClanId = clanId
+        currentChannelId = channel.channelID
+        currentChannel = channel
+    }
+
+    func clearCurrentChannel() {
+        currentClanId = 0
+        currentChannelId = 0
+        currentChannel = nil
+    }
+
+    func setCachedClanAvatar(_ avatar: String, clanId: Int64) {
+        guard !avatar.isEmpty else { return }
+        cachedClanAvatarByClan[clanId] = avatar
+    }
+
     func clear() {
         channelsByClan = [:]
         selectedChannelIdByClan = [:]
         loadingClanIds = []
         errorsByClan = [:]
+        clearCurrentChannel()
+        cachedClanAvatarByClan = [:]
     }
 }
