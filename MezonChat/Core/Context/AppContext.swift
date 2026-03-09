@@ -14,6 +14,18 @@ final class AppContext: ObservableObject {
     init(sharedDataStore: SharedDataStore? = nil) {
         self.sharedDataStore = sharedDataStore
         restoreAndRefreshSession()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSessionExpired),
+            name: Notification.Name("MezonSessionExpired"),
+            object: nil
+        )
+    }
+
+    @objc private func handleSessionExpired() {
+        SessionExpiredModal.show(onLoginAgain: { [weak self] in
+            self?.logout()
+        })
     }
 
     func login(user: User, session: MezonSession) {
@@ -38,6 +50,38 @@ final class AppContext: ObservableObject {
         guard let current = session else { throw SessionError.noSession }
         let newSession = try await SessionRefreshManager.shared.refresh(session: current)
         applySession(newSession, user: currentUser, connectSocket: false, fetchAccount: false)
+    }
+
+    private var lastRecoverFromForegroundTime: Date?
+    private let recoverThrottleInterval: TimeInterval = 20
+
+    func recoverFromForeground() {
+        guard session != nil, isLoggedIn else { return }
+        let now = Date()
+        if let last = lastRecoverFromForegroundTime, now.timeIntervalSince(last) < recoverThrottleInterval {
+            return
+        }
+        lastRecoverFromForegroundTime = now
+        Task { @MainActor in
+            do {
+                try await refreshSession()
+                if let token = session?.token {
+                    MezonSocket.shared.connect(token: token, wsHostOverride: nil)
+                }
+            } catch let error as MezonError {
+                if case .httpError(let code, _) = error, code == 401 || code == 403 {
+                    AppLogger.app.warning("[Auth] Session expired on foreground")
+                    SessionExpiredModal.show(onLoginAgain: { [weak self] in
+                        self?.logout()
+                    })
+                } else {
+                    MezonSocket.shared.reconnectFromForeground()
+                }
+            } catch {
+                AppLogger.network.warning("[Auth] recoverFromForeground refresh failed: \(error), trying socket reconnect")
+                MezonSocket.shared.reconnectFromForeground()
+            }
+        }
     }
 
     private func restoreAndRefreshSession() {
@@ -68,8 +112,10 @@ final class AppContext: ObservableObject {
                 AppLogger.app.info("Session refreshed for: \(newSession.username ?? "unknown")")
             },
             onExpired: { [weak self] in
-                AppLogger.app.warning("Session expired after max retries — logging out")
-                self?.logout()
+                AppLogger.app.warning("Session expired after max retries")
+                SessionExpiredModal.show(onLoginAgain: { [weak self] in
+                    self?.logout()
+                })
             },
             onReady: { [weak self] in
                 self?.isSessionReady = true

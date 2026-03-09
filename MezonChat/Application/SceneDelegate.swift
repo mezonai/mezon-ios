@@ -21,6 +21,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let sharedContext = SharedAccountContext(appContext: appContext, sharedDataStore: sharedDataStore)
         let coordinator = AppCoordinator(window: window, sharedContext: sharedContext)
         appCoordinator = coordinator
+        self.appContext = appContext
         coordinator.start()
 
         NotificationCenter.default.addObserver(
@@ -29,13 +30,27 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
 
         window.makeKeyAndVisible()
     }
 
+    private weak var appContext: AppContext?
+
     @objc private func handleWillEnterForeground() {
         Task { @MainActor in
-            MezonSocket.shared.reconnectFromForeground()
+            appContext?.recoverFromForeground()
+        }
+    }
+
+    @objc private func handleDidBecomeActive() {
+        Task { @MainActor in
+            appContext?.recoverFromForeground()
         }
     }
 }

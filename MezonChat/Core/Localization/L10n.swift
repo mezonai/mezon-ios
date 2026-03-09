@@ -134,12 +134,13 @@ enum L10n {
     }
 
     enum Error {
-        static let networkError       = "error.networkError"
-        static let connectionFailed   = "error.connectionFailed"
-        static let somethingWentWrong = "error.somethingWentWrong"
-        static let sessionExpiredTitle  = "error.sessionExpiredTitle"
-        static let sessionExpiredContent = "error.sessionExpiredContent"
-        static let sessionExpiredConfirm = "error.sessionExpiredConfirm"
+        static let networkError           = "error.networkError"
+        static let connectionFailed       = "error.connectionFailed"
+        static let somethingWentWrong     = "error.somethingWentWrong"
+        static let sessionExpiredTitle    = "error.sessionExpiredTitle"
+        static let sessionExpiredOrNetwork = "error.sessionExpiredOrNetwork"
+        static let sessionExpiredContent  = "error.sessionExpiredContent"
+        static let sessionExpiredConfirm  = "error.sessionExpiredConfirm"
     }
 }
 
@@ -258,6 +259,7 @@ extension L10n {
         "error.connectionFailed":       "Connection failed. Please try again.",
         "error.somethingWentWrong":     "Something went wrong",
         "error.sessionExpiredTitle":    "Session Expired",
+        "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
     ]
@@ -369,6 +371,7 @@ extension L10n {
         "error.connectionFailed":       "Kết nối thất bại. Vui lòng thử lại.",
         "error.somethingWentWrong":     "Đã xảy ra lỗi",
         "error.sessionExpiredTitle":    "Phiên đăng nhập hết hạn",
+        "error.sessionExpiredOrNetwork": "Phiên hết hạn hoặc lỗi mạng",
         "error.sessionExpiredContent":  "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
         "error.sessionExpiredConfirm":  "Đăng nhập lại",
     ]
