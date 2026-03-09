@@ -206,7 +206,6 @@ final class MezonHTTPClient {
         req.mentionEveryone = mentionEveryone
         req.avatar = avatar
         req.topicID = topicId
-        print("sendChannelMessage: \(req)")
         return try await postProto(
             path: "/mezon.api.Mezon/SendChannelMessage",
             message: req,

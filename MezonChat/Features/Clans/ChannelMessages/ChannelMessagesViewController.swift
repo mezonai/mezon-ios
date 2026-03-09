@@ -5,6 +5,14 @@ import SwiftProtobuf
 final class ChannelMessagesViewController: BaseViewController {
 
     private let viewModel: ChannelMessagesViewModel
+    private lazy var inputViewModel: SendMessageInputViewModel = {
+        let vm = SendMessageInputViewModel(placeholder: L(L10n.ChannelMessages.writeMessage), sharedContext: viewModel.accountContext)
+        vm.onSent = { [weak self] in self?.shouldScrollToBottom = true }
+        vm.onError = { Toast.error($0) }
+        return vm
+    }()
+    private lazy var sendInputViewController = SendMessageInputViewController(viewModel: inputViewModel)
+    private var inputBarBottomConstraint: NSLayoutConstraint?
 
     private lazy var headerView: UIView = {
         let v = UIView()
@@ -65,49 +73,6 @@ final class ChannelMessagesViewController: BaseViewController {
         return l
     }()
 
-    private lazy var inputBarView: UIView = {
-        let v = UIView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
-    private lazy var textField: UITextField = {
-        let tf = UITextField()
-        tf.placeholder = L(L10n.ChannelMessages.writeMessage)
-        tf.borderStyle = .roundedRect
-        tf.returnKeyType = .send
-        tf.translatesAutoresizingMaskIntoConstraints = false
-        tf.delegate = self
-        return tf
-    }()
-
-    private lazy var voiceButton: UIButton = {
-        let btn = UIButton(type: .custom)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        let img = generateTintedImage(
-            image: UIImage(bundleImageName: "Chat/Input/Text/IconMicrophone"),
-            color: UIColor.theme.textStrong
-        )
-        btn.setImage(img, for: .normal)
-        btn.addAction(UIAction { [weak self] _ in self?.onVoiceTapped() }, for: .touchUpInside)
-        return btn
-    }()
-
-    private lazy var sendButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "arrow.up.circle.fill")
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 28, weight: .medium)
-        let btn = UIButton(configuration: config)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.addAction(UIAction { [weak self] _ in self?.onSendTapped() }, for: .touchUpInside)
-        return btn
-    }()
-
-    private var inputBarBottomConstraint: NSLayoutConstraint?
-
-    private func onVoiceTapped() {
-    }
-
     init(viewModel: ChannelMessagesViewModel) {
         self.viewModel = viewModel
         super.init(nibName: nil, bundle: nil)
@@ -126,6 +91,9 @@ final class ChannelMessagesViewController: BaseViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if isMovingFromParent {
+            viewModel.onLeave()
+        }
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
     }
@@ -178,6 +146,14 @@ final class ChannelMessagesViewController: BaseViewController {
     }
 
     override func setupUI() {
+        addChild(sendInputViewController)
+        view.addSubview(sendInputViewController.view)
+        sendInputViewController.didMove(toParent: self)
+        sendInputViewController.view.translatesAutoresizingMaskIntoConstraints = false
+
+        let bottomConstraint = sendInputViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        inputBarBottomConstraint = bottomConstraint
+
         view.addSubview(headerView)
         headerView.addSubview(backButton)
         headerView.addSubview(channelTitleLabel)
@@ -185,13 +161,6 @@ final class ChannelMessagesViewController: BaseViewController {
         view.addSubview(loadingIndicator)
         view.addSubview(loadingMoreIndicator)
         view.addSubview(emptyLabel)
-        view.addSubview(inputBarView)
-        inputBarView.addSubview(voiceButton)
-        inputBarView.addSubview(textField)
-        inputBarView.addSubview(sendButton)
-
-        let bottomConstraint = inputBarView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
-        inputBarBottomConstraint = bottomConstraint
 
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -211,26 +180,11 @@ final class ChannelMessagesViewController: BaseViewController {
             tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: inputBarView.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: sendInputViewController.view.topAnchor),
 
-            inputBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            inputBarView.heightAnchor.constraint(equalToConstant: 56),
-
-            textField.leadingAnchor.constraint(equalTo: voiceButton.trailingAnchor, constant: 8),
-            textField.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
-            textField.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
-            textField.heightAnchor.constraint(equalToConstant: 36),
-
-            voiceButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 8),
-            voiceButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
-            voiceButton.widthAnchor.constraint(equalToConstant: 44),
-            voiceButton.heightAnchor.constraint(equalToConstant: 44),
-
-            sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -8),
-            sendButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 44),
-            sendButton.heightAnchor.constraint(equalToConstant: 44),
+            sendInputViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            sendInputViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            sendInputViewController.view.heightAnchor.constraint(equalToConstant: 56),
             bottomConstraint,
 
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -296,20 +250,6 @@ final class ChannelMessagesViewController: BaseViewController {
         loadingIndicator.color = t.textDisabled
         loadingMoreIndicator.color = t.textDisabled
         emptyLabel.textColor = t.textDisabled
-        inputBarView.backgroundColor = t.secondary
-        textField.backgroundColor = t.tertiary
-        textField.textColor = t.textStrong
-        textField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.ChannelMessages.writeMessage),
-            attributes: [.foregroundColor: t.textDisabled]
-        )
-        sendButton.tintColor = t.textRoleLink
-        if let voiceImg = generateTintedImage(
-            image: UIImage(bundleImageName: "Chat/Input/Text/IconMicrophone"),
-            color: t.textStrong
-        ) {
-            voiceButton.setImage(voiceImg, for: .normal)
-        }
     }
 
     private func updateEmptyState() {
@@ -322,7 +262,10 @@ final class ChannelMessagesViewController: BaseViewController {
     private var hasScrolledToBottomInitially = false
     private func scrollToBottomIfNeeded() {
         guard shouldScrollToBottom, !viewModel.messages.isEmpty else { return }
-        let last = IndexPath(row: viewModel.messages.count - 1, section: 0)
+        let rowCount = viewModel.messages.count
+        let lastRow = rowCount - 1
+        guard lastRow >= 0, lastRow < tableView.numberOfRows(inSection: 0) else { return }
+        let last = IndexPath(row: lastRow, section: 0)
         let isInitial = !hasScrolledToBottomInitially
         hasScrolledToBottomInitially = true
         if isInitial {
@@ -331,13 +274,6 @@ final class ChannelMessagesViewController: BaseViewController {
         } else {
             tableView.scrollToRow(at: last, at: .bottom, animated: true)
         }
-    }
-
-    private func onSendTapped() {
-        guard let text = textField.text else { return }
-        viewModel.sendMessage(text: text)
-        textField.text = ""
-        shouldScrollToBottom = true
     }
 
     private func onBack() {
@@ -363,13 +299,6 @@ extension ChannelMessagesViewController: UITableViewDataSource, UITableViewDeleg
             viewModel.fetchMoreMessages()
         }
         shouldScrollToBottom = scrollView.contentOffset.y + scrollView.bounds.height >= scrollView.contentSize.height - 100
-    }
-}
-
-extension ChannelMessagesViewController: UITextFieldDelegate {
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        onSendTapped()
-        return true
     }
 }
 
@@ -476,8 +405,13 @@ private final class MessageCell: UITableViewCell {
         nameLabel.isHidden = isCombine
         timeLabel.isHidden = isCombine
 
-        contentTopToName?.isActive = !isCombine
-        contentTopToView?.isActive = isCombine
+        contentTopToName?.isActive = false
+        contentTopToView?.isActive = false
+        if isCombine {
+            contentTopToView?.isActive = true
+        } else {
+            contentTopToName?.isActive = true
+        }
 
         if !isCombine {
             if let urlString = display.avatarURL, !urlString.isEmpty, let url = URL(string: urlString) {

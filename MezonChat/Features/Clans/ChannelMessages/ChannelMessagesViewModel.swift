@@ -55,10 +55,15 @@ final class ChannelMessagesViewModel: BaseViewModel {
     }
 
     func start() {
+        sharedContext.sharedDataStore.channelsStore.setCurrentChannel(clanId: clanId, channel: channel)
         subscribeToStore()
         fetchMessages()
         joinChat()
         fetchClanAvatar()
+    }
+
+    func onLeave() {
+        sharedContext.sharedDataStore.channelsStore.clearCurrentChannel()
     }
 
     private func subscribeToStore() {
@@ -90,6 +95,7 @@ final class ChannelMessagesViewModel: BaseViewModel {
                 let profile = try await MezonHTTPClient.shared.getUserProfileOnClan(clanId: clanId, token: token)
                 if !profile.avatar.isEmpty {
                     cachedClanAvatar = profile.avatar
+                    sharedContext.sharedDataStore.channelsStore.setCachedClanAvatar(profile.avatar, clanId: clanId)
                 }
             } catch {
                 AppLogger.network.debug("[ChannelMessages] fetchClanAvatar: \(error)")
@@ -103,8 +109,8 @@ final class ChannelMessagesViewModel: BaseViewModel {
         MezonSocket.shared.joinClanChat(clanId: clanId)
 
         let channelType: Int32 = clanId == 0
-            ? (channel.type != 0 ? channel.type : 3)
-            : (channel.type != 0 ? channel.type : 1)
+            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
+            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
         let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
 
         MezonSocket.shared.joinChannel(
@@ -185,50 +191,7 @@ final class ChannelMessagesViewModel: BaseViewModel {
         }
     }
 
-    func sendMessage(text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        guard let token = sharedContext.session?.token else {
-            AppLogger.app.warning("[ChannelMessages] sendMessage: no session token")
-            return
-        }
-        let contentJSON = ["t": trimmed]
-        guard let data = try? JSONSerialization.data(withJSONObject: contentJSON),
-              let contentStr = String(data: data, encoding: .utf8) else { return }
-        let mode: Int32 = clanId == 0
-            ? (channel.type == 2 ? 4 : 3)
-            : 2
-       
-        let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
-        let avatar: String = clanId == 0
-            ? (sharedContext.currentUser?.avatarURL?.absoluteString ?? "")
-            : (!cachedClanAvatar.isEmpty ? cachedClanAvatar : (sharedContext.currentUser?.avatarURL?.absoluteString ?? ""))
-
-        AppLogger.app.debug("[ChannelMessages] sendMessage → sendChannelMessage clanId=\(self.clanId) channelId=\(self.channel.channelID) mode=\(mode) isPublic=\(isPublic) content=\(contentStr) avatar=\(avatar) topicId=0")
-
-        Task { @MainActor in
-            do {
-                _ = try await MezonHTTPClient.shared.sendChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    content: contentStr,
-                    mentions: [],
-                    attachments: [],
-                    references: [],
-                    anonymous: false,
-                    mentionEveryone: false,
-                    avatar: avatar,
-                    topicId: 0,
-                    token: token
-                )
-            } catch {
-                errorMessage = error.localizedDescription
-                AppLogger.network.error("[ChannelMessages] sendMessage: \(error)")
-            }
-        }
-    }
+    var accountContext: SharedAccountContext { sharedContext }
 
     private func mapApiMessageToDomain(_ api: Mezon_Api_ChannelMessage) -> Message {
         let createdAt = Date(timeIntervalSince1970: TimeInterval(api.createTimeSeconds))

@@ -37,7 +37,7 @@ final class AppContext: ObservableObject {
     func refreshSession() async throws {
         guard let current = session else { throw SessionError.noSession }
         let newSession = try await SessionRefreshManager.shared.refresh(session: current)
-        applySession(newSession, user: currentUser)
+        applySession(newSession, user: currentUser, connectSocket: false, fetchAccount: false)
     }
 
     private func restoreAndRefreshSession() {
@@ -77,7 +77,7 @@ final class AppContext: ObservableObject {
         )
     }
 
-    private func applySession(_ session: MezonSession, user: User?, connectSocket: Bool = true) {
+    private func applySession(_ session: MezonSession, user: User?, connectSocket: Bool = true, fetchAccount: Bool = true) {
         self.session = session
         SessionStore.save(session)
         MezonHTTPClient.shared.updateBaseURL(from: session)
@@ -86,10 +86,20 @@ final class AppContext: ObservableObject {
         AppLogger.app.info("[Auth] Session refreshed — token: \(session.token.prefix(50))...")
 
         if connectSocket {
+            MezonSocket.shared.tokenProvider = { [weak self] in
+                guard let self else { throw SessionError.noSession }
+                try await self.refreshSession()
+                guard let t = self.session?.token else { throw SessionError.noSession }
+                return t
+            }
+            MezonSocket.shared.onConnected = { [weak self] in
+                self?.rejoinCurrentChannel()
+            }
             MezonSocket.shared.connect(token: session.token, wsHostOverride: nil)
         }
         if let user { currentUser = user }
 
+        guard fetchAccount else { return }
         Task { @MainActor in
             do {
                 let account = try await MezonHTTPClient.shared.getAccount(token: session.token)
@@ -99,5 +109,18 @@ final class AppContext: ObservableObject {
                 AppLogger.network.warning("[Auth] getAccount failed: \(error)")
             }
         }
+    }
+
+    private func rejoinCurrentChannel() {
+        guard let channelsStore = sharedDataStore?.channelsStore,
+              let channel = channelsStore.currentChannel else { return }
+        let clanId = channelsStore.currentClanId
+        MezonSocket.shared.joinClanChat(clanId: clanId)
+        let channelType: Int32 = clanId == 0
+            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
+            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
+        let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
+        MezonSocket.shared.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
+        AppLogger.app.info("[Auth] MezonSocket re-joined clanId=\(clanId) channelId=\(channel.channelID)")
     }
 }

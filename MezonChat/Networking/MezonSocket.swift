@@ -64,6 +64,7 @@ final class MezonSocket: NSObject {
 
     var onDisconnect:         (() -> Void)?
     var onReconnect:          (() -> Void)?
+    var onConnected:          (() -> Void)?
     var onError:              ((Error) -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
@@ -72,7 +73,10 @@ final class MezonSocket: NSObject {
     private var wsHostOverride: String?
     private var isConnected = false
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 5
+    private var hasTriedRefreshSinceConnect = false
+    private let maxReconnectAttempts = 2
+
+    var tokenProvider: (() async throws -> String)?
 
     private override init() { super.init() }
 
@@ -99,8 +103,21 @@ final class MezonSocket: NSObject {
     func disconnect() {
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
         isConnected = false
         reconnectAttempts = 0
+        hasTriedRefreshSinceConnect = false
+        tokenProvider = nil
+        onConnected = nil
+    }
+
+    private func cleanupForReconnect() {
+        isConnected = false
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
     }
 
     func send(_ envelope: Mezon_Realtime_Envelope) {
@@ -157,7 +174,7 @@ final class MezonSocket: NSObject {
                 guard nsErr.code != NSURLErrorCancelled else { return }
                 AppLogger.app.error("MezonSocket receive error: \(error) (code=\(nsErr.code))")
                 Task { @MainActor in
-                    self.isConnected = false
+                    self.cleanupForReconnect()
                     self.onError?(error)
                     self.scheduleReconnect()
                 }
@@ -339,14 +356,42 @@ final class MezonSocket: NSObject {
     }
 
     private func scheduleReconnect() {
-        guard reconnectAttempts < maxReconnectAttempts, let token else { return }
+        guard reconnectAttempts < maxReconnectAttempts || (tokenProvider != nil && !hasTriedRefreshSinceConnect) else {
+            AppLogger.app.error("MezonSocket reconnect abandoned after max attempts")
+            return
+        }
         reconnectAttempts += 1
+        let useRefresh = reconnectAttempts >= maxReconnectAttempts && tokenProvider != nil && !hasTriedRefreshSinceConnect
+        if useRefresh {
+            hasTriedRefreshSinceConnect = true
+            AppLogger.app.info("MezonSocket reconnect failed after \(self.maxReconnectAttempts) attempts — trying with refreshed token")
+        }
         let delay = Double(min(reconnectAttempts * 2, 30))
         AppLogger.app.info("MezonSocket reconnecting in \(delay)s (attempt \(self.reconnectAttempts))")
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.connect(token: token, wsHostOverride: self?.wsHostOverride)
-            self?.onReconnect?()
+            Task { @MainActor in
+                await self?.performReconnect(useTokenRefresh: useRefresh)
+            }
         }
+    }
+
+    private func performReconnect(useTokenRefresh: Bool = false) async {
+        var tokenToUse = token
+        if useTokenRefresh, let provider = tokenProvider {
+            do {
+                tokenToUse = try await provider()
+                reconnectAttempts = 0
+                AppLogger.app.info("MezonSocket using fresh token from tokenProvider")
+            } catch {
+                AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
+            }
+        }
+        guard let token = tokenToUse else {
+            AppLogger.app.error("MezonSocket reconnect aborted: no token")
+            return
+        }
+        connect(token: token, wsHostOverride: wsHostOverride)
+        onReconnect?()
     }
 }
 
@@ -359,7 +404,9 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             self.isConnected = true
             self.reconnectAttempts = 0
+            self.hasTriedRefreshSinceConnect = false
             AppLogger.app.info("MezonSocket connected")
+            self.onConnected?()
         }
     }
 
