@@ -143,6 +143,8 @@ MezonChat/
 ### Networking
 
 - **REST API**: `URLSession` + async/await
+- **HTTP/3 & QUIC**: URLSession on iOS 15+ automatically uses HTTP/3/QUIC when the server supports it (ALPN negotiation)
+- **Multipath**: `multipathServiceType = .handover` for smoother WiFi ↔ cellular handover
 - **Real-time**: `URLSessionWebSocketTask` with binary Protobuf
 - **Session**: Auto-refresh via `SessionRefreshManager`
 
