@@ -1,7 +1,5 @@
 import UIKit
 
-// MARK: - UIImage bundleImageName (Telegram-style)
-
 extension UIImage {
 
     convenience init?(bundleImageName name: String) {
@@ -11,9 +9,6 @@ extension UIImage {
     }
 }
 
-// MARK: - generateTintedImage (Telegram-style)
-
-/// Renders image with given tint color. Uses image alpha as mask.
 func generateTintedImage(image: UIImage?, color: UIColor, backgroundColor: UIColor? = nil) -> UIImage? {
     guard let image = image else { return nil }
 
