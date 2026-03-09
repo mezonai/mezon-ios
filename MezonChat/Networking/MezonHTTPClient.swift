@@ -13,6 +13,9 @@ final class MezonHTTPClient {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.waitsForConnectivity = true
+        if #available(iOS 15.0, *) {
+            config.multipathServiceType = .handover
+        }
         urlSession = URLSession(configuration: config)
     }
 
