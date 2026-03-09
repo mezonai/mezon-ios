@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Combine
 
@@ -8,6 +9,7 @@ final class SharedDataStore: ObservableObject {
     let clansStore = ClansStore()
     let channelsStore = ChannelsStore()
     let messagesStore = MessagesStore()
+    let notificationsStore = NotificationsStore()
 
     init() {}
 
@@ -16,6 +18,7 @@ final class SharedDataStore: ObservableObject {
         clansStore.clear()
         channelsStore.clear()
         messagesStore.clear()
+        notificationsStore.clear()
         MezonPostbox.shared.clear()
     }
 
@@ -32,6 +35,8 @@ final class SharedDataStore: ObservableObject {
             if !channels.isEmpty {
                 channelsStore.restoreChannels(channels, clanId: clanId, selectedChannelId: selChannelId)
             }
+
+            notificationsStore.loadCachedNotifications(for: clanId, categories: [0, 1, 2, 3])
         }
     }
 }

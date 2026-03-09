@@ -94,7 +94,13 @@ enum L10n {
         static let resendInSeconds    = "login.resendInSeconds"
         static let selectCountry      = "login.selectCountry"
     }
-
+    
+    enum Notifications {
+        static let title = "notifications.title"
+        static let mentions = "notifications.mentions"
+        static let messages = "notifications.messages"
+        static let forYou = "notifications.forYou"
+    }
 
     enum OTPVerify {
         static let loginToMezon   = "otpVerify.loginToMezon"
@@ -217,6 +223,11 @@ extension L10n {
         "login.loginTooFast":   "Please wait before trying again",
         "login.resendInSeconds": "Resend in %ds",
         "login.selectCountry":  "Select country code",
+        
+        "notifications.title": "Notifications",
+        "notifications.mentions": "Mentions",
+        "notifications.messages": "Messages",
+        "notifications.forYou": "For you",
 
         "otpVerify.loginToMezon":      "Log in to Mezon account",
         "otpVerify.enterCodeFrom":     "Enter code from",
@@ -329,6 +340,11 @@ extension L10n {
         "login.loginTooFast":   "Vui lòng đợi trước khi thử lại",
         "login.resendInSeconds": "Gửi lại sau %ds",
         "login.selectCountry":  "Chọn mã vùng",
+        
+        "notifications.title": "Thông báo",
+        "notifications.mentions": "Nhắc đến",
+        "notifications.messages": "Tin nhắn",
+        "notifications.forYou": "Dành cho bạn",
 
         "otpVerify.loginToMezon":      "Đăng nhập tài khoản Mezon",
         "otpVerify.enterCodeFrom":     "Nhập mã từ",

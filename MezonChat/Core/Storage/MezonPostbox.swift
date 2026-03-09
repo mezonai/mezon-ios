@@ -99,6 +99,9 @@ final class MezonPostbox {
     private static let keySelectedClanId = "selectedClanId"
     private static func keyChannels(clanId: Int64) -> String { "channels_\(clanId)" }
     private static func keySelectedChannel(clanId: Int64) -> String { "selectedChannel_\(clanId)" }
+    private static func keyNotifications(clanId: Int64, category: Int32) -> String {
+        "notifications_\(clanId)_\(category)"
+    }
 
     func saveAccount(_ account: Mezon_Api_Account) {
         if let data = try? account.serializedData() {
@@ -151,6 +154,20 @@ final class MezonPostbox {
             selId = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
         }
         return (channels, selId)
+    }
+
+    func saveNotifications(
+        _ notifications: [Mezon_Api_Notification], clanId: Int64, category: Int32
+    ) {
+        set(
+            key: Self.keyNotifications(clanId: clanId, category: category),
+            value: encodeProtoArray(notifications))
+    }
+
+    func loadNotifications(clanId: Int64, category: Int32) -> [Mezon_Api_Notification] {
+        let key = Self.keyNotifications(clanId: clanId, category: category)
+        guard let data = get(key: key) else { return [] }
+        return decodeProtoArray(data, type: Mezon_Api_Notification.self)
     }
 
     func loadChannelClanIds() -> [Int64] {

@@ -64,9 +64,11 @@ final class MainCoordinator: BaseCoordinator {
     }
 
     private func makeTab(icon: String, tag: Int) -> UINavigationController {
-        let vc = UIViewController()
-        vc.view.backgroundColor = .mezonBackground
+        let vm  = NotificationsViewModel(sharedContext: sharedContext)
+        let vc  = NotificationViewController(viewModel: vm, sharedContext: sharedContext)
         let nav = UINavigationController(rootViewController: vc)
+        vc.view.backgroundColor = .mezonBackground
+        nav.navigationBar.isHidden = true
         nav.tabBarItem = UITabBarItem(title: nil, image: UIImage(systemName: icon), tag: tag)
         return nav
     }

@@ -120,7 +120,7 @@ final class MezonHTTPClient {
         let _: EmptyResponse = try await post(
             path: "/v2/session/logout",
             body: Body(token: session.token, refresh_token: session.refreshToken,
-                       device_id: deviceId, platform: platform),
+                device_id: deviceId, platform: platform),
             auth: .bearer(session.token)
         )
     }
@@ -166,6 +166,23 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.clandesc
+    }
+
+    func listNotifications(clanID: Int64, category: Int32, token: String) async throws
+        -> [Mezon_Api_Notification]
+    {
+        var req = Mezon_Api_ListNotificationsRequest()
+        req.limit = 50
+        req.clanID = clanID
+        req.notificationID = 0
+        req.category = category
+        req.isMobile = true
+        let response: Mezon_Api_NotificationList = try await postProto(
+            path: "/mezon.api.Mezon/ListNotifications",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.notifications
     }
 
     func getUserProfileOnClan(clanId: Int64, token: String) async throws -> Mezon_Api_ClanProfile {
@@ -236,12 +253,18 @@ final class MezonHTTPClient {
         )
     }
 
-    func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
-        let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
+    func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String)
+        async throws -> T
+    {
+        let req = try buildRequest(
+            method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none,
+            auth: .bearer(token))
         return try await execute(req)
     }
 
-    func getProto<Response: SwiftProtobuf.Message>(path: String, token: String) async throws -> Response {
+    func getProto<Response: SwiftProtobuf.Message>(path: String, token: String) async throws
+        -> Response
+    {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(path: path, message: empty, auth: .bearer(token))
     }
@@ -252,7 +275,8 @@ final class MezonHTTPClient {
         body: Body,
         auth: AuthMethod
     ) async throws -> Response {
-        let req = try buildRequest(method: "POST", path: path, queryItems: queryItems, body: body, auth: auth)
+        let req = try buildRequest(
+            method: "POST", path: path, queryItems: queryItems, body: body, auth: auth)
         return try await execute(req)
     }
 
@@ -281,7 +305,8 @@ final class MezonHTTPClient {
         AppLogger.network.debug("← \(http.statusCode) \(url.path) (\(data.count) bytes)")
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+            let msg =
+                (try? JSONDecoder().decode(APIError.self, from: data))?.message
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             throw MezonError.httpError(statusCode: http.statusCode, message: msg)
         }
@@ -301,7 +326,8 @@ final class MezonHTTPClient {
         body: Body?,
         auth: AuthMethod
     ) throws -> URLRequest {
-        var components = URLComponents(url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(
+            url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         if !queryItems.isEmpty { components.queryItems = queryItems }
 
         var request = URLRequest(url: components.url!)
@@ -322,7 +348,8 @@ final class MezonHTTPClient {
     }
 
     private func execute<T: Decodable>(_ request: URLRequest) async throws -> T {
-        AppLogger.network.debug("→ \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "")")
+        AppLogger.network.debug(
+            "→ \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "")")
         let (data, response) = try await urlSession.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
@@ -331,7 +358,8 @@ final class MezonHTTPClient {
         AppLogger.network.debug("← \(http.statusCode) \(request.url?.path ?? "")")
 
         guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+            let msg =
+                (try? JSONDecoder().decode(APIError.self, from: data))?.message
                 ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             throw MezonError.httpError(statusCode: http.statusCode, message: msg)
         }
@@ -343,7 +371,10 @@ final class MezonHTTPClient {
 
 private struct EmptyBody: Encodable {}
 struct EmptyResponse: Decodable {}
-struct APIError: Decodable { let message: String?; let code: Int? }
+struct APIError: Decodable {
+    let message: String?
+    let code: Int?
+}
 
 enum MezonError: LocalizedError {
     case invalidResponse
@@ -352,9 +383,9 @@ enum MezonError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse:              return "Invalid server response."
-        case .httpError(let c, let msg):    return "HTTP \(c): \(msg)"
-        case .socketError(let msg):         return "Socket: \(msg)"
+        case .invalidResponse: return "Invalid server response."
+        case .httpError(let c, let msg): return "HTTP \(c): \(msg)"
+        case .socketError(let msg): return "Socket: \(msg)"
         }
     }
 }
