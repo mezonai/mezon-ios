@@ -1,559 +1,266 @@
 import UIKit
-import Combine
 
-final class LoginViewController: BaseViewController {
+enum LoginMode: Int, CaseIterable {
+    case sms = 0
+    case emailOTP = 1
+    case password = 2
+}
 
-    private let viewModel: LoginViewModel
+struct OTPContext {
+    let reqId: String
+    let target: String
+    let type: OTPType
+    enum OTPType { case email, sms }
+}
 
-    private lazy var gradientLayer: CAGradientLayer = {
-        let layer = CAGradientLayer()
-        layer.locations = [0, 0.5, 1]
-        return layer
-    }()
+struct LoginState {
+    var mode: LoginMode
+    var email: String
+    var phone: String
+    var countryPrefix: String
+    var password: String
+    var isSubmitEnabled: Bool
+    var otpCooldown: Int
+    var isLoading: Bool
+    var errorMessage: String?
 
-    private lazy var titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 24.sf, weight: .bold)
-        l.textColor = .loginTitleColor
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
+    static let empty = LoginState(mode: .sms, email: "", phone: "", countryPrefix: "+84", password: "", isSubmitEnabled: false, otpCooldown: 0, isLoading: false, errorMessage: nil)
+}
 
-    private lazy var subtitleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14.sf)
-        l.textColor = .loginSubtitleColor
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
+final class LoginViewController: ViewController {
 
-    private lazy var phonePrefixButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.baseForegroundColor = .mezonTextStrong
-        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8.sw, bottom: 0, trailing: 4.sw)
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
-            var a = attrs
-            a.font = .systemFont(ofSize: 14.sf)
-            return a
-        }
-        let btn = UIButton(configuration: config)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
+    private let context: AccountContext
+    private let disposables = DisposableSet()
 
-    private lazy var phoneTextField: UITextField = {
-        makeTextField(placeholderKey: L10n.Login.phone, keyboard: .phonePad)
-    }()
+    private let modePipe = ValuePipe<LoginMode>()
+    private let emailPipe = ValuePipe<String>()
+    private let phonePipe = ValuePipe<String>()
+    private let countryPrefixPipe = ValuePipe<String>()
+    private let passwordPipe = ValuePipe<String>()
+    private let isSubmitEnabledPipe = ValuePipe<Bool>()
+    private let otpCooldownPipe = ValuePipe<Int>()
+    private let isLoadingPipe = ValuePipe<Bool>()
+    private let errorMessagePipe = ValuePipe<String?>()
+    private let submitPipe = ValuePipe<Void>()
+    private let needsReloadPipe = ValuePipe<Void>()
 
-    private lazy var phoneStack: UIStackView = {
-        phonePrefixButton.setContentHuggingPriority(.required, for: .horizontal)
-        phoneTextField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let sv = UIStackView(arrangedSubviews: [phonePrefixButton, separatorView(), phoneTextField])
-        sv.axis = .horizontal
-        sv.spacing = 0
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
+    private var cooldownTimer: Timer?
+    private let mainQueue = Queue.mainQueue()
 
-    private lazy var phoneInputContainer: UIView = {
-        wrapInput(phoneStack)
-    }()
+    private(set) var mode: LoginMode = .sms
+    private(set) var email: String = ""
+    private(set) var phone: String = ""
+    private(set) var countryPrefix: String = "+84"
+    private(set) var password: String = ""
+    private(set) var isSubmitEnabled: Bool = false
+    private(set) var otpCooldown: Int = 0
+    private(set) var isLoading: Bool = false
+    private(set) var errorMessage: String?
 
-    private lazy var emailTextField: UITextField = {
-        let tf = makeTextField(placeholderKey: L10n.Login.emailAddress, keyboard: .emailAddress)
-        tf.leftView = iconView(systemName: "envelope")
-        tf.leftViewMode = .always
-        return tf
-    }()
+    private var loginNode: LoginContainerNode { displayNode as! LoginContainerNode }
 
-    private lazy var emailInputContainer: UIView = {
-        wrapInput(emailTextField)
-    }()
-
-    private lazy var passwordTextField: UITextField = {
-        let tf = makeTextField(placeholderKey: L10n.Login.password, keyboard: .default)
-        tf.isSecureTextEntry = true
-        tf.textContentType = .password
-        tf.leftView = iconView(systemName: "lock.fill")
-        tf.leftViewMode = .always
-        return tf
-    }()
-
-    private lazy var passwordInputContainer: UIView = {
-        wrapInput(passwordTextField)
-    }()
-
-    private lazy var showPasswordButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.baseForegroundColor = .loginTitleColor
-        config.image = UIImage(systemName: "square")
-        config.imagePlacement = .leading
-        config.imagePadding = 8.sw
-        config.contentInsets = .zero
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
-            var a = attrs
-            a.font = .systemFont(ofSize: 14.sf)
-            return a
-        }
-        let btn = UIButton(configuration: config)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
-
-    private lazy var submitButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
-        btn.setTitleColor(.white, for: .normal)
-        btn.setTitleColor(UIColor.white.withAlphaComponent(0.6), for: .disabled)
-        btn.layer.cornerRadius = 12.sw
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
-
-    private lazy var alternativeHintLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14.sf)
-        l.textColor = .loginAlternativeText
-        l.textAlignment = .center
-        l.numberOfLines = 0
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private lazy var alternativeStack: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .vertical
-        sv.spacing = 6.sh
-        sv.alignment = .center
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
-    }()
-
-    private lazy var cooldownLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 13.sf)
-        l.textColor = .loginAlternativeText
-        l.textAlignment = .center
-        l.isHidden = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
-        ai.hidesWhenStopped = true
-        ai.color = .white
-        ai.translatesAutoresizingMaskIntoConstraints = false
-        return ai
-    }()
-
-    private var alternativeLinkButtons: [UIButton] = []
-    private var inputSectionStack: UIStackView!
-
-
-    init(viewModel: LoginViewModel) {
-        self.viewModel = viewModel
-        super.init(nibName: nil, bundle: nil)
+    init(context: AccountContext) {
+        self.context = context
+        super.init(navigationBarPresentationData: nil)
+        bindValidation()
+        bindSubmit()
+        modePipe.putNext(mode)
+        emailPipe.putNext(email)
+        phonePipe.putNext(phone)
+        countryPrefixPipe.putNext(countryPrefix)
+        passwordPipe.putNext(password)
+        isSubmitEnabledPipe.putNext(isSubmitEnabled)
+        otpCooldownPipe.putNext(otpCooldown)
+        isLoadingPipe.putNext(isLoading)
+        errorMessagePipe.putNext(errorMessage)
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init(coder aDecoder: NSCoder) { fatalError() }
 
+    override func loadDisplayNode() {
+        let interaction = LoginInteraction(
+            onPhoneChanged: { [weak self] text in self?.setPhone(text) },
+            onEmailChanged: { [weak self] text in self?.setEmail(text) },
+            onPasswordChanged: { [weak self] text in self?.setPassword(text) },
+            onSubmitTapped: { [weak self] in self?.triggerSubmit() },
+            onCountryPrefixTapped: { [weak self] in self?.showCountryPicker() },
+            onShowPasswordToggled: {},
+            onModeSelected: { [weak self] mode in self?.setMode(mode) }
+        )
+        displayNode = LoginContainerNode(signal: stateSignal(), interaction: interaction)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleLanguageChange),
-            name: LanguageManager.didChangeNotification,
-            object: nil
-        )
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        gradientLayer.frame = view.bounds
-    }
-
-
-    override func setupUI() {
-        view.layer.insertSublayer(gradientLayer, at: 0)
         navigationController?.setNavigationBarHidden(true, animated: false)
-
-        inputSectionStack = UIStackView()
-        inputSectionStack.axis = .vertical
-        inputSectionStack.spacing = 0
-        inputSectionStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let contentStack = UIStackView(arrangedSubviews: [
-            titleLabel,
-            subtitleLabel,
-            spacer(40.sh),
-            inputSectionStack,
-            spacer(24.sh),
-            submitButton,
-            spacer(30.sh),
-            alternativeHintLabel,
-            alternativeStack,
-            spacer(12.sh),
-            cooldownLabel,
-        ])
-        contentStack.axis = .vertical
-        contentStack.spacing = 0
-        contentStack.setCustomSpacing(10.sh, after: titleLabel)
-        contentStack.setCustomSpacing(40.sh, after: subtitleLabel)
-        contentStack.setCustomSpacing(6.sh, after: alternativeHintLabel)
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let scroll = UIScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.keyboardDismissMode = .onDrag
-        view.addSubview(scroll)
-        scroll.addSubview(contentStack)
-        view.addSubview(loadingIndicator)
-
-        NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-
-            contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 100.sh),
-            contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 16.sw),
-            contentStack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -16.sw),
-            contentStack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -40.sh),
-            contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -32.sw),
-
-            submitButton.heightAnchor.constraint(equalToConstant: 50.sh),
-            phonePrefixButton.widthAnchor.constraint(equalToConstant: 64.sw),
-
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-
-        applyTheme()
-        refreshLocalizedStrings()
-        updateVisibleFields(mode: viewModel.mode)
-        updateAlternativeLinks(mode: viewModel.mode)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
     }
 
-
-    override func setupBindings() {
-        phoneTextField.textPublisher
-            .assign(to: &viewModel.$phone)
-
-        emailTextField.textPublisher
-            .assign(to: &viewModel.$email)
-
-        passwordTextField.textPublisher
-            .assign(to: &viewModel.$password)
-
-        submitButton.tapPublisher
-            .sink { [weak self] in self?.viewModel.submitTrigger.send() }
-            .store(in: &cancellables)
-
-        phonePrefixButton.tapPublisher
-            .sink { [weak self] in self?.showCountryPicker() }
-            .store(in: &cancellables)
-
-        showPasswordButton.tapPublisher
-            .sink { [weak self] in
-                guard let self else { return }
-                let next = !self.passwordTextField.isSecureTextEntry
-                self.passwordTextField.isSecureTextEntry = next
-                self.showPasswordButton.configuration?.image = UIImage(systemName: next ? "square" : "checkmark.square.fill")
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isSubmitEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] enabled in
-                self?.submitButton.isEnabled = enabled
-                self?.submitButton.backgroundColor = enabled ? .loginButtonBg : .loginButtonBgDisabled
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isLoading
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
-                if loading { self?.loadingIndicator.startAnimating() } else { self?.loadingIndicator.stopAnimating() }
-                self?.submitButton.isUserInteractionEnabled = !loading
-            }
-            .store(in: &cancellables)
-
-        viewModel.$errorMessage
-            .receive(on: DispatchQueue.main)
-            .sink { msg in
-                guard let msg else { return }
-                Toast.error(msg)
-            }
-            .store(in: &cancellables)
-
-        viewModel.$otpCooldown
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] seconds in
-                guard let self else { return }
-                if seconds > 0 {
-                    self.cooldownLabel.text = String(format: L(L10n.Login.resendInSeconds), seconds)
-                    self.cooldownLabel.isHidden = false
-                } else {
-                    self.cooldownLabel.isHidden = true
-                }
-            }
-            .store(in: &cancellables)
-
-        viewModel.$mode
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] mode in
-                self?.updateVisibleFields(mode: mode)
-                self?.updateAlternativeLinks(mode: mode)
-                self?.updateSubmitTitle(mode: mode)
-                self?.refreshLocalizedStrings()
-            }
-            .store(in: &cancellables)
-
-        viewModel.$countryPrefix
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] prefix in
-                self?.phonePrefixButton.configuration?.title = "\(prefix)  ▾"
-            }
-            .store(in: &cancellables)
-
-        updateSubmitTitle(mode: viewModel.mode)
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        loginNode.updateLayout(layout: layout, transition: transition)
     }
 
+    deinit { disposables.dispose() }
 
-    override func applyTheme() {
-        let attrs = ThemeManager.shared.attributes
-        gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
+    func setMode(_ v: LoginMode) { mode = v; modePipe.putNext(v); needsReloadPipe.putNext(()) }
+    func setEmail(_ v: String) { email = v; emailPipe.putNext(v) }
+    func setPhone(_ v: String) { phone = v; phonePipe.putNext(v) }
+    func setCountryPrefix(_ v: String) { countryPrefix = v; countryPrefixPipe.putNext(v); needsReloadPipe.putNext(()) }
+    func setPassword(_ v: String) { password = v; passwordPipe.putNext(v) }
 
-        titleLabel.textColor = attrs.loginTitleColor
-        subtitleLabel.textColor = attrs.loginSubtitleColor
-        alternativeHintLabel.textColor = attrs.loginAlternativeText
-        cooldownLabel.textColor = attrs.loginAlternativeText
+    private func setSubmitEnabled(_ v: Bool) { isSubmitEnabled = v; isSubmitEnabledPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setOtpCooldown(_ v: Int) { otpCooldown = v; otpCooldownPipe.putNext(v); needsReloadPipe.putNext(()) }
+    func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
+    func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
-        phoneInputContainer.backgroundColor = attrs.loginInputBg
-        phoneInputContainer.layer.borderColor = attrs.loginInputBorder.cgColor
-        emailInputContainer.backgroundColor = attrs.loginInputBg
-        emailInputContainer.layer.borderColor = attrs.loginInputBorder.cgColor
-        passwordInputContainer.backgroundColor = attrs.loginInputBg
-        passwordInputContainer.layer.borderColor = attrs.loginInputBorder.cgColor
+    func triggerSubmit() { submitPipe.putNext(()) }
 
-        phoneTextField.textColor = attrs.loginInputTextColor
-        phoneTextField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Login.phone),
-            attributes: [.foregroundColor: attrs.loginPlaceholder]
-        )
-        emailTextField.textColor = attrs.loginInputTextColor
-        emailTextField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Login.emailAddress),
-            attributes: [.foregroundColor: attrs.loginPlaceholder]
-        )
-        passwordTextField.textColor = attrs.loginInputTextColor
-        passwordTextField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Login.password),
-            attributes: [.foregroundColor: attrs.loginPlaceholder]
-        )
-
-        phonePrefixButton.configuration?.baseForegroundColor = attrs.loginTitleColor
-        showPasswordButton.configuration?.baseForegroundColor = attrs.loginTitleColor
-
-        submitButton.backgroundColor = viewModel.isSubmitEnabled ? attrs.loginButtonBg : attrs.loginButtonBgDisabled
-
-        alternativeLinkButtons.forEach { btn in
-            btn.configuration?.baseForegroundColor = attrs.textLink
+    private func bindValidation() {
+        let combined = combineLatest(queue: mainQueue, modePipe.signal(), emailPipe.signal(), phonePipe.signal(), passwordPipe.signal())
+        let validated = combined |> map { [weak self] mode, email, phone, password in
+            self?.validate(mode: mode, email: email, phone: phone, password: password) ?? false
         }
+        disposables.add((validated |> deliverOnMainQueue).start(next: { [weak self] enabled in self?.setSubmitEnabled(enabled) }))
     }
 
-
-    @objc private func handleLanguageChange() {
-        refreshLocalizedStrings()
-    }
-
-
-    private func refreshLocalizedStrings() {
-        let mode = viewModel.mode
+    private func validate(mode: LoginMode, email: String, phone: String, password: String) -> Bool {
         switch mode {
-        case .sms:
-            titleLabel.text = L(L10n.Login.enterPhone)
-        case .emailOTP, .password:
-            titleLabel.text = L(L10n.Login.enterEmail)
+        case .sms: return isValidPhone(phone, prefix: countryPrefix)
+        case .emailOTP: return isValidEmail(email)
+        case .password: return isValidEmail(email) && !password.isEmpty
         }
-        subtitleLabel.text = L(L10n.Login.chooseAnotherOption)
-        showPasswordButton.configuration?.title = L(L10n.Login.showPassword)
-        updateAlternativeLinks(mode: mode)
-        updateSubmitTitle(mode: mode)
-
-        phoneTextField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Login.phone),
-            attributes: [.foregroundColor: ThemeManager.shared.attributes.loginPlaceholder]
-        )
-        emailTextField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Login.emailAddress),
-            attributes: [.foregroundColor: ThemeManager.shared.attributes.loginPlaceholder]
-        )
-        passwordTextField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Login.password),
-            attributes: [.foregroundColor: ThemeManager.shared.attributes.loginPlaceholder]
-        )
     }
 
+    private func isValidEmail(_ email: String) -> Bool {
+        email.range(of: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", options: .regularExpression) != nil
+    }
 
-    private func updateVisibleFields(mode: LoginMode) {
-        inputSectionStack?.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    private func isValidPhone(_ phone: String, prefix: String) -> Bool {
+        let cleaned = phone.trimmingCharacters(in: .whitespaces)
+        if prefix == "+84" {
+            let p = cleaned.hasPrefix("0") ? String(cleaned.dropFirst()) : cleaned
+            return p.count == 9 && p.first.map { "3579".contains($0) } == true
+        }
+        return cleaned.count >= 7 && cleaned.allSatisfy { $0.isNumber }
+    }
 
+    private func bindSubmit() {
+        let filtered = submitPipe.signal() |> filter { [weak self] in self?.isSubmitEnabled == true && self?.isLoading == false }
+        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in
+            Task { await self?.handleSubmit() }
+        }))
+    }
+
+    @MainActor private func handleSubmit() async {
         switch mode {
-        case .sms:
-            inputSectionStack?.addArrangedSubview(phoneInputContainer)
-        case .emailOTP:
-            inputSectionStack?.addArrangedSubview(emailInputContainer)
-        case .password:
-            inputSectionStack?.addArrangedSubview(emailInputContainer)
-            inputSectionStack?.setCustomSpacing(12.sh, after: emailInputContainer)
-            inputSectionStack?.addArrangedSubview(passwordInputContainer)
-            inputSectionStack?.setCustomSpacing(12.sh, after: passwordInputContainer)
-            inputSectionStack?.addArrangedSubview(showPasswordButton)
-        }
-
-        view.layoutIfNeeded()
-    }
-
-
-    private func updateSubmitTitle(mode: LoginMode) {
-        switch mode {
-        case .sms, .emailOTP:
-            submitButton.setTitle(L(L10n.Login.send), for: .normal)
-        case .password:
-            submitButton.setTitle(L(L10n.Login.logIn), for: .normal)
+        case .sms: await sendSMSOTP()
+        case .emailOTP: await sendEmailOTP()
+        case .password: await loginWithPassword()
         }
     }
 
-
-    private func updateAlternativeLinks(mode: LoginMode) {
-        let hint: String
-        let links: [(String, LoginMode)]
-
-        switch mode {
-        case .sms:
-            hint = L(L10n.Login.cannotAccessYourPhone)
-            links = [(L(L10n.Login.loginWithEmailOTP), .emailOTP), (L(L10n.Login.loginWithPassword), .password)]
-        case .emailOTP:
-            hint = L(L10n.Login.cannotAccessYourEmail)
-            links = [(L(L10n.Login.loginWithSMS), .sms), (L(L10n.Login.loginWithPassword), .password)]
-        case .password:
-            hint = L(L10n.Login.passwordNotSet)
-            links = [(L(L10n.Login.loginWithEmailOTP), .emailOTP), (L(L10n.Login.loginWithSMS), .sms)]
+    @MainActor private func loginWithPassword() async {
+        setIsLoading(true)
+        setErrorMessage(nil)
+        do {
+            let session = try await self.context.account.network.authenticateEmail(email: email.trimmingCharacters(in: .whitespaces), password: password)
+            handleSessionReceived(session)
+        } catch {
+            setErrorMessage(error.localizedDescription)
         }
-
-        alternativeHintLabel.text = hint
-        alternativeHintLabel.isHidden = hint.isEmpty
-
-        alternativeStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        alternativeLinkButtons.removeAll()
-
-        for (title, targetMode) in links {
-            let btn = makeLinkButton(title: title) { [weak self] in
-                self?.viewModel.mode = targetMode
-            }
-            alternativeLinkButtons.append(btn)
-            alternativeStack.addArrangedSubview(btn)
-        }
+        setIsLoading(false)
     }
 
-
-    private func makeLinkButton(title: String, action: @escaping () -> Void) -> UIButton {
-        var config = UIButton.Configuration.plain()
-        config.title = title
-        config.baseForegroundColor = .mezonLink
-        config.contentInsets = .zero
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
-            var a = attrs
-            a.font = .systemFont(ofSize: 14.sf)
-            return a
+    @MainActor private func sendEmailOTP() async {
+        guard otpCooldown == 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        do {
+            let res = try await self.context.account.network.authenticateEmailOTPRequest(email: email.trimmingCharacters(in: .whitespaces))
+            guard let reqId = res.reqId else { setErrorMessage(L(L10n.OTPVerify.sendOtpError)); setIsLoading(false); return }
+            startCooldown()
+            pushOTPScreen(otpContext: OTPContext(reqId: reqId, target: email.trimmingCharacters(in: .whitespaces), type: .email))
+        } catch {
+            setErrorMessage(error.localizedDescription)
         }
-        let btn = UIButton(configuration: config)
-        btn.tapPublisher
-            .sink { action() }
-            .store(in: &cancellables)
-        return btn
+        setIsLoading(false)
     }
 
+    @MainActor private func sendSMSOTP() async {
+        guard otpCooldown == 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let fullPhone = buildFullPhone()
+        do {
+            let res = try await self.context.account.network.authenticateSMSOTPRequest(phone: fullPhone)
+            guard let reqId = res.reqId else { setErrorMessage(L(L10n.OTPVerify.sendOtpError)); setIsLoading(false); return }
+            startCooldown()
+            pushOTPScreen(otpContext: OTPContext(reqId: reqId, target: fullPhone, type: .sms))
+        } catch {
+            setErrorMessage(error.localizedDescription)
+        }
+        setIsLoading(false)
+    }
+
+    func buildFullPhone() -> String {
+        var p = phone.trimmingCharacters(in: .whitespaces)
+        if countryPrefix == "+84" && p.hasPrefix("0") { p = String(p.dropFirst()) }
+        return "\(countryPrefix)\(p)"
+    }
+
+    func handleSessionReceived(_ session: MezonSession) {
+        SessionStore.save(session)
+        self.context.account.network.updateBaseURL(from: session)
+        let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? email, displayName: session.username ?? email, avatarURL: nil, status: .online, bio: nil)
+        Task { @MainActor in context.login(user: user, session: session) }
+    }
+
+    private func pushOTPScreen(otpContext: OTPContext) {
+        let vc = VerifyOTPViewController(otpContext: otpContext, context: context)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func startCooldown(seconds: Int = 60) {
+        setOtpCooldown(seconds)
+        cooldownTimer?.invalidate()
+        let timer = Timer(timeout: 1, repeat: true, completion: { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            if self.otpCooldown > 0 { self.setOtpCooldown(self.otpCooldown - 1) }
+            else { t.invalidate() }
+        }, queue: mainQueue)
+        cooldownTimer = timer
+        timer.start()
+    }
+
+    var currentState: LoginState {
+        LoginState(mode: mode, email: email, phone: phone, countryPrefix: countryPrefix, password: password, isSubmitEnabled: isSubmitEnabled, otpCooldown: otpCooldown, isLoading: isLoading, errorMessage: errorMessage)
+    }
+
+    func stateSignal() -> Signal<LoginState, NoError> {
+        Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            subscriber.putNext(self.currentState)
+            return (self.needsReloadPipe.signal()
+                |> map { [weak self] _ in self?.currentState ?? .empty }
+                |> deliverOnMainQueue
+            ).start(next: { subscriber.putNext($0) })
+        }
+    }
 
     private func showCountryPicker() {
         let sheet = UIAlertController(title: L(L10n.Login.selectCountry), message: nil, preferredStyle: .actionSheet)
         let countries = [("+84", "🇻🇳 Việt Nam"), ("+81", "🇯🇵 Japan"), ("+1", "🇺🇸 USA")]
         for (prefix, name) in countries {
-            sheet.addAction(UIAlertAction(title: name, style: .default) { [weak self] _ in
-                self?.viewModel.countryPrefix = prefix
-            })
+            sheet.addAction(UIAlertAction(title: name, style: .default) { [weak self] _ in self?.setCountryPrefix(prefix) })
         }
         sheet.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = phonePrefixButton
-        }
+        if let pop = sheet.popoverPresentationController { pop.sourceView = loginNode.phonePrefixButton }
         present(sheet, animated: true)
     }
 
-
-    private func separatorView() -> UIView {
-        let v = UIView()
-        v.backgroundColor = .loginAlternativeText.withAlphaComponent(0.4)
-        v.widthAnchor.constraint(equalToConstant: 1).isActive = true
-        return v
-    }
-
-
-    private func iconView(systemName: String) -> UIView {
-        let iv = UIImageView(image: UIImage(systemName: systemName))
-        iv.tintColor = .loginPlaceholder
-        iv.contentMode = .scaleAspectFit
-        iv.frame = CGRect(x: 0, y: 0, width: 44.sw, height: 24.sh)
-        let container = UIView(frame: CGRect(x: 0, y: 0, width: 44.sw, height: 24.sh))
-        container.addSubview(iv)
-        iv.center = CGPoint(x: 22.sw, y: 12.sh)
-        return container
-    }
-
-
-    private func makeTextField(placeholderKey: String, keyboard: UIKeyboardType) -> UITextField {
-        let tf = UITextField()
-        tf.placeholder = L(placeholderKey)
-        tf.keyboardType = keyboard
-        tf.autocapitalizationType = .none
-        tf.autocorrectionType = .no
-        tf.borderStyle = .none
-        tf.font = .systemFont(ofSize: 16.sf)
-        tf.translatesAutoresizingMaskIntoConstraints = false
-        return tf
-    }
-
-
-    private func wrapInput(_ content: UIView) -> UIView {
-        let container = UIView()
-        container.layer.cornerRadius = 12.sw
-        container.layer.borderWidth = 1
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16.sw),
-            content.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16.sw),
-            content.topAnchor.constraint(equalTo: container.topAnchor),
-            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            container.heightAnchor.constraint(equalToConstant: 50.sh),
-        ])
-        return container
-    }
-
-
-    private func spacer(_ height: CGFloat) -> UIView {
-        let v = UIView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.heightAnchor.constraint(equalToConstant: height).isActive = true
-        return v
-    }
+    @objc private func handleLanguageChange() { loginNode.refreshLocalizedStrings() }
 }
-
 
 #if DEBUG
 import SwiftUI
@@ -561,11 +268,7 @@ import SwiftUI
 struct LoginViewController_Previews: PreviewProvider {
     static var previews: some View {
         UIViewControllerPreview {
-            UINavigationController(
-                rootViewController: LoginViewController(
-                    viewModel: LoginViewModel(context: .preview)
-                )
-            )
+            UINavigationController(rootViewController: LoginViewController(context: AccountContextImpl.preview))
         }
         .ignoresSafeArea()
         .previewDisplayName("Login")

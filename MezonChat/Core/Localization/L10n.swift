@@ -1,8 +1,6 @@
 import Foundation
 
-
 enum L10n {
-
 
     enum Tab {
         static let clans         = "tab.clans"
@@ -23,7 +21,6 @@ enum L10n {
         static let userIdCopied      = "profile.userIdCopied"
         static let currency          = "profile.currency"
     }
-
 
     enum Common {
         static let settings       = "common.settings"
@@ -51,7 +48,6 @@ enum L10n {
         static let language       = "common.language"
     }
 
-
     enum Settings {
         static let title          = "settings.title"
         static let language       = "settings.language"
@@ -61,11 +57,9 @@ enum L10n {
         static let privacy        = "settings.privacy"
     }
 
-
     enum Language {
         static let title          = "language.title"
     }
-
 
     enum Login {
         static let welcomeBack         = "login.welcomeBack"
@@ -95,7 +89,6 @@ enum L10n {
         static let selectCountry      = "login.selectCountry"
     }
 
-
     enum OTPVerify {
         static let loginToMezon   = "otpVerify.loginToMezon"
         static let enterCodeFrom  = "otpVerify.enterCodeFrom"
@@ -108,7 +101,6 @@ enum L10n {
         static let resendFailed   = "otpVerify.resendFailed"
         static let sendOtpError   = "otpVerify.sendOtpError"
     }
-
 
     enum Clan {
         static let createClan     = "clan.createClan"
@@ -134,15 +126,15 @@ enum L10n {
     }
 
     enum Error {
-        static let networkError       = "error.networkError"
-        static let connectionFailed   = "error.connectionFailed"
-        static let somethingWentWrong = "error.somethingWentWrong"
-        static let sessionExpiredTitle  = "error.sessionExpiredTitle"
-        static let sessionExpiredContent = "error.sessionExpiredContent"
-        static let sessionExpiredConfirm = "error.sessionExpiredConfirm"
+        static let networkError           = "error.networkError"
+        static let connectionFailed       = "error.connectionFailed"
+        static let somethingWentWrong     = "error.somethingWentWrong"
+        static let sessionExpiredTitle    = "error.sessionExpiredTitle"
+        static let sessionExpiredOrNetwork = "error.sessionExpiredOrNetwork"
+        static let sessionExpiredContent  = "error.sessionExpiredContent"
+        static let sessionExpiredConfirm  = "error.sessionExpiredConfirm"
     }
 }
-
 
 extension L10n {
 
@@ -150,7 +142,6 @@ extension L10n {
         .english: en,
         .vietnamese: vi
     ]
-
 
     private static let en: [String: String] = [
         "tab.clans":            "Clans",
@@ -258,10 +249,10 @@ extension L10n {
         "error.connectionFailed":       "Connection failed. Please try again.",
         "error.somethingWentWrong":     "Something went wrong",
         "error.sessionExpiredTitle":    "Session Expired",
+        "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
     ]
-
 
     private static let vi: [String: String] = [
         "tab.clans":            "Kênh",
@@ -369,6 +360,7 @@ extension L10n {
         "error.connectionFailed":       "Kết nối thất bại. Vui lòng thử lại.",
         "error.somethingWentWrong":     "Đã xảy ra lỗi",
         "error.sessionExpiredTitle":    "Phiên đăng nhập hết hạn",
+        "error.sessionExpiredOrNetwork": "Phiên hết hạn hoặc lỗi mạng",
         "error.sessionExpiredContent":  "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
         "error.sessionExpiredConfirm":  "Đăng nhập lại",
     ]

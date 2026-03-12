@@ -49,26 +49,48 @@ final class SessionRefreshManager {
         return newSession
     }
 
+    private let launchRefreshTimeout: UInt64 = 15_000_000_000
+
     func refreshOnAppLaunch(
         session: MezonSession,
         onSuccess: @escaping (MezonSession) -> Void,
         onExpired: @escaping () -> Void,
         onReady: @escaping () -> Void
     ) {
-        Task {
+        Task { @MainActor in
+            print("[SessionRefreshManager] refreshOnAppLaunch started")
+            var onReadyCalled = false
+            func safeOnReady(source: String) {
+                guard !onReadyCalled else {
+                    print("[SessionRefreshManager] safeOnReady(\(source)) — already called, skip")
+                    return
+                }
+                onReadyCalled = true
+                print("[SessionRefreshManager] safeOnReady(\(source)) — calling onReady()")
+                onReady()
+            }
+
+            let timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: launchRefreshTimeout)
+                safeOnReady(source: "timeout")
+            }
+            defer { timeoutTask.cancel() }
+
             var retriesLeft = maxAppLaunchRetries
 
             while retriesLeft > 0 {
                 do {
                     let newSession = try await refresh(session: session)
+                    print("[SessionRefreshManager] refresh SUCCESS")
                     onSuccess(newSession)
-                    onReady()
+                    safeOnReady(source: "success")
                     return
                 } catch let error as MezonError {
                     retriesLeft -= 1
                     AppLogger.app.warning("Session refresh failed (retries left: \(retriesLeft)): \(error)")
+                    print("[SessionRefreshManager] refresh MezonError: \(error)")
 
-                    onReady()
+                    safeOnReady(source: "MezonError")
 
                     if retriesLeft == 0 {
                         switch error {
@@ -87,13 +109,15 @@ final class SessionRefreshManager {
                 } catch let error as SessionError {
                     retriesLeft -= 1
                     AppLogger.app.warning("Session refresh guard error: \(error)")
-                    onReady()
+                    print("[SessionRefreshManager] refresh SessionError: \(error)")
+                    safeOnReady(source: "SessionError")
                     if retriesLeft == 0 { onExpired() }
                     return
                 } catch {
                     retriesLeft -= 1
                     AppLogger.app.warning("Unexpected refresh error: \(error)")
-                    onReady()
+                    print("[SessionRefreshManager] refresh unexpected error: \(error)")
+                    safeOnReady(source: "catch")
                 }
             }
         }

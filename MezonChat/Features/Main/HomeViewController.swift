@@ -1,35 +1,40 @@
 import UIKit
-import Combine
+import AsyncDisplayKit
 
-final class HomeViewController: UIViewController {
+final class HomeViewController: BaseViewController {
 
     private let clanListVC: ClanListViewController
     private let channelListVC: ChannelListViewController
-
-    private let clanVM: ClanListViewModel
-    private let channelVM: ChannelListViewModel
-    private let sharedContext: SharedAccountContext
+    private let context: AccountContext
 
     private let clanSidebarWidth: CGFloat = Constants.Layout.clanSidebarWidth
-    private var cancellables = Set<AnyCancellable>()
 
-    init(clanVM: ClanListViewModel, channelVM: ChannelListViewModel, sharedContext: SharedAccountContext) {
-        self.clanVM        = clanVM
-        self.channelVM     = channelVM
-        self.sharedContext = sharedContext
-        self.clanListVC    = ClanListViewController(viewModel: clanVM)
-        self.channelListVC = ChannelListViewController(viewModel: channelVM)
-        super.init(nibName: nil, bundle: nil)
+    init(context: AccountContext) {
+        self.context = context
+        self.clanListVC = ClanListViewController(context: context)
+        self.channelListVC = ChannelListViewController(context: context)
+        super.init(navigationBarPresentationData: nil)
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         embedChildren()
         bindClanSelection()
         bindChannelSelection()
-        bindThemeButton()
+        bindSidebarCallbacks()
+    }
+
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+
+        let clanLayout = layout.withUpdatedSize(CGSize(width: clanSidebarWidth, height: layout.size.height))
+        clanListVC.containerLayoutUpdated(clanLayout, transition: transition)
+
+        let channelWidth = max(0, layout.size.width - clanSidebarWidth)
+        let channelLayout = layout.withUpdatedSize(CGSize(width: channelWidth, height: layout.size.height))
+        channelListVC.containerLayoutUpdated(channelLayout, transition: transition)
     }
 
     private func embedChildren() {
@@ -56,13 +61,21 @@ final class HomeViewController: UIViewController {
         ])
     }
 
-    private func bindThemeButton() {
-        clanListVC.onThemeTapped = { [weak self] in
-            self?.presentSheet(AppThemeViewController())
-        }
-        clanListVC.onLanguageTapped = { [weak self] in
-            self?.presentSheet(LanguageSettingsViewController())
-        }
+    private func bindSidebarCallbacks() {
+        clanListVC.onThemeTapped = { [weak self] in self?.presentSheet(AppThemeViewController()) }
+        clanListVC.onLanguageTapped = { [weak self] in self?.presentSheet(LanguageSettingsViewController()) }
+        clanListVC.onMessagesTapped = { [weak self] in self?.pushMessages() }
+        clanListVC.onProfileTapped = { [weak self] in self?.pushProfile() }
+    }
+
+    private func pushMessages() {
+        let vc = MessagesViewController(context: context)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func pushProfile() {
+        let vc = ProfileViewController(context: context)
+        navigationController?.pushViewController(vc, animated: true)
     }
 
     private func presentSheet(_ vc: UIViewController) {
@@ -76,29 +89,26 @@ final class HomeViewController: UIViewController {
     }
 
     private func bindClanSelection() {
-        sharedContext.sharedDataStore.clansStore.$selectedClanId
-            .compactMap { [weak self] clanId -> (Int64, String)? in
-                guard let clanId, let self else { return nil }
-                let name = self.sharedContext.sharedDataStore.clansStore.clans.first(where: { $0.clanID == clanId })?.clanName ?? ""
-                return (clanId, name)
-            }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] clanId, clanName in
-                self?.channelListVC.configure(clanId: clanId, clanName: clanName)
-            }
-            .store(in: &cancellables)
+        disposables.add(
+            (clanListVC.selectedClanIdSignal |> deliverOnMainQueue)
+                .start(next: { [weak self] clanId in
+                    guard let clanId, let self else { return }
+                    let name = self.clanListVC.clans.first(where: { $0.clanID == clanId })?.clanName ?? ""
+                    self.channelListVC.configure(clanId: clanId, clanName: name)
+                })
+        )
     }
 
     private func bindChannelSelection() {
-        channelVM.$selectedChannel
-            .compactMap { $0 }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] channel in
-                guard let self else { return }
-                let vm = ChannelMessagesViewModel(clanId: self.channelVM.clanId, channel: channel, sharedContext: self.sharedContext)
-                let chatVC = ChannelMessagesViewController(viewModel: vm)
-                self.navigationController?.pushViewController(chatVC, animated: true)
-            }
-            .store(in: &cancellables)
+        disposables.add(
+            (channelListVC.selectedChannelSignal |> deliverOnMainQueue)
+                .start(next: { [weak self] channel in
+                    guard let channel, let self else { return }
+                    let chatVC = ChannelMessagesViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context)
+                    self.navigationController?.pushViewController(chatVC, animated: true)
+                })
+        )
     }
+
+    deinit { disposables.dispose() }
 }

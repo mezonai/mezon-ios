@@ -6,7 +6,7 @@ final class MezonSocket: NSObject {
 
     static let shared = MezonSocket()
 
-    weak var messagesStore: MessagesStore?
+    var onMessageReceived: ((Mezon_Api_ChannelMessage) -> Void)?
 
     var onTyping:             ((Mezon_Realtime_MessageTypingEvent)         -> Void)?
     var onReaction:           ((Mezon_Api_MessageReaction)                 -> Void)?
@@ -214,9 +214,8 @@ final class MezonSocket: NSObject {
     private func routeEnvelope(_ envelope: Mezon_Realtime_Envelope) {
         switch envelope.message {
         case .channelMessage(let m):
-            let hasStore = self.messagesStore != nil
-            AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID) messagesStore=\(hasStore ? "set" : "nil")")
-            self.messagesStore?.appendMessages([m], clanId: m.clanID, channelId: m.channelID)
+            AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID)")
+            onMessageReceived?(m)
         case .messageTypingEvent(let m):
             onTyping?(m)
             AppLogger.app.debug("[MezonSocket] typing clanId=\(m.clanID) channelId=\(m.channelID)")
@@ -371,10 +370,10 @@ final class MezonSocket: NSObject {
             return
         }
         reconnectAttempts += 1
-        let useRefresh = reconnectAttempts >= maxReconnectAttempts && tokenProvider != nil && !hasTriedRefreshSinceConnect
+        let useRefresh = tokenProvider != nil && !hasTriedRefreshSinceConnect
         if useRefresh {
             hasTriedRefreshSinceConnect = true
-            AppLogger.app.info("MezonSocket reconnect failed after \(self.maxReconnectAttempts) attempts — trying with refreshed token")
+            AppLogger.app.info("MezonSocket reconnecting with refreshed token (attempt \(self.reconnectAttempts))")
         }
         let delay = Double(min(reconnectAttempts * 2, 30))
         AppLogger.app.info("MezonSocket reconnecting in \(delay)s (attempt \(self.reconnectAttempts))")
@@ -392,6 +391,13 @@ final class MezonSocket: NSObject {
                 tokenToUse = try await provider()
                 reconnectAttempts = 0
                 AppLogger.app.info("MezonSocket using fresh token from tokenProvider")
+            } catch let error as MezonError {
+                if case .httpError(let code, _) = error, code == 401 || code == 403 {
+                    AppLogger.app.warning("MezonSocket token refresh failed with \(code) — session expired")
+                    NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
+                    return
+                }
+                AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
             } catch {
                 AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
             }

@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 
 enum AppLanguage: String, CaseIterable {
     case english    = "en"
@@ -17,7 +16,7 @@ enum AppLanguage: String, CaseIterable {
     }
 }
 
-final class LanguageManager: ObservableObject {
+final class LanguageManager {
 
     static let shared = LanguageManager()
 
@@ -25,7 +24,7 @@ final class LanguageManager: ObservableObject {
 
     private static let userDefaultsKey = "mezon.mobile.selectedLanguage"
 
-    @Published private(set) var current: AppLanguage
+    private(set) var current: AppLanguage
 
     private init() {
         let stored = UserDefaults.standard.string(forKey: Self.userDefaultsKey) ?? ""

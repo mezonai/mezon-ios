@@ -32,7 +32,6 @@ targets:
     dependencies:
       - package: SwiftProtobuf
         product: SwiftProtobuf
-      - sdk: libsqlite3.tbd
     sources:
       - path: MezonChat
         excludes:
@@ -52,6 +51,8 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_OBJC_BRIDGING_HEADER: "MezonChat/MezonChat-Bridging-Header.h"
+        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/MezonChat/Core/SSignalKit/SSignalKit/Source $(SRCROOT)/MezonChat/Core/Display $(SRCROOT)/MezonChat/Core/Display/UIKitRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/ObjCRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/AppBundle"
       configs:
         Debug:
           DEBUG_INFORMATION_FORMAT: dwarf

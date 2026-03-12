@@ -2,26 +2,25 @@ import UIKit
 
 enum ScreenScale {
 
-    static let baseWidth:  CGFloat = 375
-    static let baseHeight: CGFloat = 812
+    static let baseWidth:  CGFloat = 390
+    static let baseHeight: CGFloat = 844
 
-    static let width:  CGFloat = {
-        let raw = UIScreen.main.bounds.width / baseWidth
-        return raw.clamped(to: 0.85...1.5)
+    static let width: CGFloat = {
+        (UIScreen.main.bounds.width / baseWidth).clamped(to: 0.85...1.25)
     }()
 
     static let height: CGFloat = {
-        let raw = UIScreen.main.bounds.height / baseHeight
-        return raw.clamped(to: 0.85...1.5)
+        (UIScreen.main.bounds.height / baseHeight).clamped(to: 0.82...1.25)
     }()
 
     static let square: CGFloat = min(width, height)
-    static let font: CGFloat = width.clamped(to: 0.85...1.2)
 
-    static func w(_ v: CGFloat)   -> CGFloat { v * width  }
-    static func h(_ v: CGFloat)   -> CGFloat { v * height }
-    static func wh(_ v: CGFloat)  -> CGFloat { v * square }
-    static func f(_ v: CGFloat)   -> CGFloat { ceil(v * font) }
+    static let font: CGFloat = width.clamped(to: 0.88...1.12)
+
+    static func w(_ v: CGFloat)  -> CGFloat { floorToScreenPixels(v * width)  }
+    static func h(_ v: CGFloat)  -> CGFloat { floorToScreenPixels(v * height) }
+    static func wh(_ v: CGFloat) -> CGFloat { floorToScreenPixels(v * square) }
+    static func f(_ v: CGFloat)  -> CGFloat { ceil(v * font) }
 }
 
 extension CGFloat {

@@ -1,335 +1,190 @@
 import UIKit
-import Combine
+import SwiftProtobuf
 
-final class ClanListViewController: BaseViewController {
+struct ClanListState {
+    var clans: [Mezon_Api_ClanDesc]
+    var selectedClanId: Int64?
+    var isLoading: Bool
 
-    private let viewModel: ClanListViewModel
-    private let sharedDataStore: ClansStore
+    static let empty = ClanListState(clans: [], selectedClanId: nil, isLoading: false)
+}
 
-    private lazy var collectionView: UICollectionView = {
-        let layout = UICollectionViewFlowLayout()
-        layout.scrollDirection = .vertical
-        layout.minimumLineSpacing = 8.sh
-        layout.itemSize = CGSize(width: 48.swh, height: 48.swh)
-        layout.sectionInset = UIEdgeInsets(top: 12.sh, left: 0, bottom: 12.sh, right: 0)
+final class ClanListViewController: ViewController {
 
-        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        cv.backgroundColor = .clear
-        cv.showsVerticalScrollIndicator = false
-        cv.translatesAutoresizingMaskIntoConstraints = false
-        cv.register(ClanCell.self, forCellWithReuseIdentifier: ClanCell.reuseID)
-        return cv
-    }()
+    private let context: AccountContext
+    private let disposables = DisposableSet()
 
-    private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
-        ai.hidesWhenStopped = true
-        ai.color = .white
-        ai.translatesAutoresizingMaskIntoConstraints = false
-        return ai
-    }()
+    private let clansPipe = ValuePipe<[Mezon_Api_ClanDesc]>()
+    private let selectedClanIdPipe = ValuePipe<Int64?>()
+    private let isLoadingPipe = ValuePipe<Bool>()
+    private let needsReloadPipe = ValuePipe<Void>()
 
-    private lazy var themeButton: UIButton = {
-        let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "paintpalette.fill",
-                         withConfiguration: UIImage.SymbolConfiguration(pointSize: 20.sf, weight: .medium))
-        btn.setImage(img, for: .normal)
-        btn.tintColor = UIColor.white.withAlphaComponent(0.7)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
+    var selectedClanIdSignal: Signal<Int64?, NoError> { selectedClanIdPipe.signal() }
+    var clansSignal: Signal<[Mezon_Api_ClanDesc], NoError> { clansPipe.signal() }
 
-    private lazy var languageButton: UIButton = {
-        let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "globe",
-                         withConfiguration: UIImage.SymbolConfiguration(pointSize: 20.sf, weight: .medium))
-        btn.setImage(img, for: .normal)
-        btn.tintColor = UIColor.white.withAlphaComponent(0.7)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
+    private(set) var clans: [Mezon_Api_ClanDesc] = []
+    private(set) var selectedClanId: Int64?
+    private(set) var isLoading: Bool = false
+    private(set) var error: String?
 
     var onThemeTapped: (() -> Void)?
     var onLanguageTapped: (() -> Void)?
+    var onMessagesTapped: (() -> Void)?
+    var onProfileTapped: (() -> Void)?
 
+    private var clanListNode: ClanListContainerNode { displayNode as! ClanListContainerNode }
 
-    init(viewModel: ClanListViewModel) {
-        self.viewModel = viewModel
-        self.sharedDataStore = viewModel.clansStore
-        super.init(nibName: nil, bundle: nil)
+    init(context: AccountContext) {
+        self.context = context
+        super.init(navigationBarPresentationData: nil)
+        restoreFromPostbox()
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init(coder aDecoder: NSCoder) { fatalError() }
 
+    var selectedClan: Mezon_Api_ClanDesc? {
+        clans.first { $0.clanID == selectedClanId }
+    }
+
+    override func loadDisplayNode() {
+        let interaction = ClanListInteraction(
+            onSelectClan: { [weak self] clan in self?.select(clan: clan) },
+            onMessagesTapped: { [weak self] in self?.onMessagesTapped?() },
+            onProfileTapped: { [weak self] in self?.onProfileTapped?() },
+            onThemeTapped: { [weak self] in self?.onThemeTapped?() },
+            onLanguageTapped: { [weak self] in self?.onLanguageTapped?() }
+        )
+        displayNode = ClanListContainerNode(signal: stateSignal(), interaction: interaction)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        viewModel.loadClans()
+        clanListNode.applyTheme()
+        loadClans()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
 
-
-    override func setupUI() {
-
-        view.addSubview(collectionView)
-        view.addSubview(loadingIndicator)
-        view.addSubview(themeButton)
-        view.addSubview(languageButton)
-
-        NSLayoutConstraint.activate([
-            languageButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            languageButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12.sh),
-            languageButton.widthAnchor.constraint(equalToConstant: 44.swh),
-            languageButton.heightAnchor.constraint(equalToConstant: 44.swh),
-
-            themeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            themeButton.bottomAnchor.constraint(equalTo: languageButton.topAnchor, constant: -4.sh),
-            themeButton.widthAnchor.constraint(equalToConstant: 44.swh),
-            themeButton.heightAnchor.constraint(equalToConstant: 44.swh),
-
-            collectionView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8.sw),
-            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8.sw),
-            collectionView.bottomAnchor.constraint(equalTo: themeButton.topAnchor, constant: -8.sh),
-
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-        ])
-
-        collectionView.dataSource = self
-        collectionView.delegate = self
-
-        themeButton.addTarget(self, action: #selector(themeButtonTapped), for: .touchUpInside)
-        languageButton.addTarget(self, action: #selector(languageButtonTapped), for: .touchUpInside)
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        clanListNode.updateLayout(layout: layout, transition: transition)
     }
 
-    override func applyTheme() {
-        let t = UIColor.theme
-        view.backgroundColor    = t.tertiary
-        loadingIndicator.color  = t.textDisabled
-        themeButton.tintColor   = t.channelNormal
-        languageButton.tintColor = t.channelNormal
-        collectionView.reloadData()
-    }
+    @objc private func handleThemeChange() { clanListNode.applyTheme() }
 
-    @objc private func themeButtonTapped() {
-        onThemeTapped?()
-    }
+    deinit { disposables.dispose() }
 
-    @objc private func languageButtonTapped() {
-        onLanguageTapped?()
-    }
+    private func setClans(_ v: [Mezon_Api_ClanDesc]) { clans = v; clansPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setSelectedClanId(_ v: Int64?) { selectedClanId = v; selectedClanIdPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
 
-    override func setupBindings() {
-        let store = viewModel.clansStore
-
-        store.$clans
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] (_: [Mezon_Api_ClanDesc]) in self?.collectionView.reloadData() }
-            .store(in: &cancellables)
-
-        store.$isLoading
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] (loading: Bool) in
-                if loading { self?.loadingIndicator.startAnimating() }
-                else { self?.loadingIndicator.stopAnimating() }
+    func loadClans() {
+        guard let token = context.session?.token else { return }
+        setIsLoading(true)
+        error = nil
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.setIsLoading(false) }
+            do {
+                let result = try await self.context.account.network.listClanDescs(token: token)
+                let sorted = result.sorted { $0.clanOrder < $1.clanOrder }
+                let records = sorted.map { api -> ClanRecord in
+                    let data = (try? api.serializedData()) ?? Data()
+                    return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
+                }
+                self.context.account.postbox.write { tx in tx.updateClans(records) }
+                if self.selectedClanId == nil { self.setSelectedClanId(sorted.first?.clanID) }
+            } catch {
+                self.error = error.localizedDescription
             }
-            .store(in: &cancellables)
+        }
+    }
 
-        store.$selectedClanId
-            .receive(on: DispatchQueue.main)
-            .scan((previous: Int64?.none, current: Int64?.none)) { acc, newId in
-                (previous: acc.current, current: newId)
-            }
-            .sink { [weak self] (previous: Int64?, current: Int64?) in
+    func select(clan: Mezon_Api_ClanDesc) {
+        setSelectedClanId(clan.clanID)
+        persistToPostbox()
+    }
+
+    private func restoreFromPostbox() {
+        let records = self.context.account.postbox.read { tx in tx.getClans() }
+        if !records.isEmpty {
+            let apiClans = records.compactMap { record -> Mezon_Api_ClanDesc? in
+                guard !record.data.isEmpty else {
+                    var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
+                }
+                return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
+            }.sorted { $0.clanOrder < $1.clanOrder }
+            setClans(apiClans)
+        } else if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.clans) {
+            setClans(decodeProtoArray(data).sorted { $0.clanOrder < $1.clanOrder })
+        }
+        if let selData = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
+            setSelectedClanId(selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian })
+        }
+        if selectedClanId == nil { setSelectedClanId(clans.first?.clanID) }
+    }
+
+    private func persistToPostbox() {
+        self.context.account.postbox.setPreferenceData(key: PreferencesKeys.clans, value: encodeProtoArray(clans))
+        if let id = selectedClanId {
+            var le = id.littleEndian
+            self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: withUnsafeBytes(of: &le) { Data($0) })
+        }
+    }
+
+    var currentState: ClanListState {
+        ClanListState(clans: clans, selectedClanId: selectedClanId, isLoading: isLoading)
+    }
+
+    func stateSignal() -> Signal<ClanListState, NoError> {
+        Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            subscriber.putNext(self.currentState)
+
+            let postboxDisposable = (self.context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
                 guard let self else { return }
-                var paths: [IndexPath] = []
-                if let prev = previous,
-                   let idx = self.viewModel.clans.firstIndex(where: { $0.clanID == prev }) {
-                    paths.append(IndexPath(item: idx, section: 0))
-                }
-                if let curr = current,
-                   let idx = self.viewModel.clans.firstIndex(where: { $0.clanID == curr }) {
-                    paths.append(IndexPath(item: idx, section: 0))
-                }
-                guard !paths.isEmpty else { return }
-                UIView.performWithoutAnimation {
-                    self.collectionView.reloadItems(at: paths)
-                }
-            }
-            .store(in: &cancellables)
-    }
-}
-
-
-extension ClanListViewController: UICollectionViewDataSource, UICollectionViewDelegate {
-
-    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        viewModel.clans.count
-    }
-
-    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanCell.reuseID, for: indexPath) as! ClanCell
-        let clan = viewModel.clans[indexPath.item]
-        let isSelected = clan.clanID == viewModel.selectedClanId
-        cell.configure(with: clan, isSelected: isSelected)
-        return cell
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        viewModel.select(clan: viewModel.clans[indexPath.item])
-    }
-}
-
-
-private final class ClanCell: UICollectionViewCell {
-
-    static let reuseID = "ClanCell"
-
-    private let indicatorBar: UIView = {
-        let v = UIView()
-        v.backgroundColor = .white
-        v.layer.cornerRadius = 2
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
-    private let avatarContainer: UIView = {
-        let v = UIView()
-        v.clipsToBounds = true
-        v.layer.cornerRadius = 24
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
-    private let avatarImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
-    }()
-
-    private let initialsLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 16.sf, weight: .semibold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let badgeLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 10.sf, weight: .bold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.backgroundColor = .systemRed
-        l.layer.cornerRadius = 9
-        l.clipsToBounds = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.isHidden = true
-        return l
-    }()
-
-    private var imageTask: URLSessionDataTask?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.addSubview(indicatorBar)
-        contentView.addSubview(avatarContainer)
-        avatarContainer.addSubview(avatarImageView)
-        avatarContainer.addSubview(initialsLabel)
-        contentView.addSubview(badgeLabel)
-
-        NSLayoutConstraint.activate([
-            indicatorBar.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            indicatorBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: -8.sw),
-            indicatorBar.widthAnchor.constraint(equalToConstant: 4.sw),
-            indicatorBar.heightAnchor.constraint(equalToConstant: 20.swh),
-
-            avatarContainer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            avatarContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarContainer.widthAnchor.constraint(equalToConstant: 48.swh),
-            avatarContainer.heightAnchor.constraint(equalToConstant: 48.swh),
-
-            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
-            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
-            avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
-            avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
-
-            initialsLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
-            initialsLabel.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
-
-            badgeLabel.topAnchor.constraint(equalTo: avatarContainer.topAnchor, constant: -4.swh),
-            badgeLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 4.swh),
-            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18.swh),
-            badgeLabel.heightAnchor.constraint(equalToConstant: 18.swh),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        imageTask?.cancel()
-        avatarImageView.image = nil
-        initialsLabel.text = nil
-        badgeLabel.isHidden = true
-    }
-
-    func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool) {
-        let cornerRadius: CGFloat = isSelected ? 16.swh : 24.swh
-        UIView.animate(withDuration: 0.2) {
-            self.avatarContainer.layer.cornerRadius = cornerRadius
-            self.indicatorBar.isHidden = !isSelected
-        }
-
-        avatarContainer.backgroundColor = colorFor(name: clan.clanName)
-        initialsLabel.text = initials(for: clan.clanName)
-
-        if !clan.logo.isEmpty, let url = URL(string: clan.logo) {
-            avatarImageView.isHidden = false
-            initialsLabel.isHidden = true
-            loadImage(url: url)
-        } else {
-            avatarImageView.isHidden = true
-            initialsLabel.isHidden = false
-        }
-
-        let count = clan.badgeCount
-        if count > 0 {
-            badgeLabel.text = count > 99 ? "99+" : "\(count)"
-            badgeLabel.isHidden = false
-        } else {
-            badgeLabel.isHidden = true
+                self.clans = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
+                    guard !record.data.isEmpty else {
+                        var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
+                    }
+                    return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
+                }.sorted { $0.clanOrder < $1.clanOrder }
+                subscriber.putNext(self.currentState)
+            })
+            let reloadDisposable = (self.needsReloadPipe.signal()
+                |> map { [weak self] _ in self?.currentState ?? .empty }
+                |> deliverOnMainQueue
+            ).start(next: { subscriber.putNext($0) })
+            return ActionDisposable { postboxDisposable.dispose(); reloadDisposable.dispose() }
         }
     }
 
-    private func loadImage(url: URL) {
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                self?.avatarImageView.image = image
+    private func encodeProtoArray(_ items: [Mezon_Api_ClanDesc]) -> Data {
+        var result = Data()
+        var count = UInt32(items.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for item in items {
+            if let d = try? item.serializedData() {
+                var len = UInt32(d.count)
+                result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+                result.append(d)
             }
         }
-        imageTask?.resume()
+        return result
     }
 
-    private func initials(for name: String) -> String {
-        let words = name.split(separator: " ").prefix(2)
-        return words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-    }
-
-    private func colorFor(name: String) -> UIColor {
-        let colors: [UIColor] = [
-            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
-            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
-            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
-            UIColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),
-            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
-            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
-        ]
-        let hash = abs(name.hashValue)
-        return colors[hash % colors.count]
+    private func decodeProtoArray(_ data: Data) -> [Mezon_Api_ClanDesc] {
+        guard data.count >= 4 else { return [] }
+        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result: [Mezon_Api_ClanDesc] = []
+        var offset = 4
+        for _ in 0..<count {
+            guard offset + 4 <= data.count else { break }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            offset += 4
+            guard offset + Int(len) <= data.count else { break }
+            if let m = try? Mezon_Api_ClanDesc(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) { result.append(m) }
+            offset += Int(len)
+        }
+        return result
     }
 }
