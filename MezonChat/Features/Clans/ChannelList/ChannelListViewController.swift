@@ -1,410 +1,223 @@
 import UIKit
-import Combine
+import SwiftProtobuf
 
+struct ChannelListState {
+    var categories: [ChannelCategory]
+    var selectedChannelId: Int64?
+    var isLoading: Bool
+    var errorMessage: String?
 
-final class ChannelListViewController: BaseViewController {
+    static let empty = ChannelListState(categories: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
+}
 
-    private let viewModel: ChannelListViewModel
+enum ChannelFetchError: Error {
+    case noSession
+    case network(Error)
 
+    var localizedDescription: String {
+        switch self {
+        case .noSession: return "No active session. Please log in."
+        case .network(let e): return e.localizedDescription
+        }
+    }
+}
 
-    private lazy var headerView = ChannelListHeaderView()
+struct ChannelCategory {
+    let id: Int64
+    let name: String
+    var isCollapsed: Bool = false
+    var channels: [Mezon_Api_ChannelDescription]
+}
 
-    private lazy var tableView: UITableView = {
-        let tv = UITableView(frame: .zero, style: .plain)
-        tv.translatesAutoresizingMaskIntoConstraints = false
-        tv.backgroundColor = .clear
-        tv.separatorStyle = .none
-        tv.rowHeight = 36.sh
-        tv.sectionHeaderHeight = 32.sh
-        tv.showsVerticalScrollIndicator = false
-        tv.register(ChannelCell.self, forCellReuseIdentifier: ChannelCell.reuseId)
-        tv.register(CategoryHeaderView.self, forHeaderFooterViewReuseIdentifier: CategoryHeaderView.reuseId)
-        tv.dataSource = self
-        tv.delegate   = self
-        return tv
-    }()
+enum ChannelType: Int32 {
+    case text = 1, voice = 2, group = 3, thread = 4, streaming = 9, app = 5, forum = 10, unknown = 0
 
-    private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
-        ai.translatesAutoresizingMaskIntoConstraints = false
-        ai.hidesWhenStopped = true
-        return ai
-    }()
-
-
-    init(viewModel: ChannelListViewModel) {
-        self.viewModel = viewModel
-        super.init(nibName: nil, bundle: nil)
+    var icon: String {
+        switch self {
+        case .text: return "#"
+        case .voice: return "speaker.wave.2.fill"
+        case .thread: return "arrow.turn.down.right"
+        case .streaming: return "video.fill"
+        case .app: return "app.fill"
+        case .forum: return "text.bubble.fill"
+        default: return "#"
+        }
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    var isSystemImage: Bool { self != .text }
+}
 
+private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription]) -> [ChannelCategory] {
+    let topLevel = channels.filter { $0.parentID == 0 }
+    var order: [Int64] = []
+    var lookup: [Int64: (String, [Mezon_Api_ChannelDescription])] = [:]
+    for ch in topLevel {
+        let catId = ch.categoryID
+        if lookup[catId] == nil { order.append(catId); lookup[catId] = (ch.categoryName, []) }
+        lookup[catId]!.1.append(ch)
+    }
+    return order.compactMap { id in
+        guard let (name, list) = lookup[id] else { return nil }
+        return ChannelCategory(id: id, name: name, isCollapsed: false, channels: list)
+    }
+}
 
-    override func setupUI() {
-        headerView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(headerView)
-        view.addSubview(tableView)
-        view.addSubview(loadingIndicator)
+private enum FetchResult {
+    case success([ChannelCategory])
+    case failure(String)
+}
 
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 56.sh),
+final class ChannelListViewController: ViewController {
 
-            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+    private let context: AccountContext
+    private let fetchDisposable = MetaDisposable()
 
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
-        ])
+    private let categoriesPipe = ValuePipe<[ChannelCategory]>()
+    private let selectedChannelIdPipe = ValuePipe<Int64?>()
+    private let selectedChannelPipe = ValuePipe<Mezon_Api_ChannelDescription?>()
+    private let isLoadingPipe = ValuePipe<Bool>()
+    private let errorMessagePipe = ValuePipe<String?>()
+    private let needsReloadPipe = ValuePipe<Void>()
+
+    var selectedChannelSignal: Signal<Mezon_Api_ChannelDescription?, NoError> { selectedChannelPipe.signal() }
+
+    private(set) var categories: [ChannelCategory] = []
+    private(set) var selectedChannelId: Int64?
+    private(set) var selectedChannel: Mezon_Api_ChannelDescription?
+    private(set) var isLoading: Bool = false
+    private(set) var errorMessage: String?
+    private(set) var clanId: Int64 = 0
+    private(set) var clanName: String = ""
+
+    private var channelListNode: ChannelListContainerNode { displayNode as! ChannelListContainerNode }
+
+    init(context: AccountContext) {
+        self.context = context
+        super.init(navigationBarPresentationData: nil)
     }
 
-    override func setupBindings() {
-        viewModel.$categories
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.tableView.reloadData() }
-            .store(in: &cancellables)
+    required init(coder aDecoder: NSCoder) { fatalError() }
 
-        viewModel.$isLoading
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
-                loading ? self?.loadingIndicator.startAnimating()
-                        : self?.loadingIndicator.stopAnimating()
-            }
-            .store(in: &cancellables)
-
-        viewModel.$selectedChannelId
-            .receive(on: DispatchQueue.main)
-            .scan((previous: Int64?.none, current: Int64?.none)) { acc, newId in
-                (previous: acc.current, current: newId)
-            }
-            .sink { [weak self] previous, current in
-                guard let self else { return }
-                var paths: [IndexPath] = []
-                for (s, cat) in self.viewModel.categories.enumerated() {
-                    for (r, ch) in cat.channels.enumerated() {
-                        if ch.channelID == previous || ch.channelID == current {
-                            paths.append(IndexPath(row: r, section: s))
-                        }
-                    }
-                }
-                guard !paths.isEmpty else { return }
-                UIView.performWithoutAnimation {
-                    self.tableView.reloadRows(at: paths, with: .none)
-                }
-            }
-            .store(in: &cancellables)
-
-        viewModel.$errorMessage
-            .compactMap { $0 }
-            .receive(on: DispatchQueue.main)
-            .sink { msg in
-                AppLogger.network.error("[ChannelList] \(msg)")
-                Toast.error(msg)
-            }
-            .store(in: &cancellables)
+    override func loadDisplayNode() {
+        let interaction = ChannelListInteraction(
+            onSelectChannel: { [weak self] ch in self?.select(channel: ch) },
+            onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) }
+        )
+        displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
     }
 
-    override func applyTheme() {
-        let t = UIColor.theme
-        view.backgroundColor       = t.secondary
-        loadingIndicator.color     = t.textDisabled
-        headerView.applyTheme()
-        tableView.reloadData()
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        channelListNode.applyTheme()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
 
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        channelListNode.updateLayout(layout: layout, transition: transition)
+    }
 
     func configure(clanId: Int64, clanName: String) {
-        headerView.configure(title: clanName)
-        viewModel.load(clanId: clanId, clanName: clanName)
+        channelListNode.configure(clanName: clanName)
+        load(clanId: clanId, clanName: clanName)
     }
 
-    func refresh() {
-        Task { await viewModel.fetchChannels() }
-    }
-}
+    func refresh() { fetchChannels() }
 
+    @objc private func handleThemeChange() { channelListNode.applyTheme() }
 
-extension ChannelListViewController: UITableViewDataSource {
+    private func setCategories(_ v: [ChannelCategory]) { categories = v; categoriesPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setSelectedChannelId(_ v: Int64?) { selectedChannelId = v; selectedChannelIdPipe.putNext(v) }
+    private func setSelectedChannel(_ v: Mezon_Api_ChannelDescription?) { selectedChannel = v; selectedChannelPipe.putNext(v) }
+    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v) }
 
-    func numberOfSections(in tableView: UITableView) -> Int {
-        viewModel.categories.count
-    }
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        let cat = viewModel.categories[section]
-        return cat.isCollapsed ? 0 : cat.channels.count
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cat     = viewModel.categories[indexPath.section]
-        let channel = cat.channels[indexPath.row]
-        let cell    = tableView.dequeueReusableCell(withIdentifier: ChannelCell.reuseId, for: indexPath) as! ChannelCell
-        cell.configure(channel: channel, isSelected: channel.channelID == viewModel.selectedChannelId)
-        return cell
-    }
-}
-
-
-extension ChannelListViewController: UITableViewDelegate {
-
-    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        let header = tableView.dequeueReusableHeaderFooterView(withIdentifier: CategoryHeaderView.reuseId) as! CategoryHeaderView
-        let cat = viewModel.categories[section]
-        header.configure(category: cat)
-        header.onTap = { [weak self] in self?.viewModel.toggleCollapse(categoryId: cat.id) }
-        return header
+    func load(clanId: Int64, clanName: String) {
+        self.clanId = clanId
+        self.clanName = clanName
+        fetchChannels()
     }
 
-    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat { 32.sh }
+    func fetchChannels() {
+        guard clanId != 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let clanId = self.clanId
 
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: false)
-        viewModel.select(channel: viewModel.categories[indexPath.section].channels[indexPath.row])
-    }
-}
+        let signal = channelListSignal(clanId: clanId)
+            |> map { channels in buildChannelCategories(channels) }
+            |> map { categories -> FetchResult in .success(categories) }
+            |> `catch` { (error: ChannelFetchError) -> Signal<FetchResult, NoError> in .single(.failure(error.localizedDescription)) }
+            |> deliverOnMainQueue
 
-
-private final class CategoryHeaderView: UITableViewHeaderFooterView {
-    static let reuseId = "CategoryHeaderView"
-
-    var onTap: (() -> Void)?
-
-    private let arrowLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 10.sf, weight: .semibold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 11.sf, weight: .bold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    override init(reuseIdentifier: String?) {
-        super.init(reuseIdentifier: reuseIdentifier)
-        contentView.addSubview(arrowLabel)
-        contentView.addSubview(titleLabel)
-
-        NSLayoutConstraint.activate([
-            arrowLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8.sw),
-            arrowLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            arrowLabel.widthAnchor.constraint(equalToConstant: 14.sw),
-
-            titleLabel.leadingAnchor.constraint(equalTo: arrowLabel.trailingAnchor, constant: 4.sw),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8.sw)
-        ])
-
-        contentView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+        fetchDisposable.set(signal.start(next: { [weak self] result in
+            guard let self else { return }
+            self.isLoading = false
+            switch result {
+            case .success(let cats):
+                self.categories = cats
+                self.persistSelectedChannel()
+                self.categoriesPipe.putNext(cats)
+            case .failure(let msg):
+                self.errorMessage = msg
+                self.errorMessagePipe.putNext(msg)
+            }
+            self.isLoadingPipe.putNext(false)
+            self.needsReloadPipe.putNext(())
+        }))
     }
 
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(category: ChannelCategory) {
-        let t = UIColor.theme
-        contentView.backgroundColor = t.secondary
-        titleLabel.textColor        = t.textDisabled
-        arrowLabel.textColor        = t.textDisabled
-        titleLabel.text             = category.name.uppercased()
-        arrowLabel.text             = category.isCollapsed ? "▶" : "▾"
+    func toggleCollapse(categoryId: Int64) {
+        guard let idx = categories.firstIndex(where: { $0.id == categoryId }) else { return }
+        var updated = categories
+        updated[idx].isCollapsed.toggle()
+        setCategories(updated)
     }
 
-    @objc private func handleTap() { onTap?() }
-}
-
-
-private final class ChannelCell: UITableViewCell {
-    static let reuseId = "ChannelCell"
-
-    private let selectedIndicator: UIView = {
-        let v = UIView()
-        v.layer.cornerRadius = 2
-        v.isHidden = true
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
-    private let iconLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 16.sf, weight: .regular)
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let iconImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
-    }()
-
-    private let nameLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 15.sf, weight: .medium)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let badgeLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 11.sf, weight: .bold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.layer.cornerRadius = 8.swh
-        l.layer.masksToBounds = true
-        l.isHidden = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle  = .none
-
-        contentView.addSubview(selectedIndicator)
-        contentView.addSubview(iconLabel)
-        contentView.addSubview(iconImageView)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(badgeLabel)
-
-        NSLayoutConstraint.activate([
-            selectedIndicator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            selectedIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            selectedIndicator.widthAnchor.constraint(equalToConstant: 4.sw),
-            selectedIndicator.heightAnchor.constraint(equalToConstant: 20.sh),
-
-            iconLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16.sw),
-            iconLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconLabel.widthAnchor.constraint(equalToConstant: 20.swh),
-
-            iconImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16.sw),
-            iconImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: 18.swh),
-            iconImageView.heightAnchor.constraint(equalToConstant: 18.swh),
-
-            nameLabel.leadingAnchor.constraint(equalTo: iconLabel.trailingAnchor, constant: 6.sw),
-            nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: badgeLabel.leadingAnchor, constant: -6.sw),
-
-            badgeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12.sw),
-            badgeLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 16.swh),
-            badgeLabel.heightAnchor.constraint(equalToConstant: 16.swh)
-        ])
+    func select(channel: Mezon_Api_ChannelDescription) {
+        setSelectedChannelId(channel.channelID)
+        setSelectedChannel(channel)
+        self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    var currentState: ChannelListState {
+        ChannelListState(categories: categories, selectedChannelId: selectedChannelId, isLoading: isLoading, errorMessage: errorMessage)
+    }
 
-    func configure(channel: Mezon_Api_ChannelDescription, isSelected: Bool) {
-        let t      = UIColor.theme
-        let unread = channel.countMessUnread
-
-        nameLabel.text = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
-
-        let chType = ChannelType(rawValue: channel.type) ?? .unknown
-        if chType.isSystemImage {
-            iconLabel.isHidden    = true
-            iconImageView.isHidden = false
-            iconImageView.image   = UIImage(systemName: chType.icon)
-        } else {
-            iconLabel.isHidden    = false
-            iconImageView.isHidden = true
-            iconLabel.text        = chType.icon
-        }
-
-        badgeLabel.backgroundColor = .mezonUnreadBadge
-        if unread > 0 {
-            badgeLabel.isHidden = false
-            badgeLabel.text     = unread > 99 ? "99+" : "\(unread)"
-        } else {
-            badgeLabel.isHidden = true
-        }
-
-        if isSelected {
-            contentView.backgroundColor = t.colorActiveClan
-            selectedIndicator.backgroundColor = t.channelUnread
-            selectedIndicator.isHidden  = false
-            nameLabel.textColor         = t.channelUnread
-            iconLabel.textColor         = t.channelUnread
-            iconImageView.tintColor     = t.channelUnread
-        } else {
-            contentView.backgroundColor = .clear
-            selectedIndicator.isHidden  = true
-            let color = unread > 0 ? t.channelUnread : t.channelNormal
-            nameLabel.textColor     = color
-            iconLabel.textColor     = color
-            iconImageView.tintColor = color
+    func stateSignal() -> Signal<ChannelListState, NoError> {
+        Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            subscriber.putNext(self.currentState)
+            return (self.needsReloadPipe.signal()
+                |> map { [weak self] _ in self?.currentState ?? .empty }
+                |> deliverOnMainQueue
+            ).start(next: { subscriber.putNext($0) })
         }
     }
-}
 
-
-private final class ChannelListHeaderView: UIView {
-
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 16.sf, weight: .bold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let memberButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "person.2.fill")
-        let btn = UIButton(configuration: config)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }()
-
-    private let separator: UIView = {
-        let v = UIView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        addSubview(titleLabel)
-        addSubview(memberButton)
-        addSubview(separator)
-
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16.sw),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: memberButton.leadingAnchor, constant: -8.sw),
-
-            memberButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12.sw),
-            memberButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            memberButton.widthAnchor.constraint(equalToConstant: 36.swh),
-            memberButton.heightAnchor.constraint(equalToConstant: 36.swh),
-
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1)
-        ])
+    private func channelListSignal(clanId: Int64) -> Signal<[Mezon_Api_ChannelDescription], ChannelFetchError> {
+        let context = self.context
+        return Signal { subscriber in
+            let task = Task { @MainActor in
+                guard let token = context.session?.token else { subscriber.putError(.noSession); return }
+                do {
+                    let channels = try await context.account.network.listChannelDescs(clanId: clanId, token: token)
+                    subscriber.putNext(channels)
+                    subscriber.putCompletion()
+                } catch { subscriber.putError(.network(error)) }
+            }
+            return ActionDisposable { task.cancel() }
+        }
     }
 
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(title: String) {
-        titleLabel.text = title
+    private func persistSelectedChannel() {
+        if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId)), data.count >= 8 {
+            setSelectedChannelId(data.withUnsafeBytes { $0.load(as: Int64.self).littleEndian })
+        }
     }
 
-    func applyTheme() {
-        let t = UIColor.theme
-        backgroundColor          = t.secondary
-        titleLabel.textColor     = t.textStrong
-        separator.backgroundColor = t.border
-        memberButton.tintColor   = t.textDisabled
+    private func encodeChannelId(_ id: Int64) -> Data {
+        var le = id.littleEndian
+        return withUnsafeBytes(of: &le) { Data($0) }
     }
 }

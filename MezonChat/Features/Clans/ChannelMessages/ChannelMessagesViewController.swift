@@ -1,151 +1,238 @@
 import UIKit
-import Combine
 import SwiftProtobuf
 
-final class ChannelMessagesViewController: BaseViewController {
+struct ChannelMessageDisplay: Identifiable {
+    let message: Message
+    let senderDisplayName: String
+    let avatarURL: String?
+    let isCombine: Bool
+    var id: String { message.id }
 
-    private let viewModel: ChannelMessagesViewModel
-    private lazy var inputViewModel: SendMessageInputViewModel = {
-        let vm = SendMessageInputViewModel(placeholder: L(L10n.ChannelMessages.writeMessage), sharedContext: viewModel.accountContext)
-        vm.onSent = { [weak self] in self?.shouldScrollToBottom = true }
-        vm.onError = { Toast.error($0) }
-        return vm
+    static func isCombineWithPrevious(current: Message, previous: Message?) -> Bool {
+        guard let prev = previous else { return false }
+        guard current.senderId == prev.senderId else { return false }
+        let diff = current.createdAt.timeIntervalSince(prev.createdAt)
+        return diff < 120 && diff >= 0
+    }
+}
+
+struct ChannelMessagesState {
+    var messages: [ChannelMessageDisplay]
+    var channelLabel: String
+    var hasMoreOlder: Bool
+    var isLoadingMore: Bool
+    var isLoading: Bool
+    var errorMessage: String?
+
+    static let empty = ChannelMessagesState(messages: [], channelLabel: "", hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
+}
+
+final class ChannelMessagesViewController: ViewController {
+
+    let clanId: Int64
+    let channel: Mezon_Api_ChannelDescription
+    let context: AccountContext
+
+    private let needsReloadPipe = ValuePipe<Void>()
+    var needsReloadSignal: Signal<Void, NoError> { needsReloadPipe.signal() }
+    private let stateDisposables = DisposableSet()
+
+    private(set) var messages: [ChannelMessageDisplay] = []
+    private(set) var channelLabel: String = ""
+    private(set) var hasMoreOlder: Bool = true
+    private(set) var isLoadingMore: Bool = false
+    private(set) var isLoading: Bool = false
+    private(set) var errorMessage: String?
+
+    private lazy var sendInputViewController: SendMessageInputViewController = {
+        let vc = SendMessageInputViewController(
+            placeholder: L(L10n.ChannelMessages.writeMessage),
+            channel: channel,
+            clanId: clanId,
+            context: context
+        )
+        vc.onSent = { [weak self] in self?.shouldScrollToBottom = true }
+        vc.onError = { Toast.error($0) }
+        return vc
     }()
-    private lazy var sendInputViewController = SendMessageInputViewController(viewModel: inputViewModel)
+
     private var inputBarBottomConstraint: NSLayoutConstraint?
+    private var inputBarHeightConstraint: NSLayoutConstraint?
+    private let inputBarHeight: CGFloat = 56
+    private var shouldScrollToBottom = true
+    private var hasScrolledToBottomInitially = false
 
-    private lazy var headerView: UIView = {
-        let v = UIView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
+    private var messagesNode: ChannelMessagesContainerNode { displayNode as! ChannelMessagesContainerNode }
 
-    private lazy var backButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "chevron.left")
-        let btn = UIButton(configuration: config)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.addAction(UIAction { [weak self] _ in self?.onBack() }, for: .touchUpInside)
-        return btn
-    }()
-
-    private lazy var channelTitleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 17, weight: .semibold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private lazy var tableView: UITableView = {
-        let tv = UITableView(frame: .zero, style: .plain)
-        tv.translatesAutoresizingMaskIntoConstraints = false
-        tv.backgroundColor = .clear
-        tv.separatorStyle = .none
-        tv.rowHeight = UITableView.automaticDimension
-        tv.estimatedRowHeight = 72
-        tv.showsVerticalScrollIndicator = true
-        tv.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseId)
-        tv.dataSource = self
-        tv.delegate = self
-        return tv
-    }()
-
-    private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
-        ai.translatesAutoresizingMaskIntoConstraints = false
-        ai.hidesWhenStopped = true
-        return ai
-    }()
-
-    private lazy var loadingMoreIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
-        ai.translatesAutoresizingMaskIntoConstraints = false
-        ai.hidesWhenStopped = true
-        return ai
-    }()
-
-    private lazy var emptyLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 15)
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.isHidden = true
-        return l
-    }()
-
-    init(viewModel: ChannelMessagesViewModel) {
-        self.viewModel = viewModel
-        super.init(nibName: nil, bundle: nil)
-        hidesBottomBarWhenPushed = true
+    init(clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext) {
+        self.clanId = clanId
+        self.channel = channel
+        self.context = context
+        self.channelLabel = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
+        super.init(navigationBarPresentationData: nil)
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init(coder aDecoder: NSCoder) { fatalError() }
+
+    override func loadDisplayNode() {
+        let interaction = ChannelMessagesInteraction(
+            onBackTapped: { [weak self] in self?.navigationController?.popViewController(animated: true) },
+            onScrolledNearTop: { [weak self] in
+                guard let self, self.hasMoreOlder, !self.isLoadingMore else { return }
+                self.fetchMoreMessages()
+            },
+            onScrolledToBottom: { [weak self] atBottom in self?.shouldScrollToBottom = atBottom }
+        )
+        displayNode = ChannelMessagesContainerNode(signal: stateSignal(), interaction: interaction)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
-        setupBindings()
+        messagesNode.applyTheme()
+        setupInputBar()
         setupKeyboardObservers()
-        viewModel.start()
+        start()
+
+        stateDisposables.add((needsReloadSignal |> deliverOnMainQueue).start(next: { [weak self] _ in
+            DispatchQueue.main.async { self?.scrollToBottomIfNeeded() }
+        }))
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if isMovingFromParent {
-            viewModel.onLeave()
-        }
+        if isMovingFromParent { onLeave() }
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
-    private func setupKeyboardObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillShow(_:)),
-            name: UIResponder.keyboardWillShowNotification,
-            object: nil
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight, transition: transition)
+    }
+
+    @objc private func handleThemeChange() { messagesNode.applyTheme() }
+
+    deinit { stateDisposables.dispose() }
+
+    private func setMessages(_ v: [ChannelMessageDisplay]) { messages = v; needsReloadPipe.putNext(()) }
+    private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
+    private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v }
+    private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; needsReloadPipe.putNext(()) }
+    private func setIsLoading(_ v: Bool) { isLoading = v; needsReloadPipe.putNext(()) }
+    private func setErrorMessage(_ v: String?) { errorMessage = v; needsReloadPipe.putNext(()) }
+
+    func start() {
+        context.currentClanId = clanId
+        context.currentChannel = channel
+
+        let channelIdStr = "\(channel.channelID)"
+        stateDisposables.add(
+            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr) |> deliverOnMainQueue)
+                .start(next: { [weak self] view in
+                    guard let self else { return }
+                    self.setMessages(self.buildDisplayMessages(from: view.messages))
+                })
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
-        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
-        tap.cancelsTouchesInView = false
-        tableView.addGestureRecognizer(tap)
+        fetchMessages()
+        joinChat()
     }
 
-    @objc private func keyboardWillShow(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let keyboardFrame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-              let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
-              let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
-        else { return }
-        let keyboardHeight = keyboardFrame.height
-        inputBarBottomConstraint?.constant = -keyboardHeight
-        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
-            self.view.layoutIfNeeded()
-        }
-        scrollToBottomIfNeeded()
+    func onLeave() {
+        context.currentChannel = nil
+        stateDisposables.dispose()
     }
 
-    @objc private func keyboardWillHide(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
-              let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
-        else { return }
-        inputBarBottomConstraint?.constant = 0
-        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
-            self.view.layoutIfNeeded()
+    func fetchMessages() {
+        guard let token = context.session?.token else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+
+        Task { @MainActor in
+            defer { self.setIsLoading(false) }
+            do {
+                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 50, topicId: 0, token: token)
+                if response.messages.isEmpty {
+                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 50, topicId: 0, token: token)
+                }
+                self.setHasMoreOlder(response.messages.count >= 50)
+                self.context.account.postbox.write { tx in tx.addMessages(response.messages.map { MessageRecord(from: $0) }) }
+            } catch {
+                self.setErrorMessage(error.localizedDescription)
+            }
         }
     }
 
-    @objc private func dismissKeyboard() {
-        view.endEditing(true)
+    func fetchMoreMessages() {
+        guard hasMoreOlder, !isLoadingMore else { return }
+        guard let token = context.session?.token else { return }
+        guard let oldest = messages.first, let msgId = Int64(oldest.message.id) else { return }
+
+        setIsLoadingMore(true)
+        Task { @MainActor in
+            defer { self.setIsLoadingMore(false) }
+            do {
+                let response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: msgId, direction: 3, limit: 50, topicId: 0, token: token)
+                self.setHasMoreOlder(response.messages.count >= 50)
+                self.context.account.postbox.write { tx in tx.addMessages(response.messages.map { MessageRecord(from: $0) }) }
+            } catch {
+                self.setErrorMessage(error.localizedDescription)
+            }
+        }
     }
 
-    override func setupUI() {
+    var currentState: ChannelMessagesState {
+        ChannelMessagesState(messages: messages, channelLabel: channelLabel, hasMoreOlder: hasMoreOlder, isLoadingMore: isLoadingMore, isLoading: isLoading, errorMessage: errorMessage)
+    }
+
+    func stateSignal() -> Signal<ChannelMessagesState, NoError> {
+        Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            subscriber.putNext(self.currentState)
+            return (self.needsReloadPipe.signal()
+                |> map { [weak self] _ in self?.currentState ?? .empty }
+                |> deliverOnMainQueue
+            ).start(next: { subscriber.putNext($0) })
+        }
+    }
+
+    private func buildDisplayMessages(from records: [MessageRecord]) -> [ChannelMessageDisplay] {
+        let displays = records.map { record -> ChannelMessageDisplay in
+            let content = extractTextFromContent(record)
+            let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
+            return ChannelMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false)
+        }
+        return Self.applyCombine(to: displays)
+    }
+
+    private static func applyCombine(to displays: [ChannelMessageDisplay]) -> [ChannelMessageDisplay] {
+        displays.enumerated().map { i, d in
+            let prev = i > 0 ? displays[i - 1].message : nil
+            return ChannelMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChannelMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev))
+        }
+    }
+
+    private func extractTextFromContent(_ record: MessageRecord) -> String {
+        guard let str = String(data: record.content, encoding: .utf8), !str.isEmpty else { return "" }
+        let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return str }
+        if let t = json["t"] as? String { return t }
+        if let text = json["text"] as? String { return text }
+        return str
+    }
+
+    private func joinChat() {
+        self.context.account.socket.joinClanChat(clanId: clanId)
+        let channelType: Int32 = clanId == 0
+            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
+            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
+        let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
+        self.context.account.socket.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
+    }
+
+    private func setupInputBar() {
         addChild(sendInputViewController)
         view.addSubview(sendInputViewController.view)
         sendInputViewController.didMove(toParent: self)
@@ -153,296 +240,61 @@ final class ChannelMessagesViewController: BaseViewController {
 
         let bottomConstraint = sendInputViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         inputBarBottomConstraint = bottomConstraint
-
-        view.addSubview(headerView)
-        headerView.addSubview(backButton)
-        headerView.addSubview(channelTitleLabel)
-        view.addSubview(tableView)
-        view.addSubview(loadingIndicator)
-        view.addSubview(loadingMoreIndicator)
-        view.addSubview(emptyLabel)
+        inputBarHeightConstraint = sendInputViewController.view.heightAnchor.constraint(equalToConstant: inputBarHeight)
 
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 44),
-
-            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12),
-            backButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-
-            channelTitleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4),
-            channelTitleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-            channelTitleLabel.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -60),
-
-            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: sendInputViewController.view.topAnchor),
-
             sendInputViewController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sendInputViewController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            sendInputViewController.view.heightAnchor.constraint(equalToConstant: 56),
+            inputBarHeightConstraint!,
             bottomConstraint,
-
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-
-            loadingMoreIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
-            loadingMoreIndicator.topAnchor.constraint(equalTo: tableView.topAnchor, constant: 12),
-
-            emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        tap.cancelsTouchesInView = false
+        messagesNode.tableView.addGestureRecognizer(tap)
     }
 
-    override func setupBindings() {
-        viewModel.$channelLabel
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] label in
-                let prefix = label.hasPrefix("#") ? "" : "#"
-                self?.channelTitleLabel.text = "\(prefix)\(label)"
-            }
-            .store(in: &cancellables)
-
-        viewModel.$messages
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.tableView.reloadData()
-                self?.updateEmptyState()
-                DispatchQueue.main.async {
-                    self?.scrollToBottomIfNeeded()
-                }
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isLoading
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
-                loading ? self?.loadingIndicator.startAnimating() : self?.loadingIndicator.stopAnimating()
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isLoadingMore
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
-                loading ? self?.loadingMoreIndicator.startAnimating() : self?.loadingMoreIndicator.stopAnimating()
-            }
-            .store(in: &cancellables)
-
-        viewModel.$errorMessage
-            .compactMap { $0 }
-            .receive(on: DispatchQueue.main)
-            .sink { msg in
-                Toast.error(msg)
-            }
-            .store(in: &cancellables)
+    private func setupKeyboardObservers() {
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
-    override func applyTheme() {
-        let t = UIColor.theme
-        view.backgroundColor = t.primary
-        headerView.backgroundColor = t.secondary
-        backButton.tintColor = t.textStrong
-        channelTitleLabel.textColor = t.textStrong
-        loadingIndicator.color = t.textDisabled
-        loadingMoreIndicator.color = t.textDisabled
-        emptyLabel.textColor = t.textDisabled
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let keyboardFrame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
+              let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt else { return }
+        inputBarBottomConstraint?.constant = -keyboardFrame.height + view.safeAreaInsets.bottom
+        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) { self.view.layoutIfNeeded() }
+        scrollToBottomIfNeeded()
     }
 
-    private func updateEmptyState() {
-        let isEmpty = !viewModel.isLoading && viewModel.messages.isEmpty
-        emptyLabel.isHidden = !isEmpty
-        emptyLabel.text = L(L10n.ChannelMessages.emptyMessages)
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
+              let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt else { return }
+        inputBarBottomConstraint?.constant = 0
+        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) { self.view.layoutIfNeeded() }
     }
 
-    private var shouldScrollToBottom = true
-    private var hasScrolledToBottomInitially = false
+    @objc private func dismissKeyboard() { view.endEditing(true) }
+
     private func scrollToBottomIfNeeded() {
-        guard shouldScrollToBottom, !viewModel.messages.isEmpty else { return }
-        let rowCount = viewModel.messages.count
+        guard shouldScrollToBottom, !messages.isEmpty else { return }
+        let rowCount = messages.count
         let lastRow = rowCount - 1
-        guard lastRow >= 0, lastRow < tableView.numberOfRows(inSection: 0) else { return }
+        guard lastRow >= 0, lastRow < messagesNode.tableView.numberOfRows(inSection: 0) else { return }
         let last = IndexPath(row: lastRow, section: 0)
         let isInitial = !hasScrolledToBottomInitially
         hasScrolledToBottomInitially = true
         if isInitial {
-            tableView.scrollToRow(at: last, at: .bottom, animated: false)
-            tableView.setContentOffset(CGPoint(x: 0, y: max(-tableView.contentInset.top, tableView.contentSize.height - tableView.bounds.height + tableView.contentInset.bottom)), animated: false)
+            messagesNode.tableView.scrollToRow(at: last, at: .bottom, animated: false)
+            messagesNode.tableView.setContentOffset(
+                CGPoint(x: 0, y: max(-messagesNode.tableView.contentInset.top, messagesNode.tableView.contentSize.height - messagesNode.tableView.bounds.height + messagesNode.tableView.contentInset.bottom)),
+                animated: false
+            )
         } else {
-            tableView.scrollToRow(at: last, at: .bottom, animated: true)
+            messagesNode.tableView.scrollToRow(at: last, at: .bottom, animated: true)
         }
-    }
-
-    private func onBack() {
-        navigationController?.popViewController(animated: true)
-    }
-}
-
-extension ChannelMessagesViewController: UITableViewDataSource, UITableViewDelegate {
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        viewModel.messages.count
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: MessageCell.reuseId, for: indexPath) as! MessageCell
-        let display = viewModel.messages[indexPath.row]
-        cell.configure(display: display)
-        return cell
-    }
-
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView.contentOffset.y < 80, viewModel.hasMoreOlder, !viewModel.isLoadingMore {
-            viewModel.fetchMoreMessages()
-        }
-        shouldScrollToBottom = scrollView.contentOffset.y + scrollView.bounds.height >= scrollView.contentSize.height - 100
-    }
-}
-
-private final class MessageCell: UITableViewCell {
-
-    static let reuseId = "MessageCell"
-
-    private let avatarView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.layer.cornerRadius = 18
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.backgroundColor = .colorAvatarDefault
-        return iv
-    }()
-
-    private let avatarPlaceholder: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 16, weight: .semibold)
-        l.textAlignment = .center
-        l.textColor = .white
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let nameLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14, weight: .semibold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let timeLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 12)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private let contentLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 15)
-        l.numberOfLines = 0
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    private var contentTopToName: NSLayoutConstraint?
-    private var contentTopToView: NSLayoutConstraint?
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
-        selectionStyle = .none
-
-        contentView.addSubview(avatarView)
-        avatarView.addSubview(avatarPlaceholder)
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(timeLabel)
-        contentView.addSubview(contentLabel)
-
-        contentTopToName = contentLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2)
-        contentTopToView = contentLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4)
-
-        NSLayoutConstraint.activate([
-            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            avatarView.widthAnchor.constraint(equalToConstant: 36),
-            avatarView.heightAnchor.constraint(equalToConstant: 36),
-
-            avatarPlaceholder.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarPlaceholder.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
-
-            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -8),
-
-            timeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
-
-            contentLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            contentLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            contentLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8)
-        ])
-        contentTopToName?.isActive = true
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(display: ChannelMessageDisplay) {
-        let t = UIColor.theme
-        let isCombine = display.isCombine
-
-        nameLabel.text = display.senderDisplayName
-        nameLabel.textColor = t.textRoleLink
-        timeLabel.text = formatDate(display.message.createdAt)
-        timeLabel.textColor = t.textDisabled
-        contentLabel.text = display.message.textContent ?? "[unsupported]"
-        contentLabel.textColor = t.textStrong
-
-        avatarView.isHidden = isCombine
-        avatarPlaceholder.isHidden = isCombine
-        nameLabel.isHidden = isCombine
-        timeLabel.isHidden = isCombine
-
-        contentTopToName?.isActive = false
-        contentTopToView?.isActive = false
-        if isCombine {
-            contentTopToView?.isActive = true
-        } else {
-            contentTopToName?.isActive = true
-        }
-
-        if !isCombine {
-            if let urlString = display.avatarURL, !urlString.isEmpty, let url = URL(string: urlString) {
-                avatarPlaceholder.isHidden = true
-                avatarView.image = nil
-                URLSession.shared.dataTask(with: url) { [weak avatarView] data, _, _ in
-                    guard let data, let img = UIImage(data: data) else { return }
-                    DispatchQueue.main.async { avatarView?.image = img }
-                }
-                .resume()
-            } else {
-                avatarView.image = nil
-                avatarPlaceholder.isHidden = false
-                avatarPlaceholder.text = String(display.senderDisplayName.prefix(1)).uppercased()
-            }
-        }
-    }
-
-    private func formatDate(_ date: Date) -> String {
-        let cal = Calendar.current
-        let timeF = DateFormatter()
-        timeF.dateFormat = "HH:mm"
-        let timeStr = timeF.string(from: date)
-        if cal.isDateInToday(date) {
-            return String(format: L(L10n.ChannelMessages.todayAt), timeStr)
-        }
-        if cal.isDateInYesterday(date) {
-            return String(format: L(L10n.ChannelMessages.yesterdayAt), timeStr)
-        }
-        let fullF = DateFormatter()
-        fullF.dateFormat = "dd/MM/yyyy, HH:mm"
-        return fullF.string(from: date)
     }
 }

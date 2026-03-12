@@ -1,7 +1,6 @@
 import UIKit
-import Combine
 
-final class ThemeManager: ObservableObject {
+final class ThemeManager {
 
     static let shared = ThemeManager()
 
@@ -9,7 +8,7 @@ final class ThemeManager: ObservableObject {
 
     private static let userDefaultsKey = "mezon.mobile.selectedTheme"
 
-    @Published private(set) var current: AppTheme
+    private(set) var current: AppTheme
 
     var attributes: ThemeAttributes { current.attributes }
 

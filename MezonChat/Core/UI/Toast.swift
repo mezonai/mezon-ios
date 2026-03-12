@@ -34,7 +34,6 @@ final class Toast {
     }
 }
 
-
 private final class ToastManager {
 
     static let shared = ToastManager()
@@ -112,7 +111,6 @@ private final class ToastManager {
         return nil
     }
 }
-
 
 private final class ToastView: UIView {
 

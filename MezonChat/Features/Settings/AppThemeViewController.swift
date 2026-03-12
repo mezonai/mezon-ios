@@ -1,10 +1,8 @@
 import UIKit
-import Combine
 
 final class AppThemeViewController: BaseViewController {
 
     private var selectedTheme: AppTheme = ThemeManager.shared.current
-
 
     private lazy var scrollView: UIScrollView = {
         let sv = UIScrollView()
@@ -58,7 +56,6 @@ final class AppThemeViewController: BaseViewController {
     }()
 
     private var swatchButtons: [ThemeSwatchButton] = []
-
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -118,7 +115,6 @@ final class AppThemeViewController: BaseViewController {
         refresh(theme: selectedTheme, animated: false)
     }
 
-
     private func buildSwatches() {
         swatchButtons = AppTheme.allCases.map { theme in
             let btn = ThemeSwatchButton(theme: theme)
@@ -128,14 +124,12 @@ final class AppThemeViewController: BaseViewController {
         }
     }
 
-
     @objc private func swatchTapped(_ sender: ThemeSwatchButton) {
         guard sender.theme != selectedTheme else { return }
         selectedTheme = sender.theme
         ThemeManager.shared.set(sender.theme)
         refresh(theme: sender.theme, animated: true)
     }
-
 
     private func refresh(theme: AppTheme, animated: Bool) {
         let block = {
@@ -150,7 +144,6 @@ final class AppThemeViewController: BaseViewController {
         }
     }
 }
-
 
 private final class ConversationPreviewCard: UIView {
 
@@ -208,14 +201,14 @@ private final class ConversationPreviewCard: UIView {
         }
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 20),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 20.sh),
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16.sw),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
 
-            rowStack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            rowStack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12.sh),
             rowStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             rowStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            rowStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            rowStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8.sh),
         ])
     }
 
@@ -326,7 +319,6 @@ private final class MockConversationRow: UIView {
         onlineDot.layer.borderColor = attrs.secondary.cgColor
     }
 }
-
 
 private final class ThemeSwatchButton: UIButton {
 

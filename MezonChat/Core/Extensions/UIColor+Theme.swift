@@ -4,7 +4,6 @@ extension UIColor {
 
     static var theme: ThemeAttributes { ThemeManager.shared.attributes }
 
-
     static var mezonPrimary:             UIColor { theme.primary }
     static var mezonSecondary:           UIColor { theme.secondary }
     static var mezonTertiary:            UIColor { theme.tertiary }

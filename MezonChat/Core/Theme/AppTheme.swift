@@ -1,6 +1,5 @@
 import UIKit
 
-
 struct ThemeAttributes {
     let primary: UIColor
     let primaryGradient: UIColor
@@ -55,7 +54,6 @@ struct ThemeAttributes {
     var swatchColor: UIColor { primary }
 }
 
-
 enum AppTheme: String, CaseIterable {
     case dark
     case light
@@ -86,7 +84,6 @@ enum AppTheme: String, CaseIterable {
         }
     }
 }
-
 
 private extension ThemeAttributes {
 
@@ -402,7 +399,6 @@ private extension ThemeAttributes {
         loginInputTextColor: hex("#ffffff")
     )
 }
-
 
 private func hex(_ value: String, alpha: CGFloat = 1) -> UIColor {
     var str = value.trimmingCharacters(in: .whitespacesAndNewlines)

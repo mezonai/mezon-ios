@@ -13,7 +13,6 @@ final class LanguageSettingsViewController: BaseViewController {
         return tv
     }()
 
-
     override func setupUI() {
         navigationItem.largeTitleDisplayMode = .never
         view.addSubview(tableView)
@@ -33,7 +32,6 @@ final class LanguageSettingsViewController: BaseViewController {
         tableView.reloadData()
     }
 }
-
 
 extension LanguageSettingsViewController: UITableViewDataSource {
 
@@ -58,7 +56,6 @@ extension LanguageSettingsViewController: UITableViewDataSource {
         return cell
     }
 }
-
 
 extension LanguageSettingsViewController: UITableViewDelegate {
 
