@@ -191,7 +191,7 @@ final class ProfileHeaderComponent: Component {
 
             if let url = component.avatarURL {
                 Task {
-                    if let data = try? await URLSession.shared.data(from: url).0, let img = UIImage(data: data) {
+                    if let data = try? await URLSession.shared.data(from: url).0, let img = UIImage.decodeImage(from: data) {
                         await MainActor.run { self.avatarImageView.image = img }
                     }
                 }

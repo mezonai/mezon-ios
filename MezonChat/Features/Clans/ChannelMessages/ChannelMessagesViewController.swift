@@ -1,11 +1,43 @@
 import UIKit
 import SwiftProtobuf
 
+struct ParsedAttachment: Equatable {
+    let url: String
+    let filename: String
+    let filetype: String
+    let width: Int?
+    let height: Int?
+
+    var isImage: Bool {
+        filetype.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
+    }
+
+    var isVideo: Bool {
+        filetype.hasPrefix("video/") || ["mp4", "mov", "m4v", "webm"].contains(fileExtension)
+    }
+
+    var isMedia: Bool { isImage || isVideo }
+
+    var fileExtension: String {
+        (filename as NSString).pathExtension.lowercased()
+    }
+}
+
+struct ParsedReaction: Equatable {
+    let emojiId: String
+    let emoji: String
+    let count: Int
+    let senderIds: [String]
+    let isMe: Bool
+}
+
 struct ChannelMessageDisplay: Identifiable {
     let message: Message
     let senderDisplayName: String
     let avatarURL: String?
     let isCombine: Bool
+    let attachments: [ParsedAttachment]
+    let reactions: [ParsedReaction]
     var id: String { message.id }
 
     static func isCombineWithPrevious(current: Message, previous: Message?) -> Bool {
@@ -77,6 +109,9 @@ final class ChannelMessagesViewController: ViewController {
     override func loadDisplayNode() {
         let interaction = ChannelMessagesInteraction(
             onBackTapped: { [weak self] in self?.navigationController?.popViewController(animated: true) },
+            onSearchTapped: { },
+            onHistoryTapped: { },
+            onMenuTapped: { },
             onScrolledNearTop: { [weak self] in
                 guard let self, self.hasMoreOlder, !self.isLoadingMore else { return }
                 self.fetchMoreMessages()
@@ -109,7 +144,17 @@ final class ChannelMessagesViewController: ViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
+        lastLayout = layout
         messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight, transition: transition)
+    }
+
+    private var lastLayout: ContainerViewLayout?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if let layout = lastLayout {
+            messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight, transition: .immediate)
+        }
     }
 
     @objc private func handleThemeChange() { messagesNode.applyTheme() }
@@ -198,10 +243,13 @@ final class ChannelMessagesViewController: ViewController {
     }
 
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChannelMessageDisplay] {
+        let currentUserId = context.currentUser?.id
         let displays = records.map { record -> ChannelMessageDisplay in
             let content = extractTextFromContent(record)
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
-            return ChannelMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false)
+            let attachments = Self.parseAttachments(record.attachmentsJSON)
+            let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
+            return ChannelMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions)
         }
         return Self.applyCombine(to: displays)
     }
@@ -209,7 +257,69 @@ final class ChannelMessagesViewController: ViewController {
     private static func applyCombine(to displays: [ChannelMessageDisplay]) -> [ChannelMessageDisplay] {
         displays.enumerated().map { i, d in
             let prev = i > 0 ? displays[i - 1].message : nil
-            return ChannelMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChannelMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev))
+            return ChannelMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChannelMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev), attachments: d.attachments, reactions: d.reactions)
+        }
+    }
+
+    private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {
+        guard !data.isEmpty else { return [] }
+        var jsonArray: [[String: Any]]?
+        if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            jsonArray = arr
+        } else if let str = String(data: data, encoding: .utf8),
+                  let strData = str.data(using: .utf8),
+                  let arr = try? JSONSerialization.jsonObject(with: strData) as? [[String: Any]] {
+            jsonArray = arr
+        }
+        guard let json = jsonArray else { return [] }
+        return json.compactMap { item in
+            guard let url = item["url"] as? String, !url.isEmpty else { return nil }
+            let w = item["width"] as? Int ?? (item["width"] as? String).flatMap { Int($0) }
+            let h = item["height"] as? Int ?? (item["height"] as? String).flatMap { Int($0) }
+            return ParsedAttachment(
+                url: url,
+                filename: item["filename"] as? String ?? "",
+                filetype: item["filetype"] as? String ?? "",
+                width: w,
+                height: h
+            )
+        }
+    }
+
+    private static func parseReactions(_ data: Data, currentUserId: String?) -> [ParsedReaction] {
+        guard !data.isEmpty else { return [] }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+
+        var grouped: [String: (emoji: String, senderIds: [String])] = [:]
+        for item in json {
+            let emojiId = item["emoji_id"] as? String ?? item["emojiid"] as? String ?? ""
+            let emoji = item["emoji"] as? String ?? ""
+            let senderId = item["sender_id"] as? String ?? "\(item["sender_id"] ?? "")"
+            let action = item["action"] as? Bool ?? true
+            let key = emojiId.isEmpty ? emoji : emojiId
+            guard !key.isEmpty else { continue }
+
+            if grouped[key] == nil {
+                grouped[key] = (emoji: emoji, senderIds: [])
+            }
+            if action {
+                if !grouped[key]!.senderIds.contains(senderId) {
+                    grouped[key]!.senderIds.append(senderId)
+                }
+            } else {
+                grouped[key]!.senderIds.removeAll { $0 == senderId }
+            }
+        }
+
+        return grouped.compactMap { key, value in
+            guard !value.senderIds.isEmpty else { return nil }
+            return ParsedReaction(
+                emojiId: key,
+                emoji: value.emoji,
+                count: value.senderIds.count,
+                senderIds: value.senderIds,
+                isMe: currentUserId.map { value.senderIds.contains($0) } ?? false
+            )
         }
     }
 

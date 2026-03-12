@@ -20,10 +20,11 @@ final class HomeViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = UIColor.theme.primary
         embedChildren()
         bindClanSelection()
         bindChannelSelection()
-        bindSidebarCallbacks()
+        bindLogoTap()
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -61,31 +62,13 @@ final class HomeViewController: BaseViewController {
         ])
     }
 
-    private func bindSidebarCallbacks() {
-        clanListVC.onThemeTapped = { [weak self] in self?.presentSheet(AppThemeViewController()) }
-        clanListVC.onLanguageTapped = { [weak self] in self?.presentSheet(LanguageSettingsViewController()) }
-        clanListVC.onMessagesTapped = { [weak self] in self?.pushMessages() }
-        clanListVC.onProfileTapped = { [weak self] in self?.pushProfile() }
-    }
-
-    private func pushMessages() {
-        let vc = MessagesViewController(context: context)
-        navigationController?.pushViewController(vc, animated: true)
-    }
-
-    private func pushProfile() {
-        let vc = ProfileViewController(context: context)
-        navigationController?.pushViewController(vc, animated: true)
-    }
-
-    private func presentSheet(_ vc: UIViewController) {
-        let nav = UINavigationController(rootViewController: vc)
-        nav.modalPresentationStyle = .pageSheet
-        if let sheet = nav.sheetPresentationController {
-            sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = true
+    private func bindLogoTap() {
+        clanListVC.onLogoTapped = { [weak self] in
+            guard let self else { return }
+            if let tabBar = self.parent as? TabBarController {
+                tabBar.selectedIndex = 1
+            }
         }
-        present(nav, animated: true)
     }
 
     private func bindClanSelection() {

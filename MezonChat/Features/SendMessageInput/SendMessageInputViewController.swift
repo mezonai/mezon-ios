@@ -25,20 +25,43 @@ final class SendMessageInputViewController: UIViewController {
         return v
     }()
 
+    private lazy var attachButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.layer.cornerRadius = 20.swh
+        return btn
+    }()
+
     private lazy var textField: UITextField = {
         let tf = UITextField()
-        tf.borderStyle = .roundedRect
+        tf.borderStyle = .none
         tf.returnKeyType = .send
+        tf.layer.cornerRadius = 20.swh
         tf.translatesAutoresizingMaskIntoConstraints = false
+        tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16.sw, height: 1))
+        tf.leftViewMode = .always
+        tf.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 40.sw, height: 1))
+        tf.rightViewMode = .always
         tf.delegate = self
         return tf
     }()
 
-    private lazy var sendButton: UIButton = {
-        let btn = UIButton(type: .custom)
+    private lazy var emojiButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setImage(UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        let img = generateTintedImage(image: UIImage(bundleImageName: "Chat/IconMessagesIcon"), color: UIColor.theme.textRoleLink)
-        btn.setImage(img, for: .normal)
+        return btn
+    }()
+
+    private lazy var sendButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.layer.cornerRadius = 20.swh
+        btn.clipsToBounds = true
+        btn.setImage(UIImage(systemName: "paperplane.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        btn.tintColor = .white
+        btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
         btn.addAction(UIAction { [weak self] _ in self?.send() }, for: .touchUpInside)
         return btn
     }()
@@ -63,6 +86,7 @@ final class SendMessageInputViewController: UIViewController {
         setupUI()
         setupBindings()
         setupThemeObserver()
+        applyTheme()
     }
 
     func send() {
@@ -76,11 +100,15 @@ final class SendMessageInputViewController: UIViewController {
 
     private func setupUI() {
         view.addSubview(inputBarView)
+        inputBarView.addSubview(attachButton)
         inputBarView.addSubview(textField)
+        inputBarView.addSubview(emojiButton)
         inputBarView.addSubview(sendButton)
 
         let bottomConstraint = inputBarView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         inputBarBottomConstraint = bottomConstraint
+
+        let btnSize: CGFloat = 40.swh
 
         NSLayoutConstraint.activate([
             inputBarView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -88,14 +116,26 @@ final class SendMessageInputViewController: UIViewController {
             inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             inputBarView.heightAnchor.constraint(equalToConstant: 56.sh),
             bottomConstraint,
-            textField.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 12.sw),
+
+            attachButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 4.sw),
+            attachButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
+            attachButton.widthAnchor.constraint(equalToConstant: btnSize),
+            attachButton.heightAnchor.constraint(equalToConstant: btnSize),
+
+            textField.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
             textField.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
-            textField.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8.sw),
-            textField.heightAnchor.constraint(equalToConstant: 36.sh),
-            sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -8.sw),
+            textField.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6.sw),
+            textField.heightAnchor.constraint(equalToConstant: 40.sh),
+
+            emojiButton.trailingAnchor.constraint(equalTo: textField.trailingAnchor, constant: -8.sw),
+            emojiButton.centerYAnchor.constraint(equalTo: textField.centerYAnchor),
+            emojiButton.widthAnchor.constraint(equalToConstant: 28.swh),
+            emojiButton.heightAnchor.constraint(equalToConstant: 28.swh),
+
+            sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
             sendButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 44.swh),
-            sendButton.heightAnchor.constraint(equalToConstant: 44.swh),
+            sendButton.widthAnchor.constraint(equalToConstant: btnSize),
+            sendButton.heightAnchor.constraint(equalToConstant: btnSize),
         ])
     }
 
@@ -121,10 +161,11 @@ final class SendMessageInputViewController: UIViewController {
         inputBarView.backgroundColor = t.secondary
         textField.backgroundColor = t.tertiary
         textField.textColor = t.textStrong
+        textField.font = .systemFont(ofSize: 15.sf)
         textField.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: t.textDisabled])
-        if let sendImg = generateTintedImage(image: UIImage(bundleImageName: "Chat/IconMessagesIcon"), color: t.textRoleLink) {
-            sendButton.setImage(sendImg, for: .normal)
-        }
+        attachButton.backgroundColor = t.tertiary
+        attachButton.tintColor = t.textStrong
+        emojiButton.tintColor = t.textDisabled
     }
 
     override func viewDidAppear(_ animated: Bool) {
