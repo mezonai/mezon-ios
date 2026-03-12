@@ -3,11 +3,12 @@ import SwiftProtobuf
 
 struct ChannelListState {
     var categories: [ChannelCategory]
+    var allChannels: [Mezon_Api_ChannelDescription] = []
     var selectedChannelId: Int64?
     var isLoading: Bool
     var errorMessage: String?
 
-    static let empty = ChannelListState(categories: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
+    static let empty = ChannelListState(categories: [], allChannels: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
 }
 
 enum ChannelFetchError: Error {
@@ -27,6 +28,18 @@ struct ChannelCategory {
     let name: String
     var isCollapsed: Bool = false
     var channels: [Mezon_Api_ChannelDescription]
+}
+
+enum ChannelListRow {
+    case channel(Mezon_Api_ChannelDescription)
+    case thread(Mezon_Api_ChannelDescription, isLast: Bool)
+
+    var channelDesc: Mezon_Api_ChannelDescription {
+        switch self {
+        case .channel(let ch): return ch
+        case .thread(let ch, _): return ch
+        }
+    }
 }
 
 enum ChannelType: Int32 {
@@ -62,8 +75,20 @@ private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription]) 
     }
 }
 
+func flattenCategoryToRows(_ category: ChannelCategory, allChannels: [Mezon_Api_ChannelDescription]) -> [ChannelListRow] {
+    var rows: [ChannelListRow] = []
+    for ch in category.channels {
+        rows.append(.channel(ch))
+        let threads = allChannels.filter { $0.parentID == ch.channelID }.sorted { $0.channelLabel < $1.channelLabel }
+        for (i, thread) in threads.enumerated() {
+            rows.append(.thread(thread, isLast: i == threads.count - 1))
+        }
+    }
+    return rows
+}
+
 private enum FetchResult {
-    case success([ChannelCategory])
+    case success([Mezon_Api_ChannelDescription])
     case failure(String)
 }
 
@@ -145,8 +170,7 @@ final class ChannelListViewController: ViewController {
         let clanId = self.clanId
 
         let signal = channelListSignal(clanId: clanId)
-            |> map { channels in buildChannelCategories(channels) }
-            |> map { categories -> FetchResult in .success(categories) }
+            |> map { channels -> FetchResult in .success(channels) }
             |> `catch` { (error: ChannelFetchError) -> Signal<FetchResult, NoError> in .single(.failure(error.localizedDescription)) }
             |> deliverOnMainQueue
 
@@ -154,7 +178,9 @@ final class ChannelListViewController: ViewController {
             guard let self else { return }
             self.isLoading = false
             switch result {
-            case .success(let cats):
+            case .success(let channels):
+                self.allChannels = channels
+                let cats = buildChannelCategories(channels)
                 self.categories = cats
                 self.persistSelectedChannel()
                 self.categoriesPipe.putNext(cats)
@@ -180,8 +206,10 @@ final class ChannelListViewController: ViewController {
         self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
     }
 
+    private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
+
     var currentState: ChannelListState {
-        ChannelListState(categories: categories, selectedChannelId: selectedChannelId, isLoading: isLoading, errorMessage: errorMessage)
+        ChannelListState(categories: categories, allChannels: allChannels, selectedChannelId: selectedChannelId, isLoading: isLoading, errorMessage: errorMessage)
     }
 
     func stateSignal() -> Signal<ChannelListState, NoError> {

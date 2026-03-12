@@ -68,7 +68,11 @@ open class TransformImageNode: ASDisplayNode {
         self.contents = nil
         self.image = nil
     }
-    
+
+    public func setArguments(_ arguments: TransformImageArguments) {
+        self.argumentsPromise.set(arguments)
+    }
+
     public func setSignal(_ signal: Signal<(TransformImageArguments) -> DrawingContext?, NoError>, attemptSynchronously: Bool = false, dispatchOnDisplayLink: Bool = true) {
         let argumentsPromise = self.argumentsPromise
         

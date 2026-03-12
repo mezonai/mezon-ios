@@ -55,9 +55,19 @@ final class MessagesViewController: ViewController {
         Task { await fetchDirectMessages() }
     }
 
+    private var lastLayout: ContainerViewLayout?
+
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
+        lastLayout = layout
         messagesNode.updateLayout(layout: layout, transition: transition)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if let layout = lastLayout {
+            messagesNode.updateLayout(layout: layout, transition: .immediate)
+        }
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) { directMessages = v; directMessagesPipe.putNext(v); needsReloadPipe.putNext(()) }

@@ -27,10 +27,7 @@ final class ClanListViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var error: String?
 
-    var onThemeTapped: (() -> Void)?
-    var onLanguageTapped: (() -> Void)?
-    var onMessagesTapped: (() -> Void)?
-    var onProfileTapped: (() -> Void)?
+    var onLogoTapped: (() -> Void)?
 
     private var clanListNode: ClanListContainerNode { displayNode as! ClanListContainerNode }
 
@@ -49,10 +46,7 @@ final class ClanListViewController: ViewController {
     override func loadDisplayNode() {
         let interaction = ClanListInteraction(
             onSelectClan: { [weak self] clan in self?.select(clan: clan) },
-            onMessagesTapped: { [weak self] in self?.onMessagesTapped?() },
-            onProfileTapped: { [weak self] in self?.onProfileTapped?() },
-            onThemeTapped: { [weak self] in self?.onThemeTapped?() },
-            onLanguageTapped: { [weak self] in self?.onLanguageTapped?() }
+            onLogoTapped: { [weak self] in self?.onLogoTapped?() }
         )
         displayNode = ClanListContainerNode(signal: stateSignal(), interaction: interaction)
     }

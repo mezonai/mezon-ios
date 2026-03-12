@@ -19,7 +19,9 @@ final class MessageTable: Table {
                 is_deleted           INTEGER NOT NULL DEFAULT 0,
                 sender_display_name  TEXT NOT NULL DEFAULT '',
                 sender_avatar_url    TEXT,
-                sending_state        INTEGER NOT NULL DEFAULT 1
+                sending_state        INTEGER NOT NULL DEFAULT 1,
+                attachments_json     BLOB,
+                reactions_json       BLOB
             )
         """)
         db.rawExecute(
@@ -29,6 +31,8 @@ final class MessageTable: Table {
         db.rawExecute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT NOT NULL DEFAULT ''")
         db.rawExecute("ALTER TABLE messages ADD COLUMN sender_avatar_url TEXT")
         db.rawExecute("ALTER TABLE messages ADD COLUMN sending_state INTEGER NOT NULL DEFAULT 1")
+        db.rawExecute("ALTER TABLE messages ADD COLUMN attachments_json BLOB")
+        db.rawExecute("ALTER TABLE messages ADD COLUMN reactions_json BLOB")
     }
 
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
@@ -37,7 +41,8 @@ final class MessageTable: Table {
         let rows = db.query(
             """
             SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
-                   is_deleted, sender_display_name, sender_avatar_url, sending_state
+                   is_deleted, sender_display_name, sender_avatar_url, sending_state,
+                   attachments_json, reactions_json
             FROM messages
             WHERE channel_id = ? AND is_deleted = 0
             ORDER BY created_at ASC
@@ -69,11 +74,22 @@ final class MessageTable: Table {
             let stateRaw  = sqlite3_column_int(stmt, 10)
             let sendingState = SendingState(rawValue: stateRaw) ?? .sent
 
+            let attachmentsJSON: Data
+            if sqlite3_column_type(stmt, 11) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 11) {
+                attachmentsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 11)))
+            } else { attachmentsJSON = Data() }
+
+            let reactionsJSON: Data
+            if sqlite3_column_type(stmt, 12) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 12) {
+                reactionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 12)))
+            } else { reactionsJSON = Data() }
+
             return MessageRecord(
                 id: id, channelId: chId, clanId: clanId, senderId: senderId,
                 content: content, createdAt: createdAt, editedAt: editedAt,
                 isDeleted: isDeleted, senderDisplayName: displayName,
-                senderAvatarURL: avatarURL, sendingState: sendingState
+                senderAvatarURL: avatarURL, sendingState: sendingState,
+                attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON
             )
         }
 
@@ -112,7 +128,8 @@ final class MessageTable: Table {
                     senderId: old.senderId, content: old.content,
                     createdAt: old.createdAt, editedAt: old.editedAt,
                     isDeleted: old.isDeleted, senderDisplayName: old.senderDisplayName,
-                    senderAvatarURL: old.senderAvatarURL, sendingState: .failed
+                    senderAvatarURL: old.senderAvatarURL, sendingState: .failed,
+                    attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON
                 )
                 pendingWrites.insert(channelId)
                 db.run("UPDATE messages SET sending_state = 2 WHERE id = ?") {
@@ -150,8 +167,9 @@ final class MessageTable: Table {
                     INSERT OR REPLACE INTO messages(
                         id, channel_id, clan_id, sender_id, content,
                         created_at, edited_at, is_deleted,
-                        sender_display_name, sender_avatar_url, sending_state
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                        sender_display_name, sender_avatar_url, sending_state,
+                        attachments_json, reactions_json
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in
                     sqlite3_bind_text(s, 1, record.id,        -1, nil)
                     sqlite3_bind_text(s, 2, record.channelId, -1, nil)
@@ -169,6 +187,16 @@ final class MessageTable: Table {
                     if let url = record.senderAvatarURL { sqlite3_bind_text(s, 10, url, -1, nil) }
                     else { sqlite3_bind_null(s, 10) }
                     sqlite3_bind_int(s, 11, record.sendingState.rawValue)
+                    if !record.attachmentsJSON.isEmpty {
+                        record.attachmentsJSON.withUnsafeBytes { buf in
+                            sqlite3_bind_blob(s, 12, buf.baseAddress, Int32(buf.count), nil)
+                        }
+                    } else { sqlite3_bind_null(s, 12) }
+                    if !record.reactionsJSON.isEmpty {
+                        record.reactionsJSON.withUnsafeBytes { buf in
+                            sqlite3_bind_blob(s, 13, buf.baseAddress, Int32(buf.count), nil)
+                        }
+                    } else { sqlite3_bind_null(s, 13) }
                 }
             }
         }

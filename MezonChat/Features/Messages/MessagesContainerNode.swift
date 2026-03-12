@@ -10,14 +10,13 @@ struct MessagesInteraction {
 
 final class MessagesContainerNode: ASDisplayNode {
 
-    private let headerView      = UIView()
-    private let titleLabel      = UILabel()
-    private let backButton      = UIButton(type: .system)
+    private let headerView = UIView()
+    private let titleLabel = UILabel()
     private let addFriendButton = UIButton(type: .system)
-    private let searchButton    = UIButton(type: .system)
+    private let searchButton = UIButton(type: .system)
     private let tableView: UITableView
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
-    private let emptyLabel      = UILabel()
+    private let emptyLabel = UILabel()
 
     private var state: MessagesState = .empty
     private let interaction: MessagesInteraction
@@ -35,10 +34,7 @@ final class MessagesContainerNode: ASDisplayNode {
                 guard let self else { return }
                 self.state = newState
                 self.tableView.reloadData()
-
-                let showEmpty = newState.isEmpty && !newState.isLoading
-                self.emptyLabel.isHidden = !showEmpty
-
+                self.emptyLabel.isHidden = !(newState.isEmpty && !newState.isLoading)
                 if newState.isLoading { self.loadingIndicator.startAnimating() }
                 else { self.loadingIndicator.stopAnimating() }
             })
@@ -52,78 +48,103 @@ final class MessagesContainerNode: ASDisplayNode {
 
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
-        tableView.rowHeight = 72.sh
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 62.sh
         tableView.register(DmListItemCell.self, forCellReuseIdentifier: DmListItemCell.reuseId)
         tableView.dataSource = self
-        tableView.delegate   = self
+        tableView.delegate = self
 
-        titleLabel.font = .systemFont(ofSize: 28.sf, weight: .bold)
-        titleLabel.textColor = .mezonTextPrimary
         titleLabel.text = L(L10n.Tab.messages)
+        titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
+        titleLabel.textColor = .mezonTextPrimary
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        var backCfg = UIButton.Configuration.plain()
-        backCfg.image = UIImage(systemName: "chevron.left")
-        backButton.configuration = backCfg
-        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-
-        var addCfg = UIButton.Configuration.plain()
-        addCfg.image = UIImage(systemName: "person.badge.plus")
-        addCfg.title = " • \(L(L10n.DirectMessage.addFriend))"
+        var addCfg = UIButton.Configuration.filled()
+        addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
+        addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
+        addCfg.baseForegroundColor = UIColor.theme.textStrong
+        addCfg.baseBackgroundColor = UIColor.theme.tertiary
+        addCfg.cornerStyle = .capsule
+        addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
+        addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+            var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
+        }
         addFriendButton.configuration = addCfg
+        addFriendButton.translatesAutoresizingMaskIntoConstraints = false
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
 
-        var searchCfg = UIButton.Configuration.plain()
-        searchCfg.image = UIImage(systemName: "magnifyingglass")
+        var searchCfg = UIButton.Configuration.filled()
+        searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+        searchCfg.baseForegroundColor = UIColor.theme.textDisabled
+        searchCfg.baseBackgroundColor = UIColor.theme.tertiary
+        searchCfg.cornerStyle = .capsule
         searchButton.configuration = searchCfg
+        searchButton.translatesAutoresizingMaskIntoConstraints = false
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
         loadingIndicator.hidesWhenStopped = true
+        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
+
         emptyLabel.font = .systemFont(ofSize: 15.sf)
         emptyLabel.textColor = .mezonTextSecondary
         emptyLabel.textAlignment = .center
         emptyLabel.text = L(L10n.ChannelMessages.emptyMessages)
         emptyLabel.isHidden = true
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        for v in [headerView, tableView, loadingIndicator, emptyLabel] as [UIView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(v)
-        }
-        for v in [backButton, titleLabel, addFriendButton, searchButton] as [UIView] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            headerView.addSubview(v)
-        }
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+
+        view.addSubview(headerView)
+        view.addSubview(addFriendButton)
+        view.addSubview(searchButton)
+        view.addSubview(tableView)
+        view.addSubview(loadingIndicator)
+        view.addSubview(emptyLabel)
+
+        headerView.addSubview(titleLabel)
     }
+
+    private var lastLayout: ContainerViewLayout?
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
-        let headerH: CGFloat = 56.sh
-        let headerFrame = CGRect(x: 0, y: layout.safeInsets.top, width: layout.size.width, height: headerH)
-        transition.updateFrame(view: headerView, frame: headerFrame)
-
-        let tvFrame = CGRect(
-            x: 0, y: headerFrame.maxY + 8.sh,
-            width: layout.size.width,
-            height: layout.size.height - headerFrame.maxY - 8.sh - layout.intrinsicInsets.bottom
-        )
-        transition.updateFrame(view: tableView, frame: tvFrame)
-
-        let liS: CGFloat = 24.swh
-        let liFrame = CGRect(x: (layout.size.width - liS) / 2, y: (layout.size.height - liS) / 2, width: liS, height: liS)
-        transition.updateFrame(view: loadingIndicator, frame: liFrame)
-
-        let elH: CGFloat = 44.sh
-        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - elH) / 2, width: layout.size.width, height: elH))
-
-        let btnH: CGFloat = 44.swh
-        let addW: CGFloat = 140.sw
-        transition.updateFrame(view: backButton,      frame: CGRect(x: 4.sw, y: 0, width: btnH, height: headerH))
-        transition.updateFrame(view: titleLabel,      frame: CGRect(x: 4.sw + btnH + 4.sw, y: 0, width: layout.size.width - 200.sw, height: headerH))
-        transition.updateFrame(view: searchButton,    frame: CGRect(x: layout.size.width - 16.sw - btnH, y: 0, width: btnH, height: headerH))
-        transition.updateFrame(view: addFriendButton, frame: CGRect(x: layout.size.width - 16.sw - btnH - 8.sw - addW, y: 0, width: addW, height: headerH))
+        lastLayout = layout
+        applyLayout(transition: transition)
     }
 
-    @objc private func backTapped()      { interaction.onBackTapped() }
+    private func applyLayout(transition: ContainedViewLayoutTransition) {
+        guard let layout = lastLayout else { return }
+        let realSafeTop = view.safeAreaInsets.top
+        let safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
+        let topY = safeTop + 8.sh
+        let sideInset: CGFloat = 18.sw
+
+        let titleH: CGFloat = 36.sh
+        transition.updateFrame(view: headerView, frame: CGRect(x: 0, y: topY, width: layout.size.width, height: titleH))
+        transition.updateFrame(view: titleLabel, frame: CGRect(x: sideInset, y: 0, width: 200.sw, height: titleH))
+
+        let actionY = topY + titleH + 6.sh
+        let actionH: CGFloat = 32.sh
+        let searchSize: CGFloat = 32.swh
+        let addW = layout.size.width - sideInset * 2 - searchSize - 8.sw
+        transition.updateFrame(view: addFriendButton, frame: CGRect(x: sideInset, y: actionY, width: addW, height: actionH))
+        transition.updateFrame(view: searchButton, frame: CGRect(x: layout.size.width - sideInset - searchSize, y: actionY, width: searchSize, height: searchSize))
+
+        let tvTop = actionY + actionH + 8.sh
+        transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: layout.size.width, height: layout.size.height - tvTop - layout.intrinsicInsets.bottom))
+
+        let liS: CGFloat = 24.swh
+        transition.updateFrame(view: loadingIndicator, frame: CGRect(x: (layout.size.width - liS) / 2, y: (layout.size.height - liS) / 2, width: liS, height: liS))
+        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - 44.sh) / 2, width: layout.size.width, height: 44.sh))
+    }
+
+    override func layout() {
+        super.layout()
+        applyLayout(transition: .immediate)
+    }
+
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
-    @objc private func searchTapped()    { interaction.onSearchTapped() }
+    @objc private func searchTapped() { interaction.onSearchTapped() }
 }
 
 extension MessagesContainerNode: UITableViewDataSource, UITableViewDelegate {
