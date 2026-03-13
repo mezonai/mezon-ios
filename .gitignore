@@ -5,6 +5,11 @@ DerivedData/
 *.xcuserdatad/
 xcuserdata/
 
+# IDE
+.idea/
+.claude/
+.vscode/
+
 # macOS
 .DS_Store
 *.swp
@@ -18,8 +23,7 @@ xcuserdata/
 
 # CocoaPods
 Pods/
-*.xcworkspace
-!*.xcodeproj/project.xcworkspace
+Podfile.lock
 
 # Environment / Secrets
 .env

@@ -236,6 +236,51 @@ final class MezonHTTPClient {
         )
     }
 
+    func getNotificationChannel(channelId: Int64, token: String) async throws -> Mezon_Api_NotificationUserChannel {
+        var req = Mezon_Api_NotificationChannel()
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetNotificationChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listUserPermissionInChannel(clanId: Int64, channelId: Int64, token: String) async throws -> Mezon_Api_UserPermissionInChannelListResponse {
+        var req = Mezon_Api_UserPermissionInChannelListRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListUserPermissionInChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelUsers(clanId: Int64, channelId: Int64, channelType: Int32, limit: Int32 = 2000, state: Int32 = 1, token: String) async throws -> Mezon_Api_ChannelUserList {
+        var req = Mezon_Api_ListChannelUsersRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.channelType = channelType
+        req.limit = limit
+        req.state = state
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func isBanned(channelId: Int64, token: String) async throws -> Mezon_Api_IsBannedResponse {
+        var req = Mezon_Api_IsBannedRequest()
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/IsBanned",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
         return try await execute(req)

@@ -6,7 +6,7 @@ final class MezonSocket: NSObject {
 
     static let shared = MezonSocket()
 
-    weak var messagesStore: MessagesStore?
+    var onMessageReceived: ((Mezon_Api_ChannelMessage) -> Void)?
 
     var onTyping:             ((Mezon_Realtime_MessageTypingEvent)         -> Void)?
     var onReaction:           ((Mezon_Api_MessageReaction)                 -> Void)?
@@ -214,9 +214,8 @@ final class MezonSocket: NSObject {
     private func routeEnvelope(_ envelope: Mezon_Realtime_Envelope) {
         switch envelope.message {
         case .channelMessage(let m):
-            let hasStore = self.messagesStore != nil
-            AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID) messagesStore=\(hasStore ? "set" : "nil")")
-            self.messagesStore?.appendMessages([m], clanId: m.clanID, channelId: m.channelID)
+            AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID)")
+            onMessageReceived?(m)
         case .messageTypingEvent(let m):
             onTyping?(m)
             AppLogger.app.debug("[MezonSocket] typing clanId=\(m.clanID) channelId=\(m.channelID)")

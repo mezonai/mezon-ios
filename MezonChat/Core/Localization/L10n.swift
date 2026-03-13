@@ -1,8 +1,6 @@
 import Foundation
 
-
 enum L10n {
-
 
     enum Tab {
         static let clans         = "tab.clans"
@@ -23,7 +21,6 @@ enum L10n {
         static let userIdCopied      = "profile.userIdCopied"
         static let currency          = "profile.currency"
     }
-
 
     enum Common {
         static let settings       = "common.settings"
@@ -51,7 +48,6 @@ enum L10n {
         static let language       = "common.language"
     }
 
-
     enum Settings {
         static let title          = "settings.title"
         static let language       = "settings.language"
@@ -61,11 +57,9 @@ enum L10n {
         static let privacy        = "settings.privacy"
     }
 
-
     enum Language {
         static let title          = "language.title"
     }
-
 
     enum Login {
         static let welcomeBack         = "login.welcomeBack"
@@ -95,7 +89,6 @@ enum L10n {
         static let selectCountry      = "login.selectCountry"
     }
 
-
     enum OTPVerify {
         static let loginToMezon   = "otpVerify.loginToMezon"
         static let enterCodeFrom  = "otpVerify.enterCodeFrom"
@@ -108,7 +101,6 @@ enum L10n {
         static let resendFailed   = "otpVerify.resendFailed"
         static let sendOtpError   = "otpVerify.sendOtpError"
     }
-
 
     enum Clan {
         static let createClan     = "clan.createClan"
@@ -144,14 +136,12 @@ enum L10n {
     }
 }
 
-
 extension L10n {
 
     static let translations: [AppLanguage: [String: String]] = [
         .english: en,
         .vietnamese: vi
     ]
-
 
     private static let en: [String: String] = [
         "tab.clans":            "Clans",
@@ -263,7 +253,6 @@ extension L10n {
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
     ]
-
 
     private static let vi: [String: String] = [
         "tab.clans":            "Kênh",

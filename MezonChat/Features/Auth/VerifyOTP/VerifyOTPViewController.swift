@@ -1,9 +1,26 @@
 import UIKit
-import Combine
 
 final class VerifyOTPViewController: BaseViewController {
 
-    private let viewModel: VerifyOTPViewModel
+    private let otpContext: OTPContext
+    private let context: AccountContext
+    private(set) var currentReqId: String
+    private var cooldownTimer: Timer?
+    private let mainQueue = Queue.mainQueue()
+
+    private let otpCodePipe = ValuePipe<String>()
+    private let isSubmitEnabledPipe = ValuePipe<Bool>()
+    private let resendCooldownPipe = ValuePipe<Int>()
+    private let isLoadingPipe = ValuePipe<Bool>()
+    private let errorMessagePipe = ValuePipe<String?>()
+    private let submitPipe = ValuePipe<Void>()
+    private let resendPipe = ValuePipe<Void>()
+
+    private(set) var otpCode: String = ""
+    private(set) var isSubmitEnabled: Bool = false
+    private(set) var resendCooldown: Int = 0
+    private(set) var isLoading: Bool = false
+    private(set) var errorMessage: String?
 
     private lazy var gradientLayer: CAGradientLayer = {
         let layer = CAGradientLayer()
@@ -77,30 +94,28 @@ final class VerifyOTPViewController: BaseViewController {
         return ai
     }()
 
-
-    init(viewModel: VerifyOTPViewModel) {
-        self.viewModel = viewModel
-        super.init(nibName: nil, bundle: nil)
+    init(otpContext: OTPContext, context: AccountContext) {
+        self.otpContext = otpContext
+        self.context = context
+        self.currentReqId = otpContext.reqId
+        super.init(navigationBarPresentationData: nil)
+        bindValidation()
+        bindSubmit()
+        bindResend()
+        startCooldown()
     }
 
-    required init?(coder: NSCoder) { fatalError() }
-
+    required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleLanguageChange),
-            name: LanguageManager.didChangeNotification,
-            object: nil
-        )
+        NotificationCenter.default.addObserver(self, selector: #selector(handleLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         gradientLayer.frame = view.bounds
     }
-
 
     override func setupUI() {
         view.layer.insertSublayer(gradientLayer, at: 0)
@@ -112,20 +127,13 @@ final class VerifyOTPViewController: BaseViewController {
         instructionStack.alignment = .center
         instructionStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let contentStack = UIStackView(arrangedSubviews: [
-            titleLabel,
-            instructionStack,
-            otpStack,
-            actionButton,
-            alternativeSection,
-        ])
+        let contentStack = UIStackView(arrangedSubviews: [titleLabel, instructionStack, otpStack, actionButton, alternativeSection])
         contentStack.axis = .vertical
         contentStack.spacing = 0
         contentStack.setCustomSpacing(12.sh, after: titleLabel)
         contentStack.setCustomSpacing(28.sh, after: instructionStack)
         contentStack.setCustomSpacing(28.sh, after: otpStack)
         contentStack.setCustomSpacing(16.sh, after: actionButton)
-        contentStack.setCustomSpacing(6.sh, after: alternativeSection)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
         let scroll = UIScrollView()
@@ -140,16 +148,13 @@ final class VerifyOTPViewController: BaseViewController {
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-
             contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 60.sh),
             contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 24.sw),
             contentStack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -24.sw),
             contentStack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -40.sh),
             contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -48.sw),
-
             otpStack.heightAnchor.constraint(equalToConstant: 56.sh),
             actionButton.heightAnchor.constraint(equalToConstant: 52.sh),
-
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
@@ -160,102 +165,127 @@ final class VerifyOTPViewController: BaseViewController {
         digitFields.first?.becomeFirstResponder()
     }
 
-
     override func setupBindings() {
-        viewModel.onResendSuccess = { [weak self] in
-            self?.clearOTPFields()
-        }
-
-        actionButton.tapPublisher
-            .sink { [weak self] in
-                guard let self else { return }
-                if self.viewModel.resendCooldown == 0 {
-                    self.viewModel.resendTrigger.send()
-                } else {
-                    self.viewModel.submitTrigger.send()
-                }
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isSubmitEnabled
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updateActionButton() }
-            .store(in: &cancellables)
-
-        viewModel.$resendCooldown
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateActionButton()
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isLoading
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] loading in
-                if loading { self?.loadingIndicator.startAnimating() } else { self?.loadingIndicator.stopAnimating() }
-                self?.actionButton.isUserInteractionEnabled = !loading
-            }
-            .store(in: &cancellables)
-
-        viewModel.$errorMessage
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] msg in
-                guard let msg else { return }
-                Toast.error(msg)
-                self?.shakeOTPFields()
-            }
-            .store(in: &cancellables)
-
-        for field in digitFields {
-            field.addTarget(self, action: #selector(digitFieldChanged(_:)), for: .editingChanged)
-        }
+        disposables.add(actionButton.tapSignal().start(next: { [weak self] in
+            guard let self else { return }
+            if self.resendCooldown == 0 { self.triggerResend() }
+            else { self.triggerSubmit() }
+        }))
+        disposables.add((isSubmitEnabledPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in self?.updateActionButton() }))
+        disposables.add((resendCooldownPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in self?.updateActionButton() }))
+        disposables.add((isLoadingPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] loading in
+            if loading { self?.loadingIndicator.startAnimating() } else { self?.loadingIndicator.stopAnimating() }
+            self?.actionButton.isUserInteractionEnabled = !loading
+        }))
+        disposables.add((errorMessagePipe.signal() |> deliverOnMainQueue).start(next: { [weak self] msg in
+            guard let msg else { return }
+            Toast.error(msg)
+            self?.shakeOTPFields()
+        }))
+        for field in digitFields { field.addTarget(self, action: #selector(digitFieldChanged(_:)), for: .editingChanged) }
     }
-
 
     override func applyTheme() {
         let attrs = ThemeManager.shared.attributes
         gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
-
         titleLabel.textColor = attrs.loginTitleColor
         instructionLabel.textColor = attrs.loginSubtitleColor
         targetLabel.textColor = attrs.loginTitleColor
-
-        actionButton.backgroundColor = (viewModel.resendCooldown == 0 || viewModel.isSubmitEnabled)
-            ? attrs.loginButtonBg
-            : attrs.loginButtonBgDisabled
-
+        actionButton.backgroundColor = (resendCooldown == 0 || isSubmitEnabled) ? attrs.loginButtonBg : attrs.loginButtonBgDisabled
         digitFields.forEach { tf in
             tf.backgroundColor = attrs.loginInputBg
             tf.layer.borderColor = attrs.loginInputBorder.cgColor
             tf.textColor = attrs.loginInputTextColor
         }
-
-        if let hintLabel = alternativeSection.arrangedSubviews.first as? UILabel {
-            hintLabel.textColor = attrs.loginAlternativeText
-        }
-        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton {
-            changeBtn.setTitleColor(attrs.textLink, for: .normal)
-        }
+        if let hintLabel = alternativeSection.arrangedSubviews.first as? UILabel { hintLabel.textColor = attrs.loginAlternativeText }
+        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton { changeBtn.setTitleColor(attrs.textLink, for: .normal) }
     }
 
+    func setOtpCode(_ v: String) { otpCode = v; otpCodePipe.putNext(v) }
+    private func setSubmitEnabled(_ v: Bool) { isSubmitEnabled = v; isSubmitEnabledPipe.putNext(v) }
+    private func setResendCooldown(_ v: Int) { resendCooldown = v; resendCooldownPipe.putNext(v) }
+    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v) }
+    private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v) }
+    func triggerSubmit() { submitPipe.putNext(()) }
+    func triggerResend() { resendPipe.putNext(()) }
 
-    @objc private func handleLanguageChange() {
-        refreshLocalizedStrings()
+    private func bindValidation() {
+        disposables.add((otpCodePipe.signal() |> map { $0.count == 6 } |> deliverOnMainQueue).start(next: { [weak self] enabled in self?.setSubmitEnabled(enabled) }))
     }
 
+    private func bindSubmit() {
+        let filtered = submitPipe.signal() |> filter { [weak self] in self?.isSubmitEnabled == true && self?.isLoading == false }
+        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in Task { await self?.verifyOTP() } }))
+    }
+
+    private func bindResend() {
+        let filtered = resendPipe.signal() |> filter { [weak self] in self?.resendCooldown == 0 && self?.isLoading == false }
+        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in Task { await self?.resendOTP() } }))
+    }
+
+    @MainActor private func verifyOTP() async {
+        setIsLoading(true)
+        setErrorMessage(nil)
+        do {
+            let session = try await self.context.account.network.confirmAuthenticateOTP(reqId: currentReqId, otp: otpCode)
+            SessionStore.save(session)
+            self.context.account.network.updateBaseURL(from: session)
+            let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? otpContext.target, displayName: session.username ?? otpContext.target, avatarURL: nil, status: .online, bio: nil)
+            context.login(user: user, session: session)
+        } catch {
+            setErrorMessage(L(L10n.OTPVerify.otpNotMatch))
+        }
+        setIsLoading(false)
+    }
+
+    @MainActor private func resendOTP() async {
+        guard resendCooldown == 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        do {
+            switch otpContext.type {
+            case .email:
+                let res = try await self.context.account.network.authenticateEmailOTPRequest(email: otpContext.target)
+                guard let newReqId = res.reqId else { setErrorMessage(L(L10n.OTPVerify.resendFailed)); setIsLoading(false); return }
+                currentReqId = newReqId
+            case .sms:
+                let res = try await self.context.account.network.authenticateSMSOTPRequest(phone: otpContext.target)
+                guard let newReqId = res.reqId else { setErrorMessage(L(L10n.OTPVerify.resendFailed)); setIsLoading(false); return }
+                currentReqId = newReqId
+            }
+            setOtpCode("")
+            clearOTPFields()
+            startCooldown()
+        } catch {
+            setErrorMessage(error.localizedDescription)
+        }
+        setIsLoading(false)
+    }
+
+    private func startCooldown(seconds: Int = 60) {
+        setResendCooldown(seconds)
+        cooldownTimer?.invalidate()
+        let timer = Timer(timeout: 1, repeat: true, completion: { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            if self.resendCooldown > 0 { self.setResendCooldown(self.resendCooldown - 1) }
+            else { t.invalidate() }
+        }, queue: mainQueue)
+        cooldownTimer = timer
+        timer.start()
+    }
+
+    @objc private func handleLanguageChange() { refreshLocalizedStrings() }
 
     private func refreshLocalizedStrings() {
         titleLabel.text = L(L10n.OTPVerify.loginToMezon)
         instructionLabel.text = L(L10n.OTPVerify.enterCodeFrom)
-        targetLabel.text = viewModel.otpContext.target
+        targetLabel.text = otpContext.target
         updateAlternativeSection()
         updateActionButton()
     }
 
-
     private func updateAlternativeSection() {
         alternativeSection.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
         let hintLabel = UILabel()
         hintLabel.text = L(L10n.OTPVerify.didNotReceive)
         hintLabel.font = .systemFont(ofSize: 14.sf)
@@ -264,76 +294,54 @@ final class VerifyOTPViewController: BaseViewController {
         alternativeSection.addArrangedSubview(hintLabel)
 
         let changeLink = UIButton(type: .system)
-        let changeTitle = viewModel.otpContext.type == .email
-            ? L(L10n.OTPVerify.changeEmail)
-            : L(L10n.OTPVerify.changePhone)
+        let changeTitle = otpContext.type == .email ? L(L10n.OTPVerify.changeEmail) : L(L10n.OTPVerify.changePhone)
         changeLink.setTitle(changeTitle, for: .normal)
         changeLink.titleLabel?.font = .systemFont(ofSize: 14.sf)
         changeLink.setTitleColor(.mezonLink, for: .normal)
-        changeLink.addAction(UIAction { [weak self] _ in
-            self?.navigationController?.popToRootViewController(animated: true)
-        }, for: .touchUpInside)
+        changeLink.addAction(UIAction { [weak self] _ in self?.navigationController?.popToRootViewController(animated: true) }, for: .touchUpInside)
         alternativeSection.addArrangedSubview(changeLink)
     }
 
-
     private func updateActionButton() {
-        let cd = viewModel.resendCooldown
-        let canVerify = viewModel.isSubmitEnabled
-
+        let cd = resendCooldown
         UIView.performWithoutAnimation {
             if cd > 0 {
                 actionButton.setTitle("\(L(L10n.OTPVerify.verifyOTP)) (\(cd))", for: .normal)
-                actionButton.isEnabled = canVerify
+                actionButton.isEnabled = isSubmitEnabled
             } else {
                 actionButton.setTitle(L(L10n.OTPVerify.resendOTP), for: .normal)
                 actionButton.isEnabled = true
             }
-
-            actionButton.backgroundColor = actionButton.isEnabled
-                ? ThemeManager.shared.attributes.loginButtonBg
-                : ThemeManager.shared.attributes.loginButtonBgDisabled
+            actionButton.backgroundColor = actionButton.isEnabled ? ThemeManager.shared.attributes.loginButtonBg : ThemeManager.shared.attributes.loginButtonBgDisabled
             actionButton.layoutIfNeeded()
         }
     }
 
-
     private func clearOTPFields() {
         digitFields.forEach { $0.text = "" }
-        viewModel.otpCode = ""
+        setOtpCode("")
         digitFields.first?.becomeFirstResponder()
     }
 
-
     @objc private func digitFieldChanged(_ field: UITextField) {
         let text = field.text ?? ""
-
         if text.count == 6 && text.allSatisfy({ $0.isNumber }) {
-            for (i, char) in text.enumerated() where i < digitFields.count {
-                digitFields[i].text = String(char)
-            }
+            for (i, char) in text.enumerated() where i < digitFields.count { digitFields[i].text = String(char) }
             updateOTPCode()
             digitFields.last?.becomeFirstResponder()
             return
         }
-
-        if text.count > 1 {
-            field.text = String(text.last!)
-        }
+        if text.count > 1 { field.text = String(text.last!) }
         updateOTPCode()
-
         if let idx = digitFields.firstIndex(of: field), field.text?.isEmpty == false {
-            if idx + 1 < digitFields.count {
-                digitFields[idx + 1].becomeFirstResponder()
-            } else {
-                field.resignFirstResponder()
-            }
+            if idx + 1 < digitFields.count { digitFields[idx + 1].becomeFirstResponder() }
+            else { field.resignFirstResponder() }
         }
     }
 
     private func updateOTPCode() {
         let code = digitFields.compactMap { $0.text }.joined()
-        viewModel.otpCode = code
+        setOtpCode(code)
     }
 
     private func makeDigitField() -> UITextField {
@@ -357,7 +365,6 @@ final class VerifyOTPViewController: BaseViewController {
     }
 }
 
-
 extension VerifyOTPViewController: UITextFieldDelegate {
     func textField(_ tf: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         if string.isEmpty && (tf.text?.isEmpty == true) {
@@ -371,7 +378,6 @@ extension VerifyOTPViewController: UITextFieldDelegate {
         return string.allSatisfy { $0.isNumber }
     }
 }
-
 
 private final class OTPDigitTextField: UITextField {
     override func deleteBackward() {
