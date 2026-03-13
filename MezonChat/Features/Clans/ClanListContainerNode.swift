@@ -200,7 +200,7 @@ private final class LogoCell: UICollectionViewCell {
             logoImageView.widthAnchor.constraint(equalToConstant: sz),
             logoImageView.heightAnchor.constraint(equalToConstant: sz),
         ])
-        logoImageView.image = UIImage(named: "mezon_logo")
+        logoImageView.image = UIImage(named: "MezonLogo")
     }
 
     required init?(coder: NSCoder) { fatalError() }
