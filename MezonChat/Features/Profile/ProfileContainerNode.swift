@@ -32,6 +32,8 @@ final class ProfileContainerNode: ASDisplayNode {
         v.backgroundColor = .mezonSuccess
         return v
     }()
+    private let statusBubbleView = UIView()
+    private let statusBubbleLayer = CAShapeLayer()
     private let addStatusButton: UIButton = {
         let btn = UIButton(type: .system)
         return btn
@@ -46,22 +48,22 @@ final class ProfileContainerNode: ASDisplayNode {
     }()
     private let usernameLabel = UILabel()
 
-    private let headphoneButton: UIButton = {
+    private let shopButton: UIButton = {
         let btn = UIButton(type: .custom)
         let img = UIImage(named: "Profile/ShopIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysOriginal)
         btn.setImage(img, for: .normal)
         btn.imageView?.contentMode = .scaleAspectFit
-        btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         btn.backgroundColor = .mezonSecondaryBackground
         return btn
     }()
 
-    private let micButton: UIButton = {
+    private let settingButton: UIButton = {
         let btn = UIButton(type: .custom)
         let img = UIImage(named: "Profile/SettingIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysOriginal)
         btn.setImage(img, for: .normal)
         btn.imageView?.contentMode = .scaleAspectFit
-        btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
         btn.backgroundColor = .mezonSecondaryBackground
         return btn
     }()
@@ -86,7 +88,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let aboutMeTitleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        l.textColor = .mezonTextSecondary
+        l.textColor = .mezonTextStrong
         return l
     }()
     private let aboutMeContentLabel: UILabel = {
@@ -99,7 +101,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let memberSinceTitleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        l.textColor = .mezonTextSecondary
+        l.textColor = .mezonTextStrong
         return l
     }()
     private let memberSinceDateLabel: UILabel = {
@@ -112,7 +114,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let friendsCard = UIView()
     private let friendsTitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        l.font = .systemFont(ofSize: 13.sf, weight: .bold)
         l.textColor = .mezonTextStrong
         return l
     }()
@@ -187,11 +189,15 @@ final class ProfileContainerNode: ASDisplayNode {
         onlineDot.layer.borderColor = UIColor.mezonBackground.cgColor
         contentView.addSubview(onlineDot)
 
+        statusBubbleLayer.fillColor = UIColor.mezonPrimary.cgColor
+        statusBubbleView.layer.addSublayer(statusBubbleLayer)
+        contentView.addSubview(statusBubbleView)
+
         var statusCfg = UIButton.Configuration.plain()
+        statusCfg.baseForegroundColor = .outgoingBubble
         let plusIcon = UIImage(systemName: "plus.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
         statusCfg.image = plusIcon
         statusCfg.imagePadding = 6
-        statusCfg.baseForegroundColor = .mezonSuccess
         statusCfg.attributedTitle = AttributedString(
             L(L10n.Profile.addStatus),
             attributes: AttributeContainer([
@@ -200,7 +206,7 @@ final class ProfileContainerNode: ASDisplayNode {
             ])
         )
         addStatusButton.configuration = statusCfg
-        contentView.addSubview(addStatusButton)
+        statusBubbleView.addSubview(addStatusButton)
     }
 
     private func setupNameArea() {
@@ -209,18 +215,18 @@ final class ProfileContainerNode: ASDisplayNode {
         contentView.addSubview(nameLabel)
         contentView.addSubview(chevronDown)
 
-        usernameLabel.font = .systemFont(ofSize: 14.sf)
+        usernameLabel.font = .systemFont(ofSize: 16.sf)
         usernameLabel.textColor = .mezonTextSecondary
         contentView.addSubview(usernameLabel)
 
-        let iconBtnSize: CGFloat = 36.swh
-        headphoneButton.layer.cornerRadius = iconBtnSize / 2
-        headphoneButton.clipsToBounds = true
-        contentView.addSubview(headphoneButton)
+        let iconBtnSize: CGFloat = 30.swh
+        shopButton.layer.cornerRadius = iconBtnSize / 2
+        shopButton.clipsToBounds = true
+        contentView.addSubview(shopButton)
 
-        micButton.layer.cornerRadius = iconBtnSize / 2
-        micButton.clipsToBounds = true
-        contentView.addSubview(micButton)
+        settingButton.layer.cornerRadius = iconBtnSize / 2
+        settingButton.clipsToBounds = true
+        contentView.addSubview(settingButton)
     }
 
     private func setupBalanceCard() {
@@ -420,6 +426,7 @@ final class ProfileContainerNode: ASDisplayNode {
         copyRow.configure(
             text: L(L10n.Profile.copyUserId),
             textColor: .mezonTextStrong,
+            font: .systemFont(ofSize: 13.sf, weight: .bold),
             trailingIconImage: Self.profileImage(named: "IDIcon")
         )
     }
@@ -463,9 +470,9 @@ final class ProfileContainerNode: ASDisplayNode {
     private func layoutContent(width: CGFloat, safeTop: CGFloat) {
         let side = sideInset
         let contentWidth = width - side * 2
-        var y: CGFloat = safeTop + 20.sh
+        var y: CGFloat = safeTop + 50.sh
 
-        let headerBackgroundHeight = y + avatarSize * 5 / 6
+        let headerBackgroundHeight = y + avatarSize * 5 / 7
         headerBackgroundView.frame = CGRect(x: 0, y: 0, width: width, height: headerBackgroundHeight)
 
         avatarContainerView.frame = CGRect(x: side, y: y, width: avatarSize, height: avatarSize)
@@ -481,12 +488,44 @@ final class ProfileContainerNode: ASDisplayNode {
 
         addStatusButton.sizeToFit()
         let statusX = avatarContainerView.frame.maxX + 12.sw
-        addStatusButton.frame = CGRect(
+        let bubbleHeight: CGFloat = 50.sh
+        let tailHeight: CGFloat = 8.sh
+        let bubbleContentWidth = min(addStatusButton.intrinsicContentSize.width + 16, width - statusX - side)
+        let bubbleY = y + (avatarSize - bubbleHeight - tailHeight) / 2 - 30.sh
+
+        statusBubbleView.frame = CGRect(
             x: statusX,
-            y: y + (avatarSize - 36.sh) / 2,
-            width: min(addStatusButton.intrinsicContentSize.width + 8, width - statusX - side),
-            height: 36.sh
+            y: bubbleY,
+            width: bubbleContentWidth,
+            height: bubbleHeight + tailHeight
         )
+        addStatusButton.frame = CGRect(x: 0, y: 0, width: bubbleContentWidth, height: bubbleHeight)
+
+        let bubbleRect = CGRect(x: 0, y: 0, width: bubbleContentWidth, height: bubbleHeight)
+        let cornerRadius: CGFloat = 12.swh
+        let tailWidth: CGFloat = 10.sw
+        let tailStartX: CGFloat = 8.sw
+
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: cornerRadius, y: 0))
+        path.addLine(to: CGPoint(x: bubbleRect.maxX - cornerRadius, y: 0))
+        path.addArc(withCenter: CGPoint(x: bubbleRect.maxX - cornerRadius, y: cornerRadius),
+                    radius: cornerRadius, startAngle: -.pi / 2, endAngle: 0, clockwise: true)
+        path.addLine(to: CGPoint(x: bubbleRect.maxX, y: bubbleRect.maxY - cornerRadius))
+        path.addArc(withCenter: CGPoint(x: bubbleRect.maxX - cornerRadius, y: bubbleRect.maxY - cornerRadius),
+                    radius: cornerRadius, startAngle: 0, endAngle: .pi / 2, clockwise: true)
+        path.addLine(to: CGPoint(x: tailStartX + tailWidth, y: bubbleRect.maxY))
+        path.addLine(to: CGPoint(x: tailStartX, y: bubbleRect.maxY + tailHeight))
+        path.addLine(to: CGPoint(x: tailStartX, y: bubbleRect.maxY))
+        path.addLine(to: CGPoint(x: cornerRadius, y: bubbleRect.maxY))
+        path.addArc(withCenter: CGPoint(x: cornerRadius, y: bubbleRect.maxY - cornerRadius),
+                    radius: cornerRadius, startAngle: .pi / 2, endAngle: .pi, clockwise: true)
+        path.addLine(to: CGPoint(x: 0, y: cornerRadius))
+        path.addArc(withCenter: CGPoint(x: cornerRadius, y: cornerRadius),
+                    radius: cornerRadius, startAngle: .pi, endAngle: -.pi / 2, clockwise: true)
+        path.close()
+
+        statusBubbleLayer.path = path.cgPath
 
         y = avatarContainerView.frame.maxY + 8.sh
 
@@ -501,17 +540,17 @@ final class ProfileContainerNode: ASDisplayNode {
             height: chevronSize
         )
 
-        let iconBtnSize: CGFloat = 36.swh
+        let iconBtnSize: CGFloat = 30.swh
         let iconSpacing: CGFloat = 8.sw
-        micButton.frame = CGRect(
+        settingButton.frame = CGRect(
             x: width - side - iconBtnSize,
             y: y + (28.sh - iconBtnSize) / 2,
             width: iconBtnSize,
             height: iconBtnSize
         )
-        headphoneButton.frame = CGRect(
-            x: micButton.frame.minX - iconSpacing - iconBtnSize,
-            y: micButton.frame.minY,
+        shopButton.frame = CGRect(
+            x: settingButton.frame.minX - iconSpacing - iconBtnSize,
+            y: settingButton.frame.minY,
             width: iconBtnSize,
             height: iconBtnSize
         )
@@ -618,6 +657,7 @@ private final class ProfileIconRow: UIView {
         iconColor: UIColor = .mezonTextSecondary,
         text: String,
         textColor: UIColor,
+        font: UIFont? = nil,
         trailingIcon: String? = nil,
         trailingIconImage: UIImage? = nil
     ) {
@@ -641,7 +681,7 @@ private final class ProfileIconRow: UIView {
         }
         label.text = text
         label.textColor = textColor
-        label.font = .systemFont(ofSize: 15.sf)
+        label.font = font ?? .systemFont(ofSize: 15.sf)
 
         if let img = trailingIconImage {
             trailingView.image = img.withRenderingMode(.alwaysTemplate)
