@@ -15,6 +15,7 @@ enum L10n {
         static let balance           = "profile.balance"
         static let transferFunds     = "profile.transferFunds"
         static let historyTransaction = "profile.historyTransaction"
+        static let aboutMe           = "profile.aboutMe"
         static let mezonMemberSince   = "profile.mezonMemberSince"
         static let yourFriends       = "profile.yourFriends"
         static let copyUserId        = "profile.copyUserId"
@@ -239,6 +240,7 @@ extension L10n {
         "profile.balance": "Balance",
         "profile.transferFunds": "Transfer Funds",
         "profile.historyTransaction": "History Transaction",
+        "profile.aboutMe": "About Me",
         "profile.mezonMemberSince": "Mezon Member Since",
         "profile.yourFriends": "Your Friends",
         "profile.copyUserId": "Copy User ID",
@@ -350,6 +352,7 @@ extension L10n {
         "profile.balance": "Số dư",
         "profile.transferFunds": "Chuyển tiền",
         "profile.historyTransaction": "Lịch sử giao dịch",
+        "profile.aboutMe": "Về tôi",
         "profile.mezonMemberSince": "Thành viên Mezon từ",
         "profile.yourFriends": "Bạn bè",
         "profile.copyUserId": "Sao chép User ID",
