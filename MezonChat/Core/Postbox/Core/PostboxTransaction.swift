@@ -2,16 +2,19 @@ import Foundation
 
 final class PostboxTransaction {
 
-    let channelTable:  ChannelTable
-    let clanTable:     ClanTable
-    let messageTable:  MessageTable
-    let authTable:     AuthTable
-    let profileTable:  ProfileTable
-    let settingsTable: SettingsTable
+    let channelTable:              ChannelTable
+    let clanTable:                 ClanTable
+    let messageTable:              MessageTable
+    let authTable:                 AuthTable
+    let profileTable:              ProfileTable
+    let settingsTable:             SettingsTable
+    let notificationSettingTable:  NotificationSettingTable
 
     private(set) var updatedChannelClanIds:     Set<Int64>   = []
     private(set) var updatedClans:              Bool         = false
     private(set) var updatedMessageChannelIds:  Set<String>  = []
+    private(set) var updatedChannelMetaIds:     Set<Int64>   = []
+    private(set) var updatedNotificationSettingIds: Set<Int64> = []
 
     init(
         channelTable: ChannelTable,
@@ -19,14 +22,16 @@ final class PostboxTransaction {
         messageTable: MessageTable,
         authTable: AuthTable,
         profileTable: ProfileTable,
-        settingsTable: SettingsTable
+        settingsTable: SettingsTable,
+        notificationSettingTable: NotificationSettingTable
     ) {
-        self.channelTable  = channelTable
-        self.clanTable     = clanTable
-        self.messageTable  = messageTable
-        self.authTable     = authTable
-        self.profileTable  = profileTable
-        self.settingsTable = settingsTable
+        self.channelTable              = channelTable
+        self.clanTable                 = clanTable
+        self.messageTable              = messageTable
+        self.authTable                 = authTable
+        self.profileTable              = profileTable
+        self.settingsTable             = settingsTable
+        self.notificationSettingTable  = notificationSettingTable
     }
 
     func getChannels(clanId: Int64) -> [ChannelRecord] {
@@ -89,7 +94,39 @@ final class PostboxTransaction {
     func setSetting(key: String, value: Data?)                   { settingsTable.set(key: key, value: value) }
     func setSetting<T: PostboxCoding>(key: String, value: T?)    { settingsTable.set(key: key, value: value) }
 
+    // MARK: - Channel Meta
+
+    func getChannelMeta(channelId: Int64) -> ChannelRecord? {
+        channelTable.getChannelMeta(channelId: channelId)
+    }
+
+    // MARK: - Notification Settings
+
+    func getNotificationSetting(entityId: Int64) -> NotificationSettingRecord? {
+        notificationSettingTable.get(entityId: entityId)
+    }
+
+    func updateNotificationSetting(_ record: NotificationSettingRecord) {
+        notificationSettingTable.set(record)
+        updatedNotificationSettingIds.insert(record.entityId)
+    }
+
+    func updateChannelPermissions(_ permissions: [PermissionRecord], channelId: Int64) {
+        channelTable.updatePermissions(permissions, channelId: channelId)
+        updatedChannelMetaIds.insert(channelId)
+    }
+
+    func updateChannelMembers(_ members: [ChannelMemberRecord], channelId: Int64) {
+        channelTable.updateMembers(members, channelId: channelId)
+        updatedChannelMetaIds.insert(channelId)
+    }
+
+    func updateBanStatus(isBanned: Bool, expiredBanTime: Int32, channelId: Int64) {
+        channelTable.updateBanStatus(isBanned: isBanned, expiredBanTime: expiredBanTime, channelId: channelId)
+        updatedChannelMetaIds.insert(channelId)
+    }
+
     var isEmpty: Bool {
-        updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty
+        updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty && updatedChannelMetaIds.isEmpty && updatedNotificationSettingIds.isEmpty
     }
 }

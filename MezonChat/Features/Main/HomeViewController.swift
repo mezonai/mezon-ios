@@ -96,7 +96,7 @@ final class HomeViewController: BaseViewController {
             (channelListVC.selectedChannelSignal |> deliverOnMainQueue)
                 .start(next: { [weak self] channel in
                     guard let channel, let self else { return }
-                    let chatVC = ChannelMessagesViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context)
+                    let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context)
                     self.navigationController?.pushViewController(chatVC, animated: true)
                 })
         )

@@ -65,7 +65,7 @@
 		32E8DD54C20391B72CE532CC /* ListViewOverscrollBackgroundNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55D2B679C00D5DA733041930 /* ListViewOverscrollBackgroundNode.swift */; };
 		3392A416CCC6D09863FFAEF8 /* LoginContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662D6773E8B900698BDADDF4 /* LoginContainerNode.swift */; };
 		3594FF4D82288D7938DEFC6E /* MessageTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE461983C1A2DA9A2E6BAF2D /* MessageTable.swift */; };
-		365AC3C311063636CDCB067D /* ChannelMessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41F84A67847278DCA587DE9D /* ChannelMessagesViewController.swift */; };
+		365AC3C311063636CDCB067D /* ChatViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41F84A67847278DCA587DE9D /* ChatViewController.swift */; };
 		369F3DCF16F083FD79186781 /* ClanListContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D51F5462EB85FBDE2E8973F /* ClanListContainerNode.swift */; };
 		36DBCCFDB73539CCE15104EB /* Table.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCED0ACD3A8BBE228CAE023 /* Table.swift */; };
 		379266DA24CBC753FBBAE78A /* TapLongTapOrDoubleTapGestureRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1781A4247453C898AE7F0ACB /* TapLongTapOrDoubleTapGestureRecognizer.swift */; };
@@ -142,6 +142,9 @@
 		76EC3D79FECC6DDD9BC55B51 /* MezonEngine+Peers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4512E6C15ABC4A85949A7E22 /* MezonEngine+Peers.swift */; };
 		770F28AFF6F2B17327A54155 /* TabBarNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02704FB176A15119FA54C18B /* TabBarNode.swift */; };
 		77EA03E635E272563F70FF59 /* ChannelRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F156C71998F2AC6F3CFDF6C0 /* ChannelRecord.swift */; };
+		A1B2C3D4E5F60718A9B0C1D2 /* NotificationSettingRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7081A2B3C4D5 /* NotificationSettingRecord.swift */; };
+		A1B2C3D4E5F60718A9B0C1D3 /* NotificationSettingTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7081A2B3C4D6 /* NotificationSettingTable.swift */; };
+		A1B2C3D4E5F60718A9B0C1D4 /* NotificationSettingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7081A2B3C4D7 /* NotificationSettingView.swift */; };
 		78C2EB91F84E8355F3C20656 /* NavigationTransitionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E51B5A7E4D668AC3A8ECE3 /* NavigationTransitionCoordinator.swift */; };
 		79C432770BF58B2AC9EFEB8E /* ChannelsData.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31F689C5C9B1D1F82FF39B7 /* ChannelsData.swift */; };
 		7A202E7BD0A70364775105D9 /* DeviceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FFB76353ECD4F96A5F8AF94 /* DeviceMetrics.swift */; };
@@ -155,7 +158,7 @@
 		7F79F3398BB259F11DF4B8D9 /* PointerInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F510216EB51CE3366AA3180 /* PointerInteraction.swift */; };
 		7FC9B98EF2654DD4B0D6F88F /* MezonSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78559B57838DAE838F649EE /* MezonSocket.swift */; };
 		7FCD1ED8F3118CBFE60F724C /* WindowPanRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E850F413482D68E3D14AD0E2 /* WindowPanRecognizer.swift */; };
-		805BB183C7C77844C783E887 /* ChannelMessagesContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4666E0C47A01FA2CF96AB8 /* ChannelMessagesContainerNode.swift */; };
+		805BB183C7C77844C783E887 /* ChatContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4666E0C47A01FA2CF96AB8 /* ChatContainerNode.swift */; };
 		80D7F87D3564B030BADDCD0F /* Accessibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE95FDCD8F967A86393A0E4 /* Accessibility.swift */; };
 		82C059C35A9E0B37947BCD2A /* SSignal+Meta.m in Sources */ = {isa = PBXBuildFile; fileRef = BD6B2D9C9519A9EEE2901FE5 /* SSignal+Meta.m */; };
 		82F0F24B9EEA6FACC2BDBEAA /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4003598D0AD0F1E26DC319A1 /* StatusBar.swift */; };
@@ -403,7 +406,7 @@
 		4003598D0AD0F1E26DC319A1 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
 		413B85E4B568A0625D55186D /* GestureRecognizerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureRecognizerDelegate.swift; sourceTree = "<group>"; };
 		41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListViewController.swift; sourceTree = "<group>"; };
-		41F84A67847278DCA587DE9D /* ChannelMessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelMessagesViewController.swift; sourceTree = "<group>"; };
+		41F84A67847278DCA587DE9D /* ChatViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewController.swift; sourceTree = "<group>"; };
 		428BE1DB85D8B85C6A4AD824 /* SSignal+Single.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "SSignal+Single.m"; sourceTree = "<group>"; };
 		433649927FDB9D165824B21F /* ListViewAccessoryItemNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListViewAccessoryItemNode.swift; sourceTree = "<group>"; };
 		4512E6C15ABC4A85949A7E22 /* MezonEngine+Peers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MezonEngine+Peers.swift"; sourceTree = "<group>"; };
@@ -529,7 +532,7 @@
 		97DAB728DF5D2D29C41CDC2A /* LegacyPresentedControllerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyPresentedControllerNode.swift; sourceTree = "<group>"; };
 		99B0FE9FAE989D2B98228285 /* NavigationBarTitleTransitionNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarTitleTransitionNode.swift; sourceTree = "<group>"; };
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
-		9A4666E0C47A01FA2CF96AB8 /* ChannelMessagesContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelMessagesContainerNode.swift; sourceTree = "<group>"; };
+		9A4666E0C47A01FA2CF96AB8 /* ChatContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContainerNode.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
 		9C9ED533CBA411E18DAA1A47 /* MezonEngine+Auth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MezonEngine+Auth.swift"; sourceTree = "<group>"; };
@@ -662,6 +665,9 @@
 		F087B1984C04E7AB0CA82D19 /* Bag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bag.swift; sourceTree = "<group>"; };
 		F13E9DE57450ACDE30FDAB92 /* UIKitUtils.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UIKitUtils.h; sourceTree = "<group>"; };
 		F156C71998F2AC6F3CFDF6C0 /* ChannelRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelRecord.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7081A2B3C4D5 /* NotificationSettingRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingRecord.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7081A2B3C4D6 /* NotificationSettingTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingTable.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7081A2B3C4D7 /* NotificationSettingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingView.swift; sourceTree = "<group>"; };
 		F178B60FCDEA18D0A0446101 /* realtime.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = realtime.pb.swift; sourceTree = "<group>"; };
 		F31F689C5C9B1D1F82FF39B7 /* ChannelsData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsData.swift; sourceTree = "<group>"; };
 		F334ACD09B6F2E134A5030CA /* Subscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscriber.swift; sourceTree = "<group>"; };
@@ -704,13 +710,13 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
-		048C2C69FB4CDA8676F9B371 /* ChannelMessages */ = {
+		048C2C69FB4CDA8676F9B371 /* Chat */ = {
 			isa = PBXGroup;
 			children = (
-				9A4666E0C47A01FA2CF96AB8 /* ChannelMessagesContainerNode.swift */,
-				41F84A67847278DCA587DE9D /* ChannelMessagesViewController.swift */,
+				9A4666E0C47A01FA2CF96AB8 /* ChatContainerNode.swift */,
+				41F84A67847278DCA587DE9D /* ChatViewController.swift */,
 			);
-			path = ChannelMessages;
+			path = Chat;
 			sourceTree = "<group>";
 		};
 		0BE9B2A97A3BDE6F4A1E1629 /* Localization */ = {
@@ -903,6 +909,7 @@
 				71243F4001E974EC6D807EE3 /* Core */,
 				DF9788404F6E9149DEB1328E /* Database */,
 				6234DF10D7F5EC9259A35E98 /* Messages */,
+				A1B2C3D4E5F60718A9B0C1D0 /* NotificationSetting */,
 				5016333E15DB37391370C264 /* Preferences */,
 				B6E35987CFAEF712939DFD07 /* Profile */,
 				B88CBE50033E427A27B77E72 /* Settings */,
@@ -1315,6 +1322,7 @@
 			isa = PBXGroup;
 			children = (
 				F4B7CC3D95A193071AEA9C75 /* Auth */,
+				048C2C69FB4CDA8676F9B371 /* Chat */,
 				E328AE080C2436F5A50FDE74 /* Clans */,
 				1E59B73B94C9F01F11DF5402 /* Main */,
 				338B5FF27E2C71E2D6550565 /* Messages */,
@@ -1389,6 +1397,16 @@
 				8341822AEBB71096468C8B33 /* ProfileTable.swift */,
 			);
 			path = Profile;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F60718A9B0C1D0 /* NotificationSetting */ = {
+			isa = PBXGroup;
+			children = (
+				1A2B3C4D5E6F7081A2B3C4D5 /* NotificationSettingRecord.swift */,
+				1A2B3C4D5E6F7081A2B3C4D6 /* NotificationSettingTable.swift */,
+				1A2B3C4D5E6F7081A2B3C4D7 /* NotificationSettingView.swift */,
+			);
+			path = NotificationSetting;
 			sourceTree = "<group>";
 		};
 		B88CBE50033E427A27B77E72 /* Settings */ = {
@@ -1513,7 +1531,6 @@
 				7D51F5462EB85FBDE2E8973F /* ClanListContainerNode.swift */,
 				16E60777456DDAD63B416663 /* ClanListViewController.swift */,
 				3D198CBDC7C3B3AABA51A8C7 /* ChannelList */,
-				048C2C69FB4CDA8676F9B371 /* ChannelMessages */,
 			);
 			path = Clans;
 			sourceTree = "<group>";
@@ -1708,10 +1725,13 @@
 				DCA5615EA0FCCCC6E0228CBF /* ChannelListContainerNode.swift in Sources */,
 				BFD69E7576C7C272DA8DDB7C /* ChannelListView.swift in Sources */,
 				5D261893375D7DD1EEEB8191 /* ChannelListViewController.swift in Sources */,
-				805BB183C7C77844C783E887 /* ChannelMessagesContainerNode.swift in Sources */,
-				365AC3C311063636CDCB067D /* ChannelMessagesViewController.swift in Sources */,
+				805BB183C7C77844C783E887 /* ChatContainerNode.swift in Sources */,
+				365AC3C311063636CDCB067D /* ChatViewController.swift in Sources */,
 				77EA03E635E272563F70FF59 /* ChannelRecord.swift in Sources */,
 				764EA61AB986AD49D8AE512F /* ChannelTable.swift in Sources */,
+				A1B2C3D4E5F60718A9B0C1D2 /* NotificationSettingRecord.swift in Sources */,
+				A1B2C3D4E5F60718A9B0C1D3 /* NotificationSettingTable.swift in Sources */,
+				A1B2C3D4E5F60718A9B0C1D4 /* NotificationSettingView.swift in Sources */,
 				79C432770BF58B2AC9EFEB8E /* ChannelsData.swift in Sources */,
 				F403ACB098048E6D99338FA5 /* ChildComponentTransitions.swift in Sources */,
 				034C7AC5A98E9BA060216981 /* ChildWindowHostView.swift in Sources */,
