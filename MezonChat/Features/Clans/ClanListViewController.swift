@@ -86,7 +86,13 @@ final class ClanListViewController: ViewController {
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
                 self.context.account.postbox.write { tx in tx.updateClans(records) }
-                if self.selectedClanId == nil { self.setSelectedClanId(sorted.first?.clanID) }
+                if let sid = self.selectedClanId, sorted.contains(where: { $0.clanID == sid }) {
+                    self.context.currentClanId = sid
+                } else if let first = sorted.first {
+                    self.setSelectedClanId(first.clanID)
+                    self.context.currentClanId = first.clanID
+                    self.persistToPostbox()
+                }
             } catch {
                 self.error = error.localizedDescription
             }
@@ -95,6 +101,7 @@ final class ClanListViewController: ViewController {
 
     func select(clan: Mezon_Api_ClanDesc) {
         setSelectedClanId(clan.clanID)
+        context.currentClanId = clan.clanID
         persistToPostbox()
     }
 
@@ -112,9 +119,14 @@ final class ClanListViewController: ViewController {
             setClans(decodeProtoArray(data).sorted { $0.clanOrder < $1.clanOrder })
         }
         if let selData = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
-            setSelectedClanId(selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian })
+            let id = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            setSelectedClanId(id)
+            context.currentClanId = id
         }
-        if selectedClanId == nil { setSelectedClanId(clans.first?.clanID) }
+        if selectedClanId == nil, let first = clans.first?.clanID {
+            setSelectedClanId(first)
+            context.currentClanId = first
+        }
     }
 
     private func persistToPostbox() {
