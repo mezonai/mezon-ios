@@ -51,12 +51,13 @@ struct ChatMessageDisplay: Identifiable {
 struct ChatState {
     var messages: [ChatMessageDisplay]
     var channelLabel: String
+    var showWelcome: Bool
     var hasMoreOlder: Bool
     var isLoadingMore: Bool
     var isLoading: Bool
     var errorMessage: String?
 
-    static let empty = ChatState(messages: [], channelLabel: "", hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
+    static let empty = ChatState(messages: [], channelLabel: "", showWelcome: false, hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
 }
 
 final class ChatViewController: ViewController {
@@ -71,6 +72,7 @@ final class ChatViewController: ViewController {
 
     private(set) var messages: [ChatMessageDisplay] = []
     private(set) var channelLabel: String = ""
+    private(set) var showWelcome: Bool = false
     private(set) var hasMoreOlder: Bool = true
     private(set) var isLoadingMore: Bool = false
     private(set) var isLoading: Bool = false
@@ -164,7 +166,11 @@ final class ChatViewController: ViewController {
 
     deinit { stateDisposables.dispose() }
 
-    private func setMessages(_ v: [ChatMessageDisplay]) { messages = v; needsReloadPipe.putNext(()) }
+    private func setMessages(_ v: [ChatMessageDisplay], showWelcome w: Bool = false) {
+        messages = v
+        showWelcome = w
+        needsReloadPipe.putNext(())
+    }
     private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
     private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v }
     private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; needsReloadPipe.putNext(()) }
@@ -180,7 +186,8 @@ final class ChatViewController: ViewController {
             (self.context.account.postbox.messageHistoryView(channelId: channelIdStr) |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
                     guard let self else { return }
-                    self.setMessages(self.buildDisplayMessages(from: view.messages))
+                    let (displays, showWelcome) = self.buildDisplayMessages(from: view.messages)
+                    self.setMessages(displays, showWelcome: showWelcome)
                 })
         )
         stateDisposables.add(
@@ -334,7 +341,7 @@ final class ChatViewController: ViewController {
     }
 
     var currentState: ChatState {
-        ChatState(messages: messages, channelLabel: channelLabel, hasMoreOlder: hasMoreOlder, isLoadingMore: isLoadingMore, isLoading: isLoading, errorMessage: errorMessage)
+        ChatState(messages: messages, channelLabel: channelLabel, showWelcome: showWelcome, hasMoreOlder: hasMoreOlder, isLoadingMore: isLoadingMore, isLoading: isLoading, errorMessage: errorMessage)
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -348,16 +355,34 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
+    private static func hasNoTextContent(_ textContent: String) -> Bool {
+        let trimmed = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed == "{}"
+    }
+
+    private static func isSystemWelcomeMessage(_ record: MessageRecord, textContent: String) -> Bool {
+        record.senderId == "0"
+            && hasNoTextContent(textContent)
+            && record.senderDisplayName.lowercased() == "system"
+    }
+
+    private func buildDisplayMessages(from records: [MessageRecord]) -> ([ChatMessageDisplay], showWelcome: Bool) {
         let currentUserId = context.currentUser?.id
-        let displays = records.map { record -> ChatMessageDisplay in
+        let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
+        var showWelcome = false
+        var recordsToShow = validRecords
+        if let first = validRecords.first, Self.isSystemWelcomeMessage(first, textContent: extractTextFromContent(first)) {
+            showWelcome = true
+            recordsToShow = Array(validRecords.dropFirst())
+        }
+        let displays = recordsToShow.map { record -> ChatMessageDisplay in
             let content = extractTextFromContent(record)
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
             let attachments = Self.parseAttachments(record.attachmentsJSON)
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
             return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions)
         }
-        return Self.applyCombine(to: displays)
+        return (Self.applyCombine(to: displays), showWelcome)
     }
 
     private static func applyCombine(to displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
@@ -394,13 +419,51 @@ final class ChatViewController: ViewController {
 
     private static func parseReactions(_ data: Data, currentUserId: String?) -> [ParsedReaction] {
         guard !data.isEmpty else { return [] }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
 
+        let isLikelyJson = data.first == UInt8(ascii: "[") || data.first == UInt8(ascii: "{")
+        var fromProto: [ParsedReaction]?
+        var fromJson: [ParsedReaction]?
+
+        if !isLikelyJson, let list = try? Mezon_Api_MessageReactionList(serializedBytes: data), !list.reactions.isEmpty {
+            fromProto = parseReactionsFromProtobuf(list.reactions, currentUserId: currentUserId)
+        }
+
+        if fromProto == nil || fromProto?.isEmpty == true {
+            if let anyJson = try? JSONSerialization.jsonObject(with: data) {
+                let json: [[String: Any]]
+                if let arr = anyJson as? [[String: Any]] {
+                    json = arr
+                } else if let dict = anyJson as? [String: Any], let arr = dict["reactions"] as? [[String: Any]] {
+                    json = arr
+                } else {
+                    json = []
+                }
+                fromJson = parseReactionsFromJSON(json, currentUserId: currentUserId)
+            }
+        }
+
+        let result = (fromProto?.isEmpty == false ? fromProto : fromJson) ?? []
+        return result
+    }
+
+    private static func parseReactionsFromJSON(_ json: [[String: Any]], currentUserId: String?) -> [ParsedReaction] {
         var grouped: [String: (emoji: String, senderIds: [String])] = [:]
         for item in json {
-            let emojiId = item["emoji_id"] as? String ?? item["emojiid"] as? String ?? ""
+            let emojiId: String = {
+                if let s = item["emoji_id"] as? String { return s }
+                if let n = item["emoji_id"] as? Int { return "\(n)" }
+                if let n = item["emoji_id"] as? Int64 { return "\(n)" }
+                if let s = item["emojiid"] as? String { return s }
+                if let n = item["emojiid"] as? Int { return "\(n)" }
+                return ""
+            }()
             let emoji = item["emoji"] as? String ?? ""
-            let senderId = item["sender_id"] as? String ?? "\(item["sender_id"] ?? "")"
+            let senderId: String = {
+                if let s = item["sender_id"] as? String { return s }
+                if let n = item["sender_id"] as? Int { return "\(n)" }
+                if let n = item["sender_id"] as? Int64 { return "\(n)" }
+                return ""
+            }()
             let action = item["action"] as? Bool ?? true
             let key = emojiId.isEmpty ? emoji : emojiId
             guard !key.isEmpty else { continue }
@@ -416,13 +479,42 @@ final class ChatViewController: ViewController {
                 grouped[key]!.senderIds.removeAll { $0 == senderId }
             }
         }
-
         return grouped.compactMap { key, value in
             guard !value.senderIds.isEmpty else { return nil }
             return ParsedReaction(
                 emojiId: key,
                 emoji: value.emoji,
                 count: value.senderIds.count,
+                senderIds: value.senderIds,
+                isMe: currentUserId.map { value.senderIds.contains($0) } ?? false
+            )
+        }
+    }
+
+    private static func parseReactionsFromProtobuf(_ reactions: [Mezon_Api_MessageReaction], currentUserId: String?) -> [ParsedReaction] {
+        var grouped: [String: (emoji: String, senderIds: [String], countFromApi: Int32)] = [:]
+        for r in reactions {
+            let emojiKey = r.emojiID != 0 ? "\(r.emojiID)" : (r.emoji.isEmpty ? "?" : r.emoji)
+            guard emojiKey != "?" || !r.emoji.isEmpty else { continue }
+            let senderId = "\(r.senderID)"
+            if grouped[emojiKey] == nil {
+                grouped[emojiKey] = (emoji: r.emoji, senderIds: [], countFromApi: r.count)
+            }
+            if r.action {
+                if !grouped[emojiKey]!.senderIds.contains(senderId) {
+                    grouped[emojiKey]!.senderIds.append(senderId)
+                }
+            } else {
+                grouped[emojiKey]!.senderIds.removeAll { $0 == senderId }
+            }
+        }
+        return grouped.compactMap { key, value in
+            let count = value.countFromApi > 0 ? Int(value.countFromApi) : value.senderIds.count
+            guard count > 0 else { return nil }
+            return ParsedReaction(
+                emojiId: key,
+                emoji: value.emoji,
+                count: count,
                 senderIds: value.senderIds,
                 isMe: currentUserId.map { value.senderIds.contains($0) } ?? false
             )

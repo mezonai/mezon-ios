@@ -79,6 +79,7 @@ final class ChatContainerNode: ASDisplayNode {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 200.sh
         tableView.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseId)
+        tableView.register(WelcomeCell.self, forCellReuseIdentifier: WelcomeCell.reuseId)
         tableView.dataSource = self
         tableView.delegate = self
 
@@ -202,12 +203,19 @@ final class ChatContainerNode: ASDisplayNode {
 extension ChatContainerNode: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        state.messages.count
+        let welcomeRows = state.showWelcome ? 1 : 0
+        return welcomeRows + state.messages.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        if state.showWelcome, indexPath.row == 0 {
+            let cell = tableView.dequeueReusableCell(withIdentifier: WelcomeCell.reuseId, for: indexPath) as! WelcomeCell
+            cell.configure(channelLabel: state.channelLabel)
+            return cell
+        }
+        let messageIndex = state.showWelcome ? indexPath.row - 1 : indexPath.row
         let cell = tableView.dequeueReusableCell(withIdentifier: MessageCell.reuseId, for: indexPath) as! MessageCell
-        cell.configure(display: state.messages[indexPath.row])
+        cell.configure(display: state.messages[messageIndex])
         return cell
     }
 
@@ -215,6 +223,84 @@ extension ChatContainerNode: UITableViewDataSource, UITableViewDelegate {
         if scrollView.contentOffset.y < 80 { interaction.onScrolledNearTop() }
         let atBottom = scrollView.contentOffset.y + scrollView.bounds.height >= scrollView.contentSize.height - 100
         interaction.onScrolledToBottom(atBottom)
+    }
+}
+
+final class WelcomeCell: UITableViewCell {
+
+    static let reuseId = "WelcomeCell"
+    private static let iconSize: CGFloat = 70
+    private static let verticalPadding: CGFloat = 30
+    private static let horizontalPadding: CGFloat = 10
+
+    private let iconContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.theme.secondaryLight
+        v.layer.cornerRadius = WelcomeCell.iconSize / 2
+        v.clipsToBounds = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+    private let iconImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.tintColor = UIColor.theme.textStrong
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 22.sf, weight: .semibold)
+        l.textColor = UIColor.theme.textStrong
+        l.textAlignment = .left
+        l.numberOfLines = 0
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    private let subtitleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 12.sf)
+        l.textColor = UIColor.theme.text
+        l.textAlignment = .left
+        l.numberOfLines = 0
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        selectionStyle = .none
+        iconImageView.image = UIImage(systemName: "number")
+        contentView.addSubview(iconContainer)
+        iconContainer.addSubview(iconImageView)
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(subtitleLabel)
+        NSLayoutConstraint.activate([
+            iconContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
+            iconContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Self.verticalPadding),
+            iconContainer.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            iconContainer.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            iconImageView.centerXAnchor.constraint(equalTo: iconContainer.centerXAnchor),
+            iconImageView.centerYAnchor.constraint(equalTo: iconContainer.centerYAnchor),
+            iconImageView.widthAnchor.constraint(equalToConstant: 36),
+            iconImageView.heightAnchor.constraint(equalToConstant: 36),
+            titleLabel.topAnchor.constraint(equalTo: iconContainer.bottomAnchor, constant: 10.sh),
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
+            titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10.sh),
+            subtitleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalPadding),
+            subtitleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.horizontalPadding),
+            subtitleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Self.verticalPadding),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(channelLabel: String) {
+        let name = channelLabel.hasPrefix("#") ? channelLabel : "#\(channelLabel)"
+        titleLabel.text = "Welcome to \(name)"
+        subtitleLabel.text = "This is the start of the \(name) channel"
     }
 }
 
@@ -706,8 +792,11 @@ final class ReactionsFlowView: UIView {
 }
 
 private final class ReactionPillView: UIView {
-    private let emojiLabel = UILabel()
+    private static let emojiSize: CGFloat = 20
+    private let emojiImageView = UIImageView()
+    private let emojiFallbackLabel = UILabel()
     private let countLabel = UILabel()
+    private var imageTask: URLSessionDataTask?
 
     init(reaction: ParsedReaction) {
         super.init(frame: .zero)
@@ -723,28 +812,70 @@ private final class ReactionPillView: UIView {
             backgroundColor = UIColor.theme.secondary
         }
 
-        emojiLabel.text = reaction.emoji.isEmpty ? "?" : reaction.emoji
-        emojiLabel.font = .systemFont(ofSize: 16)
-        emojiLabel.translatesAutoresizingMaskIntoConstraints = false
+        emojiImageView.contentMode = .scaleAspectFit
+        emojiImageView.clipsToBounds = true
+        emojiImageView.translatesAutoresizingMaskIntoConstraints = false
+
+        emojiFallbackLabel.font = .systemFont(ofSize: 16.sf, weight: .regular)
+        emojiFallbackLabel.textAlignment = .center
+        emojiFallbackLabel.translatesAutoresizingMaskIntoConstraints = false
 
         countLabel.text = "\(reaction.count)"
         countLabel.font = .systemFont(ofSize: 12.sf, weight: .semibold)
         countLabel.textColor = UIColor.theme.textStrong
         countLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(emojiLabel)
+        addSubview(emojiImageView)
+        addSubview(emojiFallbackLabel)
         addSubview(countLabel)
 
         NSLayoutConstraint.activate([
-            emojiLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6.sw),
-            emojiLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emojiImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6.sw),
+            emojiImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emojiImageView.widthAnchor.constraint(equalToConstant: Self.emojiSize),
+            emojiImageView.heightAnchor.constraint(equalToConstant: Self.emojiSize),
 
-            countLabel.leadingAnchor.constraint(equalTo: emojiLabel.trailingAnchor, constant: 4.sw),
+            emojiFallbackLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6.sw),
+            emojiFallbackLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emojiFallbackLabel.widthAnchor.constraint(equalToConstant: Self.emojiSize),
+            emojiFallbackLabel.heightAnchor.constraint(equalToConstant: Self.emojiSize),
+
+            countLabel.leadingAnchor.constraint(equalTo: emojiImageView.trailingAnchor, constant: 4.sw),
             countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6.sw),
 
             heightAnchor.constraint(equalToConstant: 28.sh),
         ])
+
+        let fallbackText = !reaction.emoji.isEmpty ? reaction.emoji : "?"
+        emojiFallbackLabel.text = fallbackText
+        let url = MezonConfig.emojiImageURL(emojiId: reaction.emojiId)
+        if let url = url {
+            emojiFallbackLabel.isHidden = true
+            loadEmojiImage(url: url) { [weak self] success in
+                DispatchQueue.main.async {
+                    self?.emojiFallbackLabel.isHidden = success
+                }
+            }
+        } else {
+            emojiImageView.isHidden = true
+            emojiFallbackLabel.isHidden = false
+        }
+    }
+
+    private func loadEmojiImage(url: URL, onDone: @escaping (Bool) -> Void) {
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            let img = data.flatMap { UIImage.decodeImage(from: $0) }
+            DispatchQueue.main.async {
+                self?.emojiImageView.image = img
+                onDone(img != nil)
+            }
+        }
+        imageTask?.resume()
+    }
+
+    deinit {
+        imageTask?.cancel()
     }
 
     required init?(coder: NSCoder) { fatalError() }
