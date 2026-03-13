@@ -18,6 +18,7 @@ final class Postbox {
     let clanTable: ClanTable
     let profileTable: ProfileTable
     let settingsTable: SettingsTable
+    let notificationSettingTable: NotificationSettingTable
 
     private let viewTracker = ViewTracker()
 
@@ -47,6 +48,7 @@ final class Postbox {
         clanTable     = ClanTable(db: clansDb)
         profileTable  = ProfileTable(db: profileDb)
         settingsTable = SettingsTable(db: settingsDb)
+        notificationSettingTable = NotificationSettingTable(db: clansDb)
     }
 
     func write(_ block: @escaping (PostboxTransaction) -> Void) {
@@ -58,7 +60,8 @@ final class Postbox {
                 messageTable: messageTable,
                 authTable: authTable,
                 profileTable: profileTable,
-                settingsTable: settingsTable
+                settingsTable: settingsTable,
+                notificationSettingTable: notificationSettingTable
             )
             block(tx)
             channelTable.beforeCommit()
@@ -67,6 +70,7 @@ final class Postbox {
             authTable.beforeCommit()
             profileTable.beforeCommit()
             settingsTable.beforeCommit()
+            notificationSettingTable.beforeCommit()
             viewTracker.replay(transaction: tx)
         }
     }
@@ -81,7 +85,8 @@ final class Postbox {
                 messageTable: messageTable,
                 authTable: authTable,
                 profileTable: profileTable,
-                settingsTable: settingsTable
+                settingsTable: settingsTable,
+                notificationSettingTable: notificationSettingTable
             )
             result = block(tx)
         }
@@ -149,6 +154,52 @@ final class Postbox {
             return ActionDisposable { [weak self] in
                 self?.queue.async {
                     if let idx = viewIndex { self?.viewTracker.removeMessageHistoryView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+    func channelMetaView(channelId: Int64) -> Signal<ChannelMetaView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableChannelMetaView, ValuePipe<ChannelMetaView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.channelTable.getChannelMeta(channelId: channelId)
+                subscriber.putNext(ChannelMetaView(channelId: channelId, record: initial))
+                let (index, signal) = self.viewTracker.addChannelMetaView(
+                    channelId: channelId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeChannelMetaView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+    func notificationSettingView(entityId: Int64) -> Signal<NotificationSettingView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableNotificationSettingView, ValuePipe<NotificationSettingView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.notificationSettingTable.get(entityId: entityId)
+                subscriber.putNext(NotificationSettingView(entityId: entityId, record: initial))
+                let (index, signal) = self.viewTracker.addNotificationSettingView(
+                    entityId: entityId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeNotificationSettingView(index: idx) }
                     innerDisposable?.dispose()
                 }
             }
@@ -235,6 +286,8 @@ final class Postbox {
             messagesDb.rawExecute("DELETE FROM messages")
             clansDb.rawExecute("DELETE FROM channels")
             clansDb.rawExecute("DELETE FROM clans")
+            clansDb.rawExecute("DELETE FROM channel_meta")
+            clansDb.rawExecute("DELETE FROM notification_settings")
             profileDb.rawExecute("DELETE FROM profile")
             settingsDb.rawExecute("DELETE FROM settings")
             authTable.clearMemoryCache()
@@ -243,6 +296,7 @@ final class Postbox {
             clanTable.clearMemoryCache()
             profileTable.clearMemoryCache()
             settingsTable.clearMemoryCache()
+            notificationSettingTable.clearMemoryCache()
         }
     }
 }

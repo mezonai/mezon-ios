@@ -1,7 +1,7 @@
 import UIKit
 import AsyncDisplayKit
 
-struct ChannelMessagesInteraction {
+struct ChatInteraction {
     let onBackTapped: () -> Void
     let onSearchTapped: () -> Void
     let onHistoryTapped: () -> Void
@@ -11,7 +11,7 @@ struct ChannelMessagesInteraction {
     var onMessagesReloaded: (() -> Void)?
 }
 
-final class ChannelMessagesContainerNode: ASDisplayNode {
+final class ChatContainerNode: ASDisplayNode {
 
     let tableView: UITableView
     private let headerView = UIView()
@@ -25,11 +25,11 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
     private let loadingMoreIndicator = UIActivityIndicatorView(style: .medium)
     let emptyLabel = UILabel()
 
-    private(set) var state: ChannelMessagesState = .empty
-    private let interaction: ChannelMessagesInteraction
+    private(set) var state: ChatState = .empty
+    private let interaction: ChatInteraction
     private let disposables = DisposableSet()
 
-    init(signal: Signal<ChannelMessagesState, NoError>, interaction: ChannelMessagesInteraction) {
+    init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction) {
         tableView = UITableView(frame: .zero, style: .plain)
         self.interaction = interaction
         super.init()
@@ -199,7 +199,7 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
     @objc private func menuTapped() { interaction.onMenuTapped() }
 }
 
-extension ChannelMessagesContainerNode: UITableViewDataSource, UITableViewDelegate {
+extension ChatContainerNode: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         state.messages.count
@@ -387,7 +387,7 @@ final class MessageCell: UITableViewCell {
         reactionsBottom?.isActive = true
     }
 
-    func configure(display: ChannelMessageDisplay) {
+    func configure(display: ChatMessageDisplay) {
         let t = UIColor.theme
         let isCombine = display.isCombine
 

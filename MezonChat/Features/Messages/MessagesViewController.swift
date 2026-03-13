@@ -38,7 +38,7 @@ final class MessagesViewController: ViewController {
         let interaction = MessagesInteraction(
             onSelectDirectMessage: { [weak self] ch in
                 guard let self else { return }
-                let vc = ChannelMessagesViewController(clanId: 0, channel: ch, context: self.context)
+                let vc = ChatViewController(clanId: 0, channel: ch, context: self.context)
                 self.navigationController?.pushViewController(vc, animated: true)
             },
             onAddFriendTapped: {},

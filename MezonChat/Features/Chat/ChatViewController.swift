@@ -31,7 +31,7 @@ struct ParsedReaction: Equatable {
     let isMe: Bool
 }
 
-struct ChannelMessageDisplay: Identifiable {
+struct ChatMessageDisplay: Identifiable {
     let message: Message
     let senderDisplayName: String
     let avatarURL: String?
@@ -48,18 +48,18 @@ struct ChannelMessageDisplay: Identifiable {
     }
 }
 
-struct ChannelMessagesState {
-    var messages: [ChannelMessageDisplay]
+struct ChatState {
+    var messages: [ChatMessageDisplay]
     var channelLabel: String
     var hasMoreOlder: Bool
     var isLoadingMore: Bool
     var isLoading: Bool
     var errorMessage: String?
 
-    static let empty = ChannelMessagesState(messages: [], channelLabel: "", hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
+    static let empty = ChatState(messages: [], channelLabel: "", hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
 }
 
-final class ChannelMessagesViewController: ViewController {
+final class ChatViewController: ViewController {
 
     let clanId: Int64
     let channel: Mezon_Api_ChannelDescription
@@ -69,12 +69,13 @@ final class ChannelMessagesViewController: ViewController {
     var needsReloadSignal: Signal<Void, NoError> { needsReloadPipe.signal() }
     private let stateDisposables = DisposableSet()
 
-    private(set) var messages: [ChannelMessageDisplay] = []
+    private(set) var messages: [ChatMessageDisplay] = []
     private(set) var channelLabel: String = ""
     private(set) var hasMoreOlder: Bool = true
     private(set) var isLoadingMore: Bool = false
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
+    private(set) var channelMeta: ChannelRecord?
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -94,7 +95,7 @@ final class ChannelMessagesViewController: ViewController {
     private var shouldScrollToBottom = true
     private var hasScrolledToBottomInitially = false
 
-    private var messagesNode: ChannelMessagesContainerNode { displayNode as! ChannelMessagesContainerNode }
+    private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
     init(clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext) {
         self.clanId = clanId
@@ -107,7 +108,7 @@ final class ChannelMessagesViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        var interaction = ChannelMessagesInteraction(
+        var interaction = ChatInteraction(
             onBackTapped: { [weak self] in self?.navigationController?.popViewController(animated: true) },
             onSearchTapped: { },
             onHistoryTapped: { },
@@ -120,7 +121,7 @@ final class ChannelMessagesViewController: ViewController {
             onMessagesReloaded: nil
         )
         interaction.onMessagesReloaded = { [weak self] in self?.scrollToBottomIfNeeded() }
-        displayNode = ChannelMessagesContainerNode(signal: stateSignal(), interaction: interaction)
+        displayNode = ChatContainerNode(signal: stateSignal(), interaction: interaction)
     }
 
     override func viewDidLoad() {
@@ -163,7 +164,7 @@ final class ChannelMessagesViewController: ViewController {
 
     deinit { stateDisposables.dispose() }
 
-    private func setMessages(_ v: [ChannelMessageDisplay]) { messages = v; needsReloadPipe.putNext(()) }
+    private func setMessages(_ v: [ChatMessageDisplay]) { messages = v; needsReloadPipe.putNext(()) }
     private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
     private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v }
     private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; needsReloadPipe.putNext(()) }
@@ -182,8 +183,19 @@ final class ChannelMessagesViewController: ViewController {
                     self.setMessages(self.buildDisplayMessages(from: view.messages))
                 })
         )
+        stateDisposables.add(
+            (self.context.account.postbox.channelMetaView(channelId: channel.channelID) |> deliverOnMainQueue)
+                .start(next: { [weak self] view in
+                    guard let self else { return }
+                    self.channelMeta = view.record
+                })
+        )
         fetchMessages()
         joinChat()
+        fetchNotificationSetting()
+        fetchChannelPermissions()
+        fetchChannelMembers()
+        checkBanStatus()
     }
 
     func onLeave() {
@@ -229,11 +241,103 @@ final class ChannelMessagesViewController: ViewController {
         }
     }
 
-    var currentState: ChannelMessagesState {
-        ChannelMessagesState(messages: messages, channelLabel: channelLabel, hasMoreOlder: hasMoreOlder, isLoadingMore: isLoadingMore, isLoading: isLoading, errorMessage: errorMessage)
+    private func fetchNotificationSetting() {
+        guard let token = context.session?.token else { return }
+        let channelId = channel.channelID
+        Task { @MainActor in
+            do {
+                let response = try await self.context.account.network.getNotificationChannel(channelId: channelId, token: token)
+                let record = NotificationSettingRecord(from: response)
+                self.context.account.postbox.write { tx in
+                    tx.updateNotificationSetting(record)
+                }
+            } catch {
+                AppLogger.network.warning("[ChannelMessages] fetchNotificationSetting failed: \(error)")
+            }
+        }
     }
 
-    func stateSignal() -> Signal<ChannelMessagesState, NoError> {
+    private func fetchChannelPermissions() {
+        guard let token = context.session?.token else { return }
+        let channelId = channel.channelID
+        Task { @MainActor in
+            do {
+                let response = try await self.context.account.network.listUserPermissionInChannel(clanId: clanId, channelId: channelId, token: token)
+                let records = response.permissions.permissions.map { PermissionRecord(from: $0) }
+                self.context.account.postbox.write { tx in
+                    tx.updateChannelPermissions(records, channelId: channelId)
+                }
+            } catch {
+                AppLogger.network.warning("[ChannelMessages] fetchChannelPermissions failed: \(error)")
+            }
+        }
+    }
+
+    private func fetchChannelMembers() {
+        guard let token = context.session?.token else { return }
+        let channelId = channel.channelID
+        let channelType: Int32 = clanId == 0
+            ? MezonConstants.ChannelType.group.rawValue
+            : MezonConstants.ChannelType.channel.rawValue
+
+        Task { @MainActor in
+            do {
+                // If channel has a parent (thread), fetch parent channel members too
+                if channel.parentID != 0 {
+                    let parentResponse = try await self.context.account.network.listChannelUsers(
+                        clanId: clanId,
+                        channelId: channel.parentID,
+                        channelType: MezonConstants.ChannelType.channel.rawValue,
+                        token: token
+                    )
+                    let parentMembers = parentResponse.channelUsers.map { ChannelMemberRecord(from: $0) }
+                    self.context.account.postbox.write { tx in
+                        tx.updateChannelMembers(parentMembers, channelId: self.channel.parentID)
+                    }
+                }
+
+                // Fetch members for the channel itself if it's private or has a parent
+                if channel.channelPrivate != 0 || channel.parentID != 0 {
+                    let response = try await self.context.account.network.listChannelUsers(
+                        clanId: clanId,
+                        channelId: channelId,
+                        channelType: channelType,
+                        token: token
+                    )
+                    let members = response.channelUsers.map { ChannelMemberRecord(from: $0) }
+                    self.context.account.postbox.write { tx in
+                        tx.updateChannelMembers(members, channelId: channelId)
+                    }
+                }
+            } catch {
+                AppLogger.network.warning("[ChannelMessages] fetchChannelMembers failed: \(error)")
+            }
+        }
+    }
+
+    private func checkBanStatus() {
+        guard let token = context.session?.token else { return }
+        let channelId = channel.channelID
+        let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+        guard isPublic else { return }
+
+        Task { @MainActor in
+            do {
+                let response = try await self.context.account.network.isBanned(channelId: channelId, token: token)
+                self.context.account.postbox.write { tx in
+                    tx.updateBanStatus(isBanned: response.isBanned, expiredBanTime: response.expiredBanTime, channelId: channelId)
+                }
+            } catch {
+                AppLogger.network.warning("[ChannelMessages] checkBanStatus failed: \(error)")
+            }
+        }
+    }
+
+    var currentState: ChatState {
+        ChatState(messages: messages, channelLabel: channelLabel, hasMoreOlder: hasMoreOlder, isLoadingMore: isLoadingMore, isLoading: isLoading, errorMessage: errorMessage)
+    }
+
+    func stateSignal() -> Signal<ChatState, NoError> {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
             subscriber.putNext(self.currentState)
@@ -244,22 +348,22 @@ final class ChannelMessagesViewController: ViewController {
         }
     }
 
-    private func buildDisplayMessages(from records: [MessageRecord]) -> [ChannelMessageDisplay] {
+    private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
-        let displays = records.map { record -> ChannelMessageDisplay in
+        let displays = records.map { record -> ChatMessageDisplay in
             let content = extractTextFromContent(record)
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
             let attachments = Self.parseAttachments(record.attachmentsJSON)
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
-            return ChannelMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions)
+            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions)
         }
         return Self.applyCombine(to: displays)
     }
 
-    private static func applyCombine(to displays: [ChannelMessageDisplay]) -> [ChannelMessageDisplay] {
+    private static func applyCombine(to displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         displays.enumerated().map { i, d in
             let prev = i > 0 ? displays[i - 1].message : nil
-            return ChannelMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChannelMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev), attachments: d.attachments, reactions: d.reactions)
+            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev), attachments: d.attachments, reactions: d.reactions)
         }
     }
 
