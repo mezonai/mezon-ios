@@ -2,6 +2,13 @@ import Foundation
 import UIKit
 import AsyncDisplayKit
 
+private enum TabBarLayoutScale {
+    static var value: CGFloat {
+        let w = UIScreen.main.bounds.width
+        return min(max(w / 375, 1), 1.25)
+    }
+}
+
 public struct TabBarNodeItem {
     public let item: UITabBarItem
 
@@ -29,7 +36,7 @@ final class TabBarItemNode: ASDisplayNode {
 
         iconNode.isUserInteractionEnabled = false
         badgeBg.backgroundColor = .systemRed
-        badgeBg.cornerRadius = 9
+        badgeBg.cornerRadius = 9 * TabBarLayoutScale.value
         badgeBg.isUserInteractionEnabled = false
         badgeText.isUserInteractionEnabled = false
 
@@ -66,9 +73,12 @@ final class TabBarItemNode: ASDisplayNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        iconNode.style.preferredSize = CGSize(width: 26, height: 26)
+        let s = TabBarLayoutScale.value
+        let iconSize: CGFloat = 26 * s
+        iconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
 
-        let labelFont = UIFont.systemFont(ofSize: 10, weight: isSelected ? .semibold : .regular)
+        let fontSize: CGFloat = 10 * s
+        let labelFont = UIFont.systemFont(ofSize: fontSize, weight: isSelected ? .semibold : .regular)
         let labelColor = isSelected ? UIColor.theme.channelUnread : UIColor.theme.textDisabled
         labelNode.attributedText = NSAttributedString(
             string: item.title ?? "",
@@ -78,16 +88,17 @@ final class TabBarItemNode: ASDisplayNode {
         let badgeValue = item.badgeValue ?? ""
         let iconWithBadge: ASLayoutElement
         if !badgeValue.isEmpty {
-            badgeText.style.minWidth = ASDimensionMake(18)
-            badgeText.style.height = ASDimensionMake(18)
-            badgeBg.style.minWidth = ASDimensionMake(18)
-            badgeBg.style.height = ASDimensionMake(18)
+            let badgeSize: CGFloat = 18 * s
+            badgeText.style.minWidth = ASDimensionMake(badgeSize)
+            badgeText.style.height = ASDimensionMake(badgeSize)
+            badgeBg.style.minWidth = ASDimensionMake(badgeSize)
+            badgeBg.style.height = ASDimensionMake(badgeSize)
             let badgeStack = ASBackgroundLayoutSpec(
                 child: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: badgeText),
                 background: badgeBg
             )
             let corner = ASCornerLayoutSpec(child: iconNode, corner: badgeStack, location: .topRight)
-            corner.offset = CGPoint(x: 6, y: -6)
+            corner.offset = CGPoint(x: 6 * s, y: -6 * s)
             iconWithBadge = corner
         } else {
             iconWithBadge = iconNode
@@ -95,23 +106,22 @@ final class TabBarItemNode: ASDisplayNode {
 
         let stack = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 3,
+            spacing: 3 * s,
             justifyContent: .center,
             alignItems: .center,
             children: [iconWithBadge, labelNode]
         )
 
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 9, left: 0, bottom: 7, right: 0),
+            insets: UIEdgeInsets(top: 14 * s, left: 0, bottom: 20 * s, right: 0),
             child: stack
         )
     }
 
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
-        let color = selected ? UIColor.theme.channelUnread : UIColor.theme.channelNormal
-        iconNode.image = icon?.withRenderingMode(.alwaysTemplate)
-        iconNode.tintColor = color
+        iconNode.image = icon?.withRenderingMode(.alwaysOriginal)
+        iconNode.tintColor = nil
         setNeedsLayout()
     }
 
@@ -121,10 +131,11 @@ final class TabBarItemNode: ASDisplayNode {
         badgeBg.isHidden = hidden
         badgeText.isHidden = hidden
         if !hidden {
+            let fontSize = 10 * TabBarLayoutScale.value
             badgeText.attributedText = NSAttributedString(
                 string: text,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 10, weight: .bold),
+                    .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
                     .foregroundColor: UIColor.white,
                 ]
             )
@@ -135,7 +146,7 @@ final class TabBarItemNode: ASDisplayNode {
 }
 
 public final class TabBarNode: ASDisplayNode {
-    public static let barHeight: CGFloat = 49.0
+    public static var barHeight: CGFloat { 57 * TabBarLayoutScale.value }
 
     private let backgroundNode: NavigationBackgroundNode
     private let separatorNode = ASDisplayNode()
@@ -145,7 +156,7 @@ public final class TabBarNode: ASDisplayNode {
 
     override public init() {
         backgroundNode = NavigationBackgroundNode(
-            color: UIColor.theme.secondary.withAlphaComponent(0.92),
+            color: UIColor.theme.primary,
             enableBlur: true
         )
         super.init()
@@ -188,7 +199,7 @@ public final class TabBarNode: ASDisplayNode {
         let totalHeight = Self.barHeight + bottomInset
 
         transition.updateFrame(node: backgroundNode, frame: CGRect(origin: .zero, size: CGSize(width: size.width, height: totalHeight)))
-        backgroundNode.updateColor(color: UIColor.theme.secondary.withAlphaComponent(0.92), transition: transition)
+        backgroundNode.updateColor(color: UIColor.theme.primary, transition: transition)
         backgroundNode.update(size: CGSize(width: size.width, height: totalHeight), cornerRadius: 0, transition: transition)
 
         let separatorH = 1.0 / UIScreen.main.scale

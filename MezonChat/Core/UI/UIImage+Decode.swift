@@ -5,24 +5,47 @@ extension UIImage {
 
     static func decodeImage(from data: Data) -> UIImage? {
         if let img = UIImage(data: data) { return img }
-        return decodeHEICOrImageIO(data)
+        return decodeWithImageIO(data)
     }
 
-    private static func decodeHEICOrImageIO(_ data: Data) -> UIImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
-        let count = CGImageSourceGetCount(source)
-        guard count > 0 else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 4096
-        ]
-        if let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
-            return UIImage(cgImage: cgImage)
+    private static let heicTypeHint = "public.heic" as CFString
+
+    private static func decodeWithImageIO(_ data: Data) -> UIImage? {
+        var source: CGImageSource? = CGImageSourceCreateWithData(data as CFData, nil)
+        if source == nil {
+            let heicHint = [kCGImageSourceTypeIdentifierHint: heicTypeHint] as CFDictionary
+            source = CGImageSourceCreateWithData(data as CFData, heicHint)
         }
-        if let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) {
+        guard let src = source, CGImageSourceGetCount(src) > 0 else { return nil }
+        let createImageOptions: NSDictionary = [kCGImageSourceShouldCache: false as NSNumber]
+        if let cgImage = CGImageSourceCreateImageAtIndex(src, 0, createImageOptions as CFDictionary) {
+            let orientation = imageOrientation(from: src)
+            return UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
+        }
+        let thumbnailOptions: NSDictionary = [
+            kCGImageSourceCreateThumbnailFromImageIfAbsent: true as NSNumber,
+            kCGImageSourceCreateThumbnailWithTransform: true as NSNumber,
+            kCGImageSourceThumbnailMaxPixelSize: 4096 as NSNumber
+        ]
+        if let cgImage = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbnailOptions as CFDictionary) {
             return UIImage(cgImage: cgImage)
         }
         return nil
+    }
+
+    private static func imageOrientation(from source: CGImageSource) -> UIImage.Orientation {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?,
+              let value = props[kCGImagePropertyOrientation] as? NSNumber else { return .up }
+        switch value.intValue {
+        case 1: return .up
+        case 3: return .down
+        case 8: return .left
+        case 6: return .right
+        case 2: return .upMirrored
+        case 4: return .downMirrored
+        case 5: return .leftMirrored
+        case 7: return .rightMirrored
+        default: return .up
+        }
     }
 }
