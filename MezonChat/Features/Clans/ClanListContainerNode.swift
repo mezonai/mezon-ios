@@ -185,7 +185,8 @@ private final class LogoCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.layer.cornerRadius = 8.swh
+        iv.backgroundColor = .clear
+        iv.layer.cornerRadius = 12.swh
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()

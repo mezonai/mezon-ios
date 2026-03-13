@@ -25,6 +25,15 @@ final class HomeViewController: BaseViewController {
         bindClanSelection()
         bindChannelSelection()
         bindLogoTap()
+        applyInitialClanSelection()
+    }
+
+    /// On launch: if we have a cached selected clan, configure channel list and fetch channels.
+    private func applyInitialClanSelection() {
+        guard let id = clanListVC.selectedClanId,
+              let clan = clanListVC.clans.first(where: { $0.clanID == id }) else { return }
+        context.currentClanId = id
+        channelListVC.configure(clanId: id, clanName: clan.clanName)
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {

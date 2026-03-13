@@ -8,6 +8,7 @@ struct ChannelMessagesInteraction {
     let onMenuTapped: () -> Void
     let onScrolledNearTop: () -> Void
     let onScrolledToBottom: (Bool) -> Void
+    var onMessagesReloaded: (() -> Void)?
 }
 
 final class ChannelMessagesContainerNode: ASDisplayNode {
@@ -15,7 +16,11 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
     let tableView: UITableView
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
+    private let channelIconView = UIImageView()
     let channelTitleLabel = UILabel()
+    private let searchButton = UIButton(type: .system)
+    private let historyButton = UIButton(type: .system)
+    private let menuButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let loadingMoreIndicator = UIActivityIndicatorView(style: .medium)
     let emptyLabel = UILabel()
@@ -41,8 +46,25 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
                 if newState.isLoadingMore { self.loadingMoreIndicator.startAnimating() }
                 else { self.loadingMoreIndicator.stopAnimating() }
                 if let msg = newState.errorMessage { Toast.error(msg) }
+                let hasMessagesNow = !newState.messages.isEmpty
+                if hasMessagesNow {
+                    self.tableView.isHidden = true
+                }
                 self.tableView.reloadData()
+                if hasMessagesNow {
+                    self.tableView.layoutIfNeeded()
+                    let tv = self.tableView
+                    let y = max(-tv.contentInset.top, tv.contentSize.height - tv.bounds.height + tv.contentInset.bottom)
+                    tv.contentOffset = CGPoint(x: 0, y: y)
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    self.tableView.isHidden = false
+                    CATransaction.commit()
+                }
                 self.emptyLabel.isHidden = !(!newState.isLoading && newState.messages.isEmpty)
+                if hasMessagesNow {
+                    self.interaction.onMessagesReloaded?()
+                }
             })
         )
     }
@@ -65,7 +87,28 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
         backButton.configuration = backCfg
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
+        channelIconView.contentMode = .scaleAspectFit
+        channelIconView.image = UIImage(systemName: "number")
+        channelIconView.tintColor = UIColor.theme.textStrong
+
         channelTitleLabel.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        channelTitleLabel.lineBreakMode = .byTruncatingTail
+
+        var searchCfg = UIButton.Configuration.plain()
+        searchCfg.image = UIImage(systemName: "magnifyingglass")
+        searchButton.configuration = searchCfg
+        searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
+
+        var historyCfg = UIButton.Configuration.plain()
+        historyCfg.image = UIImage(systemName: "clock")
+        historyButton.configuration = historyCfg
+        historyButton.addTarget(self, action: #selector(historyTapped), for: .touchUpInside)
+
+        var menuCfg = UIButton.Configuration.plain()
+        menuCfg.image = UIImage(systemName: "ellipsis")
+        menuButton.configuration = menuCfg
+        menuButton.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
+
         loadingIndicator.hidesWhenStopped = true
         loadingMoreIndicator.hidesWhenStopped = true
         emptyLabel.font = .systemFont(ofSize: 15.sf)
@@ -76,7 +119,7 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
-        for v in [backButton, channelTitleLabel] as [UIView] {
+        for v in [backButton, channelIconView, channelTitleLabel, searchButton, historyButton, menuButton] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             headerView.addSubview(v)
         }
@@ -97,21 +140,36 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
         let realSafeTop = view.safeAreaInsets.top
         let safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
 
-        let headerH: CGFloat = 44.sh
-        let headerFrame = CGRect(x: 0, y: safeTop, width: layout.size.width, height: headerH)
+        let fullWidth = view.bounds.width > 0 ? view.bounds.width : layout.size.width
+        let headerH: CGFloat = 44
+        let headerFrame = CGRect(x: 0, y: safeTop, width: fullWidth, height: headerH)
         transition.updateFrame(view: headerView, frame: headerFrame)
 
-        let tvFrame = CGRect(x: 0, y: headerFrame.maxY, width: layout.size.width, height: layout.size.height - headerFrame.maxY - inputBarHeight - layout.intrinsicInsets.bottom)
+        let tvFrame = CGRect(x: 0, y: headerFrame.maxY, width: fullWidth, height: layout.size.height - headerFrame.maxY - inputBarHeight - layout.intrinsicInsets.bottom)
         transition.updateFrame(view: tableView, frame: tvFrame)
 
-        let liS: CGFloat = 24.swh
-        transition.updateFrame(view: loadingIndicator, frame: CGRect(x: (layout.size.width - liS) / 2, y: (layout.size.height - liS) / 2, width: liS, height: liS))
-        transition.updateFrame(view: loadingMoreIndicator, frame: CGRect(x: (layout.size.width - liS) / 2, y: headerFrame.maxY + 12.sh, width: liS, height: liS))
-        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - 44.sh) / 2, width: layout.size.width, height: 44.sh))
+        let liS: CGFloat = 24
+        transition.updateFrame(view: loadingIndicator, frame: CGRect(x: (fullWidth - liS) / 2, y: (layout.size.height - liS) / 2, width: liS, height: liS))
+        transition.updateFrame(view: loadingMoreIndicator, frame: CGRect(x: (fullWidth - liS) / 2, y: headerFrame.maxY + 12, width: liS, height: liS))
+        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - 44) / 2, width: fullWidth, height: 44))
 
-        let btnH: CGFloat = 44.swh
-        transition.updateFrame(view: backButton, frame: CGRect(x: 12.sw, y: 0, width: btnH, height: headerH))
-        transition.updateFrame(view: channelTitleLabel, frame: CGRect(x: 12.sw + btnH + 4.sw, y: 0, width: layout.size.width - 12.sw - btnH - 4.sw - 60.sw, height: headerH))
+        let headerWidth = fullWidth
+        let leftMargin: CGFloat = 12
+        let btnH: CGFloat = 44
+        let gap: CGFloat = 8
+        let iconSize: CGFloat = 24
+        let rightMargin: CGFloat = 8
+        let rightGroupW = rightMargin + 3 * btnH + 2 * gap
+        let titleLeft = leftMargin + btnH + gap + iconSize + gap
+        let titleRight = headerWidth - rightGroupW
+        let titleW = max(0, titleRight - titleLeft)
+
+        backButton.frame = CGRect(x: leftMargin, y: 0, width: btnH, height: headerH)
+        channelIconView.frame = CGRect(x: leftMargin + btnH + gap, y: (headerH - iconSize) / 2, width: iconSize, height: iconSize)
+        channelTitleLabel.frame = CGRect(x: titleLeft, y: 0, width: titleW, height: headerH)
+        historyButton.frame = CGRect(x: headerWidth - rightGroupW, y: 0, width: btnH, height: headerH)
+        menuButton.frame = CGRect(x: headerWidth - rightGroupW + btnH + gap, y: 0, width: btnH, height: headerH)
+        searchButton.frame = CGRect(x: headerWidth - rightMargin - btnH, y: 0, width: btnH, height: headerH)
     }
 
     override func layout() {
@@ -122,9 +180,13 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         backgroundColor = t.primary
-        headerView.backgroundColor = t.secondary
+        headerView.backgroundColor = t.primary
         backButton.tintColor = t.textStrong
+        channelIconView.tintColor = t.textStrong
         channelTitleLabel.textColor = t.textStrong
+        searchButton.tintColor = t.textDisabled
+        historyButton.tintColor = t.textDisabled
+        menuButton.tintColor = t.textStrong
         loadingIndicator.color = t.textDisabled
         loadingMoreIndicator.color = t.textDisabled
         emptyLabel.textColor = t.textDisabled
@@ -132,6 +194,9 @@ final class ChannelMessagesContainerNode: ASDisplayNode {
     }
 
     @objc private func backTapped() { interaction.onBackTapped() }
+    @objc private func searchTapped() { interaction.onSearchTapped() }
+    @objc private func historyTapped() { interaction.onHistoryTapped() }
+    @objc private func menuTapped() { interaction.onMenuTapped() }
 }
 
 extension ChannelMessagesContainerNode: UITableViewDataSource, UITableViewDelegate {

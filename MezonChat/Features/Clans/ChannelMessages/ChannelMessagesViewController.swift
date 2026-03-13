@@ -107,7 +107,7 @@ final class ChannelMessagesViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        let interaction = ChannelMessagesInteraction(
+        var interaction = ChannelMessagesInteraction(
             onBackTapped: { [weak self] in self?.navigationController?.popViewController(animated: true) },
             onSearchTapped: { },
             onHistoryTapped: { },
@@ -116,8 +116,10 @@ final class ChannelMessagesViewController: ViewController {
                 guard let self, self.hasMoreOlder, !self.isLoadingMore else { return }
                 self.fetchMoreMessages()
             },
-            onScrolledToBottom: { [weak self] atBottom in self?.shouldScrollToBottom = atBottom }
+            onScrolledToBottom: { [weak self] atBottom in self?.shouldScrollToBottom = atBottom },
+            onMessagesReloaded: nil
         )
+        interaction.onMessagesReloaded = { [weak self] in self?.scrollToBottomIfNeeded() }
         displayNode = ChannelMessagesContainerNode(signal: stateSignal(), interaction: interaction)
     }
 
@@ -391,20 +393,22 @@ final class ChannelMessagesViewController: ViewController {
 
     private func scrollToBottomIfNeeded() {
         guard shouldScrollToBottom, !messages.isEmpty else { return }
+        let tv = messagesNode.tableView
         let rowCount = messages.count
         let lastRow = rowCount - 1
-        guard lastRow >= 0, lastRow < messagesNode.tableView.numberOfRows(inSection: 0) else { return }
+        guard lastRow >= 0, lastRow < tv.numberOfRows(inSection: 0) else { return }
         let last = IndexPath(row: lastRow, section: 0)
         let isInitial = !hasScrolledToBottomInitially
         hasScrolledToBottomInitially = true
         if isInitial {
-            messagesNode.tableView.scrollToRow(at: last, at: .bottom, animated: false)
-            messagesNode.tableView.setContentOffset(
-                CGPoint(x: 0, y: max(-messagesNode.tableView.contentInset.top, messagesNode.tableView.contentSize.height - messagesNode.tableView.bounds.height + messagesNode.tableView.contentInset.bottom)),
-                animated: false
-            )
+            tv.layoutIfNeeded()
+            let y = max(-tv.contentInset.top, tv.contentSize.height - tv.bounds.height + tv.contentInset.bottom)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tv.contentOffset = CGPoint(x: 0, y: y)
+            CATransaction.commit()
         } else {
-            messagesNode.tableView.scrollToRow(at: last, at: .bottom, animated: true)
+            tv.scrollToRow(at: last, at: .bottom, animated: true)
         }
     }
 }
