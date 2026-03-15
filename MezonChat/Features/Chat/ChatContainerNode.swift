@@ -16,11 +16,7 @@ final class ChatContainerNode: ASDisplayNode {
     let tableView: UITableView
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
-    private let channelIconView = UIImageView()
     let channelTitleLabel = UILabel()
-    private let searchButton = UIButton(type: .system)
-    private let historyButton = UIButton(type: .system)
-    private let menuButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let loadingMoreIndicator = UIActivityIndicatorView(style: .medium)
     let emptyLabel = UILabel()
@@ -88,27 +84,8 @@ final class ChatContainerNode: ASDisplayNode {
         backButton.configuration = backCfg
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
-        channelIconView.contentMode = .scaleAspectFit
-        channelIconView.image = UIImage(systemName: "number")
-        channelIconView.tintColor = UIColor.theme.textStrong
-
         channelTitleLabel.font = .systemFont(ofSize: 17.sf, weight: .semibold)
         channelTitleLabel.lineBreakMode = .byTruncatingTail
-
-        var searchCfg = UIButton.Configuration.plain()
-        searchCfg.image = UIImage(systemName: "magnifyingglass")
-        searchButton.configuration = searchCfg
-        searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
-
-        var historyCfg = UIButton.Configuration.plain()
-        historyCfg.image = UIImage(systemName: "clock")
-        historyButton.configuration = historyCfg
-        historyButton.addTarget(self, action: #selector(historyTapped), for: .touchUpInside)
-
-        var menuCfg = UIButton.Configuration.plain()
-        menuCfg.image = UIImage(systemName: "ellipsis")
-        menuButton.configuration = menuCfg
-        menuButton.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
 
         loadingIndicator.hidesWhenStopped = true
         loadingMoreIndicator.hidesWhenStopped = true
@@ -120,10 +97,27 @@ final class ChatContainerNode: ASDisplayNode {
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
-        for v in [backButton, channelIconView, channelTitleLabel, searchButton, historyButton, menuButton] as [UIView] {
+        for v in [backButton, channelTitleLabel] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             headerView.addSubview(v)
         }
+
+        let btnH: CGFloat = 44
+        let leftMargin: CGFloat = 12
+        let rightMargin: CGFloat = 4
+        let gap: CGFloat = 4
+
+        NSLayoutConstraint.activate([
+            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: leftMargin),
+            backButton.topAnchor.constraint(equalTo: headerView.topAnchor),
+            backButton.widthAnchor.constraint(equalToConstant: btnH),
+            backButton.heightAnchor.constraint(equalToConstant: btnH),
+
+            channelTitleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: gap),
+            channelTitleLabel.topAnchor.constraint(equalTo: headerView.topAnchor),
+            channelTitleLabel.heightAnchor.constraint(equalToConstant: btnH),
+            channelTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -rightMargin),
+        ])
     }
 
     private var lastLayout: ContainerViewLayout?
@@ -153,24 +147,6 @@ final class ChatContainerNode: ASDisplayNode {
         transition.updateFrame(view: loadingIndicator, frame: CGRect(x: (fullWidth - liS) / 2, y: (layout.size.height - liS) / 2, width: liS, height: liS))
         transition.updateFrame(view: loadingMoreIndicator, frame: CGRect(x: (fullWidth - liS) / 2, y: headerFrame.maxY + 12, width: liS, height: liS))
         transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - 44) / 2, width: fullWidth, height: 44))
-
-        let headerWidth = fullWidth
-        let leftMargin: CGFloat = 12
-        let btnH: CGFloat = 44
-        let gap: CGFloat = 8
-        let iconSize: CGFloat = 24
-        let rightMargin: CGFloat = 8
-        let rightGroupW = rightMargin + 3 * btnH + 2 * gap
-        let titleLeft = leftMargin + btnH + gap + iconSize + gap
-        let titleRight = headerWidth - rightGroupW
-        let titleW = max(0, titleRight - titleLeft)
-
-        backButton.frame = CGRect(x: leftMargin, y: 0, width: btnH, height: headerH)
-        channelIconView.frame = CGRect(x: leftMargin + btnH + gap, y: (headerH - iconSize) / 2, width: iconSize, height: iconSize)
-        channelTitleLabel.frame = CGRect(x: titleLeft, y: 0, width: titleW, height: headerH)
-        historyButton.frame = CGRect(x: headerWidth - rightGroupW, y: 0, width: btnH, height: headerH)
-        menuButton.frame = CGRect(x: headerWidth - rightGroupW + btnH + gap, y: 0, width: btnH, height: headerH)
-        searchButton.frame = CGRect(x: headerWidth - rightMargin - btnH, y: 0, width: btnH, height: headerH)
     }
 
     override func layout() {
@@ -183,11 +159,7 @@ final class ChatContainerNode: ASDisplayNode {
         backgroundColor = t.primary
         headerView.backgroundColor = t.primary
         backButton.tintColor = t.textStrong
-        channelIconView.tintColor = t.textStrong
         channelTitleLabel.textColor = t.textStrong
-        searchButton.tintColor = t.textDisabled
-        historyButton.tintColor = t.textDisabled
-        menuButton.tintColor = t.textStrong
         loadingIndicator.color = t.textDisabled
         loadingMoreIndicator.color = t.textDisabled
         emptyLabel.textColor = t.textDisabled
@@ -195,9 +167,6 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     @objc private func backTapped() { interaction.onBackTapped() }
-    @objc private func searchTapped() { interaction.onSearchTapped() }
-    @objc private func historyTapped() { interaction.onHistoryTapped() }
-    @objc private func menuTapped() { interaction.onMenuTapped() }
 }
 
 extension ChatContainerNode: UITableViewDataSource, UITableViewDelegate {
@@ -386,6 +355,7 @@ final class MessageCell: UITableViewCell {
     }()
 
     private var imageHostViews: [MessageCellImageHostView] = []
+    private var currentDisplay: ChatMessageDisplay?
 
     private var nameTopConstraint: NSLayoutConstraint?
     private var contentTopToName: NSLayoutConstraint?
@@ -474,6 +444,7 @@ final class MessageCell: UITableViewCell {
     }
 
     func configure(display: ChatMessageDisplay) {
+        self.currentDisplay = display
         let t = UIColor.theme
         let isCombine = display.isCombine
 
@@ -511,7 +482,9 @@ final class MessageCell: UITableViewCell {
                     intrinsicInsets: .zero
                 )
                 avatarImageNode.setSignal(remoteImageSignal(url: urlString), attemptSynchronously: false)
-                avatarImageNode.setArguments(args)
+                let avatarLayout = avatarImageNode.asyncLayout()
+                let apply = avatarLayout(args)
+                apply()
             } else {
                 avatarImageNode.reset()
                 avatarPlaceholder.isHidden = false
@@ -542,8 +515,8 @@ final class MessageCell: UITableViewCell {
         imageHostViews.removeAll()
         guard !media.isEmpty else { return }
 
-        let maxW: CGFloat = UIScreen.main.bounds.width - 150
-        let maxH: CGFloat = UIScreen.main.bounds.height * 0.3
+        let maxW: CGFloat = UIScreen.main.bounds.width - 80
+        let maxH: CGFloat = UIScreen.main.bounds.height * 0.5
 
         if media.count == 1 {
             let att = media[0]
@@ -554,60 +527,67 @@ final class MessageCell: UITableViewCell {
             h = max(floor(h * ratio), 80)
 
             if att.isVideo {
-                let videoView = makeVideoView(url: att.url, width: w, height: h)
+                let videoView = makeVideoView(url: att.url, width: w, height: h, display: currentDisplay)
                 imageStackView.addArrangedSubview(videoView)
             } else {
                 let host = makeImageHostView(width: w, height: h)
                 imageStackView.addArrangedSubview(host)
                 imageHostViews.append(host)
                 setImageSignal(url: att.url, host: host, width: w, height: h)
-                addImageTapGesture(to: host, url: att.url)
+                addImageTapGesture(to: host, url: att.url, index: 0)
             }
         } else {
-            let gridRow = UIStackView()
-            gridRow.axis = .horizontal
-            gridRow.spacing = 4.sw
-            gridRow.distribution = .fillEqually
+            let thumbH: CGFloat = 120.sh
+            let mediaItems = Array(media.prefix(4))
 
-            let halfH = floor(maxH / 2)
-            gridRow.heightAnchor.constraint(equalToConstant: halfH).isActive = true
+            // Row 1: items 0-1
+            let row1 = UIStackView()
+            row1.axis = .horizontal
+            row1.spacing = 4.sw
+            row1.distribution = .fillEqually
+            row1.translatesAutoresizingMaskIntoConstraints = false
+            row1.heightAnchor.constraint(equalToConstant: thumbH).isActive = true
+            row1.widthAnchor.constraint(equalToConstant: maxW).isActive = true
 
-            for (i, att) in media.prefix(4).enumerated() {
+            // Row 2: items 2-3 (if any)
+            var row2: UIStackView?
+
+            for (i, att) in mediaItems.enumerated() {
                 let mediaView: UIView
                 if att.isVideo {
-                    mediaView = makeVideoView(url: att.url, width: nil, height: halfH)
+                    mediaView = makeVideoView(url: att.url, width: nil, height: thumbH, display: currentDisplay)
                 } else {
-                    let host = makeImageHostView(width: nil, height: halfH)
+                    let host = makeImageHostView(width: nil, height: thumbH)
                     imageHostViews.append(host)
-                    setImageSignal(url: att.url, host: host, width: nil, height: halfH)
-                    addImageTapGesture(to: host, url: att.url)
+                    setImageSignal(url: att.url, host: host, width: nil, height: thumbH, isMultiple: true)
+                    addImageTapGesture(to: host, url: att.url, index: i)
                     mediaView = host
                 }
 
-                if i == 3 && media.count > 4 {
+                if i == mediaItems.count - 1 && media.count > 4 {
                     addOverlayCount(to: mediaView, count: media.count - 4)
                 }
 
                 if i < 2 {
-                    gridRow.addArrangedSubview(mediaView)
-                } else if i == 2 {
-                    imageStackView.addArrangedSubview(gridRow)
-                    let gridRow2 = UIStackView()
-                    gridRow2.axis = .horizontal
-                    gridRow2.spacing = 4.sw
-                    gridRow2.distribution = .fillEqually
-                    gridRow2.heightAnchor.constraint(equalToConstant: halfH).isActive = true
-                    gridRow2.addArrangedSubview(mediaView)
-                    gridRow2.tag = 999
-                    imageStackView.addArrangedSubview(gridRow2)
+                    row1.addArrangedSubview(mediaView)
                 } else {
-                    if let row2 = imageStackView.arrangedSubviews.last(where: { $0.tag == 999 }) as? UIStackView {
-                        row2.addArrangedSubview(mediaView)
+                    if row2 == nil {
+                        let r2 = UIStackView()
+                        r2.axis = .horizontal
+                        r2.spacing = 4.sw
+                        r2.distribution = .fillEqually
+                        r2.translatesAutoresizingMaskIntoConstraints = false
+                        r2.heightAnchor.constraint(equalToConstant: thumbH).isActive = true
+                        r2.widthAnchor.constraint(equalToConstant: maxW).isActive = true
+                        row2 = r2
                     }
+                    row2?.addArrangedSubview(mediaView)
                 }
             }
-            if imageStackView.arrangedSubviews.isEmpty {
-                imageStackView.addArrangedSubview(gridRow)
+
+            imageStackView.addArrangedSubview(row1)
+            if let row2 {
+                imageStackView.addArrangedSubview(row2)
             }
         }
     }
@@ -622,8 +602,8 @@ final class MessageCell: UITableViewCell {
         return host
     }
 
-    private func setImageSignal(url: String, host: MessageCellImageHostView, width: CGFloat?, height: CGFloat) {
-        let w = width ?? (UIScreen.main.bounds.width - 150) / 2
+    private func setImageSignal(url: String, host: MessageCellImageHostView, width: CGFloat?, height: CGFloat, isMultiple: Bool = false) {
+        let w = width ?? (UIScreen.main.bounds.width - 80) / 2
         let h = height
         let args = TransformImageArguments(
             corners: ImageCorners(radius: 8.swh),
@@ -631,12 +611,20 @@ final class MessageCell: UITableViewCell {
             boundingSize: CGSize(width: w, height: h),
             intrinsicInsets: .zero
         )
-        host.imageNode.setSignal(remoteImageSignal(url: url), attemptSynchronously: false)
-        host.imageNode.setArguments(args)
+        let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
+        host.imageNode.setSignal(remoteImageSignal(url: url, resizeMode: resizeMode), attemptSynchronously: false)
+        let imageLayout = host.imageNode.asyncLayout()
+        let apply = imageLayout(args)
+        apply()
     }
 
-    private func makeVideoView(url: String, width: CGFloat?, height: CGFloat) -> UIView {
-        let container = MessageVideoView(urlString: url)
+    private func makeVideoView(url: String, width: CGFloat?, height: CGFloat, display: ChatMessageDisplay?) -> UIView {
+        let container = MessageVideoView(
+            urlString: url,
+            senderName: display?.senderDisplayName ?? "",
+            senderAvatarURL: display?.avatarURL,
+            timestamp: display?.message.createdAt
+        )
         container.translatesAutoresizingMaskIntoConstraints = false
         container.layer.cornerRadius = 8.swh
         container.clipsToBounds = true
@@ -649,9 +637,9 @@ final class MessageCell: UITableViewCell {
     }
 
     private func addOverlayCount(to view: UIView, count: Int) {
+        view.clipsToBounds = true
         let overlay = UIView()
         overlay.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        overlay.layer.cornerRadius = 8.swh
         overlay.translatesAutoresizingMaskIntoConstraints = false
         let label = UILabel()
         label.text = "+\(count)"
@@ -671,20 +659,38 @@ final class MessageCell: UITableViewCell {
         ])
     }
 
-    private func addImageTapGesture(to host: MessageCellImageHostView, url: String) {
+    private func addImageTapGesture(to host: MessageCellImageHostView, url: String, index: Int) {
         host.isUserInteractionEnabled = true
         host.accessibilityIdentifier = url
+        host.tag = index
         let tap = UITapGestureRecognizer(target: self, action: #selector(imageTapped(_:)))
         host.addGestureRecognizer(tap)
     }
 
     @objc private func imageTapped(_ gesture: UITapGestureRecognizer) {
-        guard let host = gesture.view as? MessageCellImageHostView, let image = host.imageNode.image else { return }
-        let viewer = ImageDetailViewController(image: image, sourceView: host)
+        guard let host = gesture.view as? MessageCellImageHostView else { return }
+        let tappedIndex = host.tag
+
+        // Build gallery items from ALL media attachments (images + videos)
+        guard let display = currentDisplay else { return }
+        let mediaAttachments = display.attachments.filter { $0.isImage || $0.isVideo }
+        guard !mediaAttachments.isEmpty else { return }
+
+        let galleryItems: [GalleryItemInfo] = mediaAttachments.enumerated().map { (i, att) in
+            let cachedImage: UIImage? = att.isImage && i < imageHostViews.count ? imageHostViews[i].imageNode.image : nil
+            return GalleryItemInfo(
+                url: att.url,
+                image: cachedImage,
+                senderName: display.senderDisplayName,
+                senderAvatarURL: display.avatarURL,
+                timestamp: display.message.createdAt,
+                isVideo: att.isVideo
+            )
+        }
+
+        let gallery = GalleryController(items: galleryItems, initialIndex: tappedIndex)
         if let vc = findViewController() {
-            viewer.modalPresentationStyle = .overFullScreen
-            viewer.modalTransitionStyle = .crossDissolve
-            vc.present(viewer, animated: true)
+            vc.present(gallery, animated: true)
         }
     }
 
@@ -884,106 +890,97 @@ private final class ReactionPillView: UIView {
 import AVFoundation
 
 final class MessageVideoView: UIView {
-    private var player: AVPlayer?
-    private var playerLayer: AVPlayerLayer?
-    private let thumbnailImageView = UIImageView()
+    private let thumbnailNode = TransformImageNode()
     private let playButton = UIImageView()
+    private let urlString: String
+    private let senderName: String
+    private let senderAvatarURL: String?
+    private let timestamp: Date?
 
-    init(urlString: String) {
+    init(urlString: String, senderName: String = "", senderAvatarURL: String? = nil, timestamp: Date? = nil) {
+        self.urlString = urlString
+        self.senderName = senderName
+        self.senderAvatarURL = senderAvatarURL
+        self.timestamp = timestamp
         super.init(frame: .zero)
 
-        thumbnailImageView.contentMode = .scaleAspectFill
-        thumbnailImageView.clipsToBounds = true
-        thumbnailImageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(thumbnailImageView)
+        // Thumbnail via TransformImageNode (async, cached)
+        thumbnailNode.contentAnimations = [.firstUpdate]
+        thumbnailNode.view.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailNode.view.contentMode = .scaleAspectFill
+        thumbnailNode.view.clipsToBounds = true
+        addSubview(thumbnailNode.view)
 
-        let playConfig = UIImage.SymbolConfiguration(pointSize: 36, weight: .medium)
-        playButton.image = UIImage(systemName: "play.circle.fill", withConfiguration: playConfig)
+        // Play button overlay
+        let playBg = UIView()
+        playBg.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        playBg.layer.cornerRadius = 24
+        playBg.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(playBg)
+
+        let playConfig = UIImage.SymbolConfiguration(pointSize: 24, weight: .medium)
+        playButton.image = UIImage(systemName: "play.fill", withConfiguration: playConfig)
         playButton.tintColor = .white
         playButton.translatesAutoresizingMaskIntoConstraints = false
-        playButton.layer.shadowColor = UIColor.black.cgColor
-        playButton.layer.shadowOpacity = 0.5
-        playButton.layer.shadowRadius = 4
-        addSubview(playButton)
+        playBg.addSubview(playButton)
 
         NSLayoutConstraint.activate([
-            thumbnailImageView.topAnchor.constraint(equalTo: topAnchor),
-            thumbnailImageView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            thumbnailImageView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            thumbnailImageView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            playButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-            playButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            playButton.widthAnchor.constraint(equalToConstant: 48),
-            playButton.heightAnchor.constraint(equalToConstant: 48),
+            thumbnailNode.view.topAnchor.constraint(equalTo: topAnchor),
+            thumbnailNode.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            thumbnailNode.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            thumbnailNode.view.bottomAnchor.constraint(equalTo: bottomAnchor),
+            playBg.centerXAnchor.constraint(equalTo: centerXAnchor),
+            playBg.centerYAnchor.constraint(equalTo: centerYAnchor),
+            playBg.widthAnchor.constraint(equalToConstant: 48),
+            playBg.heightAnchor.constraint(equalToConstant: 48),
+            playButton.centerXAnchor.constraint(equalTo: playBg.centerXAnchor, constant: 2),
+            playButton.centerYAnchor.constraint(equalTo: playBg.centerYAnchor),
         ])
 
+        isUserInteractionEnabled = true
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
 
-        guard let url = URL(string: urlString) else { return }
-        generateThumbnail(url: url)
+        // Load thumbnail via signal pipeline
+        thumbnailNode.setSignal(videoThumbnailSignal(url: urlString, resizeMode: .fill))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        let args = TransformImageArguments(
+            corners: ImageCorners(radius: 8),
+            imageSize: bounds.size,
+            boundingSize: bounds.size,
+            intrinsicInsets: .zero
+        )
+        let layout = thumbnailNode.asyncLayout()
+        let apply = layout(args)
+        apply()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func handleTap() {
-        if let player, player.rate > 0 {
-            player.pause()
-            playButton.isHidden = false
-            return
-        }
-
-        if let player {
-            player.seek(to: .zero)
-            player.play()
-            playButton.isHidden = true
-            return
-        }
-
-        guard let urlStr = thumbnailImageView.accessibilityIdentifier, let url = URL(string: urlStr) else { return }
-        startPlayback(url: url)
+        guard let url = URL(string: urlString) else { return }
+        guard let vc = findViewController() else { return }
+        let galleryItem = GalleryItemInfo(
+            url: urlString,
+            senderName: senderName,
+            senderAvatarURL: senderAvatarURL,
+            timestamp: timestamp,
+            isVideo: true
+        )
+        let gallery = GalleryController(items: [galleryItem], initialIndex: 0)
+        vc.present(gallery, animated: true)
     }
 
-    private func startPlayback(url: URL) {
-        let player = AVPlayer(url: url)
-        self.player = player
-
-        let layer = AVPlayerLayer(player: player)
-        layer.frame = bounds
-        layer.videoGravity = .resizeAspectFill
-        self.layer.insertSublayer(layer, above: thumbnailImageView.layer)
-        self.playerLayer = layer
-
-        playButton.isHidden = true
-        thumbnailImageView.isHidden = true
-        player.play()
-
-        NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem, queue: .main) { [weak self] _ in
-            self?.playButton.isHidden = false
-            self?.player?.seek(to: .zero)
+    private func findViewController() -> UIViewController? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let vc = next as? UIViewController { return vc }
+            responder = next
         }
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        playerLayer?.frame = bounds
-    }
-
-    private func generateThumbnail(url: URL) {
-        thumbnailImageView.accessibilityIdentifier = url.absoluteString
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 600, height: 600)
-
-            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
-            if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
-                let image = UIImage(cgImage: cgImage)
-                DispatchQueue.main.async {
-                    self?.thumbnailImageView.image = image
-                }
-            }
-        }
+        return nil
     }
 }
+

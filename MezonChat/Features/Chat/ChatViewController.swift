@@ -394,27 +394,52 @@ final class ChatViewController: ViewController {
 
     private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {
         guard !data.isEmpty else { return [] }
-        var jsonArray: [[String: Any]]?
-        if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            jsonArray = arr
-        } else if let str = String(data: data, encoding: .utf8),
-                  let strData = str.data(using: .utf8),
-                  let arr = try? JSONSerialization.jsonObject(with: strData) as? [[String: Any]] {
-            jsonArray = arr
+
+        let isLikelyJson = data.first == UInt8(ascii: "[") || data.first == UInt8(ascii: "{")
+        var fromProto: [ParsedAttachment]?
+        var fromJson: [ParsedAttachment]?
+
+        if !isLikelyJson,
+           let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
+           !list.attachments.isEmpty {
+            fromProto = list.attachments.compactMap { att -> ParsedAttachment? in
+                guard !att.url.isEmpty else { return nil }
+                return ParsedAttachment(
+                    url: att.url,
+                    filename: att.filename,
+                    filetype: att.filetype,
+                    width: att.width != 0 ? Int(att.width) : nil,
+                    height: att.height != 0 ? Int(att.height) : nil
+                )
+            }
         }
-        guard let json = jsonArray else { return [] }
-        return json.compactMap { item in
-            guard let url = item["url"] as? String, !url.isEmpty else { return nil }
-            let w = item["width"] as? Int ?? (item["width"] as? String).flatMap { Int($0) }
-            let h = item["height"] as? Int ?? (item["height"] as? String).flatMap { Int($0) }
-            return ParsedAttachment(
-                url: url,
-                filename: item["filename"] as? String ?? "",
-                filetype: item["filetype"] as? String ?? "",
-                width: w,
-                height: h
-            )
+
+        if fromProto == nil || fromProto?.isEmpty == true {
+            var jsonArray: [[String: Any]]?
+            if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                jsonArray = arr
+            } else if let str = String(data: data, encoding: .utf8),
+                      let strData = str.data(using: .utf8),
+                      let arr = try? JSONSerialization.jsonObject(with: strData) as? [[String: Any]] {
+                jsonArray = arr
+            }
+            if let json = jsonArray {
+                fromJson = json.compactMap { item in
+                    guard let url = item["url"] as? String, !url.isEmpty else { return nil }
+                    let w = item["width"] as? Int ?? (item["width"] as? String).flatMap { Int($0) }
+                    let h = item["height"] as? Int ?? (item["height"] as? String).flatMap { Int($0) }
+                    return ParsedAttachment(
+                        url: url,
+                        filename: item["filename"] as? String ?? "",
+                        filetype: item["filetype"] as? String ?? "",
+                        width: w,
+                        height: h
+                    )
+                }
+            }
         }
+
+        return (fromProto?.isEmpty == false ? fromProto : fromJson) ?? []
     }
 
     private static func parseReactions(_ data: Data, currentUserId: String?) -> [ParsedReaction] {

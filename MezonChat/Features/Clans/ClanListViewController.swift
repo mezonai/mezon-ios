@@ -88,10 +88,12 @@ final class ClanListViewController: ViewController {
                 self.context.account.postbox.write { tx in tx.updateClans(records) }
                 if let sid = self.selectedClanId, sorted.contains(where: { $0.clanID == sid }) {
                     self.context.currentClanId = sid
+                    self.fetchClanData(clanId: sid)
                 } else if let first = sorted.first {
                     self.setSelectedClanId(first.clanID)
                     self.context.currentClanId = first.clanID
                     self.persistToPostbox()
+                    self.fetchClanData(clanId: first.clanID)
                 }
             } catch {
                 self.error = error.localizedDescription
@@ -103,6 +105,14 @@ final class ClanListViewController: ViewController {
         setSelectedClanId(clan.clanID)
         context.currentClanId = clan.clanID
         persistToPostbox()
+        fetchClanData(clanId: clan.clanID)
+    }
+
+    /// Fetch all clan-scoped data (members, roles, events, permissions, etc.)
+    /// Mirrors React Native's changeCurrentClan thunk.
+    private func fetchClanData(clanId: Int64) {
+        guard let token = context.session?.token else { return }
+        context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
     }
 
     private func restoreFromPostbox() {
