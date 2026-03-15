@@ -281,6 +281,107 @@ final class MezonHTTPClient {
         )
     }
 
+    func listClanUsers(clanId: Int64, token: String) async throws -> Mezon_Api_ClanUserList {
+        var req = Mezon_Api_ListClanUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listRoles(clanId: Int64, limit: Int32 = 500, state: Int32 = 1, token: String) async throws -> Mezon_Api_RoleListEventResponse {
+        var req = Mezon_Api_RoleListEventRequest()
+        req.clanID = clanId
+        req.limit = limit
+        req.state = state
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListRoles",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listEvents(clanId: Int64, token: String) async throws -> Mezon_Api_EventList {
+        var req = Mezon_Api_ListEventsRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListEvents",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getRoleOfUserInTheClan(clanId: Int64, token: String) async throws -> Mezon_Api_RoleList {
+        var req = Mezon_Api_ListPermissionOfUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetRoleOfUserInTheClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getListPermission(token: String) async throws -> Mezon_Api_PermissionList {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetListPermission",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+        var req = Mezon_Api_ListClanUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelVoiceUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
+        var req = Mezon_Api_ListClanUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListStreamingChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listClanBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
+        var req = Mezon_Api_ListClanBadgeCountRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanBadgeCount",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getNotificationClan(clanId: Int64, token: String) async throws -> Mezon_Api_NotificationUserChannel {
+        var req = Mezon_Api_DefaultNotificationClan()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetNotificationClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getChannelCategoryNotiSettingsList(clanId: Int64, token: String) async throws -> Mezon_Api_NotificationChannelCategorySettingList {
+        var req = Mezon_Api_DefaultNotificationClan()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetChannelCategoryNotiSettingsList",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
         return try await execute(req)

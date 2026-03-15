@@ -78,4 +78,14 @@ enum PreferencesKeys {
     static let clans      = "clans"
     static let selectedClanId = "selectedClanId"
     static func selectedChannelId(clanId: Int64) -> String { "selectedChannel_\(clanId)" }
+    static func clanUsers(clanId: Int64) -> String { "clanUsers_\(clanId)" }
+    static func clanRoles(clanId: Int64) -> String { "clanRoles_\(clanId)" }
+    static func clanEvents(clanId: Int64) -> String { "clanEvents_\(clanId)" }
+    static func clanUserPermissions(clanId: Int64) -> String { "clanUserPerms_\(clanId)" }
+    static func clanVoiceUsers(clanId: Int64) -> String { "clanVoiceUsers_\(clanId)" }
+    static func clanStreamUsers(clanId: Int64) -> String { "clanStreamUsers_\(clanId)" }
+    static func clanBadgeCount(clanId: Int64) -> String { "clanBadgeCount_\(clanId)" }
+    static func clanDefaultNotification(clanId: Int64) -> String { "clanDefaultNotif_\(clanId)" }
+    static func clanCategoryNotification(clanId: Int64) -> String { "clanCatNotif_\(clanId)" }
+    static let allPermissions = "allPermissions"
 }
