@@ -126,7 +126,7 @@ final class NotificationItemCell: UITableViewCell {
             // Title
             titleLabel.topAnchor.constraint(equalTo: timeLabel.topAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 24),
-            titleLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -8),
 
             // Vertical accent line
             verticalLine.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
@@ -205,6 +205,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     private struct TabInfo {
         let title: String
         let tag: Int32
+        let iconName: String
     }
 
     // MARK: UI
@@ -226,9 +227,9 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let interaction: NotificationsInteraction
 
     private let tabs: [TabInfo] = [
-        TabInfo(title: L(L10n.Notifications.mentions), tag: 1),
-        TabInfo(title: L(L10n.Notifications.messages), tag: 2),
-        TabInfo(title: L(L10n.Notifications.forYou), tag: 3),
+        TabInfo(title: L(L10n.Notifications.mentions), tag: 1, iconName: "Notifications/mentions"),
+        TabInfo(title: L(L10n.Notifications.messages), tag: 2, iconName: "Notifications/messages"),
+        TabInfo(title: L(L10n.Notifications.forYou), tag: 3, iconName: "Notifications/forYou"),
     ]
     private var selectedTabIndex: Int = 0
 
@@ -400,11 +401,37 @@ final class NotificationsContainerNode: ASDisplayNode {
         for (index, tab) in tabs.enumerated() {
             let btn = UIButton(type: .system)
             btn.tag = index
-            btn.setTitle(tab.title, for: .normal)
-            btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
-            btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
-            btn.layer.cornerRadius = 16
-            btn.layer.masksToBounds = true
+
+            var cfg = UIButton.Configuration.filled()
+            cfg.cornerStyle = .capsule
+            cfg.imagePadding = 6
+            cfg.contentInsets = NSDirectionalEdgeInsets(
+                top: 0, leading: 14, bottom: 0, trailing: 14)
+            cfg.attributedTitle = AttributedString(
+                tab.title,
+                attributes: AttributeContainer([
+                    .font: UIFont.systemFont(ofSize: 13, weight: .semibold)
+                ])
+            )
+
+            if let raw = UIImage(named: tab.iconName) {
+                let iconSize = CGSize(width: 16, height: 16)
+                let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
+                let drawSize = CGSize(
+                    width: raw.size.width * ratio, height: raw.size.height * ratio)
+                let origin = CGPoint(
+                    x: (iconSize.width - drawSize.width) / 2,
+                    y: (iconSize.height - drawSize.height) / 2)
+                let renderer = UIGraphicsImageRenderer(size: iconSize)
+                let resized = renderer.image { _ in
+                    raw.draw(in: CGRect(origin: origin, size: drawSize))
+                }
+                cfg.image = resized.withRenderingMode(.alwaysOriginal)
+            }
+
+            btn.configuration = cfg
+            // Fix height
+            btn.heightAnchor.constraint(equalToConstant: 34).isActive = true
             btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
             btn.accessibilityIdentifier = "notif_tab_\(index)"
             tabStackView.addArrangedSubview(btn)
@@ -416,10 +443,19 @@ final class NotificationsContainerNode: ASDisplayNode {
     private func updateTabStyles() {
         for (i, btn) in tabButtons.enumerated() {
             let selected = i == selectedTabIndex
-            btn.backgroundColor = selected ? .mezonLink : .mezonPrimary
-            btn.setTitleColor(selected ? .white : .mezonChannelText, for: .normal)
-            btn.layer.borderWidth = selected ? 0 : 1
-            btn.layer.borderColor = UIColor.mezonBorder.cgColor
+
+            var cfg = btn.configuration
+            if selected {
+                cfg?.baseBackgroundColor = .mezonLink
+                cfg?.baseForegroundColor = .white
+                cfg?.background.strokeWidth = 0
+            } else {
+                cfg?.baseBackgroundColor = .mezonPrimary
+                cfg?.baseForegroundColor = .mezonChannelText
+                cfg?.background.strokeColor = .mezonBorder
+                cfg?.background.strokeWidth = 1
+            }
+            btn.configuration = cfg
         }
     }
 
