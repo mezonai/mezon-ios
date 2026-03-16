@@ -169,6 +169,45 @@ final class AccountContextImpl: AccountContext {
                 self?.account.postbox.write { tx in
                     tx.addMessages([MessageRecord(from: apiMessage)])
                 }
+                let channelId = Int64(apiMessage.channelID) ?? 0
+                let clanId = Int64(apiMessage.clanID) ?? 0
+                AppLogger.app.info("[Badge] onMessageReceived channelId=\(channelId) clanId=\(clanId) senderId=\(apiMessage.senderID) mode=\(apiMessage.mode)")
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonNewMessageReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": channelId,
+                        "clanId": clanId,
+                        "senderId": apiMessage.senderID,
+                        "mode": apiMessage.mode,
+                        "timestampSeconds": apiMessage.createTimeSeconds
+                    ]
+                )
+            }
+            account.socket.onLastSeen = { event in
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonChannelMarkedAsRead"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": event.channelID,
+                        "clanId": event.clanID
+                    ]
+                )
+            }
+            account.socket.onNotification = { [weak self] noti in
+                guard noti.channelID != 0 else { return }
+                AppLogger.app.info("[Badge] onNotification channelId=\(noti.channelID) clanId=\(noti.clanID)")
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonMentionReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": noti.channelID,
+                        "clanId": noti.clanID,
+                        "senderId": String(noti.senderID),
+                        "mode": noti.channelType,
+                        "timestampSeconds": noti.createTimeSeconds
+                    ]
+                )
             }
             account.socket.connect(token: session.token, wsHostOverride: nil)
         }

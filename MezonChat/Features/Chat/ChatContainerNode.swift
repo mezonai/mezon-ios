@@ -8,6 +8,8 @@ struct ChatInteraction {
     let onMenuTapped: () -> Void
     let onScrolledNearTop: () -> Void
     let onScrolledToBottom: (Bool) -> Void
+    let onMentionTapped: (String) -> Void
+    let onHashtagTapped: (String) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -20,6 +22,12 @@ final class ChatContainerNode: ASDisplayNode {
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let loadingMoreIndicator = UIActivityIndicatorView(style: .medium)
     let emptyLabel = UILabel()
+    private lazy var gradientLayer: CAGradientLayer = {
+        let gl = CAGradientLayer()
+        gl.startPoint = CGPoint(x: 0.5, y: 0)
+        gl.endPoint   = CGPoint(x: 0.5, y: 1)
+        return gl
+    }()
 
     private(set) var state: ChatState = .empty
     private let interaction: ChatInteraction
@@ -42,23 +50,9 @@ final class ChatContainerNode: ASDisplayNode {
                 if newState.isLoadingMore { self.loadingMoreIndicator.startAnimating() }
                 else { self.loadingMoreIndicator.stopAnimating() }
                 if let msg = newState.errorMessage { Toast.error(msg) }
-                let hasMessagesNow = !newState.messages.isEmpty
-                if hasMessagesNow {
-                    self.tableView.isHidden = true
-                }
-                self.tableView.reloadData()
-                if hasMessagesNow {
-                    self.tableView.layoutIfNeeded()
-                    let tv = self.tableView
-                    let y = max(-tv.contentInset.top, tv.contentSize.height - tv.bounds.height + tv.contentInset.bottom)
-                    tv.contentOffset = CGPoint(x: 0, y: y)
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.tableView.isHidden = false
-                    CATransaction.commit()
-                }
                 self.emptyLabel.isHidden = !(!newState.isLoading && newState.messages.isEmpty)
-                if hasMessagesNow {
+                self.tableView.reloadData()
+                if !newState.messages.isEmpty {
                     self.interaction.onMessagesReloaded?()
                 }
             })
@@ -70,10 +64,15 @@ final class ChatContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
+        let t = UIColor.theme
+        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        layer.addSublayer(gradientLayer)
+
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 200.sh
+        tableView.transform = CGAffineTransform(scaleX: 1, y: -1)
         tableView.register(MessageCell.self, forCellReuseIdentifier: MessageCell.reuseId)
         tableView.register(WelcomeCell.self, forCellReuseIdentifier: WelcomeCell.reuseId)
         tableView.dataSource = self
@@ -123,6 +122,17 @@ final class ChatContainerNode: ASDisplayNode {
     private var lastLayout: ContainerViewLayout?
     private var lastInputBarHeight: CGFloat = 0
 
+    func applyTheme() {
+        let t = UIColor.theme
+        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        channelTitleLabel.textColor = t.textStrong
+        backButton.tintColor = t.textStrong
+        loadingIndicator.color = t.textDisabled
+        loadingMoreIndicator.color = t.textDisabled
+        emptyLabel.textColor = t.textDisabled
+        emptyLabel.text = L(L10n.ChannelMessages.emptyMessages)
+    }
+
     func updateLayout(layout: ContainerViewLayout, inputBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
         lastLayout = layout
         lastInputBarHeight = inputBarHeight
@@ -146,7 +156,14 @@ final class ChatContainerNode: ASDisplayNode {
         let liS: CGFloat = 24
         transition.updateFrame(view: loadingIndicator, frame: CGRect(x: (fullWidth - liS) / 2, y: (layout.size.height - liS) / 2, width: liS, height: liS))
         transition.updateFrame(view: loadingMoreIndicator, frame: CGRect(x: (fullWidth - liS) / 2, y: headerFrame.maxY + 12, width: liS, height: liS))
-        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - 44) / 2, width: fullWidth, height: 44))
+        let tableY = tvFrame.minY
+        let tableH = tvFrame.height
+        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: tableY + (tableH - 44) / 2, width: fullWidth, height: 44))
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        CATransaction.commit()
     }
 
     override func layout() {
@@ -154,17 +171,6 @@ final class ChatContainerNode: ASDisplayNode {
         applyLayout(transition: .immediate)
     }
 
-    func applyTheme() {
-        let t = UIColor.theme
-        backgroundColor = t.primary
-        headerView.backgroundColor = t.primary
-        backButton.tintColor = t.textStrong
-        channelTitleLabel.textColor = t.textStrong
-        loadingIndicator.color = t.textDisabled
-        loadingMoreIndicator.color = t.textDisabled
-        emptyLabel.textColor = t.textDisabled
-        emptyLabel.text = L(L10n.ChannelMessages.emptyMessages)
-    }
 
     @objc private func backTapped() { interaction.onBackTapped() }
 }
@@ -177,20 +183,33 @@ extension ChatContainerNode: UITableViewDataSource, UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        if state.showWelcome, indexPath.row == 0 {
+        let msgCount = state.messages.count
+        let welcomeOffset = state.showWelcome ? 1 : 0
+        if state.showWelcome, indexPath.row == msgCount {
             let cell = tableView.dequeueReusableCell(withIdentifier: WelcomeCell.reuseId, for: indexPath) as! WelcomeCell
             cell.configure(channelLabel: state.channelLabel)
+            cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
             return cell
         }
-        let messageIndex = state.showWelcome ? indexPath.row - 1 : indexPath.row
-        let cell = tableView.dequeueReusableCell(withIdentifier: MessageCell.reuseId, for: indexPath) as! MessageCell
-        cell.configure(display: state.messages[messageIndex])
+        let messageIndex = msgCount - 1 - indexPath.row
+        guard messageIndex >= 0, messageIndex < msgCount else {
+            return UITableViewCell()
+        }
+        let display = state.messages[messageIndex]
+        let cell = tableView.dequeueReusableCell(withIdentifier: MessageCell.reuseId, for: indexPath)
+        if let cell = cell as? MessageCell {
+            cell.configure(display: display, interaction: interaction)
+        }
+        cell.contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
         return cell
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        if scrollView.contentOffset.y < 80 { interaction.onScrolledNearTop() }
-        let atBottom = scrollView.contentOffset.y + scrollView.bounds.height >= scrollView.contentSize.height - 100
+        let distanceFromEnd = scrollView.contentSize.height - scrollView.contentOffset.y - scrollView.bounds.height
+        if distanceFromEnd < 80 || scrollView.contentOffset.y + scrollView.bounds.height >= scrollView.contentSize.height - 80 {
+            interaction.onScrolledNearTop()
+        }
+        let atBottom = scrollView.contentOffset.y < 100
         interaction.onScrolledToBottom(atBottom)
     }
 }
@@ -332,12 +351,109 @@ final class MessageCell: UITableViewCell {
         return l
     }()
 
-    private let contentLabel: UILabel = {
+    private let replyContainerView: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+    private let replyIconView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.tintColor = UIColor.theme.textDisabled
+        iv.image = UIImage(systemName: "arrow.turn.up.left")
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+    private let replyAvatarContainer: UIView = {
+        let v = UIView()
+        v.backgroundColor = .colorAvatarDefault
+        v.layer.cornerRadius = 10.swh
+        v.clipsToBounds = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+    private let replyAvatarImageNode = TransformImageNode()
+    private let replyAvatarPlaceholder: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15.sf)
-        l.numberOfLines = 0
+        l.font = .systemFont(ofSize: 8.sf, weight: .semibold)
+        l.textAlignment = .center
+        l.textColor = .white
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
+    }()
+    private let replyNameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 13.sf, weight: .semibold)
+        l.textColor = UIColor.theme.textRoleLink
+        l.numberOfLines = 1
+        l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    private let replyPreviewLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 13.sf)
+        l.textColor = UIColor.theme.textDisabled
+        l.numberOfLines = 1
+        l.lineBreakMode = .byTruncatingTail
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    private let replyAttachmentIcon: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.tintColor = UIColor.theme.textDisabled
+        iv.image = UIImage(systemName: "photo")
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.isHidden = true
+        return iv
+    }()
+
+    private let replyDeletedContainerView: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        return v
+    }()
+    private let replyDeletedIconView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.tintColor = UIColor.theme.textDisabled
+        iv.image = UIImage(systemName: "arrow.turn.up.left")
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+    private let replyDeletedTrashIcon: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.tintColor = UIColor.theme.textDisabled
+        iv.image = UIImage(systemName: "trash")
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+    private let replyDeletedLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 13.sf)
+        l.textColor = UIColor.theme.textDisabled
+        l.text = "Original message was deleted"
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let contentTextView: UITextView = {
+        let tv = UITextView()
+        tv.font = .systemFont(ofSize: 15.sf)
+        tv.isEditable = false
+        tv.isScrollEnabled = false
+        tv.isSelectable = true
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
+        tv.backgroundColor = .clear
+        tv.dataDetectorTypes = []
+        tv.linkTextAttributes = [:]
+        tv.translatesAutoresizingMaskIntoConstraints = false
+        return tv
     }()
 
     private let imageStackView: UIStackView = {
@@ -356,13 +472,21 @@ final class MessageCell: UITableViewCell {
 
     private var imageHostViews: [MessageCellImageHostView] = []
     private var currentDisplay: ChatMessageDisplay?
+    private var interaction: ChatInteraction?
 
-    private var nameTopConstraint: NSLayoutConstraint?
+    private var nameTopToReply: NSLayoutConstraint?
+    private var nameTopToDeletedReply: NSLayoutConstraint?
+    private var nameTopToCell: NSLayoutConstraint?
     private var contentTopToName: NSLayoutConstraint?
     private var contentTopToCell: NSLayoutConstraint?
+    private var contentTextViewHeight: NSLayoutConstraint?
     private var imageTopToContent: NSLayoutConstraint?
+    private var imageTopToName: NSLayoutConstraint?
+    private var imageTopToCell: NSLayoutConstraint?
     private var reactionsTopToImages: NSLayoutConstraint?
     private var reactionsTopToContent: NSLayoutConstraint?
+    private var reactionsTopToName: NSLayoutConstraint?
+    private var reactionsTopToCell: NSLayoutConstraint?
     private var reactionsBottom: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -377,15 +501,23 @@ final class MessageCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarImageNode.reset()
+        replyAvatarImageNode.reset()
         imageHostViews.forEach { $0.imageNode.reset() }
         imageHostViews.removeAll()
         imageStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
         reactionsView.clear()
+        contentTextView.text = nil
+        contentTextView.attributedText = nil
+        contentTextViewHeight?.isActive = false
+        replyContainerView.isHidden = true
+        replyDeletedContainerView.isHidden = true
+        replyAttachmentIcon.isHidden = true
     }
 
     private func setupLayout() {
         let avatarSize = Self.avatarSize
         let leading = Self.contentLeading
+        let replyAvatarSz: CGFloat = 20.swh
 
         avatarImageNode.view.translatesAutoresizingMaskIntoConstraints = false
         avatarContainerView.addSubview(avatarImageNode.view)
@@ -396,24 +528,95 @@ final class MessageCell: UITableViewCell {
             avatarImageNode.view.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor),
             avatarImageNode.view.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor),
         ])
+
+        replyAvatarImageNode.view.translatesAutoresizingMaskIntoConstraints = false
+        replyAvatarContainer.addSubview(replyAvatarImageNode.view)
+        replyAvatarContainer.addSubview(replyAvatarPlaceholder)
+        NSLayoutConstraint.activate([
+            replyAvatarImageNode.view.topAnchor.constraint(equalTo: replyAvatarContainer.topAnchor),
+            replyAvatarImageNode.view.leadingAnchor.constraint(equalTo: replyAvatarContainer.leadingAnchor),
+            replyAvatarImageNode.view.trailingAnchor.constraint(equalTo: replyAvatarContainer.trailingAnchor),
+            replyAvatarImageNode.view.bottomAnchor.constraint(equalTo: replyAvatarContainer.bottomAnchor),
+            replyAvatarPlaceholder.centerXAnchor.constraint(equalTo: replyAvatarContainer.centerXAnchor),
+            replyAvatarPlaceholder.centerYAnchor.constraint(equalTo: replyAvatarContainer.centerYAnchor),
+        ])
+
+        contentView.addSubview(replyContainerView)
+        replyContainerView.addSubview(replyIconView)
+        replyContainerView.addSubview(replyAvatarContainer)
+        replyContainerView.addSubview(replyNameLabel)
+        replyContainerView.addSubview(replyPreviewLabel)
+        replyContainerView.addSubview(replyAttachmentIcon)
+        contentView.addSubview(replyDeletedContainerView)
+        replyDeletedContainerView.addSubview(replyDeletedIconView)
+        replyDeletedContainerView.addSubview(replyDeletedTrashIcon)
+        replyDeletedContainerView.addSubview(replyDeletedLabel)
         contentView.addSubview(avatarContainerView)
         contentView.addSubview(nameLabel)
         contentView.addSubview(timeLabel)
-        contentView.addSubview(contentLabel)
+        contentView.addSubview(contentTextView)
         contentView.addSubview(imageStackView)
         contentView.addSubview(reactionsView)
 
-        nameTopConstraint = nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10.sh)
-        contentTopToName = contentLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2.sh)
-        contentTopToCell = contentLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2.sh)
-        imageTopToContent = imageStackView.topAnchor.constraint(equalTo: contentLabel.bottomAnchor, constant: 6.sh)
+        nameTopToReply = nameLabel.topAnchor.constraint(equalTo: replyContainerView.bottomAnchor, constant: 4.sh)
+        nameTopToDeletedReply = nameLabel.topAnchor.constraint(equalTo: replyDeletedContainerView.bottomAnchor, constant: 4.sh)
+        nameTopToCell = nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10.sh)
+        contentTopToName = contentTextView.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2.sh)
+        contentTopToCell = contentTextView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2.sh)
+        contentTextViewHeight = contentTextView.heightAnchor.constraint(equalToConstant: 0)
+
+        imageTopToContent = imageStackView.topAnchor.constraint(equalTo: contentTextView.bottomAnchor, constant: 6.sh)
+        imageTopToName = imageStackView.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6.sh)
+        imageTopToCell = imageStackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2.sh)
+
         reactionsTopToImages = reactionsView.topAnchor.constraint(equalTo: imageStackView.bottomAnchor, constant: 6.sh)
-        reactionsTopToContent = reactionsView.topAnchor.constraint(equalTo: contentLabel.bottomAnchor, constant: 6.sh)
+        reactionsTopToContent = reactionsView.topAnchor.constraint(equalTo: contentTextView.bottomAnchor, constant: 6.sh)
+        reactionsTopToName = reactionsView.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6.sh)
+        reactionsTopToCell = reactionsView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2.sh)
         reactionsBottom = reactionsView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6.sh)
 
         NSLayoutConstraint.activate([
+            replyContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10.sw),
+            replyContainerView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -28.sw),
+            replyContainerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6.sh),
+            replyIconView.leadingAnchor.constraint(equalTo: replyContainerView.leadingAnchor, constant: 30.sw),
+            replyIconView.centerYAnchor.constraint(equalTo: replyContainerView.centerYAnchor),
+            replyIconView.widthAnchor.constraint(equalToConstant: 14),
+            replyIconView.heightAnchor.constraint(equalToConstant: 14),
+            replyAvatarContainer.leadingAnchor.constraint(equalTo: replyIconView.trailingAnchor, constant: 6.sw),
+            replyAvatarContainer.centerYAnchor.constraint(equalTo: replyContainerView.centerYAnchor),
+            replyAvatarContainer.widthAnchor.constraint(equalToConstant: replyAvatarSz),
+            replyAvatarContainer.heightAnchor.constraint(equalToConstant: replyAvatarSz),
+            replyNameLabel.leadingAnchor.constraint(equalTo: replyAvatarContainer.trailingAnchor, constant: 6.sw),
+            replyNameLabel.topAnchor.constraint(equalTo: replyContainerView.topAnchor),
+            replyNameLabel.bottomAnchor.constraint(equalTo: replyContainerView.bottomAnchor),
+            replyPreviewLabel.leadingAnchor.constraint(equalTo: replyNameLabel.trailingAnchor, constant: 4.sw),
+            replyPreviewLabel.topAnchor.constraint(equalTo: replyContainerView.topAnchor),
+            replyPreviewLabel.bottomAnchor.constraint(equalTo: replyContainerView.bottomAnchor),
+            replyPreviewLabel.trailingAnchor.constraint(lessThanOrEqualTo: replyAttachmentIcon.leadingAnchor, constant: -2.sw),
+            replyAttachmentIcon.trailingAnchor.constraint(lessThanOrEqualTo: replyContainerView.trailingAnchor),
+            replyAttachmentIcon.centerYAnchor.constraint(equalTo: replyContainerView.centerYAnchor),
+            replyAttachmentIcon.widthAnchor.constraint(equalToConstant: 14),
+            replyAttachmentIcon.heightAnchor.constraint(equalToConstant: 14),
+
+            replyDeletedContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10.sw),
+            replyDeletedContainerView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -28.sw),
+            replyDeletedContainerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6.sh),
+            replyDeletedIconView.leadingAnchor.constraint(equalTo: replyDeletedContainerView.leadingAnchor, constant: 30.sw),
+            replyDeletedIconView.centerYAnchor.constraint(equalTo: replyDeletedContainerView.centerYAnchor),
+            replyDeletedIconView.widthAnchor.constraint(equalToConstant: 14),
+            replyDeletedIconView.heightAnchor.constraint(equalToConstant: 14),
+            replyDeletedTrashIcon.leadingAnchor.constraint(equalTo: replyDeletedIconView.trailingAnchor, constant: 6.sw),
+            replyDeletedTrashIcon.centerYAnchor.constraint(equalTo: replyDeletedContainerView.centerYAnchor),
+            replyDeletedTrashIcon.widthAnchor.constraint(equalToConstant: 12),
+            replyDeletedTrashIcon.heightAnchor.constraint(equalToConstant: 12),
+            replyDeletedLabel.leadingAnchor.constraint(equalTo: replyDeletedTrashIcon.trailingAnchor, constant: 4.sw),
+            replyDeletedLabel.topAnchor.constraint(equalTo: replyDeletedContainerView.topAnchor),
+            replyDeletedLabel.bottomAnchor.constraint(equalTo: replyDeletedContainerView.bottomAnchor),
+            replyDeletedLabel.trailingAnchor.constraint(lessThanOrEqualTo: replyDeletedContainerView.trailingAnchor),
+
             avatarContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6.sw),
-            avatarContainerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10.sh),
+            avatarContainerView.topAnchor.constraint(equalTo: nameLabel.topAnchor),
             avatarContainerView.widthAnchor.constraint(equalToConstant: avatarSize),
             avatarContainerView.heightAnchor.constraint(equalToConstant: avatarSize),
 
@@ -426,8 +629,8 @@ final class MessageCell: UITableViewCell {
             timeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12.sw),
             timeLabel.bottomAnchor.constraint(equalTo: nameLabel.bottomAnchor),
 
-            contentLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: leading),
-            contentLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -28.sw),
+            contentTextView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: leading),
+            contentTextView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -28.sw),
 
             imageStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: leading),
             imageStackView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -28.sw),
@@ -436,41 +639,146 @@ final class MessageCell: UITableViewCell {
             reactionsView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -12.sw),
         ])
 
-        nameTopConstraint?.isActive = true
+        nameTopToCell?.isActive = true
         contentTopToName?.isActive = true
         imageTopToContent?.isActive = true
         reactionsTopToImages?.isActive = true
         reactionsBottom?.isActive = true
+
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(onContentTextViewTapped(_:)))
+        contentTextView.addGestureRecognizer(tapGesture)
     }
 
-    func configure(display: ChatMessageDisplay) {
+    @objc private func onContentTextViewTapped(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: contentTextView)
+        handleRichTextTap(at: point)
+    }
+
+    func configure(display: ChatMessageDisplay, interaction: ChatInteraction) {
         self.currentDisplay = display
+        self.interaction = interaction
         let t = UIColor.theme
         let isCombine = display.isCombine
+        let hasReply = display.replyRef != nil
+        let hasDeletedReply = display.isDeletedReply
+        let hasAnyReply = hasReply || hasDeletedReply
 
+        // MARK: - Sender info
         nameLabel.text = display.senderDisplayName
         nameLabel.textColor = t.textRoleLink
         timeLabel.text = formatDate(display.message.createdAt)
         timeLabel.textColor = t.textDisabled
 
-        let textContent = display.message.textContent ?? ""
-        contentLabel.text = textContent.isEmpty ? nil : textContent
-        contentLabel.textColor = t.textStrong
-        contentLabel.isHidden = textContent.isEmpty
+        // MARK: - Reply ref (message reference)
+        if let ref = display.replyRef {
+            replyContainerView.isHidden = false
+            replyDeletedContainerView.isHidden = true
+            let name = ref.messageSenderClanNick.isEmpty
+                ? (ref.messageSenderDisplayName.isEmpty ? ref.messageSenderUsername : ref.messageSenderDisplayName)
+                : ref.messageSenderClanNick
+            replyNameLabel.text = name.isEmpty ? "Anonymous" : name
 
+            if !ref.mesagesSenderAvatar.isEmpty {
+                replyAvatarPlaceholder.isHidden = true
+                let sz: CGFloat = 20.swh
+                let args = TransformImageArguments(
+                    corners: ImageCorners(radius: sz / 2),
+                    imageSize: CGSize(width: sz, height: sz),
+                    boundingSize: CGSize(width: sz, height: sz),
+                    intrinsicInsets: .zero
+                )
+                replyAvatarImageNode.setSignal(remoteImageSignal(url: ref.mesagesSenderAvatar), attemptSynchronously: false)
+                let layout = replyAvatarImageNode.asyncLayout()
+                let apply = layout(args)
+                apply()
+            } else {
+                replyAvatarImageNode.reset()
+                replyAvatarPlaceholder.isHidden = false
+                replyAvatarPlaceholder.text = String((name.isEmpty ? "A" : name).prefix(1)).uppercased()
+            }
+
+            if ref.hasAttachment_p {
+                replyPreviewLabel.text = "Tap to see attachment"
+                replyAttachmentIcon.isHidden = false
+            } else {
+                replyAttachmentIcon.isHidden = true
+                let raw = ref.content
+                let preview: String
+                if raw.isEmpty {
+                    preview = ""
+                } else if let data = raw.data(using: .utf8),
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let t = json["t"] as? String, !t.isEmpty {
+                    preview = t.count > 80 ? String(t.prefix(80)) + "…" : t
+                } else {
+                    preview = raw.count > 80 ? String(raw.prefix(80)) + "…" : raw
+                }
+                replyPreviewLabel.text = preview
+            }
+        } else if hasDeletedReply {
+            replyContainerView.isHidden = true
+            replyDeletedContainerView.isHidden = false
+        } else {
+            replyContainerView.isHidden = true
+            replyDeletedContainerView.isHidden = true
+        }
+
+        // MARK: - Text content (only if content.t is non-empty and not checkOneLinkImage)
+        let parsed = display.parsedContent
+        let hasContent: Bool
+        if display.checkOneLinkImage {
+            hasContent = false
+        } else {
+            hasContent = !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if hasContent {
+            if parsed.isPlainText {
+                contentTextView.attributedText = nil
+                contentTextView.text = parsed.text
+                contentTextView.textColor = t.textStrong
+                contentTextView.font = .systemFont(ofSize: 15.sf)
+            } else {
+                let attributed = RichTextBuilder.build(from: parsed)
+                contentTextView.attributedText = attributed
+            }
+            contentTextView.delegate = self
+        } else {
+            contentTextView.text = nil
+            contentTextView.attributedText = nil
+        }
+        contentTextView.isHidden = !hasContent
+        contentTextViewHeight?.isActive = !hasContent
+
+        // MARK: - Visibility
         avatarContainerView.isHidden = isCombine
         nameLabel.isHidden = isCombine
         timeLabel.isHidden = isCombine
 
-        contentTopToName?.isActive = false
-        contentTopToCell?.isActive = false
-        nameTopConstraint?.constant = isCombine ? 0 : 10.sh
+        // MARK: - Name label top anchor (reply above name)
+        nameTopToReply?.isActive = false
+        nameTopToDeletedReply?.isActive = false
+        nameTopToCell?.isActive = false
         if isCombine {
-            contentTopToCell?.isActive = true
+        } else if hasReply {
+            nameTopToReply?.isActive = true
+        } else if hasDeletedReply {
+            nameTopToDeletedReply?.isActive = true
         } else {
-            contentTopToName?.isActive = true
+            nameTopToCell?.isActive = true
         }
 
+        // MARK: - Content text view top anchor
+        contentTopToName?.isActive = false
+        contentTopToCell?.isActive = false
+        if hasContent {
+            if isCombine {
+                contentTopToCell?.isActive = true
+            } else {
+                contentTopToName?.isActive = true
+            }
+        }
+
+        // MARK: - Avatar
         if !isCombine {
             if let urlString = display.avatarURL, !urlString.isEmpty {
                 avatarPlaceholder.isHidden = true
@@ -492,21 +800,62 @@ final class MessageCell: UITableViewCell {
             }
         }
 
+        // MARK: - Media (images/videos)
         configureMedia(display.attachments.filter { $0.isMedia })
         configureReactions(display.reactions)
 
         let hasImages = !imageStackView.arrangedSubviews.isEmpty
         let hasReactions = !display.reactions.isEmpty
 
+        // MARK: - Image stack top anchor
+        imageTopToContent?.isActive = false
+        imageTopToName?.isActive = false
+        imageTopToCell?.isActive = false
+        if hasContent {
+            imageTopToContent?.isActive = true
+        } else if isCombine {
+            imageTopToCell?.isActive = true
+        } else {
+            imageTopToName?.isActive = true
+        }
+
+        // MARK: - Reactions top anchor
         reactionsTopToImages?.isActive = false
         reactionsTopToContent?.isActive = false
+        reactionsTopToName?.isActive = false
+        reactionsTopToCell?.isActive = false
         if hasImages {
             reactionsTopToImages?.isActive = true
-        } else {
+        } else if hasContent {
             reactionsTopToContent?.isActive = true
+        } else if isCombine {
+            reactionsTopToCell?.isActive = true
+        } else {
+            reactionsTopToName?.isActive = true
         }
         reactionsView.isHidden = !hasReactions
         reactionsBottom?.constant = hasReactions ? -6.sh : -4.sh
+    }
+
+    private func handleRichTextTap(at point: CGPoint) {
+        let layoutManager = contentTextView.layoutManager
+        let textContainer = contentTextView.textContainer
+        let offset = contentTextView.textContainerInset
+        let locationInText = CGPoint(x: point.x - offset.left, y: point.y - offset.top)
+        let charIndex = layoutManager.characterIndex(for: locationInText, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+
+        guard charIndex < contentTextView.textStorage.length else { return }
+        let attrs = contentTextView.textStorage.attributes(at: charIndex, effectiveRange: nil)
+
+        if let urlString = attrs[.mezonLink] as? String, let url = URL(string: urlString) {
+            UIApplication.shared.open(url)
+        } else if let mentionId = attrs[.mezonMention] as? String {
+            AppLogger.network.info("[RichText] Mention tapped: \(mentionId)")
+            interaction?.onMentionTapped(mentionId)
+        } else if let channelId = attrs[.mezonHashtag] as? String {
+            AppLogger.network.info("[RichText] Hashtag tapped: \(channelId)")
+            interaction?.onHashtagTapped(channelId)
+        }
     }
 
     private func configureMedia(_ media: [ParsedAttachment]) {
@@ -540,7 +889,6 @@ final class MessageCell: UITableViewCell {
             let thumbH: CGFloat = 120.sh
             let mediaItems = Array(media.prefix(4))
 
-            // Row 1: items 0-1
             let row1 = UIStackView()
             row1.axis = .horizontal
             row1.spacing = 4.sw
@@ -549,7 +897,6 @@ final class MessageCell: UITableViewCell {
             row1.heightAnchor.constraint(equalToConstant: thumbH).isActive = true
             row1.widthAnchor.constraint(equalToConstant: maxW).isActive = true
 
-            // Row 2: items 2-3 (if any)
             var row2: UIStackView?
 
             for (i, att) in mediaItems.enumerated() {
@@ -671,7 +1018,6 @@ final class MessageCell: UITableViewCell {
         guard let host = gesture.view as? MessageCellImageHostView else { return }
         let tappedIndex = host.tag
 
-        // Build gallery items from ALL media attachments (images + videos)
         guard let display = currentDisplay else { return }
         let mediaAttachments = display.attachments.filter { $0.isImage || $0.isVideo }
         guard !mediaAttachments.isEmpty else { return }
@@ -721,6 +1067,18 @@ final class MessageCell: UITableViewCell {
         let fullF = DateFormatter()
         fullF.dateFormat = "dd/MM/yyyy, HH:mm"
         return fullF.string(from: date)
+    }
+}
+
+extension MessageCell: UITextViewDelegate {
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        return false
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        if textView.selectedTextRange != nil {
+            textView.selectedTextRange = nil
+        }
     }
 }
 
@@ -904,7 +1262,6 @@ final class MessageVideoView: UIView {
         self.timestamp = timestamp
         super.init(frame: .zero)
 
-        // Thumbnail via TransformImageNode (async, cached)
         thumbnailNode.contentAnimations = [.firstUpdate]
         thumbnailNode.view.translatesAutoresizingMaskIntoConstraints = false
         thumbnailNode.view.contentMode = .scaleAspectFill

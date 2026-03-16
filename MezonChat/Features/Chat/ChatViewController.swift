@@ -38,7 +38,18 @@ struct ChatMessageDisplay: Identifiable {
     let isCombine: Bool
     let attachments: [ParsedAttachment]
     let reactions: [ParsedReaction]
+    let parsedContent: ParsedContent
+    let replyRef: Mezon_Api_MessageRef?
+    let isDeletedReply: Bool
     var id: String { message.id }
+
+    var checkOneLinkImage: Bool {
+        guard attachments.count == 1,
+              let att = attachments.first,
+              att.isImage else { return false }
+        let trimmedText = parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedText.isEmpty && trimmedText == att.url
+    }
 
     static func isCombineWithPrevious(current: Message, previous: Message?) -> Bool {
         guard let prev = previous else { return false }
@@ -95,7 +106,7 @@ final class ChatViewController: ViewController {
     private var inputBarHeightConstraint: NSLayoutConstraint?
     private let inputBarHeight: CGFloat = 56
     private var shouldScrollToBottom = true
-    private var hasScrolledToBottomInitially = false
+    private var hasMarkedAsRead = false
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
@@ -120,6 +131,12 @@ final class ChatViewController: ViewController {
                 self.fetchMoreMessages()
             },
             onScrolledToBottom: { [weak self] atBottom in self?.shouldScrollToBottom = atBottom },
+            onMentionTapped: { mentionId in
+                AppLogger.network.info("[Chat] Mention tapped: \(mentionId)")
+            },
+            onHashtagTapped: { channelId in
+                AppLogger.network.info("[Chat] Hashtag tapped: \(channelId)")
+            },
             onMessagesReloaded: nil
         )
         interaction.onMessagesReloaded = { [weak self] in self?.scrollToBottomIfNeeded() }
@@ -170,6 +187,7 @@ final class ChatViewController: ViewController {
         messages = v
         showWelcome = w
         needsReloadPipe.putNext(())
+        markChannelAsRead()
     }
     private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
     private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v }
@@ -208,6 +226,47 @@ final class ChatViewController: ViewController {
     func onLeave() {
         context.currentChannel = nil
         stateDisposables.dispose()
+    }
+
+    private func markChannelAsRead() {
+        guard !hasMarkedAsRead, !messages.isEmpty else { return }
+        guard let lastMessage = messages.last else { return }
+        guard let messageId = Int64(lastMessage.message.id) else { return }
+        hasMarkedAsRead = true
+
+        let channelUnreadCount = channel.countMessUnread
+
+        let mode: Int32
+        if clanId != 0 {
+            mode = MezonConstants.ChannelStreamMode.channel.rawValue
+        } else if channel.type == MezonConstants.ChannelType.dm.rawValue {
+            mode = MezonConstants.ChannelStreamMode.dm.rawValue
+        } else {
+            mode = MezonConstants.ChannelStreamMode.group.rawValue
+        }
+
+        let now = UInt32(Date().timeIntervalSince1970)
+        context.account.socket.writeLastSeenMessage(
+            clanId: clanId,
+            channelId: channel.channelID,
+            mode: mode,
+            messageId: messageId,
+            timestampSeconds: now,
+            badgeCount: 0
+        )
+
+        NotificationCenter.default.post(
+            name: Notification.Name("MezonChannelMarkedAsRead"),
+            object: nil,
+            userInfo: [
+                "channelId": channel.channelID,
+                "clanId": clanId,
+                "channelUnreadCount": channelUnreadCount,
+                "mode": mode,
+                "messageId": String(messageId),
+                "timestampSeconds": now
+            ]
+        )
     }
 
     func fetchMessages() {
@@ -289,7 +348,6 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor in
             do {
-                // If channel has a parent (thread), fetch parent channel members too
                 if channel.parentID != 0 {
                     let parentResponse = try await self.context.account.network.listChannelUsers(
                         clanId: clanId,
@@ -303,7 +361,6 @@ final class ChatViewController: ViewController {
                     }
                 }
 
-                // Fetch members for the channel itself if it's private or has a parent
                 if channel.channelPrivate != 0 || channel.parentID != 0 {
                     let response = try await self.context.account.network.listChannelUsers(
                         clanId: clanId,
@@ -376,19 +433,34 @@ final class ChatViewController: ViewController {
             recordsToShow = Array(validRecords.dropFirst())
         }
         let displays = recordsToShow.map { record -> ChatMessageDisplay in
-            let content = extractTextFromContent(record)
+            let parsed = MessageContentParser.parse(data: record.content)
+            let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
             let attachments = Self.parseAttachments(record.attachmentsJSON)
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
-            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions)
+            let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
+            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply)
         }
         return (Self.applyCombine(to: displays), showWelcome)
+    }
+
+    private static func firstReplyRef(from data: Data) -> (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool) {
+        guard !data.isEmpty,
+              let list = try? Mezon_Api_MessageRefList(serializedBytes: data),
+              !list.refs.isEmpty else { return (nil, false) }
+        if let validRef = list.refs.first(where: { $0.messageRefID != 0 }) {
+            return (validRef, false)
+        }
+        if list.refs.first(where: { $0.messageRefID == 0 }) != nil {
+            return (nil, true)
+        }
+        return (nil, false)
     }
 
     private static func applyCombine(to displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         displays.enumerated().map { i, d in
             let prev = i > 0 ? displays[i - 1].message : nil
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev), attachments: d.attachments, reactions: d.reactions)
+            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev), attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply)
         }
     }
 
@@ -615,21 +687,7 @@ final class ChatViewController: ViewController {
     private func scrollToBottomIfNeeded() {
         guard shouldScrollToBottom, !messages.isEmpty else { return }
         let tv = messagesNode.tableView
-        let rowCount = messages.count
-        let lastRow = rowCount - 1
-        guard lastRow >= 0, lastRow < tv.numberOfRows(inSection: 0) else { return }
-        let last = IndexPath(row: lastRow, section: 0)
-        let isInitial = !hasScrolledToBottomInitially
-        hasScrolledToBottomInitially = true
-        if isInitial {
-            tv.layoutIfNeeded()
-            let y = max(-tv.contentInset.top, tv.contentSize.height - tv.bounds.height + tv.contentInset.bottom)
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            tv.contentOffset = CGPoint(x: 0, y: y)
-            CATransaction.commit()
-        } else {
-            tv.scrollToRow(at: last, at: .bottom, animated: true)
-        }
+        guard tv.numberOfRows(inSection: 0) > 0 else { return }
+        tv.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
     }
 }

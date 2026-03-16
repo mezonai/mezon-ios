@@ -26,6 +26,7 @@ struct MessageRecord: PostboxCoding, Equatable {
 
     let attachmentsJSON: Data
     let reactionsJSON: Data
+    let referencesData: Data
 
     init(
         id: String,
@@ -40,7 +41,8 @@ struct MessageRecord: PostboxCoding, Equatable {
         senderAvatarURL: String? = nil,
         sendingState: SendingState = .sent,
         attachmentsJSON: Data = Data(),
-        reactionsJSON: Data = Data()
+        reactionsJSON: Data = Data(),
+        referencesData: Data = Data()
     ) {
         self.id                = id
         self.channelId         = channelId
@@ -55,6 +57,7 @@ struct MessageRecord: PostboxCoding, Equatable {
         self.sendingState      = sendingState
         self.attachmentsJSON   = attachmentsJSON
         self.reactionsJSON     = reactionsJSON
+        self.referencesData    = referencesData
     }
 }
 
@@ -85,7 +88,8 @@ extension MessageRecord {
             senderAvatarURL:   avatarURL,
             sendingState:      .sent,
             attachmentsJSON:   api.attachments,
-            reactionsJSON:     api.reactions
+            reactionsJSON:     api.reactions,
+            referencesData:    api.references
         )
     }
 
