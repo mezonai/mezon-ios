@@ -5,8 +5,9 @@ struct ClanListState {
     var clans: [Mezon_Api_ClanDesc]
     var selectedClanId: Int64?
     var isLoading: Bool
+    var unreadDMs: [Mezon_Api_ChannelDescription]
 
-    static let empty = ClanListState(clans: [], selectedClanId: nil, isLoading: false)
+    static let empty = ClanListState(clans: [], selectedClanId: nil, isLoading: false, unreadDMs: [])
 }
 
 final class ClanListViewController: ViewController {
@@ -18,6 +19,7 @@ final class ClanListViewController: ViewController {
     private let selectedClanIdPipe = ValuePipe<Int64?>()
     private let isLoadingPipe = ValuePipe<Bool>()
     private let needsReloadPipe = ValuePipe<Void>()
+    private let unreadDMsPipe = ValuePipe<[Mezon_Api_ChannelDescription]>()
 
     var selectedClanIdSignal: Signal<Int64?, NoError> { selectedClanIdPipe.signal() }
     var clansSignal: Signal<[Mezon_Api_ClanDesc], NoError> { clansPipe.signal() }
@@ -26,6 +28,7 @@ final class ClanListViewController: ViewController {
     private(set) var selectedClanId: Int64?
     private(set) var isLoading: Bool = false
     private(set) var error: String?
+    private(set) var unreadDMs: [Mezon_Api_ChannelDescription] = []
 
     var onLogoTapped: (() -> Void)?
 
@@ -46,6 +49,7 @@ final class ClanListViewController: ViewController {
     override func loadDisplayNode() {
         let interaction = ClanListInteraction(
             onSelectClan: { [weak self] clan in self?.select(clan: clan) },
+            onSelectDM: { [weak self] dm in self?.openDirectMessage(dm) },
             onLogoTapped: { [weak self] in self?.onLogoTapped?() }
         )
         displayNode = ClanListContainerNode(signal: stateSignal(), interaction: interaction)
@@ -55,7 +59,11 @@ final class ClanListViewController: ViewController {
         super.viewDidLoad()
         clanListNode.applyTheme()
         loadClans()
+        fetchUnreadDMs()
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -65,11 +73,73 @@ final class ClanListViewController: ViewController {
 
     @objc private func handleThemeChange() { clanListNode.applyTheme() }
 
+    /// Handle new message — only update DM unread (clan badge handled by MezonMentionReceived)
+    @objc private func handleNewMessageReceived(_ notification: Notification) {
+        guard let channelId = notification.userInfo?["channelId"] as? Int64,
+              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+
+        let senderId: String
+        if let s = notification.userInfo?["senderId"] as? String { senderId = s }
+        else if let n = notification.userInfo?["senderId"] as? Int64 { senderId = String(n) }
+        else { return }
+
+        guard senderId != context.currentUser?.id else { return }
+        guard clanId == 0 else { return }
+
+        if let idx = unreadDMs.firstIndex(where: { $0.channelID == channelId }) {
+            unreadDMs[idx].countMessUnread += 1
+        }
+        unreadDMsPipe.putNext(unreadDMs)
+        needsReloadPipe.putNext(())
+    }
+
+    /// Handle mention/reply — increment clan badge
+    @objc private func handleMentionReceived(_ notification: Notification) {
+        guard let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard clanId != 0 else { return }
+
+        for i in 0..<clans.count {
+            if clans[i].clanID == clanId {
+                clans[i].badgeCount += 1
+            }
+        }
+        clansPipe.putNext(clans)
+        needsReloadPipe.putNext(())
+    }
+
+    @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
+        guard let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+        let channelId = notification.userInfo?["channelId"] as? Int64
+
+        if clanId != 0 {
+            let channelUnread = (notification.userInfo?["channelUnreadCount"] as? Int32) ?? 0
+            if channelUnread > 0 {
+                for i in 0..<clans.count {
+                    if clans[i].clanID == clanId {
+                        clans[i].badgeCount = max(0, clans[i].badgeCount - channelUnread)
+                    }
+                }
+                clansPipe.putNext(clans)
+            }
+        }
+
+        if let channelId = channelId {
+            let before = unreadDMs.count
+            unreadDMs.removeAll { $0.channelID == channelId }
+            if unreadDMs.count != before {
+                unreadDMsPipe.putNext(unreadDMs)
+            }
+        }
+
+        needsReloadPipe.putNext(())
+    }
+
     deinit { disposables.dispose() }
 
     private func setClans(_ v: [Mezon_Api_ClanDesc]) { clans = v; clansPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setSelectedClanId(_ v: Int64?) { selectedClanId = v; selectedClanIdPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) { unreadDMs = v; unreadDMsPipe.putNext(v); needsReloadPipe.putNext(()) }
 
     func loadClans() {
         guard let token = context.session?.token else { return }
@@ -106,6 +176,25 @@ final class ClanListViewController: ViewController {
         context.currentClanId = clan.clanID
         persistToPostbox()
         fetchClanData(clanId: clan.clanID)
+    }
+
+    func openDirectMessage(_ dm: Mezon_Api_ChannelDescription) {
+        let vc = ChatViewController(clanId: 0, channel: dm, context: context)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    func fetchUnreadDMs() {
+        guard let token = context.session?.token else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                let unread = channels.filter { $0.countMessUnread > 0 }
+                self.setUnreadDMs(unread)
+            } catch {
+                AppLogger.network.error("fetchUnreadDMs: \(error)")
+            }
+        }
     }
 
     /// Fetch all clan-scoped data (members, roles, events, permissions, etc.)
@@ -148,7 +237,7 @@ final class ClanListViewController: ViewController {
     }
 
     var currentState: ClanListState {
-        ClanListState(clans: clans, selectedClanId: selectedClanId, isLoading: isLoading)
+        ClanListState(clans: clans, selectedClanId: selectedClanId, isLoading: isLoading, unreadDMs: unreadDMs)
     }
 
     func stateSignal() -> Signal<ClanListState, NoError> {

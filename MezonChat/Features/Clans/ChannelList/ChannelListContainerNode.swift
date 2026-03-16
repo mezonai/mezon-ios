@@ -10,6 +10,13 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     let tableNode: ASTableNode
     private let headerUIView = ChannelListHeaderView()
+    private lazy var gradientLayer: CAGradientLayer = {
+        let gl = CAGradientLayer()
+        gl.startPoint = CGPoint(x: 0, y: 0)
+        gl.endPoint   = CGPoint(x: 1, y: 1)
+        gl.locations  = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
+        return gl
+    }()
 
     private var state: ChannelListState = .empty
     private let interaction: ChannelListInteraction
@@ -24,18 +31,43 @@ final class ChannelListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
-                let prevErrorMessage = self.state.errorMessage
-                let prevSelectedId = self.state.selectedChannelId
+                let prevState = self.state
                 self.state = newState
 
-                if let msg = newState.errorMessage, msg != prevErrorMessage {
+                if let msg = newState.errorMessage, msg != prevState.errorMessage {
                     Toast.error(msg)
                 }
 
-                self.tableNode.reloadData()
+                let structureChanged = prevState.categories.count != newState.categories.count
+                    || prevState.isLoading != newState.isLoading
+                    || zip(prevState.categories, newState.categories).contains(where: { $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.channels.count != $1.channels.count })
 
-                if prevSelectedId != newState.selectedChannelId {
-                    self.reloadSelectionRows(previous: prevSelectedId, current: newState.selectedChannelId)
+                if structureChanged || prevState.categories.isEmpty {
+                    self.tableNode.reloadData()
+                } else {
+                    var paths: [IndexPath] = []
+                    for s in 0..<newState.categories.count {
+                        let oldCh = prevState.categories[s].channels
+                        let newCh = newState.categories[s].channels
+                        let rows = self.rowsForSection(s)
+                        for (r, row) in rows.enumerated() {
+                            let chId = row.channelDesc.channelID
+                            let oldDesc = oldCh.first(where: { $0.channelID == chId })
+                            let newDesc = newCh.first(where: { $0.channelID == chId })
+                            let changed = oldDesc?.countMessUnread != newDesc?.countMessUnread
+                                || (oldDesc?.hasLastSentMessage != newDesc?.hasLastSentMessage)
+                                || (oldDesc?.lastSentMessage.timestampSeconds != newDesc?.lastSentMessage.timestampSeconds)
+                                || (oldDesc?.lastSeenMessage.timestampSeconds != newDesc?.lastSeenMessage.timestampSeconds)
+                                || (chId == prevState.selectedChannelId) != (chId == newState.selectedChannelId)
+                            if changed {
+                                paths.append(IndexPath(row: r, section: s))
+                            }
+                        }
+                    }
+                    if paths.isEmpty {
+                        return
+                    }
+                    self.tableNode.reloadRows(at: paths, with: .none)
                 }
             })
         )
@@ -45,6 +77,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     override func didLoad() {
         super.didLoad()
+        layer.addSublayer(gradientLayer)
         addSubnode(tableNode)
         tableNode.backgroundColor = .clear
         tableNode.view.separatorStyle = .none
@@ -63,6 +96,11 @@ final class ChannelListContainerNode: ASDisplayNode {
             clipsToBounds = true
         }
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        CATransaction.commit()
+
         let topOffset = layout.safeInsets.top + 10.sh
         let headerH: CGFloat = 90.sh
         let headerFrame = CGRect(x: 0, y: topOffset, width: layout.size.width, height: headerH)
@@ -76,7 +114,14 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func applyTheme() {
-        backgroundColor = UIColor.theme.secondary
+        let t = UIColor.theme
+        gradientLayer.colors = [
+            t.primaryGradient.cgColor,
+            t.secondary.cgColor,
+            t.secondary.cgColor,
+            t.primaryGradient.cgColor
+        ]
+        backgroundColor = .clear
         tableNode.backgroundColor = .clear
         headerUIView.applyTheme()
         tableNode.reloadData()
@@ -177,9 +222,11 @@ private final class ChannelItemCellNode: ASCellNode {
     private func setupContent() {
         let t = UIColor.theme
         let chType = ChannelType(rawValue: channel.type) ?? .unknown
+        let isUnread = channel.countMessUnread > 0
+            || (channel.hasLastSentMessage && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
         let unread = channel.countMessUnread
 
-        let iconColor = cellSelected ? t.channelUnread : (unread > 0 ? t.channelUnread : t.channelNormal)
+        let iconColor = cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
         if chType.isSystemImage {
             iconImgNode.image = UIImage(systemName: chType.icon)
             iconImgNode.tintColor = iconColor
@@ -195,8 +242,8 @@ private final class ChannelItemCellNode: ASCellNode {
         }
 
         let nameStr = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
-        let nameColor = cellSelected ? t.channelUnread : (unread > 0 ? t.channelUnread : t.channelNormal)
-        let nameWeight: UIFont.Weight = unread > 0 ? .semibold : .medium
+        let nameColor = cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+        let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
         nameNode.attributedText = NSAttributedString(string: nameStr, attributes: [
             .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
             .foregroundColor: nameColor,
@@ -277,14 +324,16 @@ private final class ThreadItemCellNode: ASCellNode {
 
         let t = UIColor.theme
         let unread = channel.countMessUnread
+        let isUnread = unread > 0
+            || (channel.hasLastSentMessage && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
 
         let connectorName = isLast ? "arrow.turn.down.right" : "arrow.turn.down.right"
         connectorNode.image = UIImage(systemName: connectorName)
         connectorNode.tintColor = t.channelNormal.withAlphaComponent(0.4)
         connectorNode.contentMode = .scaleAspectFit
 
-        let nameColor = isSelected ? t.channelUnread : (unread > 0 ? t.channelUnread : t.channelNormal)
-        let nameWeight: UIFont.Weight = unread > 0 ? .semibold : .regular
+        let nameColor = isSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+        let nameWeight: UIFont.Weight = isUnread ? .semibold : .regular
         nameNode.attributedText = NSAttributedString(string: channel.channelLabel, attributes: [
             .font: UIFont.systemFont(ofSize: 13.sf, weight: nameWeight),
             .foregroundColor: nameColor,
@@ -397,7 +446,7 @@ private final class CategorySectionHeaderView: UIView {
 
     func configure(category: ChannelCategory) {
         let t = UIColor.theme
-        backgroundColor      = t.secondary
+        backgroundColor      = .clear
         titleLabel.textColor = t.textDisabled
         arrowLabel.textColor = t.textDisabled
         titleLabel.text      = category.name.uppercased()
@@ -563,7 +612,7 @@ final class ChannelListHeaderView: UIView {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.secondary
+        backgroundColor = .clear
         titleLabel.textColor = t.textStrong
         memberCountLabel.textColor = t.textStrong
         communityLabel.textColor = t.textStrong

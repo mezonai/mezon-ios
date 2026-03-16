@@ -13,4 +13,12 @@ enum MezonConstants {
         case announcement = 9
         case mezonVoice = 10
     }
+
+    enum ChannelStreamMode: Int32 {
+        case channel = 2
+        case group = 3
+        case dm = 4
+        case clan = 5
+        case thread = 6
+    }
 }

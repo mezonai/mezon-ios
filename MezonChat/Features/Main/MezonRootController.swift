@@ -7,7 +7,7 @@ final class MezonRootController: NavigationController {
 
     private(set) var rootTabController: TabBarController?
     private(set) var homeController: HomeViewController?
-    private(set) var messagesController: MessagesViewController?
+    private(set) var directMessagesController: DirectMessagesViewController?
     private(set) var profileController: ProfileViewController?
 
     init(context: AccountContext) {
@@ -42,8 +42,8 @@ final class MezonRootController: NavigationController {
         )
 
         let (messagesImg, messagesSel) = Self.tabBarImage(name: "TabBar/MessagesIcon", systemFallback: "bubble.left.and.bubble.right", systemFallbackSelected: "bubble.left.and.bubble.right.fill")
-        let messagesVC = MessagesViewController(context: context)
-        messagesVC.tabBarItem = UITabBarItem(
+        let directMessagesVC = DirectMessagesViewController(context: context)
+        directMessagesVC.tabBarItem = UITabBarItem(
             title: L(L10n.Tab.messages),
             image: messagesImg,
             selectedImage: messagesSel
@@ -65,17 +65,17 @@ final class MezonRootController: NavigationController {
             selectedImage: profileSel
         )
 
-        let controllers: [ViewController] = [homeVC, messagesVC, notificationsVC, profileVC]
+        let controllers: [ViewController] = [homeVC, directMessagesVC, notificationsVC, profileVC]
         tabBarController.setControllers(controllers, selectedIndex: 0)
 
         self.homeController = homeVC
-        self.messagesController = messagesVC
+        self.directMessagesController = directMessagesVC
         self.profileController = profileVC
         self.rootTabController = tabBarController
 
         pushViewController(tabBarController, animated: false)
 
-        Task { await messagesVC.fetchDirectMessages() }
+        Task { await directMessagesVC.fetchDirectMessages() }
     }
 
     static func makeNavTheme() -> NavigationControllerTheme {

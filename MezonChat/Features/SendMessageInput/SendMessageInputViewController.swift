@@ -111,7 +111,7 @@ final class SendMessageInputViewController: UIViewController {
         let btnSize: CGFloat = 40.swh
 
         NSLayoutConstraint.activate([
-            inputBarView.topAnchor.constraint(equalTo: view.topAnchor),
+            inputBarView.topAnchor.constraint(equalTo: view.topAnchor, constant: 14.sh),
             inputBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             inputBarView.heightAnchor.constraint(equalToConstant: 56.sh),

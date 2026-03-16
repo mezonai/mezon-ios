@@ -170,6 +170,20 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
+    func writeLastSeenMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, timestampSeconds: UInt32, badgeCount: Int32) {
+        var event = Mezon_Realtime_LastSeenMessageEvent()
+        event.clanID = clanId
+        event.channelID = channelId
+        event.mode = mode
+        event.messageID = messageId
+        event.timestampSeconds = timestampSeconds
+        event.badgeCount = badgeCount
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.lastSeenMessageEvent = event
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] writeLastSeenMessage channelId=\(channelId) messageId=\(messageId)")
+    }
+
     private func receiveLoop() {
         webSocketTask?.receive { [weak self] result in
             guard let self else { return }

@@ -135,6 +135,9 @@ final class ChannelListViewController: ViewController {
         super.viewDidLoad()
         channelListNode.applyTheme()
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -150,6 +153,87 @@ final class ChannelListViewController: ViewController {
     func refresh() { fetchChannels() }
 
     @objc private func handleThemeChange() { channelListNode.applyTheme() }
+
+    /// Handle new incoming message — update lastSentMessage for unread highlight (NO badge increment)
+    @objc private func handleNewMessageReceived(_ notification: Notification) {
+        guard let channelId = notification.userInfo?["channelId"] as? Int64,
+              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+
+        let senderId: String
+        if let s = notification.userInfo?["senderId"] as? String { senderId = s }
+        else if let n = notification.userInfo?["senderId"] as? Int64 { senderId = String(n) }
+        else { return }
+
+        let ts: UInt32
+        if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
+        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(t) }
+        else { ts = UInt32(Date().timeIntervalSince1970) }
+
+        guard clanId == self.clanId, clanId != 0 else { return }
+        guard senderId != context.currentUser?.id else { return }
+        if let currentChannel = context.currentChannel, currentChannel.channelID == channelId { return }
+
+        var updated = false
+        for i in 0..<allChannels.count {
+            if allChannels[i].channelID == channelId {
+                var header = allChannels[i].lastSentMessage
+                header.timestampSeconds = ts
+                allChannels[i].lastSentMessage = header
+                updated = true
+            }
+        }
+        guard updated else { return }
+        rebuildAndReload()
+    }
+
+    /// Handle mention/reply notification — increment countMessUnread badge
+    @objc private func handleMentionReceived(_ notification: Notification) {
+        guard let channelId = notification.userInfo?["channelId"] as? Int64,
+              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard clanId == self.clanId, clanId != 0 else { return }
+
+        var updated = false
+        for i in 0..<allChannels.count {
+            if allChannels[i].channelID == channelId {
+                allChannels[i].countMessUnread += 1
+                updated = true
+            }
+        }
+        guard updated else { return }
+        rebuildAndReload()
+    }
+
+    private func rebuildAndReload() {
+        let cats = buildChannelCategories(allChannels).map { cat -> ChannelCategory in
+            if let existing = self.categories.first(where: { $0.id == cat.id }) {
+                return ChannelCategory(id: cat.id, name: cat.name, isCollapsed: existing.isCollapsed, channels: cat.channels)
+            }
+            return cat
+        }
+        self.categories = cats
+        categoriesPipe.putNext(cats)
+        needsReloadPipe.putNext(())
+    }
+
+    @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
+        guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+        let now = UInt32(Date().timeIntervalSince1970)
+        for i in 0..<allChannels.count {
+            if allChannels[i].channelID == channelId {
+                allChannels[i].countMessUnread = 0
+                allChannels[i].lastSeenMessage.timestampSeconds = now
+            }
+        }
+        let cats = buildChannelCategories(allChannels).map { cat -> ChannelCategory in
+            if let existing = self.categories.first(where: { $0.id == cat.id }) {
+                return ChannelCategory(id: cat.id, name: cat.name, isCollapsed: existing.isCollapsed, channels: cat.channels)
+            }
+            return cat
+        }
+        self.categories = cats
+        categoriesPipe.putNext(cats)
+        needsReloadPipe.putNext(())
+    }
 
     private func setCategories(_ v: [ChannelCategory]) { categories = v; categoriesPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setSelectedChannelId(_ v: Int64?) { selectedChannelId = v; selectedChannelIdPipe.putNext(v) }

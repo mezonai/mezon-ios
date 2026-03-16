@@ -33,6 +33,7 @@ final class MessageTable: Table {
         db.rawExecute("ALTER TABLE messages ADD COLUMN sending_state INTEGER NOT NULL DEFAULT 1")
         db.rawExecute("ALTER TABLE messages ADD COLUMN attachments_json BLOB")
         db.rawExecute("ALTER TABLE messages ADD COLUMN reactions_json BLOB")
+        db.rawExecute("ALTER TABLE messages ADD COLUMN references_data BLOB")
     }
 
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
@@ -42,7 +43,7 @@ final class MessageTable: Table {
             """
             SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
                    is_deleted, sender_display_name, sender_avatar_url, sending_state,
-                   attachments_json, reactions_json
+                   attachments_json, reactions_json, references_data
             FROM messages
             WHERE channel_id = ? AND is_deleted = 0
             ORDER BY created_at ASC
@@ -84,12 +85,18 @@ final class MessageTable: Table {
                 reactionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 12)))
             } else { reactionsJSON = Data() }
 
+            let referencesData: Data
+            if sqlite3_column_type(stmt, 13) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 13) {
+                referencesData = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 13)))
+            } else { referencesData = Data() }
+
             return MessageRecord(
                 id: id, channelId: chId, clanId: clanId, senderId: senderId,
                 content: content, createdAt: createdAt, editedAt: editedAt,
                 isDeleted: isDeleted, senderDisplayName: displayName,
                 senderAvatarURL: avatarURL, sendingState: sendingState,
-                attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON
+                attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON,
+                referencesData: referencesData
             )
         }
 
@@ -101,6 +108,16 @@ final class MessageTable: Table {
     func addMessages(_ messages: [MessageRecord]) {
         for msg in messages {
             var current = cache[msg.channelId] ?? []
+
+
+            if !msg.id.hasPrefix("pending-") {
+                let pendingIds = current.filter { $0.id.hasPrefix("pending-") && $0.senderId == msg.senderId }.map(\.id)
+                for pid in pendingIds {
+                    current.removeAll { $0.id == pid }
+                    pendingDeletes.insert(pid)
+                }
+            }
+
             if let idx = current.firstIndex(where: { $0.id == msg.id }) {
                 current[idx] = msg
             } else {
@@ -129,7 +146,8 @@ final class MessageTable: Table {
                     createdAt: old.createdAt, editedAt: old.editedAt,
                     isDeleted: old.isDeleted, senderDisplayName: old.senderDisplayName,
                     senderAvatarURL: old.senderAvatarURL, sendingState: .failed,
-                    attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON
+                    attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON,
+                    referencesData: old.referencesData
                 )
                 pendingWrites.insert(channelId)
                 db.run("UPDATE messages SET sending_state = 2 WHERE id = ?") {
@@ -168,8 +186,8 @@ final class MessageTable: Table {
                         id, channel_id, clan_id, sender_id, content,
                         created_at, edited_at, is_deleted,
                         sender_display_name, sender_avatar_url, sending_state,
-                        attachments_json, reactions_json
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        attachments_json, reactions_json, references_data
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in
                     sqlite3_bind_text(s, 1, record.id,        -1, nil)
                     sqlite3_bind_text(s, 2, record.channelId, -1, nil)
@@ -197,6 +215,11 @@ final class MessageTable: Table {
                             sqlite3_bind_blob(s, 13, buf.baseAddress, Int32(buf.count), nil)
                         }
                     } else { sqlite3_bind_null(s, 13) }
+                    if !record.referencesData.isEmpty {
+                        record.referencesData.withUnsafeBytes { buf in
+                            sqlite3_bind_blob(s, 14, buf.baseAddress, Int32(buf.count), nil)
+                        }
+                    } else { sqlite3_bind_null(s, 14) }
                 }
             }
         }
