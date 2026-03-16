@@ -115,6 +115,7 @@ final class DmListItemCell: UITableViewCell {
         containerView.addSubview(nameLabel)
         containerView.addSubview(lastMessageLabel)
         containerView.addSubview(timeLabel)
+        containerView.addSubview(unreadBadge)
 
         let avatarSize: CGFloat = 40.swh
 
@@ -151,8 +152,13 @@ final class DmListItemCell: UITableViewCell {
 
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             lastMessageLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 3.sh),
-            lastMessageLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
+            lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: unreadBadge.leadingAnchor, constant: -6.sw),
             lastMessageLabel.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: -8.sh),
+
+            unreadBadge.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
+            unreadBadge.centerYAnchor.constraint(equalTo: lastMessageLabel.centerYAnchor),
+            unreadBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 20.swh),
+            unreadBadge.heightAnchor.constraint(equalToConstant: 20.swh),
         ])
     }
 
@@ -161,6 +167,7 @@ final class DmListItemCell: UITableViewCell {
         let displayName = displayName(for: channel)
         let unread = channel.countMessUnread
         let isUnread = unread > 0
+            || (channel.hasLastSentMessage && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
 
         nameLabel.text = displayName
         nameLabel.textColor = isUnread ? .white : UIColor.theme.textDisabled
@@ -201,6 +208,13 @@ final class DmListItemCell: UITableViewCell {
         lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+
+        if unread > 0 {
+            unreadBadge.text = unread > 99 ? "99+" : "\(unread)"
+            unreadBadge.isHidden = false
+        } else {
+            unreadBadge.isHidden = true
+        }
     }
 
     private func loadImage(url: URL) {
