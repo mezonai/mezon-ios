@@ -64,15 +64,15 @@ enum AppTheme: String, CaseIterable {
     case abyssDark
     case sunset
 
-    var displayName: String {
+    var localizedDisplayName: String {
         switch self {
-        case .dark:       return "Dark"
-        case .light:      return "Light"
-        case .sunrise:    return "Sunrise"
-        case .redDark:    return "Red Dark"
-        case .purpleHaze: return "Purple Haze"
-        case .abyssDark:  return "Abyss Dark"
-        case .sunset:     return "Sunset"
+        case .dark:       return L(L10n.Theme.dark)
+        case .light:      return L(L10n.Theme.light)
+        case .sunrise:    return L(L10n.Theme.sunrise)
+        case .redDark:    return L(L10n.Theme.redDark)
+        case .purpleHaze: return L(L10n.Theme.purpleHaze)
+        case .abyssDark:  return L(L10n.Theme.abyssDark)
+        case .sunset:     return L(L10n.Theme.sunset)
         }
     }
 

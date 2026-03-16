@@ -50,16 +50,38 @@ enum L10n {
     }
 
     enum Settings {
-        static let title          = "settings.title"
-        static let language       = "settings.language"
-        static let theme          = "settings.theme"
-        static let notifications  = "settings.notifications"
-        static let account        = "settings.account"
-        static let privacy        = "settings.privacy"
+        static let title             = "settings.title"
+        static let language          = "settings.language"
+        static let theme             = "settings.theme"
+        static let notifications     = "settings.notifications"
+        static let account           = "settings.account"
+        static let privacy           = "settings.privacy"
+        static let accountSettings   = "settings.accountSettings"
+        static let appSettings       = "settings.appSettings"
+        static let friendRequests    = "settings.friendRequests"
+        static let myQRCode          = "settings.myQRCode"
+        static let qrScan           = "settings.qrScan"
+        static let devices           = "settings.devices"
+        static let appVersion        = "settings.appVersion"
+        static let appearance        = "settings.appearance"
+        static let logout            = "settings.logout"
     }
 
     enum Language {
         static let title          = "language.title"
+    }
+
+    enum Theme {
+        static let title          = "theme.title"
+        static let conversation  = "theme.conversation"
+        static let canChangeLater = "theme.canChangeLater"
+        static let dark           = "theme.dark"
+        static let light          = "theme.light"
+        static let sunrise        = "theme.sunrise"
+        static let redDark        = "theme.redDark"
+        static let purpleHaze     = "theme.purpleHaze"
+        static let abyssDark      = "theme.abyssDark"
+        static let sunset        = "theme.sunset"
     }
 
     enum Login {
@@ -174,14 +196,34 @@ extension L10n {
         "common.theme":         "Theme",
         "common.language":      "Language",
 
-        "settings.title":         "Settings",
-        "settings.language":      "Language",
-        "settings.theme":         "Theme",
-        "settings.notifications": "Notifications",
-        "settings.account":       "Account",
-        "settings.privacy":       "Privacy",
+        "settings.title":           "Settings",
+        "settings.language":        "Language",
+        "settings.theme":           "Theme",
+        "settings.notifications":   "Notifications",
+        "settings.account":         "Account",
+        "settings.privacy":         "Privacy",
+        "settings.accountSettings": "Account Settings",
+        "settings.appSettings":     "App Settings",
+        "settings.friendRequests":  "Friend Requests",
+        "settings.myQRCode":        "My QR Code",
+        "settings.qrScan":          "QR Scan",
+        "settings.devices":         "Devices",
+        "settings.appVersion":      "App Version",
+        "settings.appearance":      "Appearance",
+        "settings.logout":          "Logout",
 
         "language.title":         "Language Settings",
+
+        "theme.title":            "App Theme",
+        "theme.conversation":     "Conversation",
+        "theme.canChangeLater":   "You can always change this later!",
+        "theme.dark":             "Dark",
+        "theme.light":            "Light",
+        "theme.sunrise":          "Sunrise",
+        "theme.redDark":          "Red Dark",
+        "theme.purpleHaze":       "Purple Haze",
+        "theme.abyssDark":        "Abyss Dark",
+        "theme.sunset":           "Sunset",
 
         "login.welcomeBack":    "WELCOME BACK",
         "login.email":          "Email",
@@ -286,14 +328,34 @@ extension L10n {
         "common.theme":         "Chủ đề",
         "common.language":      "Ngôn ngữ",
 
-        "settings.title":         "Cài đặt",
-        "settings.language":      "Ngôn ngữ",
-        "settings.theme":         "Chủ đề",
-        "settings.notifications": "Thông báo",
-        "settings.account":       "Tài khoản",
-        "settings.privacy":       "Quyền riêng tư",
+        "settings.title":           "Cài đặt",
+        "settings.language":        "Ngôn ngữ",
+        "settings.theme":           "Chủ đề",
+        "settings.notifications":   "Thông báo",
+        "settings.account":         "Tài khoản",
+        "settings.privacy":         "Quyền riêng tư",
+        "settings.accountSettings": "Cài đặt tài khoản",
+        "settings.appSettings":     "Cài đặt ứng dụng",
+        "settings.friendRequests":  "Lời mời kết bạn",
+        "settings.myQRCode":        "Mã QR của tôi",
+        "settings.qrScan":          "Quét mã QR",
+        "settings.devices":         "Thiết bị",
+        "settings.appVersion":      "Phiên bản ứng dụng",
+        "settings.appearance":      "Giao diện",
+        "settings.logout":          "Đăng xuất",
 
         "language.title":         "Cài đặt ngôn ngữ",
+
+        "theme.title":            "Chủ đề ứng dụng",
+        "theme.conversation":     "Hội thoại",
+        "theme.canChangeLater":   "Bạn có thể thay đổi bất cứ lúc nào!",
+        "theme.dark":             "Tối",
+        "theme.light":            "Sáng",
+        "theme.sunrise":          "Bình minh",
+        "theme.redDark":          "Đỏ đậm",
+        "theme.purpleHaze":       "Tím mộng mơ",
+        "theme.abyssDark":        "Vực thẳm tối",
+        "theme.sunset":           "Hoàng hôn",
 
         "login.welcomeBack":    "CHÀO MỪNG TRỞ LẠI",
         "login.email":          "Email",
