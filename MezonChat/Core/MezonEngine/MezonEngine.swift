@@ -13,6 +13,7 @@ final class MezonEngine {
     lazy var clans = Clans(engine: self)
     lazy var channels = Channels(engine: self)
     lazy var messages = Messages(engine: self)
+    lazy var notifications = Notifications(engine: self)
     lazy var peers = Peers(engine: self)
     lazy var clanData = ClanData(engine: self)
     lazy var data = EngineData(postbox: account.postbox)

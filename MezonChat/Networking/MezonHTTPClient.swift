@@ -120,7 +120,7 @@ final class MezonHTTPClient {
         let _: EmptyResponse = try await post(
             path: "/v2/session/logout",
             body: Body(token: session.token, refresh_token: session.refreshToken,
-                       device_id: deviceId, platform: platform),
+                device_id: deviceId, platform: platform),
             auth: .bearer(session.token)
         )
     }
@@ -166,6 +166,22 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.clandesc
+    }
+
+    func listNotifications(clanID: Int64, category: Int32, token: String, notificationID: Int64) async throws
+        -> [Mezon_Api_Notification]
+    {
+        var req = Mezon_Api_ListNotificationsRequest()
+        req.limit = 50
+        req.clanID = clanID
+        req.notificationID = notificationID | 0
+        req.category = category
+        let response: Mezon_Api_NotificationList = try await postProto(
+            path: "/mezon.api.Mezon/ListNotifications",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.notifications
     }
 
     func getUserProfileOnClan(clanId: Int64, token: String) async throws -> Mezon_Api_ClanProfile {

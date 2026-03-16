@@ -5,6 +5,7 @@ enum PostboxViewKey: Hashable {
     case channelList(clanId: Int64)
     case messageHistory(channelId: String)
     case preferences(key: String)
+    case notificationList(clanId: Int64, category: Int32)
 }
 
 protocol PostboxView {}
