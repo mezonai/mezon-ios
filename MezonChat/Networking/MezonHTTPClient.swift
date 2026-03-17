@@ -343,8 +343,11 @@ final class MezonHTTPClient {
     }
 
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
-        var req = Mezon_Api_ListClanUsersRequest()
+        var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
+        req.channelType = MezonConstants.ChannelType.streaming.rawValue
+        req.limit = 100
+        req.state = 1
         return try await postProto(
             path: "/mezon.api.Mezon/ListStreamingChannelUsers",
             message: req,

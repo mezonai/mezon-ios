@@ -433,7 +433,7 @@ final class ChatViewController: ViewController {
             recordsToShow = Array(validRecords.dropFirst())
         }
         let displays = recordsToShow.map { record -> ChatMessageDisplay in
-            let parsed = MessageContentParser.parse(data: record.content)
+            let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
             let attachments = Self.parseAttachments(record.attachmentsJSON)

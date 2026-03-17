@@ -74,8 +74,6 @@ final class MezonRootController: NavigationController {
         self.rootTabController = tabBarController
 
         pushViewController(tabBarController, animated: false)
-
-        Task { await directMessagesVC.fetchDirectMessages() }
     }
 
     static func makeNavTheme() -> NavigationControllerTheme {

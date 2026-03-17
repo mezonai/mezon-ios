@@ -16,6 +16,7 @@ final class AccountContextImpl: AccountContext {
     private(set) var session: MezonSession?
     private(set) var currentUser: User?
     private(set) var isLoggedIn: Bool = false
+    private var hasCompletedInitialSetup = false
     private(set) var isSessionReady: Bool = false
 
     var currentClanId: Int64 = 0
@@ -56,8 +57,21 @@ final class AccountContextImpl: AccountContext {
     }
 
     func login(user: User, session: MezonSession) {
-        applySession(session, user: user)
+        applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
+        hasCompletedInitialSetup = true
+        lastRecoverTime = Date()
+
+        Task { @MainActor in
+            do {
+                try await refreshSession()
+            } catch {
+                AppLogger.network.warning("[Auth] cold launch refresh failed: \(error)")
+            }
+            if let freshSession = self.session {
+                applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
+            }
+        }
     }
 
     func logout() {
@@ -85,7 +99,7 @@ final class AccountContextImpl: AccountContext {
     private let recoverThrottle: TimeInterval = 20
 
     func recoverFromForeground() {
-        guard session != nil, isLoggedIn else { return }
+        guard hasCompletedInitialSetup, session != nil, isLoggedIn else { return }
         let now = Date()
         if let last = lastRecoverTime, now.timeIntervalSince(last) < recoverThrottle { return }
         lastRecoverTime = now

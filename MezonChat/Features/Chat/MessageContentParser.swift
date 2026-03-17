@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProtobuf
 
 struct ParsedContent {
     let text: String
@@ -27,7 +28,7 @@ struct ContentToken {
 
 enum MessageContentParser {
 
-    static func parse(data: Data) -> ParsedContent {
+    static func parse(data: Data, mentionsData: Data = Data()) -> ParsedContent {
         guard !data.isEmpty,
               let str = String(data: data, encoding: .utf8),
               !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -47,6 +48,14 @@ enum MessageContentParser {
 
         if let mentions = json["mentions"] as? [[String: Any]] {
             tokens.append(contentsOf: parseMentions(mentions))
+        } else if !mentionsData.isEmpty {
+            let mentionTokens = parseMentionsFromProto(mentionsData)
+            let validMentions = mentionTokens.filter { token in
+                let idx = text.index(text.startIndex, offsetBy: token.start, limitedBy: text.endIndex)
+                guard let i = idx, i < text.endIndex else { return false }
+                return text[i] == "@"
+            }
+            tokens.append(contentsOf: validMentions)
         }
 
         if let hg = json["hg"] as? [[String: Any]] {
@@ -83,6 +92,25 @@ enum MessageContentParser {
             let username = stringValue(item["username"])
             return ContentToken(start: s, end: e, kind: .mention(userId: userId, roleId: roleId, username: username))
         }
+    }
+
+    private static func parseMentionsFromProto(_ data: Data) -> [ContentToken] {
+        if let list = try? Mezon_Api_MessageMentionList(serializedBytes: data), !list.mentions.isEmpty {
+            return list.mentions.compactMap { m -> ContentToken? in
+                let s = Int(m.s)
+                let e = Int(m.e)
+                guard e > s else { return nil }
+                guard m.userID != 0 || m.roleID != 0 else { return nil }
+                let userId = m.userID != 0 ? "\(m.userID)" : nil
+                let roleId = m.roleID != 0 ? "\(m.roleID)" : nil
+                let username = m.username.isEmpty ? nil : m.username
+                return ContentToken(start: s, end: e, kind: .mention(userId: userId, roleId: roleId, username: username))
+            }
+        }
+        if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            return parseMentions(jsonArray)
+        }
+        return []
     }
 
     private static func parseHashtags(_ items: [[String: Any]]) -> [ContentToken] {
