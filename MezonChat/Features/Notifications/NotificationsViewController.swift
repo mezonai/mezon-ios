@@ -2,7 +2,7 @@ import AsyncDisplayKit
 import Combine
 import UIKit
 
-final class NotificationViewController: ViewController {
+final class NotificationsViewController: ViewController {
 
     // MARK: - Dependencies
 
@@ -60,10 +60,19 @@ final class NotificationViewController: ViewController {
         displayNode = NotificationsContainerNode(signal: stateSignal(), interaction: interaction)
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        notificationsNode.applyTheme()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleThemeChange),
+            name: ThemeManager.didChangeNotification, object: nil)
+    }
+
     // MARK: - Lifecycle
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        notificationsNode.applyTheme()
         // Fetch the default tab (Mentions = tag 1)
         Task { await fetchNotifications(category: 1) }
     }
@@ -202,6 +211,10 @@ final class NotificationViewController: ViewController {
         isLoadingMore = v
         isLoadingMorePipe.putNext(v)
         needsReloadPipe.putNext(())
+    }
+
+    @objc private func handleThemeChange() {
+        notificationsNode.applyTheme()
     }
 
     // MARK: - State Signal

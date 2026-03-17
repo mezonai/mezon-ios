@@ -43,21 +43,28 @@ enum ChannelListRow {
 }
 
 enum ChannelType: Int32 {
-    case text = 1, voice = 2, group = 3, thread = 4, streaming = 9, app = 5, forum = 10, unknown = 0
+    case text = 1
+    case voice = 10
+    case group = 3
+    case thread = 4
+    case streaming = 6
+    case app = 8
+    case forum = 11
+    case unknown = 0
 
     var icon: String {
         switch self {
-        case .text: return "#"
-        case .voice: return "speaker.wave.2.fill"
-        case .thread: return "arrow.turn.down.right"
-        case .streaming: return "video.fill"
-        case .app: return "app.fill"
-        case .forum: return "text.bubble.fill"
-        default: return "#"
+        case .text: return "Channel/channel"
+        case .voice: return "Channel/channelVoice"
+        case .thread: return "Channel/ChevronRight"
+        case .streaming: return "Channel/channelStream"
+        case .app: return "Channel/channelApp"
+        case .forum: return "Channel/channel"
+        default: return "Channel/channel"
         }
     }
 
-    var isSystemImage: Bool { self != .text }
+    var isSystemImage: Bool { true }
 }
 
 private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription]) -> [ChannelCategory] {
@@ -263,23 +270,23 @@ final class ChannelListViewController: ViewController {
             |> deliverOnMainQueue
 
         fetchDisposable.set(signal.start(next: { [weak self] result in
-            guard let self else { return }
-            self.isLoading = false
-            switch result {
-            case .success(let channels):
-                self.allChannels = channels
-                let cats = buildChannelCategories(channels)
-                self.categories = cats
-                self.channelsLoadedPromise.set(true)
-                self.persistSelectedChannel()
-                self.categoriesPipe.putNext(cats)
-            case .failure(let msg):
-                self.errorMessage = msg
-                self.errorMessagePipe.putNext(msg)
-            }
-            self.isLoadingPipe.putNext(false)
-            self.needsReloadPipe.putNext(())
-        }))
+                guard let self else { return }
+                self.isLoading = false
+                switch result {
+                case .success(let channels):
+                    self.allChannels = channels
+                    let cats = buildChannelCategories(channels)
+                    self.categories = cats
+                    self.channelsLoadedPromise.set(true)
+                    self.persistSelectedChannel()
+                    self.categoriesPipe.putNext(cats)
+                case .failure(let msg):
+                    self.errorMessage = msg
+                    self.errorMessagePipe.putNext(msg)
+                }
+                self.isLoadingPipe.putNext(false)
+                self.needsReloadPipe.putNext(())
+            }))
     }
 
     func toggleCollapse(categoryId: Int64) {

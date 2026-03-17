@@ -8,7 +8,7 @@ final class MezonRootController: NavigationController {
     private(set) var rootTabController: TabBarController?
     private(set) var homeController: HomeViewController?
     private(set) var directMessagesController: DirectMessagesViewController?
-    private(set) var notificationsController: NotificationViewController?
+    private(set) var notificationsController: NotificationsViewController?
     private(set) var profileController: ProfileViewController?
 
     init(context: AccountContext) {
@@ -53,7 +53,7 @@ final class MezonRootController: NavigationController {
         let (notifImg, notifSel) = Self.tabBarImage(
             name: "TabBar/NotificationIcon", systemFallback: "bell",
             systemFallbackSelected: "bell.fill")
-        let notificationsVC = NotificationViewController(context: context)
+        let notificationsVC = NotificationsViewController(context: context)
         notificationsVC.tabBarItem = UITabBarItem(
             title: L(L10n.Tab.notifications),
             image: notifImg,
