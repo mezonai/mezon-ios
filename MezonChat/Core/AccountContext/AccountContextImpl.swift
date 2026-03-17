@@ -86,6 +86,7 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.socket.disconnect()
         account.postbox.clearAll()
+        UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         setLoggedIn(false)
     }
 
