@@ -184,6 +184,29 @@ final class MezonHTTPClient {
         return response.notifications
     }
 
+    func listSdTopics(clanID: Int64, token: String) async throws -> [Mezon_Api_SdTopic] {
+        var req = Mezon_Api_ListSdTopicRequest()
+        req.clanID = clanID
+        req.limit = 50
+        let response: Mezon_Api_SdTopicList = try await postProto(
+            path: "/mezon.api.Mezon/ListSdTopic",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.topics
+    }
+
+    func getTopicDetail(topicId: Int64, token: String) async throws -> Mezon_Api_SdTopic {
+        var req = Mezon_Api_SdTopicDetailRequest()
+        req.topicID = topicId
+        let response: Mezon_Api_SdTopic = try await postProto(
+            path: "/mezon.api.Mezon/GetTopicDetail",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response
+    }
+
     func getUserProfileOnClan(clanId: Int64, token: String) async throws -> Mezon_Api_ClanProfile {
         var req = Mezon_Api_ClanProfileRequest()
         req.clanID = clanId

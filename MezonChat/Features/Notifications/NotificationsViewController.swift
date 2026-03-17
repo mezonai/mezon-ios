@@ -10,17 +10,16 @@ final class NotificationViewController: ViewController {
 
     // MARK: - State pipes (Signal-based, matching MessagesViewController pattern)
 
-    private let notificationsPipe = ValuePipe<[Notifications]>()
+    private let itemsPipe = ValuePipe<[NotificationItem]>()
     private let isLoadingPipe = ValuePipe<Bool>()
     private let isLoadingMorePipe = ValuePipe<Bool>()
     private let needsReloadPipe = ValuePipe<Void>()
 
-    private(set) var notifications: [Notifications] = []
+    private(set) var items: [NotificationItem] = []
     private(set) var isLoading: Bool = false
     private(set) var isLoadingMore: Bool = false
     private(set) var currentCategory: Int32 = 1
 
-    private var cancellables = Set<AnyCancellable>()
     private var dataDisposable: Disposable?
 
     // MARK: - Node accessor
@@ -49,7 +48,13 @@ final class NotificationViewController: ViewController {
             },
             onLoadMore: { [weak self] in
                 guard let self else { return }
-                Task { await self.fetchNotifications(category: self.currentCategory, isLoadMore: true) }
+                Task {
+                    await self.fetchNotifications(category: self.currentCategory, isLoadMore: true)
+                }
+            },
+            onItemSelected: { [weak self] item in
+                guard let self else { return }
+                self.processItemDetail(item)
             }
         )
         displayNode = NotificationsContainerNode(signal: stateSignal(), interaction: interaction)
@@ -89,30 +94,52 @@ final class NotificationViewController: ViewController {
             guard !isLoading else { return }
         }
         guard let token = context.session?.token else { return }
-        
+
         let clanId = context.currentClanId
-        
+
+        // Handle Topic Tab (tag 4)
+        if category == 4 {
+            dataDisposable?.dispose()  // Dispose previous subscription if any
+            asyncDetached { [weak self] in
+                guard let self else { return }
+                do {
+                    try await context.engine.topicDiscussion.listTopics(
+                        clanId: clanId, token: token)
+                } catch {
+                    AppLogger.network.error("fetchTopics error: \(error)")
+                }
+            }
+
+            dataDisposable =
+                (context.engine.data.subscribe(
+                    MezonEngine.EngineData.Item.TopicList(clanId: clanId)
+                ) |> deliverOnMainQueue).start(next: { [weak self] topics in
+                    self?.setItems(topics.map { .topic($0) })
+                })
+            return
+        }
+
         var notificationId: Int64 = 0
-        if isLoadMore, let last = notifications.last {
+        if isLoadMore, let last = items.last {
             notificationId = last.id
             setIsLoadingMore(true)
         } else {
             setIsLoading(true)
         }
-        
-        defer { 
-            if isLoadMore { setIsLoadingMore(false) } 
-            else { setIsLoading(false) } 
+
+        defer {
+            if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
         }
 
         // Subscribe to real-time engine data changes
         if !isLoadMore {
             dataDisposable?.dispose()
-            dataDisposable = (context.engine.data.subscribe(
-                MezonEngine.EngineData.Item.NotificationList(clanId: clanId, category: category)
-            ) |> deliverOnMainQueue).start(next: { [weak self] notifications in
-                self?.setNotifications(notifications)
-            })
+            dataDisposable =
+                (context.engine.data.subscribe(
+                    MezonEngine.EngineData.Item.NotificationList(clanId: clanId, category: category)
+                ) |> deliverOnMainQueue).start(next: { [weak self] notifications in
+                    self?.setNotifications(notifications)
+                })
         }
 
         do {
@@ -131,10 +158,38 @@ final class NotificationViewController: ViewController {
         dataDisposable?.dispose()
     }
 
-    private func setNotifications(_ v: [Notifications]) {
-        notifications = v
-        notificationsPipe.putNext(v)
+    private func setNotifications(_ v: [NotificationRecord]) {
+        self.items = v.map { .notification($0) }
         needsReloadPipe.putNext(())
+    }
+
+    private func setItems(_ v: [NotificationItem]) {
+        self.items = v
+        needsReloadPipe.putNext(())
+    }
+
+    private func processItemDetail(_ item: NotificationItem) {
+        var channel = Mezon_Api_ChannelDescription()
+        switch item {
+        case .notification(let record):
+            channel.clanID = record.clanID
+            channel.channelID = record.channelID
+            channel.type = record.channelType
+            // For notifications, we navigate to the chat.
+            // topicID in record might be used if ChatViewController supported it.
+            let vc = ChatViewController(
+                clanId: record.clanID, channel: channel, context: self.context)
+            self.navigationController?.pushViewController(vc, animated: true)
+        case .topic(let record):
+            channel.clanID = record.clanID
+            channel.channelID = record.channelID
+            // For topics, we also navigate to the chat but specifically for this topic
+            // TODO: Ensure ChatViewController handles topicId from notification/direct select
+            let vc = ChatViewController(
+                clanId: record.clanID, channel: channel, context: self.context)
+            // If ChatViewController is updated to take topicId, we would pass record.id here.
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
     }
 
     private func setIsLoading(_ v: Bool) {
@@ -152,7 +207,8 @@ final class NotificationViewController: ViewController {
     // MARK: - State Signal
 
     var currentState: NotificationsState {
-        NotificationsState(notifications: notifications, isLoading: isLoading, isLoadingMore: isLoadingMore)
+        return NotificationsState(
+            items: items, isLoading: isLoading, isLoadingMore: isLoadingMore)
     }
 
     func stateSignal() -> Signal<NotificationsState, NoError> {

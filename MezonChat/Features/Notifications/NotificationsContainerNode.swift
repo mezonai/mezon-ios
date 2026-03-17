@@ -4,12 +4,78 @@ import UIKit
 
 // MARK: - State
 
-struct NotificationsState {
-    var notifications: [Notifications]
-    var isLoading: Bool
-    var isLoadingMore: Bool
+private struct TopicContent: Decodable {
+    let t: String?
+}
 
-    static let empty = NotificationsState(notifications: [], isLoading: false, isLoadingMore: false)
+enum NotificationItem {
+    case notification(NotificationRecord)
+    case topic(TopicRecord)
+
+    var id: Int64 {
+        switch self {
+        case .notification(let n): return n.id
+        case .topic(let t): return t.id
+        }
+    }
+
+    var subject: String {
+        switch self {
+        case .notification(let n): return n.subject
+        case .topic(let t):
+            if let decoded: TopicContent = safeJsonDecode(t.content, to: TopicContent.self),
+                let text = decoded.t
+            {
+                return L(L10n.Notifications.repliedTo) + text
+            }
+            return L(L10n.Notifications.repliedTo) + t.content
+        }
+    }
+
+    var content: String {
+        switch self {
+        case .notification(let n): return n.content
+        case .topic(let t):
+
+            let msgText: String
+            if let decoded: TopicContent = safeJsonDecode(
+                t.lastSentMessageContent, to: TopicContent.self),
+                let text = decoded.t, !text.isEmpty
+            {
+                msgText = text
+            } else if !t.lastSentMessageContent.isEmpty && t.lastSentMessageContent != "{}" {
+                msgText = t.lastSentMessageContent
+            } else {
+                msgText = L(L10n.Notifications.unreachableMessage)
+            }
+
+            let line = L(L10n.Notifications.sender) + msgText
+
+            return line
+        }
+    }
+
+    var avatarURL: String {
+        switch self {
+        case .notification(let n): return n.avatarURL
+        case .topic(let t): return "default"
+        }
+    }
+
+    var createTimeSeconds: UInt32 {
+        switch self {
+        case .notification(let n): return n.createTimeSeconds
+        case .topic(let t): return t.updateTimeSeconds
+        }
+    }
+}
+
+struct NotificationsState {
+    let items: [NotificationItem]
+    let isLoading: Bool
+    let isLoadingMore: Bool
+
+    static let empty = NotificationsState(items: [], isLoading: false, isLoadingMore: false)
 }
 
 // MARK: - Interaction
@@ -17,6 +83,7 @@ struct NotificationsState {
 struct NotificationsInteraction {
     let onTabSelected: (Int32) -> Void  // passes the category tag
     let onLoadMore: () -> Void
+    let onItemSelected: (NotificationItem) -> Void
 }
 
 // MARK: - NotificationItemCell
@@ -48,8 +115,9 @@ final class NotificationItemCell: UITableViewCell {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15, weight: .semibold)
+        l.font = .systemFont(ofSize: 14, weight: .semibold)
         l.textColor = .mezonTextPrimary
+        l.numberOfLines = 2
         l.translatesAutoresizingMaskIntoConstraints = false
         l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return l
@@ -125,8 +193,11 @@ final class NotificationItemCell: UITableViewCell {
 
             // Title
             titleLabel.topAnchor.constraint(equalTo: timeLabel.topAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 24),
-            titleLabel.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -8),
+            titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -8),
+            titleLabel.widthAnchor.constraint(
+                lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8),
 
             // Vertical accent line
             verticalLine.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
@@ -139,7 +210,9 @@ final class NotificationItemCell: UITableViewCell {
             contentLabel.leadingAnchor.constraint(
                 equalTo: verticalLine.trailingAnchor, constant: 8),
             contentLabel.trailingAnchor.constraint(
-                equalTo: contentView.trailingAnchor, constant: -16),
+                lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
+            contentLabel.widthAnchor.constraint(
+                lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8),
             contentLabel.bottomAnchor.constraint(
                 lessThanOrEqualTo: separatorLine.topAnchor, constant: -16),
 
@@ -151,12 +224,13 @@ final class NotificationItemCell: UITableViewCell {
         ])
     }
 
-    func configure(with notification: Notifications) {
-        titleLabel.text = notification.subject
-        contentLabel.text = notification.content.isEmpty ? nil : notification.content
+    func configure(with item: NotificationItem) {
+        print("configure with item: \(item)")
+        titleLabel.text = item.subject
+        contentLabel.text = item.content.isEmpty ? nil : item.content
 
         // Avatar
-        let avatarURLStr = notification.avatarURL
+        let avatarURLStr = item.avatarURL
         imageTask?.cancel()
         if !avatarURLStr.isEmpty, let url = URL(string: avatarURLStr) {
             avatarPlaceholder.isHidden = true
@@ -170,11 +244,11 @@ final class NotificationItemCell: UITableViewCell {
             avatarView.image = nil
             avatarPlaceholder.isHidden = false
             avatarPlaceholder.text =
-                notification.subject.first.map { String($0).uppercased() } ?? "N"
+                item.subject.first.map { String($0).uppercased() } ?? "N"
         }
 
         // Relative time
-        let date = Date(timeIntervalSince1970: TimeInterval(notification.createTimeSeconds))
+        let date = Date(timeIntervalSince1970: TimeInterval(item.createTimeSeconds))
         let diff = Int(Date().timeIntervalSince(date))
         if diff < 60 {
             timeLabel.text = "Just now"
@@ -212,11 +286,45 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     private let headerView = UIView()
     private let titleLabel = UILabel()
+    private let addFriendButton = UIButton(type: .system)
     private let tabScrollView = UIScrollView()
     private let tabStackView = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
-    private let emptyLabel = UILabel()
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+
+    // Empty state
+    private let emptyStateStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.alignment = .center
+        sv.spacing = 16
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        sv.isHidden = true
+        return sv
+    }()
+    private let emptyImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+    private let emptyTitleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 17, weight: .semibold)
+        l.textColor = .mezonTextPrimary
+        l.textAlignment = .center
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    private let emptyDescLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14)
+        l.textColor = .mezonTextSecondary
+        l.textAlignment = .center
+        l.numberOfLines = 0
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
 
     private var tabButtons: [UIButton] = []
 
@@ -230,6 +338,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         TabInfo(title: L(L10n.Notifications.mentions), tag: 1, iconName: "Notifications/mentions"),
         TabInfo(title: L(L10n.Notifications.messages), tag: 2, iconName: "Notifications/messages"),
         TabInfo(title: L(L10n.Notifications.forYou), tag: 3, iconName: "Notifications/forYou"),
+        TabInfo(title: L(L10n.Notifications.topic), tag: 4, iconName: "Notifications/topic"),
     ]
     private var selectedTabIndex: Int = 0
 
@@ -244,8 +353,8 @@ final class NotificationsContainerNode: ASDisplayNode {
                 guard let self else { return }
                 self.state = newState
                 self.tableView.reloadData()
-                let isEmpty = newState.notifications.isEmpty && !newState.isLoading
-                self.emptyLabel.isHidden = !isEmpty
+                let isEmpty = newState.items.isEmpty && !newState.isLoading
+                self.emptyStateStack.isHidden = !isEmpty
                 if newState.isLoading {
                     self.loadingIndicator.startAnimating()
                 } else {
@@ -276,22 +385,41 @@ final class NotificationsContainerNode: ASDisplayNode {
 
         // Title label
         titleLabel.text = L(L10n.Notifications.title)
-        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
         titleLabel.textColor = .mezonTextPrimary
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        headerView.translatesAutoresizingMaskIntoConstraints = false
+        // Add friend button — bordered rounded icon button
+        var cfg = UIButton.Configuration.plain()
+        cfg.cornerStyle = .capsule
+        cfg.background.strokeColor = .mezonBorder
+        cfg.background.strokeWidth = 1.5
+        cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        if let raw = UIImage(named: "Notifications/addfriend") {
+            let iconSize = CGSize(width: 20, height: 20)
+            let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
+            let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
+            let origin = CGPoint(
+                x: (iconSize.width - drawSize.width) / 2,
+                y: (iconSize.height - drawSize.height) / 2)
+            let renderer = UIGraphicsImageRenderer(size: iconSize)
+            let resized = renderer.image { _ in
+                raw.draw(in: CGRect(origin: origin, size: drawSize))
+            }
+            cfg.image = resized.withRenderingMode(.alwaysTemplate)
+        }
+        cfg.baseForegroundColor = .mezonTextPrimary
+        addFriendButton.configuration = cfg
+        addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
+        addFriendButton.accessibilityIdentifier = "notif_add_friend"
 
         // Tab scroll
         tabScrollView.showsHorizontalScrollIndicator = false
         tabScrollView.showsVerticalScrollIndicator = false
-        tabScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         tabStackView.axis = .horizontal
         tabStackView.spacing = 8
         tabStackView.alignment = .center
-        tabStackView.distribution = .fillProportionally
-        tabStackView.translatesAutoresizingMaskIntoConstraints = false
+        tabStackView.distribution = .fill
 
         tabScrollView.addSubview(tabStackView)
         buildTabButtons()
@@ -305,26 +433,39 @@ final class NotificationsContainerNode: ASDisplayNode {
             NotificationItemCell.self, forCellReuseIdentifier: NotificationItemCell.reuseId)
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Empty label
-        emptyLabel.text = "No notifications"
-        emptyLabel.font = .systemFont(ofSize: 15)
-        emptyLabel.textColor = .mezonTextSecondary
-        emptyLabel.textAlignment = .center
-        emptyLabel.isHidden = true
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Empty state
+        emptyImageView.image = UIImage(named: "Notifications/emptyNotifications")
+        emptyImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        NSLayoutConstraint.activate([
+            emptyImageView.widthAnchor.constraint(equalToConstant: 300),
+            emptyImageView.heightAnchor.constraint(equalToConstant: 300),
+        ])
+        emptyTitleLabel.text = L(L10n.Notifications.emptyTitle)
+        emptyDescLabel.text = L(L10n.Notifications.emptyDescription)
+
+        emptyStateStack.addArrangedSubview(emptyTitleLabel)
+        emptyStateStack.addArrangedSubview(emptyDescLabel)
+        emptyStateStack.addArrangedSubview(emptyImageView)
 
         // Loading
         loadingIndicator.hidesWhenStopped = true
-        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(headerView)
         headerView.addSubview(titleLabel)
+        headerView.addSubview(addFriendButton)
         view.addSubview(tabScrollView)
         view.addSubview(tableView)
-        view.addSubview(emptyLabel)
+        view.addSubview(emptyStateStack)
         view.addSubview(loadingIndicator)
+
+        // Anchor empty state stack to center of view using AutoLayout
+        NSLayoutConstraint.activate([
+            emptyStateStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyStateStack.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 20),
+            emptyStateStack.widthAnchor.constraint(
+                equalTo: view.widthAnchor, multiplier: 0.7),
+        ])
     }
 
     // MARK: Layout
@@ -344,9 +485,10 @@ final class NotificationsContainerNode: ASDisplayNode {
         safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
 
         let sideInset: CGFloat = 16
-        let headerH: CGFloat = 56
+        let btnSize: CGFloat = 32
+        let headerH: CGFloat = 44
         let tabH: CGFloat = 40
-        let tabScrollY = safeTop + headerH + 8
+        let tabScrollY = safeTop + headerH + 4
 
         transition.updateFrame(
             view: headerView,
@@ -354,19 +496,24 @@ final class NotificationsContainerNode: ASDisplayNode {
         transition.updateFrame(
             view: titleLabel,
             frame: CGRect(
-                x: sideInset, y: 0, width: layout.size.width - sideInset * 2, height: headerH))
+                x: sideInset, y: 0,
+                width: layout.size.width - sideInset * 2 - btnSize - 8, height: headerH))
+        transition.updateFrame(
+            view: addFriendButton,
+            frame: CGRect(
+                x: layout.size.width - sideInset - btnSize,
+                y: (headerH - btnSize) / 2,
+                width: btnSize, height: btnSize))
         transition.updateFrame(
             view: tabScrollView,
             frame: CGRect(
                 x: sideInset, y: tabScrollY, width: layout.size.width - sideInset * 2, height: tabH)
         )
-
-        // tabStack fills scroll content
         let stackWidth = tabStackView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
             .width
         tabStackView.frame = CGRect(
             origin: .zero,
-            size: CGSize(width: max(stackWidth, layout.size.width - sideInset * 2), height: tabH))
+            size: CGSize(width: stackWidth, height: tabH))
         tabScrollView.contentSize = tabStackView.frame.size
 
         let tvTop = tabScrollY + tabH + 12
@@ -381,10 +528,6 @@ final class NotificationsContainerNode: ASDisplayNode {
             frame: CGRect(
                 x: (layout.size.width - liS) / 2, y: (layout.size.height - liS) / 2, width: liS,
                 height: liS))
-        transition.updateFrame(
-            view: emptyLabel,
-            frame: CGRect(
-                x: 0, y: (layout.size.height - 44) / 2, width: layout.size.width, height: 44))
     }
 
     override func layout() {
@@ -403,14 +546,15 @@ final class NotificationsContainerNode: ASDisplayNode {
             btn.tag = index
 
             var cfg = UIButton.Configuration.filled()
-            cfg.cornerStyle = .capsule
-            cfg.imagePadding = 6
+            cfg.cornerStyle = .fixed
+            cfg.background.cornerRadius = 10
+            cfg.imagePadding = 4
             cfg.contentInsets = NSDirectionalEdgeInsets(
-                top: 0, leading: 14, bottom: 0, trailing: 14)
+                top: 0, leading: 6, bottom: 0, trailing: 6)
             cfg.attributedTitle = AttributedString(
                 tab.title,
                 attributes: AttributeContainer([
-                    .font: UIFont.systemFont(ofSize: 13, weight: .semibold)
+                    .font: UIFont.systemFont(ofSize: 12, weight: .medium)
                 ])
             )
 
@@ -430,8 +574,9 @@ final class NotificationsContainerNode: ASDisplayNode {
             }
 
             btn.configuration = cfg
-            // Fix height
             btn.heightAnchor.constraint(equalToConstant: 34).isActive = true
+            btn.setContentHuggingPriority(.required, for: .horizontal)
+            btn.setContentCompressionResistancePriority(.required, for: .horizontal)
             btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
             btn.accessibilityIdentifier = "notif_tab_\(index)"
             tabStackView.addArrangedSubview(btn)
@@ -450,7 +595,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                 cfg?.baseForegroundColor = .white
                 cfg?.background.strokeWidth = 0
             } else {
-                cfg?.baseBackgroundColor = .mezonPrimary
+                cfg?.baseBackgroundColor = .mezonTertiary
                 cfg?.baseForegroundColor = .mezonChannelText
                 cfg?.background.strokeColor = .mezonBorder
                 cfg?.background.strokeWidth = 1
@@ -466,6 +611,10 @@ final class NotificationsContainerNode: ASDisplayNode {
         updateTabStyles()
         interaction.onTabSelected(tabs[index].tag)
     }
+
+    @objc private func addFriendTapped() {
+        // TODO: implement add friend action
+    }
 }
 
 // MARK: - UITableViewDataSource & Delegate
@@ -473,7 +622,7 @@ final class NotificationsContainerNode: ASDisplayNode {
 extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        state.notifications.count
+        state.items.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -481,12 +630,13 @@ extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate
             tableView.dequeueReusableCell(
                 withIdentifier: NotificationItemCell.reuseId, for: indexPath)
             as! NotificationItemCell
-        cell.configure(with: state.notifications[indexPath.row])
+        cell.configure(with: state.items[indexPath.row])
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        interaction.onItemSelected(state.items[indexPath.row])
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -495,7 +645,7 @@ extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate
         let height = scrollView.frame.size.height
 
         if offsetY > 0 && offsetY > contentHeight - height - 50 {
-            if !state.isLoading && !state.isLoadingMore && !state.notifications.isEmpty {
+            if !state.isLoading && !state.isLoadingMore && !state.items.isEmpty {
                 interaction.onLoadMore()
             }
         }

@@ -8,6 +8,7 @@ final class ViewTracker {
     private var channelMetaViews    = Bag<(MutableChannelMetaView,   ValuePipe<ChannelMetaView>)>()
     private var notificationSettingViews = Bag<(MutableNotificationSettingView, ValuePipe<NotificationSettingView>)>()
     private var notificationListViews = Bag<(MutableNotificationListView, ValuePipe<NotificationListView>)>()
+    private var topicListViews        = Bag<(MutableTopicListView,        ValuePipe<TopicListView>)>()
 
     func addChannelListView(
         clanId: Int64,
@@ -80,7 +81,7 @@ final class ViewTracker {
     func addNotificationListView(
         clanId: Int64,
         category: Int32,
-        initial: [Notifications]
+        initial: [NotificationRecord]
     ) -> (Bag<(MutableNotificationListView, ValuePipe<NotificationListView>)>.Index, Signal<NotificationListView, NoError>) {
         let mutableView = MutableNotificationListView(clanId: clanId, category: category, initial: initial)
         let pipe        = ValuePipe<NotificationListView>()
@@ -90,6 +91,20 @@ final class ViewTracker {
 
     func removeNotificationListView(index: Bag<(MutableNotificationListView, ValuePipe<NotificationListView>)>.Index) {
         notificationListViews.remove(index)
+    }
+
+    func addTopicListView(
+        clanId: Int64,
+        initial: [TopicRecord]
+    ) -> (Bag<(MutableTopicListView, ValuePipe<TopicListView>)>.Index, Signal<TopicListView, NoError>) {
+        let mutableView = MutableTopicListView(clanId: clanId, initial: initial)
+        let pipe        = ValuePipe<TopicListView>()
+        let index       = topicListViews.add((mutableView, pipe))
+        return (index, pipe.signal())
+    }
+
+    func removeTopicListView(index: Bag<(MutableTopicListView, ValuePipe<TopicListView>)>.Index) {
+        topicListViews.remove(index)
     }
 
     func replay(transaction: PostboxTransaction) {
@@ -126,6 +141,12 @@ final class ViewTracker {
         }
 
         for (_, (view, pipe)) in notificationListViews.copyItemsWithIndices() {
+            if view.replay(transaction: transaction) {
+                pipe.putNext(view.immutableView())
+            }
+        }
+
+        for (_, (view, pipe)) in topicListViews.copyItemsWithIndices() {
             if view.replay(transaction: transaction) {
                 pipe.putNext(view.immutableView())
             }

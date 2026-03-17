@@ -1,8 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-private typealias GlobalNotifications = Notifications
-
 extension MezonEngine {
 
     @MainActor
@@ -13,7 +11,9 @@ extension MezonEngine {
 
         init(engine: MezonEngine) { self.engine = engine }
 
-        func listNotifications(clanId: Int64, category: Int32, notificationId: Int64 = 0, token: String) async throws {
+        func listNotifications(
+            clanId: Int64, category: Int32, notificationId: Int64 = 0, token: String
+        ) async throws {
             let apiNotifications = try await network.listNotifications(
                 clanID: clanId,
                 category: category,
@@ -21,7 +21,7 @@ extension MezonEngine {
                 notificationID: notificationId
             )
 
-            let mappedNotifications = apiNotifications.map { GlobalNotifications(from: $0) }
+            let mappedNotifications = apiNotifications.map { NotificationRecord(from: $0) }
 
             postbox.write { tx in
                 if notificationId > 0 {

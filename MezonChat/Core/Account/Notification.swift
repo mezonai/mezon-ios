@@ -1,7 +1,7 @@
 import Foundation
 import SwiftProtobuf
 
-struct Notifications: PostboxCoding, Identifiable, Equatable {
+struct Notification: PostboxCoding, Identifiable, Equatable {
     /// ID of the Notification.
     let id: Int64
     /// Subject of the notification.
@@ -28,45 +28,4 @@ struct Notifications: PostboxCoding, Identifiable, Equatable {
     let topicID: Int64
     /// category (1: mentions, 2: messages, 3: for you).
     let category: Int32
-}
-
-extension Notifications {
-    init(from apiModel: Mezon_Api_Notification) {
-        self.id = apiModel.id
-        self.subject = apiModel.subject
-        self.code = apiModel.code
-        self.senderID = apiModel.senderID
-        self.createTimeSeconds = apiModel.createTimeSeconds
-        self.persistent = apiModel.persistent
-        self.clanID = apiModel.clanID
-        self.channelID = apiModel.channelID
-        self.channelType = apiModel.channelType
-        self.topicID = apiModel.topicID
-        self.category = apiModel.category
-
-        let decoded = Notifications.decodeContent(from: apiModel.content)
-        self.content = decoded.text
-        self.avatarURL = apiModel.avatarURL.isEmpty ? decoded.avatar : apiModel.avatarURL
-    }
-
-    private typealias DecodedContent = (text: String, avatar: String)
-
-    //Decode content in notification
-    private static func decodeContent(from data: Data) -> DecodedContent {
-        guard !data.isEmpty else { return ("", "") }
-        if let channelMessage = try? Mezon_Api_DirectFcmProto(serializedBytes: data) {
-            let jsonString = channelMessage.content
-            let text: String
-            if let jsonData = jsonString.data(using: .utf8),
-                let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                let t = json["t"] as? String
-            {
-                text = t
-            } else {
-                text = jsonString
-            }
-            return (text, channelMessage.avatar)
-        }
-        return (String(data: data, encoding: .utf8) ?? "", "")
-    }
 }

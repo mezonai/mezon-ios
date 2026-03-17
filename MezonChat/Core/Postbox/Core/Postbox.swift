@@ -21,6 +21,7 @@ final class Postbox {
     let settingsTable: SettingsTable
     let notificationSettingTable: NotificationSettingTable
     let notificationTable: NotificationTable
+    let topicTable: TopicTable
 
     private let viewTracker = ViewTracker()
 
@@ -53,6 +54,7 @@ final class Postbox {
         settingsTable = SettingsTable(db: settingsDb)
         notificationSettingTable = NotificationSettingTable(db: clansDb)
         notificationTable = NotificationTable(db: notificationsDb)
+        topicTable = TopicTable(db: notificationsDb)
     }
 
     func write(_ block: @escaping (PostboxTransaction) -> Void) {
@@ -66,7 +68,8 @@ final class Postbox {
                 profileTable: profileTable,
                 settingsTable: settingsTable,
                 notificationSettingTable: notificationSettingTable,
-                notificationTable: notificationTable
+                notificationTable: notificationTable,
+                topicTable: topicTable
             )
             block(tx)
             channelTable.beforeCommit()
@@ -93,7 +96,8 @@ final class Postbox {
                 profileTable: profileTable,
                 settingsTable: settingsTable,
                 notificationSettingTable: notificationSettingTable,
-                notificationTable: notificationTable
+                notificationTable: notificationTable,
+                topicTable: topicTable
             )
             result = block(tx)
         }
@@ -196,7 +200,7 @@ final class Postbox {
             var viewIndex: Bag<(MutableNotificationListView, ValuePipe<NotificationListView>)>.Index?
             var innerDisposable: Disposable?
             self.queue.sync {
-                let initial = self.notificationTable.getNotifications(clanId: clanId, category: category)
+                let initial = self.notificationTable.getNotificationRecord(clanId: clanId, category: category)
                 subscriber.putNext(NotificationListView(clanId: clanId, category: category, notifications: initial))
                 let (index, signal) = self.viewTracker.addNotificationListView(
                     clanId: clanId, category: category, initial: initial
@@ -207,6 +211,29 @@ final class Postbox {
             return ActionDisposable { [weak self] in
                 self?.queue.async {
                     if let idx = viewIndex { self?.viewTracker.removeNotificationListView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+    func topicListView(clanId: Int64) -> Signal<TopicListView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableTopicListView, ValuePipe<TopicListView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.topicTable.getTopics(clanId: clanId)
+                subscriber.putNext(TopicListView(clanId: clanId, topics: initial))
+                let (index, signal) = self.viewTracker.addTopicListView(
+                    clanId: clanId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeTopicListView(index: idx) }
                     innerDisposable?.dispose()
                 }
             }
@@ -249,6 +276,8 @@ final class Postbox {
                 return preferencesView(key: prefKey) |> map { (key, $0 as PostboxView) }
             case .notificationList(let clanId, let category):
                 return notificationListView(clanId: clanId, category: category) |> map { (key, $0 as PostboxView) }
+            case .topicList(let clanId):
+                return topicListView(clanId: clanId) |> map { (key, $0 as PostboxView) }
             }
         }
         guard !signals.isEmpty else {
@@ -323,6 +352,7 @@ final class Postbox {
             profileDb.rawExecute("DELETE FROM profile")
             settingsDb.rawExecute("DELETE FROM settings")
             notificationsDb.rawExecute("DELETE FROM notifications")
+            notificationsDb.rawExecute("DELETE FROM topics")
             authTable.clearMemoryCache()
             messageTable.clearMemoryCache()
             channelTable.clearMemoryCache()
@@ -331,6 +361,7 @@ final class Postbox {
             settingsTable.clearMemoryCache()
             notificationSettingTable.clearMemoryCache()
             notificationTable.clearMemoryCache()
+            topicTable.clearMemoryCache()
         }
     }
 }

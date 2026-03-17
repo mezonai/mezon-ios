@@ -10,6 +10,7 @@ final class PostboxTransaction {
     let settingsTable:             SettingsTable
     let notificationSettingTable:  NotificationSettingTable
     let notificationTable:         NotificationTable
+    let topicTable:                TopicTable
 
     private(set) var updatedChannelClanIds:     Set<Int64>   = []
     private(set) var updatedClans:              Bool         = false
@@ -17,6 +18,7 @@ final class PostboxTransaction {
     private(set) var updatedChannelMetaIds:     Set<Int64>   = []
     private(set) var updatedNotificationSettingIds: Set<Int64> = []
     private(set) var updatedNotificationKeys:   Set<String>  = []
+    private(set) var updatedTopicClanIds:       Set<Int64>   = []
 
     init(
         channelTable: ChannelTable,
@@ -26,7 +28,8 @@ final class PostboxTransaction {
         profileTable: ProfileTable,
         settingsTable: SettingsTable,
         notificationSettingTable: NotificationSettingTable,
-        notificationTable: NotificationTable
+        notificationTable: NotificationTable,
+        topicTable: TopicTable
     ) {
         self.channelTable              = channelTable
         self.clanTable                 = clanTable
@@ -36,6 +39,7 @@ final class PostboxTransaction {
         self.settingsTable             = settingsTable
         self.notificationSettingTable  = notificationSettingTable
         self.notificationTable         = notificationTable
+        self.topicTable                = topicTable
     }
 
     func getChannels(clanId: Int64) -> [ChannelRecord] {
@@ -87,14 +91,19 @@ final class PostboxTransaction {
         updatedMessageChannelIds.insert(record.channelId)
     }
 
-    func updateNotifications(_ notifications: [Notifications], clanId: Int64, category: Int32) {
-        notificationTable.replaceNotifications(notifications, clanId: clanId, category: category)
+    func updateNotifications(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
+        notificationTable.replaceNotificationRecord(notifications, clanId: clanId, category: category)
         updatedNotificationKeys.insert("\(clanId)_\(category)")
     }
 
-    func appendNotifications(_ notifications: [Notifications], clanId: Int64, category: Int32) {
-        notificationTable.appendNotifications(notifications, clanId: clanId, category: category)
+    func appendNotifications(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
+        notificationTable.appendNotificationRecord(notifications, clanId: clanId, category: category)
         updatedNotificationKeys.insert("\(clanId)_\(category)")
+    }
+
+    func updateTopics(_ topics: [TopicRecord], clanId: Int64) {
+        topicTable.updateTopics(topics, clanId: clanId)
+        updatedTopicClanIds.insert(clanId)
     }
 
     func getCurrentSession() -> AuthRecord? { authTable.getCurrentSession() }
@@ -141,6 +150,6 @@ final class PostboxTransaction {
     }
 
     var isEmpty: Bool {
-        updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty && updatedChannelMetaIds.isEmpty && updatedNotificationSettingIds.isEmpty && updatedNotificationKeys.isEmpty
+        updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty && updatedChannelMetaIds.isEmpty && updatedNotificationSettingIds.isEmpty && updatedNotificationKeys.isEmpty && updatedTopicClanIds.isEmpty
     }
 }

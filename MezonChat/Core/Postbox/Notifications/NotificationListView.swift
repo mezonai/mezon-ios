@@ -3,16 +3,16 @@ import Foundation
 struct NotificationListView: PostboxView {
     let clanId: Int64
     let category: Int32
-    let notifications: [Notifications]
+    let notifications: [NotificationRecord]
 }
 
 final class MutableNotificationListView: MutablePostboxView {
 
     let clanId: Int64
     let category: Int32
-    private(set) var notifications: [Notifications]
+    private(set) var notifications: [NotificationRecord]
 
-    init(clanId: Int64, category: Int32, initial: [Notifications]) {
+    init(clanId: Int64, category: Int32, initial: [NotificationRecord]) {
         self.clanId = clanId
         self.category = category
         self.notifications = initial
@@ -20,7 +20,7 @@ final class MutableNotificationListView: MutablePostboxView {
 
     func replay(transaction: PostboxTransaction) -> Bool {
         guard transaction.updatedNotificationKeys.contains("\(clanId)_\(category)") else { return false }
-        notifications = transaction.notificationTable.getNotifications(clanId: clanId, category: category)
+        notifications = transaction.notificationTable.getNotificationRecord(clanId: clanId, category: category)
         return true
     }
 

@@ -3,7 +3,7 @@ import Foundation
 extension MezonEngine.EngineData.Item {
 
     struct NotificationList: PostboxViewDataItem {
-        typealias Result = [Notifications]
+        typealias Result = [NotificationRecord]
 
         let clanId: Int64
         let category: Int32
@@ -14,10 +14,10 @@ extension MezonEngine.EngineData.Item {
         }
 
         var key: PostboxViewKey {
-            return .notificationList(clanId: clanId, category: category)
+            return .notificationList(clanId, category)
         }
 
-        func extract(view: PostboxView) -> [Notifications] {
+        func extract(view: PostboxView) -> [NotificationRecord] {
             guard let view = view as? NotificationListView else { return [] }
             return view.notifications
         }

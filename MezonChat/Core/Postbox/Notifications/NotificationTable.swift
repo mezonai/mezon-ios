@@ -2,7 +2,7 @@ import Foundation
 
 final class NotificationTable: Table {
 
-    private var cache: [String: [Notifications]] = [:]
+    private var cache: [String: [NotificationRecord]] = [:]
     private var pendingWrites: Set<String> = []
     
     // Key format: "\(clanId)_\(category)"
@@ -33,7 +33,7 @@ final class NotificationTable: Table {
         )
     }
 
-    func getNotifications(clanId: Int64, category: Int32, limit: Int = 50) -> [Notifications] {
+    func getNotificationRecord(clanId: Int64, category: Int32, limit: Int = 50) -> [NotificationRecord] {
         let key = cacheKey(clanId: clanId, category: category)
         if let cached = cache[key] { return cached }
 
@@ -51,7 +51,7 @@ final class NotificationTable: Table {
                 sqlite3_bind_int(s, 2, category)
                 sqlite3_bind_int(s, 3, Int32(limit))
             }
-        ) { stmt -> Notifications? in
+        ) { stmt -> NotificationRecord? in
             let id = sqlite3_column_int64(stmt, 0)
             let subject = String(cString: sqlite3_column_text(stmt, 1))
             let content = String(cString: sqlite3_column_text(stmt, 2))
@@ -66,7 +66,7 @@ final class NotificationTable: Table {
             let topicId = sqlite3_column_int64(stmt, 11)
             let rCategory = sqlite3_column_int(stmt, 12)
 
-            return Notifications(
+            return NotificationRecord(
                 id: id, subject: subject, content: content, code: code,
                 senderID: senderId, createTimeSeconds: createTime,
                 persistent: persistent, clanID: rClanId, channelID: channelId,
@@ -80,13 +80,13 @@ final class NotificationTable: Table {
         return result
     }
 
-    func replaceNotifications(_ notifications: [Notifications], clanId: Int64, category: Int32) {
+    func replaceNotificationRecord(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
         let key = cacheKey(clanId: clanId, category: category)
         cache[key] = notifications.sorted { $0.createTimeSeconds > $1.createTimeSeconds }
         pendingWrites.insert(key)
     }
 
-    func appendNotifications(_ notifications: [Notifications], clanId: Int64, category: Int32) {
+    func appendNotificationRecord(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
         let key = cacheKey(clanId: clanId, category: category)
         var existing = cache[key] ?? []
         // merge existing and new, keeping them sorted, removing duplicates
