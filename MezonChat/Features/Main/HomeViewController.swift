@@ -8,6 +8,7 @@ final class HomeViewController: BaseViewController {
     private let context: AccountContext
 
     private let clanSidebarWidth: CGFloat = Constants.Layout.clanSidebarWidth
+    private let navigationDisposable = MetaDisposable()
 
     init(context: AccountContext) {
         self.context = context
@@ -35,10 +36,16 @@ final class HomeViewController: BaseViewController {
     private func processPendingNavigation() {
         guard let pending = AppDelegate.pendingNavigation else { return }
         AppDelegate.pendingNavigation = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+
+        let ready = combineLatest(
+            clanListVC.clansLoadedSignal |> filter { $0 } |> take(1),
+            channelListVC.channelsLoadedSignal |> filter { $0 } |> take(1)
+        ) |> map { _ in () } |> deliverOnMainQueue
+
+        navigationDisposable.set(ready.start(next: { [weak self] in
             guard self != nil else { return }
             NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
-        }
+        }))
     }
 
     /// On launch: if we have a cached selected clan, configure channel list and fetch channels.
@@ -80,7 +87,7 @@ final class HomeViewController: BaseViewController {
             channelListVC.view.topAnchor.constraint(equalTo: view.topAnchor),
             channelListVC.view.leadingAnchor.constraint(equalTo: clanListVC.view.trailingAnchor),
             channelListVC.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            channelListVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            channelListVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
@@ -122,44 +129,38 @@ final class HomeViewController: BaseViewController {
         let title = notification.userInfo?["title"] as? String
 
         if isDM {
-            navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: 0)
+            navigateToDM(channelIdStr: channelIdStr, title: title)
         } else {
-            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, retryCount: 0)
+            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
         }
     }
 
-    private func navigateToDM(channelIdStr: String, title: String?, retryCount: Int) {
-        let maxRetries = 5
+    private func isChatAlreadyVisible(channelId: Int64) -> Bool {
+        guard let topVC = navigationController?.topViewController as? ChatViewController else { return false }
+        return topVC.channel.channelID == channelId
+    }
+
+    private func navigateToDM(channelIdStr: String, title: String?) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
 
+        if isChatAlreadyVisible(channelId: channelIdInt) { return }
+
         guard let rootController = navigationController as? MezonRootController else {
-            if retryCount < maxRetries {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
-                }
+            DispatchQueue.main.async { [weak self] in
+                self?.navigateToDM(channelIdStr: channelIdStr, title: title)
             }
             return
         }
 
-        if let tabBarVC = rootController.viewControllers.first(where: { $0 is TabBarController }) {
-            rootController.popToViewController(tabBarVC, animated: false)
-        }
+        popToTabBar(rootController: rootController)
 
-        let dmVC = rootController.directMessagesController
-        if let found = dmVC?.directMessages.first(where: { $0.channelID == channelIdInt }) {
-            let chatVC = ChatViewController(clanId: 0, channel: found, context: context)
-            rootController.pushViewController(chatVC, animated: false)
+        if let found = rootController.directMessagesController?.directMessages.first(where: { $0.channelID == channelIdInt }) {
+            rootController.pushViewController(ChatViewController(clanId: 0, channel: found, context: context), animated: false)
             return
         }
 
-        guard let token = context.session?.token else {
-            if retryCount < maxRetries {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
-                }
-            }
-            return
-        }
+        // 2. Fetch from API (non-blocking — push immediately once found)
+        guard let token = context.session?.token else { return }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -169,26 +170,21 @@ final class HomeViewController: BaseViewController {
                     await dmVC.fetchDirectMessages()
                 }
                 if let ch = channels.first(where: { $0.channelID == channelIdInt }) {
-                    let chatVC = ChatViewController(clanId: 0, channel: ch, context: self.context)
-                    rootController.pushViewController(chatVC, animated: false)
-                } else if retryCount < maxRetries {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                        self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
+                    if !self.isChatAlreadyVisible(channelId: channelIdInt) {
+                        rootController.pushViewController(ChatViewController(clanId: 0, channel: ch, context: self.context), animated: false)
                     }
                 }
             } catch {
                 AppLogger.network.error("[FCM] Failed to fetch DM channels: \(error)")
-                if retryCount < maxRetries {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                        self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
-                    }
-                }
             }
         }
     }
 
-    private func navigateToChannel(channelIdStr: String, clanIdStr: String?, retryCount: Int) {
-        let maxRetries = 5
+
+    private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
+        guard let channelIdInt = Int64(channelIdStr) else { return }
+
+        if isChatAlreadyVisible(channelId: channelIdInt) { return }
 
         if let tabBar = self.parent as? TabBarController {
             tabBar.selectedIndex = 0
@@ -201,8 +197,6 @@ final class HomeViewController: BaseViewController {
                 nav.popToRootViewController(animated: false)
             }
         }
-
-        guard let channelIdInt = Int64(channelIdStr) else { return }
 
         if let ch = channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
             channelListVC.selectWithoutNavigation(channelId: channelIdInt)
@@ -219,12 +213,27 @@ final class HomeViewController: BaseViewController {
             channelListVC.configure(clanId: clanIdInt, clanName: clan.clanName)
         }
 
-        if retryCount < maxRetries {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, retryCount: retryCount + 1)
+        let loaded = channelListVC.channelsLoadedSignal
+            |> filter { $0 }
+            |> take(1)
+            |> deliverOnMainQueue
+
+        navigationDisposable.set(loaded.start(next: { [weak self] _ in
+            guard let self else { return }
+            if self.isChatAlreadyVisible(channelId: channelIdInt) { return }
+            if let ch = self.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
+                self.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+                let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: ch, context: self.context)
+                self.navigationController?.pushViewController(chatVC, animated: false)
             }
+        }))
+    }
+
+    private func popToTabBar(rootController: MezonRootController) {
+        if let tabBarVC = rootController.viewControllers.first(where: { $0 is TabBarController }) {
+            rootController.popToViewController(tabBarVC, animated: false)
         }
     }
 
-    deinit { disposables.dispose() }
+    deinit { disposables.dispose(); navigationDisposable.dispose() }
 }

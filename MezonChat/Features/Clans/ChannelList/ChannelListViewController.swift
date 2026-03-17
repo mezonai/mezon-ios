@@ -104,6 +104,9 @@ final class ChannelListViewController: ViewController {
     private let errorMessagePipe = ValuePipe<String?>()
     private let needsReloadPipe = ValuePipe<Void>()
 
+    private let channelsLoadedPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
+    var channelsLoadedSignal: Signal<Bool, NoError> { channelsLoadedPromise.get() }
+
     var selectedChannelSignal: Signal<Mezon_Api_ChannelDescription?, NoError> { selectedChannelPipe.signal() }
 
     private(set) var categories: [ChannelCategory] = []
@@ -244,6 +247,7 @@ final class ChannelListViewController: ViewController {
     func load(clanId: Int64, clanName: String) {
         self.clanId = clanId
         self.clanName = clanName
+        channelsLoadedPromise.set(false)
         fetchChannels()
     }
 
@@ -266,6 +270,7 @@ final class ChannelListViewController: ViewController {
                 self.allChannels = channels
                 let cats = buildChannelCategories(channels)
                 self.categories = cats
+                self.channelsLoadedPromise.set(true)
                 self.persistSelectedChannel()
                 self.categoriesPipe.putNext(cats)
             case .failure(let msg):
