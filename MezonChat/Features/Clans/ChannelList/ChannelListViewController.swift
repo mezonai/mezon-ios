@@ -290,6 +290,10 @@ final class ChannelListViewController: ViewController {
         self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
     }
 
+    func selectWithoutNavigation(channelId: Int64) {
+        setSelectedChannelId(channelId)
+    }
+
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
 
     var currentState: ChannelListState {

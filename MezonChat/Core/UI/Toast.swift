@@ -4,6 +4,7 @@ enum ToastType {
     case success
     case error
     case info
+    case notification
 }
 
 final class Toast {
@@ -32,6 +33,12 @@ final class Toast {
     static func info(_ message: String, title: String? = nil) {
         show(.info, title: title, message: message)
     }
+
+    static func notification(title: String, message: String, onTap: (() -> Void)? = nil) {
+        DispatchQueue.main.async {
+            ToastManager.shared.present(type: .notification, title: title, message: message, duration: 4, onTap: onTap)
+        }
+    }
 }
 
 private final class ToastManager {
@@ -43,26 +50,32 @@ private final class ToastManager {
 
     private init() {}
 
-    func present(type: ToastType, title: String?, message: String, duration: TimeInterval) {
+    func present(type: ToastType, title: String?, message: String, duration: TimeInterval, onTap: (() -> Void)? = nil) {
         dismissWorkItem?.cancel()
 
-        guard let window = keyWindow else { return }
-
+        // Remove previous toast
         toastContainer?.removeFromSuperview()
+        toastContainer = nil
+
+        guard let hostView = Self.findContainerView() else { return }
 
         let toastView = ToastView(type: type, title: title, message: message)
         toastView.onClose = { [weak self] in self?.dismiss() }
+        toastView.onTap = {
+            onTap?()
+        }
 
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.zPosition = 10000
         container.addSubview(toastView)
 
-        window.addSubview(container)
+        hostView.addSubview(container)
 
-        let safeTop = window.safeAreaLayoutGuide
+        let safeTop = hostView.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: window.leadingAnchor, constant: 16.sw),
-            container.trailingAnchor.constraint(equalTo: window.trailingAnchor, constant: -16.sw),
+            container.leadingAnchor.constraint(equalTo: hostView.leadingAnchor, constant: 16.sw),
+            container.trailingAnchor.constraint(equalTo: hostView.trailingAnchor, constant: -16.sw),
             container.topAnchor.constraint(equalTo: safeTop.topAnchor, constant: 12.sh),
             toastView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             toastView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -97,15 +110,20 @@ private final class ToastManager {
         }
     }
 
-    private var keyWindow: UIWindow? {
+    /// Find the rootViewController's view from the key window to add toast to
+    private static func findContainerView() -> UIView? {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
         for scene in scenes {
-            if let win = scene.windows.first(where: { $0.isKeyWindow }) {
-                return win
+            if let win = scene.windows.first(where: { $0.isKeyWindow }),
+               let rootVC = win.rootViewController {
+                return rootVC.view
             }
-            if let win = scene.windows.first {
-                return win
+        }
+        for scene in scenes {
+            if let win = scene.windows.first,
+               let rootVC = win.rootViewController {
+                return rootVC.view
             }
         }
         return nil
@@ -115,6 +133,7 @@ private final class ToastManager {
 private final class ToastView: UIView {
 
     var onClose: (() -> Void)?
+    var onTap: (() -> Void)?
 
     private let type: ToastType
     private let titleText: String?
@@ -140,6 +159,9 @@ private final class ToastView: UIView {
         layer.borderColor = config.borderColor.cgColor
         clipsToBounds = true
 
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        addGestureRecognizer(tap)
+
         let leftBar = UIView()
         leftBar.backgroundColor = config.accentColor
         leftBar.translatesAutoresizingMaskIntoConstraints = false
@@ -158,13 +180,13 @@ private final class ToastView: UIView {
         let titleLabel = UILabel()
         titleLabel.text = titleText ?? config.defaultTitle
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
-        titleLabel.textColor = .init(white: 0.15, alpha: 1)
+        titleLabel.textColor = type == .notification ? .white : .init(white: 0.15, alpha: 1)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let messageLabel = UILabel()
         messageLabel.text = messageText
         messageLabel.font = .systemFont(ofSize: 14.sf)
-        messageLabel.textColor = .init(white: 0.35, alpha: 1)
+        messageLabel.textColor = type == .notification ? .init(white: 0.8, alpha: 1) : .init(white: 0.35, alpha: 1)
         messageLabel.numberOfLines = 0
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
@@ -223,7 +245,14 @@ private final class ToastView: UIView {
             return (hex("#ef4444"), hex("#fef2f2"), hex("#fecaca"), "xmark", "Error")
         case .info:
             return (hex("#3b82f6"), hex("#eff6ff"), hex("#bfdbfe"), "info.circle.fill", "Info")
+        case .notification:
+            return (hex("#7c3aed"), hex("#1e1b2e"), hex("#3b335a"), "bell.fill", "Notification")
         }
+    }
+
+    @objc private func handleTap() {
+        onTap?()
+        onClose?()
     }
 }
 

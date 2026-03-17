@@ -26,15 +26,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         FirebaseApp.configure()
 
         UNUserNotificationCenter.current().delegate = self
-        let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
-        UNUserNotificationCenter.current().requestAuthorization(options: authOptions) { granted, error in
-            if let error {
-                AppLogger.network.error("[FCM] Notification auth error: \(error)")
-            }
-            AppLogger.network.info("[FCM] Notification permission granted: \(granted)")
-        }
-        application.registerForRemoteNotifications()
-
         Messaging.messaging().delegate = self
 
         return true
@@ -127,9 +118,26 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             rootController.addRootControllers()
             self.rootController = rootController
             mainWindow.viewController = rootController
+            requestNotificationPermission()
         } else {
             self.rootController = nil
             mainWindow.viewController = sharedContext.makeLoginController(context: context)
+        }
+        DispatchQueue.main.async {
+            ThemeManager.shared.applyStatusBarStyle()
+        }
+    }
+
+    private func requestNotificationPermission() {
+        let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
+        UNUserNotificationCenter.current().requestAuthorization(options: authOptions) { granted, error in
+            if let error {
+                AppLogger.network.error("[FCM] Notification auth error: \(error)")
+            }
+            AppLogger.network.info("[FCM] Notification permission granted: \(granted)")
+        }
+        DispatchQueue.main.async {
+            UIApplication.shared.registerForRemoteNotifications()
         }
     }
 
@@ -153,12 +161,44 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
+
+    private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
+        let channelId: String? = {
+            if let s = userInfo["channel"] as? String { return s }
+            if let n = userInfo["channel"] { return "\(n)" }
+            return nil
+        }()
+        var clanId: String?
+        var isDM = false
+        if let link = userInfo["link"] as? String {
+            isDM = link.contains("direct/")
+            if let url = URL(string: link) {
+                let parts = url.pathComponents
+                if let clansIdx = parts.firstIndex(of: "clans"), clansIdx + 1 < parts.count {
+                    clanId = parts[clansIdx + 1]
+                }
+            }
+        }
+        return (channelId, clanId, isDM)
+    }
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .badge, .sound])
+        let userInfo = notification.request.content.userInfo
+        let title = notification.request.content.title
+        let body = notification.request.content.body
+
+        let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
+        Toast.notification(title: title, message: body) {
+            DispatchQueue.main.async {
+                Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+            }
+        }
+
+        completionHandler([.badge, .sound])
     }
 
     func userNotificationCenter(
@@ -168,8 +208,28 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     ) {
         let userInfo = response.notification.request.content.userInfo
         AppLogger.network.info("[FCM] Notification tapped: \(userInfo)")
+
+        let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
+        let title = response.notification.request.content.title
+        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+
         completionHandler()
     }
+
+    static var pendingNavigation: [String: Any]?
+
+    static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false, title: String? = nil) {
+        guard let channelId, !channelId.isEmpty else { return }
+        var info: [String: Any] = ["channelId": channelId, "isDM": isDM]
+        if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
+        if let title, !title.isEmpty { info["title"] = title }
+        pendingNavigation = info
+        NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
+    }
+}
+
+extension Notification.Name {
+    static let mezonNavigateToChannel = Notification.Name("MezonNavigateToChannel")
 }
 
 extension AppDelegate: MessagingDelegate {

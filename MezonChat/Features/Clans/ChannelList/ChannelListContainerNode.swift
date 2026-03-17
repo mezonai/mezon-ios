@@ -359,6 +359,8 @@ private final class ThreadItemCellNode: ASCellNode {
         if isSelected {
             cornerRadius = 16.swh
             backgroundColor = t.colorActiveClan
+        } else {
+            backgroundColor = .clear
         }
     }
 

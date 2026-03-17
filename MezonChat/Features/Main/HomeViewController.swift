@@ -26,6 +26,19 @@ final class HomeViewController: BaseViewController {
         bindChannelSelection()
         bindLogoTap()
         applyInitialClanSelection()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
+
+        processPendingNavigation()
+    }
+
+    private func processPendingNavigation() {
+        guard let pending = AppDelegate.pendingNavigation else { return }
+        AppDelegate.pendingNavigation = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard self != nil else { return }
+            NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
+        }
     }
 
     /// On launch: if we have a cached selected clan, configure channel list and fetch channels.
@@ -100,6 +113,117 @@ final class HomeViewController: BaseViewController {
                     self.navigationController?.pushViewController(chatVC, animated: true)
                 })
         )
+    }
+
+    @objc private func handleNavigateToChannel(_ notification: Notification) {
+        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        let clanIdStr = notification.userInfo?["clanId"] as? String
+        let isDM = notification.userInfo?["isDM"] as? Bool ?? false
+        let title = notification.userInfo?["title"] as? String
+
+        if isDM {
+            navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: 0)
+        } else {
+            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, retryCount: 0)
+        }
+    }
+
+    private func navigateToDM(channelIdStr: String, title: String?, retryCount: Int) {
+        let maxRetries = 5
+        guard let channelIdInt = Int64(channelIdStr) else { return }
+
+        guard let rootController = navigationController as? MezonRootController else {
+            if retryCount < maxRetries {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
+                }
+            }
+            return
+        }
+
+        if let tabBarVC = rootController.viewControllers.first(where: { $0 is TabBarController }) {
+            rootController.popToViewController(tabBarVC, animated: false)
+        }
+
+        let dmVC = rootController.directMessagesController
+        if let found = dmVC?.directMessages.first(where: { $0.channelID == channelIdInt }) {
+            let chatVC = ChatViewController(clanId: 0, channel: found, context: context)
+            rootController.pushViewController(chatVC, animated: false)
+            return
+        }
+
+        guard let token = context.session?.token else {
+            if retryCount < maxRetries {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
+                }
+            }
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                if let dmVC = rootController.directMessagesController {
+                    await dmVC.fetchDirectMessages()
+                }
+                if let ch = channels.first(where: { $0.channelID == channelIdInt }) {
+                    let chatVC = ChatViewController(clanId: 0, channel: ch, context: self.context)
+                    rootController.pushViewController(chatVC, animated: false)
+                } else if retryCount < maxRetries {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
+                    }
+                }
+            } catch {
+                AppLogger.network.error("[FCM] Failed to fetch DM channels: \(error)")
+                if retryCount < maxRetries {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                        self?.navigateToDM(channelIdStr: channelIdStr, title: title, retryCount: retryCount + 1)
+                    }
+                }
+            }
+        }
+    }
+
+    private func navigateToChannel(channelIdStr: String, clanIdStr: String?, retryCount: Int) {
+        let maxRetries = 5
+
+        if let tabBar = self.parent as? TabBarController {
+            tabBar.selectedIndex = 0
+        }
+
+        if let nav = navigationController {
+            if let tabBarVC = nav.viewControllers.first(where: { $0 is TabBarController }) {
+                nav.popToViewController(tabBarVC, animated: false)
+            } else {
+                nav.popToRootViewController(animated: false)
+            }
+        }
+
+        guard let channelIdInt = Int64(channelIdStr) else { return }
+
+        if let ch = channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
+            channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            let chatVC = ChatViewController(clanId: channelListVC.clanId, channel: ch, context: context)
+            navigationController?.pushViewController(chatVC, animated: false)
+            return
+        }
+
+        if let clanIdStr,
+           let clanIdInt = Int64(clanIdStr),
+           let clan = clanListVC.clans.first(where: { $0.clanID == clanIdInt }),
+           clanIdInt != clanListVC.selectedClanId {
+            clanListVC.select(clan: clan)
+            channelListVC.configure(clanId: clanIdInt, clanName: clan.clanName)
+        }
+
+        if retryCount < maxRetries {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                self?.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, retryCount: retryCount + 1)
+            }
+        }
     }
 
     deinit { disposables.dispose() }

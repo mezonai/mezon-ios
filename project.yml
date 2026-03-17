@@ -1,5 +1,17 @@
 name: MezonChat
 
+schemes:
+  MezonChat:
+    build:
+      targets:
+        MezonChat: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
+
 packages:
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf
