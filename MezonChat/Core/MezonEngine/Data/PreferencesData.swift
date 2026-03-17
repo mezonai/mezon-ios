@@ -11,7 +11,7 @@ extension MezonEngine.EngineData.Item {
             self.prefKey = key
         }
 
-        var key: PostboxViewKey { .preferences(key: prefKey) }
+        var key: PostboxViewKey { .preferences(prefKey) }
 
         func extract(view: PostboxView) -> Data? {
             guard let view = view as? PreferencesView else { return nil }
