@@ -111,6 +111,19 @@ enum L10n {
         static let resendInSeconds    = "login.resendInSeconds"
         static let selectCountry      = "login.selectCountry"
     }
+    
+    enum Notifications {
+        static let title = "notifications.title"
+        static let mentions = "notifications.mentions"
+        static let messages = "notifications.messages"
+        static let forYou = "notifications.forYou"
+        static let topic = "notifications.topic"
+        static let emptyTitle = "notifications.empty.title"
+        static let emptyDescription = "notifications.empty.description"
+        static let repliedTo = "notifications.repliedTo"
+        static let sender = "notifications.sender"
+        static let unreachableMessage = "notifications.unreachableMessage"
+    }
 
     enum OTPVerify {
         static let loginToMezon   = "otpVerify.loginToMezon"
@@ -250,6 +263,17 @@ extension L10n {
         "login.loginTooFast":   "Please wait before trying again",
         "login.resendInSeconds": "Resend in %ds",
         "login.selectCountry":  "Select country code",
+        
+        "notifications.title": "Notifications",
+        "notifications.mentions": "Mentions",
+        "notifications.messages": "Messages",
+        "notifications.forYou": "For you",
+        "notifications.topic": "Topic",
+        "notifications.empty.title": "Notthing here yet",
+        "notifications.empty.description": "Come back for notifications on events, stream and more",
+        "notifications.repliedTo": "Replied to: ",
+        "notifications.sender": "Sender: ",
+        "notifications.unreachableMessage": "Unreachable message",
 
         "otpVerify.loginToMezon":      "Log in to Mezon account",
         "otpVerify.enterCodeFrom":     "Enter code from",
@@ -382,6 +406,17 @@ extension L10n {
         "login.loginTooFast":   "Vui lòng đợi trước khi thử lại",
         "login.resendInSeconds": "Gửi lại sau %ds",
         "login.selectCountry":  "Chọn mã vùng",
+        
+        "notifications.title": "Thông báo",
+        "notifications.mentions": "Nhắc đến",
+        "notifications.messages": "Tin nhắn",
+        "notifications.forYou": "Dành cho bạn",
+        "notifications.topic": "Thảo luận ngắn",
+        "notifications.empty.title": "Chưa có gì ở đây",
+        "notifications.empty.description": "Quay lại để nhận thông báo về sự kiện và nhiều hơn thế nữa",
+        "notifiactions.repliedTo": "Trả lời: ",
+        "notifications.sender": "Người gửi: ",
+        "notifications.unreachableMessage": "Tin nhắn không khả dụng",
 
         "otpVerify.loginToMezon":      "Đăng nhập tài khoản Mezon",
         "otpVerify.enterCodeFrom":     "Nhập mã từ",
