@@ -4,11 +4,13 @@ import AsyncDisplayKit
 @MainActor
 final class ProfileContainerNode: ASDisplayNode {
 
+    private let fixedHeaderView = UIView()
     private let scrollView = UIScrollView()
     private let contentView = UIView()
     private let context: AccountContext
 
     var onBackTapped: (() -> Void)?
+    var onSettingsTapped: (() -> Void)?
 
     private let avatarSize: CGFloat = 90.swh
     private let sideInset: CGFloat = 16.sw
@@ -16,7 +18,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let headerBackgroundView: UIView = {
         let v = UIView()
-        v.backgroundColor = .mezonBackground
+        v.backgroundColor = .mezonSecondaryBackground
         return v
     }()
 
@@ -36,6 +38,8 @@ final class ProfileContainerNode: ASDisplayNode {
         let btn = UIButton(type: .system)
         return btn
     }()
+    private let statusBubbleContainer = UIView()
+    private let statusBubbleShapeLayer = CAShapeLayer()
 
     private let nameLabel = UILabel()
     private let chevronDown: UIImageView = {
@@ -52,7 +56,7 @@ final class ProfileContainerNode: ASDisplayNode {
         btn.setImage(img, for: .normal)
         btn.imageView?.contentMode = .scaleAspectFit
         btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        btn.backgroundColor = .mezonSecondaryBackground
+        btn.backgroundColor = .mezonPrimary
         return btn
     }()
 
@@ -62,7 +66,7 @@ final class ProfileContainerNode: ASDisplayNode {
         btn.setImage(img, for: .normal)
         btn.imageView?.contentMode = .scaleAspectFit
         btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        btn.backgroundColor = .mezonSecondaryBackground
+        btn.backgroundColor = .mezonPrimary
         return btn
     }()
 
@@ -86,7 +90,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let aboutMeTitleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        l.textColor = .mezonTextSecondary
+        l.textColor = .mezonTextStrong
         return l
     }()
     private let aboutMeContentLabel: UILabel = {
@@ -99,7 +103,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let memberSinceTitleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        l.textColor = .mezonTextSecondary
+        l.textColor = .mezonTextStrong
         return l
     }()
     private let memberSinceDateLabel: UILabel = {
@@ -112,7 +116,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let friendsCard = UIView()
     private let friendsTitleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        l.font = .systemFont(ofSize: 13.sf, weight: .bold)
         l.textColor = .mezonTextStrong
         return l
     }()
@@ -129,6 +133,27 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private static func profileImage(named: String) -> UIImage? {
         UIImage(named: "Profile/\(named)", in: Bundle.main, compatibleWith: nil)
+    }
+
+    private static func makePlusIconInCircle(containerColor: UIColor, iconColor: UIColor, size: CGFloat = 24) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        return renderer.image { ctx in
+            let rect = CGRect(origin: .zero, size: CGSize(width: size, height: size))
+            containerColor.setFill()
+            UIBezierPath(roundedRect: rect, cornerRadius: 2).fill()
+            let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+            if let plus = UIImage(systemName: "plus", withConfiguration: cfg)?
+                .withTintColor(iconColor, renderingMode: .alwaysOriginal) {
+                let iconSize = plus.size
+                let iconRect = CGRect(
+                    x: (size - iconSize.width) / 2,
+                    y: (size - iconSize.height) / 2,
+                    width: iconSize.width,
+                    height: iconSize.height
+                )
+                plus.draw(in: iconRect)
+            }
+        }.withRenderingMode(.alwaysOriginal)
     }
 
     private static func profileImageResized(named: String, size: CGFloat = 24) -> UIImage? {
@@ -151,10 +176,11 @@ final class ProfileContainerNode: ASDisplayNode {
 
     override func didLoad() {
         super.didLoad()
-        view.backgroundColor = .mezonBackground
+        view.backgroundColor = .mezonSecondaryBackground
 
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceVertical = true
+        view.addSubview(fixedHeaderView)
         view.addSubview(scrollView)
         scrollView.addSubview(contentView)
 
@@ -166,16 +192,71 @@ final class ProfileContainerNode: ASDisplayNode {
         setupCopyCard()
 
         updateContent()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
+    }
+
+    @objc private func handleThemeOrLanguageChange() {
+        applyTheme()
+        updateContent()
+    }
+
+    private func applyTheme() {
+        view.backgroundColor = .mezonSecondaryBackground
+        fixedHeaderView.backgroundColor = .mezonSecondaryBackground
+        scrollView.backgroundColor = .mezonSecondaryBackground
+        contentView.backgroundColor = .mezonSecondaryBackground
+
+        avatarContainerView.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
+        onlineDot.layer.borderColor = UIColor.mezonTertiary.cgColor
+        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+
+        nameLabel.textColor = .mezonTextStrong
+        chevronDown.tintColor = .mezonTextPrimary
+        usernameLabel.textColor = .mezonTextPrimary
+
+        headphoneButton.backgroundColor = .mezonPrimary
+        micButton.backgroundColor = .mezonPrimary
+
+        for card in [balanceCard, aboutMeCard, friendsCard, copyCard] {
+            card.backgroundColor = .mezonPrimary
+            card.layer.borderColor = UIColor.mezonBorder.cgColor
+        }
+
+        aboutMeTitleLabel.textColor = .mezonTextStrong
+        aboutMeContentLabel.textColor = .mezonTextStrong
+        memberSinceTitleLabel.textColor = .mezonTextStrong
+        memberSinceDateLabel.textColor = .mezonTextStrong
+        friendsTitleLabel.textColor = .mezonTextStrong
+        friendsChevron.tintColor = .mezonTextSecondary
+
+        if avatarImageView.image == nil {
+            headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+        }
+        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+
+        var statusCfg = addStatusButton.configuration ?? UIButton.Configuration.plain()
+        statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
+        statusCfg.baseForegroundColor = .mezonTextPrimary
+        statusCfg.attributedTitle = AttributedString(
+            L(L10n.Profile.addStatus),
+            attributes: AttributeContainer([
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
+                .foregroundColor: UIColor.mezonTextPrimary
+            ])
+        )
+        addStatusButton.configuration = statusCfg
     }
 
     private func setupHeader() {
-        contentView.addSubview(headerBackgroundView)
-        contentView.sendSubviewToBack(headerBackgroundView)
+        fixedHeaderView.addSubview(headerBackgroundView)
+        fixedHeaderView.sendSubviewToBack(headerBackgroundView)
 
         avatarContainerView.layer.cornerRadius = 16.swh
         avatarContainerView.layer.borderWidth = 3
-        avatarContainerView.layer.borderColor = UIColor.mezonBackground.cgColor
-        contentView.addSubview(avatarContainerView)
+        avatarContainerView.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
+        fixedHeaderView.addSubview(avatarContainerView)
 
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
@@ -183,44 +264,50 @@ final class ProfileContainerNode: ASDisplayNode {
 
         let dotSize: CGFloat = 16.swh
         onlineDot.layer.cornerRadius = dotSize / 2
-        onlineDot.layer.borderWidth = 3
-        onlineDot.layer.borderColor = UIColor.mezonBackground.cgColor
-        contentView.addSubview(onlineDot)
+        onlineDot.layer.borderWidth = 2
+        onlineDot.layer.borderColor = UIColor.mezonTertiary.cgColor
+        fixedHeaderView.addSubview(onlineDot)
+
+        statusBubbleContainer.backgroundColor = .clear
+        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+        statusBubbleContainer.layer.insertSublayer(statusBubbleShapeLayer, at: 0)
 
         var statusCfg = UIButton.Configuration.plain()
-        let plusIcon = UIImage(systemName: "plus.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
-        statusCfg.image = plusIcon
+        statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
         statusCfg.imagePadding = 6
-        statusCfg.baseForegroundColor = .mezonSuccess
+        statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
+        statusCfg.baseForegroundColor = .mezonTextPrimary
         statusCfg.attributedTitle = AttributedString(
             L(L10n.Profile.addStatus),
             attributes: AttributeContainer([
-                .font: UIFont.systemFont(ofSize: 15.sf, weight: .medium),
-                .foregroundColor: UIColor.mezonTextStrong
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
+                .foregroundColor: UIColor.mezonTextPrimary
             ])
         )
         addStatusButton.configuration = statusCfg
-        contentView.addSubview(addStatusButton)
+        statusBubbleContainer.addSubview(addStatusButton)
+        fixedHeaderView.addSubview(statusBubbleContainer)
     }
 
     private func setupNameArea() {
         nameLabel.font = .systemFont(ofSize: 22.sf, weight: .bold)
         nameLabel.textColor = .mezonTextStrong
-        contentView.addSubview(nameLabel)
-        contentView.addSubview(chevronDown)
+        fixedHeaderView.addSubview(nameLabel)
+        fixedHeaderView.addSubview(chevronDown)
 
         usernameLabel.font = .systemFont(ofSize: 14.sf)
-        usernameLabel.textColor = .mezonTextSecondary
-        contentView.addSubview(usernameLabel)
+        usernameLabel.textColor = .mezonTextPrimary
+        fixedHeaderView.addSubview(usernameLabel)
 
         let iconBtnSize: CGFloat = 36.swh
         headphoneButton.layer.cornerRadius = iconBtnSize / 2
         headphoneButton.clipsToBounds = true
-        contentView.addSubview(headphoneButton)
+        fixedHeaderView.addSubview(headphoneButton)
 
         micButton.layer.cornerRadius = iconBtnSize / 2
         micButton.clipsToBounds = true
-        contentView.addSubview(micButton)
+        micButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
+        fixedHeaderView.addSubview(micButton)
     }
 
     private func setupBalanceCard() {
@@ -348,8 +435,10 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     private func styleCard(_ card: UIView) {
-        card.backgroundColor = .mezonSecondaryBackground
-        card.layer.cornerRadius = 12.swh
+        card.backgroundColor = .mezonPrimary
+        card.layer.cornerRadius = 20.swh
+        card.layer.borderWidth = 1
+        card.layer.borderColor = UIColor.mezonBorder.cgColor
         card.clipsToBounds = true
     }
 
@@ -364,12 +453,14 @@ final class ProfileContainerNode: ASDisplayNode {
                     await MainActor.run {
                         self.avatarImageView.image = img
                         self.headerBackgroundView.backgroundColor = color ?? .mezonBackground
+                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                     }
                 }
             }
         } else {
             avatarImageView.image = nil
-            headerBackgroundView.backgroundColor = .mezonBackground
+            headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+            statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
         }
 
         onlineDot.isHidden = user?.status != .online
@@ -420,6 +511,7 @@ final class ProfileContainerNode: ASDisplayNode {
         copyRow.configure(
             text: L(L10n.Profile.copyUserId),
             textColor: .mezonTextStrong,
+            font: .systemFont(ofSize: 13.sf, weight: .bold),
             trailingIconImage: Self.profileImage(named: "IDIcon")
         )
     }
@@ -443,7 +535,7 @@ final class ProfileContainerNode: ASDisplayNode {
             circle.backgroundColor = color
             circle.layer.cornerRadius = avatarSmall / 2
             circle.layer.borderWidth = 2
-            circle.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
+            circle.layer.borderColor = UIColor.mezonPrimary.cgColor
             circle.clipsToBounds = true
             circle.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
@@ -456,14 +548,14 @@ final class ProfileContainerNode: ASDisplayNode {
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         let safeTop = layout.safeInsets.top
-        scrollView.frame = CGRect(x: 0, y: 0, width: layout.size.width, height: layout.size.height)
-        layoutContent(width: layout.size.width, safeTop: safeTop)
+        layoutContent(width: layout.size.width, height: layout.size.height, safeTop: safeTop)
     }
 
-    private func layoutContent(width: CGFloat, safeTop: CGFloat) {
+    private func layoutContent(width: CGFloat, height: CGFloat, safeTop: CGFloat) {
         let side = sideInset
         let contentWidth = width - side * 2
-        var y: CGFloat = safeTop + 20.sh
+        let headerExtraHeight: CGFloat = 16.sh
+        var y: CGFloat = safeTop + 40.sh + headerExtraHeight
 
         let headerBackgroundHeight = y + avatarSize * 5 / 6
         headerBackgroundView.frame = CGRect(x: 0, y: 0, width: width, height: headerBackgroundHeight)
@@ -481,12 +573,26 @@ final class ProfileContainerNode: ASDisplayNode {
 
         addStatusButton.sizeToFit()
         let statusX = avatarContainerView.frame.maxX + 12.sw
-        addStatusButton.frame = CGRect(
+        let bubbleBodyH: CGFloat = 44.sh
+        let tailH: CGFloat = 8.sh
+        let bubbleW = min(addStatusButton.intrinsicContentSize.width + 12, width - statusX - side)
+        let totalBubbleH = bubbleBodyH + tailH
+
+        statusBubbleContainer.frame = CGRect(
             x: statusX,
-            y: y + (avatarSize - 36.sh) / 2,
-            width: min(addStatusButton.intrinsicContentSize.width + 8, width - statusX - side),
-            height: 36.sh
+            y: y + (avatarSize - bubbleBodyH) / 2 - 6.sh,
+            width: bubbleW,
+            height: totalBubbleH
         )
+        addStatusButton.frame = CGRect(x: 0, y: 0, width: bubbleW, height: bubbleBodyH)
+
+        statusBubbleShapeLayer.frame = statusBubbleContainer.bounds
+        let bubblePath = makeBubblePath(
+            width: bubbleW, bodyHeight: bubbleBodyH,
+            cornerRadius: 14.swh,
+            tailHeight: tailH, tailOffset: 2.sw, tailWidth: 10.sw
+        )
+        statusBubbleShapeLayer.path = bubblePath.cgPath
 
         y = avatarContainerView.frame.maxY + 8.sh
 
@@ -522,48 +628,84 @@ final class ProfileContainerNode: ASDisplayNode {
         usernameLabel.frame = CGRect(x: side, y: y, width: contentWidth, height: 20.sh)
         y += 20.sh + 20.sh
 
+        let fixedHeaderHeight = y
+        fixedHeaderView.frame = CGRect(x: 0, y: 0, width: width, height: fixedHeaderHeight)
+        scrollView.frame = CGRect(x: 0, y: fixedHeaderHeight, width: width, height: height - fixedHeaderHeight)
+
+        var scrollY: CGFloat = 0
         let cardWidth = contentWidth
-        balanceCard.frame = CGRect(x: side, y: y, width: cardWidth, height: 0)
+        balanceCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 0)
         balanceCard.layoutIfNeeded()
         let balanceHeight = balanceCard.systemLayoutSizeFitting(
             CGSize(width: cardWidth, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         ).height
-        balanceCard.frame = CGRect(x: side, y: y, width: cardWidth, height: balanceHeight)
-        y += balanceHeight + cardSpacing
+        balanceCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: balanceHeight)
+        scrollY += balanceHeight + cardSpacing
 
-        aboutMeCard.frame = CGRect(x: side, y: y, width: cardWidth, height: 0)
+        aboutMeCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 0)
         aboutMeCard.layoutIfNeeded()
         let aboutHeight = aboutMeCard.systemLayoutSizeFitting(
             CGSize(width: cardWidth, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         ).height
-        aboutMeCard.frame = CGRect(x: side, y: y, width: cardWidth, height: aboutHeight)
-        y += aboutHeight + cardSpacing
+        aboutMeCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: aboutHeight)
+        scrollY += aboutHeight + cardSpacing
 
-        friendsCard.frame = CGRect(x: side, y: y, width: cardWidth, height: 56.sh)
-        y += 56.sh + cardSpacing
+        friendsCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 56.sh)
+        scrollY += 56.sh + cardSpacing
 
-        copyCard.frame = CGRect(x: side, y: y, width: cardWidth, height: 0)
+        copyCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 0)
         copyCard.layoutIfNeeded()
         let copyHeight = copyCard.systemLayoutSizeFitting(
             CGSize(width: cardWidth, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         ).height
-        copyCard.frame = CGRect(x: side, y: y, width: cardWidth, height: copyHeight)
-        y += copyHeight + 30.sh
+        copyCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: copyHeight)
+        scrollY += copyHeight + 30.sh
 
-        contentView.frame = CGRect(x: 0, y: 0, width: width, height: y)
-        scrollView.contentSize = CGSize(width: width, height: y)
+        contentView.frame = CGRect(x: 0, y: 0, width: width, height: scrollY)
+        scrollView.contentSize = CGSize(width: width, height: scrollY)
+    }
+
+    private func makeBubblePath(
+        width w: CGFloat, bodyHeight h: CGFloat,
+        cornerRadius cr: CGFloat,
+        tailHeight: CGFloat, tailOffset: CGFloat, tailWidth: CGFloat
+    ) -> UIBezierPath {
+        let r = min(cr, h / 2)
+        let path = UIBezierPath()
+
+        path.move(to: CGPoint(x: r, y: 0))
+        path.addLine(to: CGPoint(x: w - r, y: 0))
+        path.addArc(withCenter: CGPoint(x: w - r, y: r), radius: r,
+                     startAngle: -.pi / 2, endAngle: 0, clockwise: true)
+        path.addLine(to: CGPoint(x: w, y: h - r))
+        path.addArc(withCenter: CGPoint(x: w - r, y: h - r), radius: r,
+                     startAngle: 0, endAngle: .pi / 2, clockwise: true)
+
+        path.addLine(to: CGPoint(x: tailOffset + tailWidth, y: h))
+        path.addLine(to: CGPoint(x: tailOffset, y: h + tailHeight))
+        path.addLine(to: CGPoint(x: 0, y: h))
+        path.addLine(to: CGPoint(x: 0, y: r))
+        path.addArc(withCenter: CGPoint(x: r, y: r), radius: r,
+                     startAngle: .pi, endAngle: -.pi / 2, clockwise: true)
+
+        path.close()
+        return path
     }
 
     @objc private func copyUserIdTapped() {
         guard let userId = context.currentUser?.id else { return }
         UIPasteboard.general.string = userId
         Toast.info(L(L10n.Profile.userIdCopied))
+    }
+
+    @objc private func settingsTapped() {
+        onSettingsTapped?()
     }
 }
 
@@ -618,6 +760,7 @@ private final class ProfileIconRow: UIView {
         iconColor: UIColor = .mezonTextSecondary,
         text: String,
         textColor: UIColor,
+        font: UIFont? = nil,
         trailingIcon: String? = nil,
         trailingIconImage: UIImage? = nil
     ) {
@@ -641,15 +784,15 @@ private final class ProfileIconRow: UIView {
         }
         label.text = text
         label.textColor = textColor
-        label.font = .systemFont(ofSize: 15.sf)
+        label.font = font ?? .systemFont(ofSize: 15.sf)
 
         if let img = trailingIconImage {
             trailingView.image = img.withRenderingMode(.alwaysTemplate)
-            trailingView.tintColor = .mezonTextSecondary
+            trailingView.tintColor = .mezonTextStrong
             trailingView.isHidden = false
         } else if let trailing = trailingIcon {
             trailingView.image = UIImage(systemName: trailing)
-            trailingView.tintColor = .mezonTextSecondary
+            trailingView.tintColor = .mezonTextStrong
             trailingView.isHidden = false
         } else {
             trailingView.isHidden = true

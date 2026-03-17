@@ -23,6 +23,11 @@ final class ProfileViewController: ViewController {
         node.onBackTapped = { [weak self] in
             self?.navigationController?.popViewController(animated: true)
         }
+        node.onSettingsTapped = { [weak self] in
+            guard let self else { return }
+            let vc = SettingsViewController(context: self.context)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 
