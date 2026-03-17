@@ -222,42 +222,61 @@ private final class ChannelItemCellNode: ASCellNode {
     private func setupContent() {
         let t = UIColor.theme
         let chType = ChannelType(rawValue: channel.type) ?? .unknown
-        let isUnread = channel.countMessUnread > 0
-            || (channel.hasLastSentMessage && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
+        let isUnread =
+            channel.countMessUnread > 0
+            || (channel.hasLastSentMessage
+                && channel.lastSeenMessage.timestampSeconds
+                    < channel.lastSentMessage.timestampSeconds)
         let unread = channel.countMessUnread
 
-        let iconColor = cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+        let iconColor =
+            cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
         if chType.isSystemImage {
-            iconImgNode.image = UIImage(systemName: chType.icon)
+            var iconName = chType.icon
+            if chType == .text && channel.channelPrivate == 1 {
+                iconName = "Channel/channelPrivate"
+            }
+            if chType == .text && channel.ageRestricted == 1 {
+                iconName = "Channel/channelWarning"
+            }
+            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            iconImgNode.image = image?.withRenderingMode(.alwaysTemplate)
             iconImgNode.tintColor = iconColor
             iconImgNode.isHidden = false
             iconNode.isHidden = true
         } else {
-            iconNode.attributedText = NSAttributedString(string: chType.icon, attributes: [
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
-                .foregroundColor: iconColor,
-            ])
+            iconNode.attributedText = NSAttributedString(
+                string: chType.icon,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
+                    .foregroundColor: iconColor,
+                ])
             iconNode.isHidden = false
             iconImgNode.isHidden = true
         }
 
         let nameStr = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
-        let nameColor = cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+        let nameColor =
+            cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
         let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
-        nameNode.attributedText = NSAttributedString(string: nameStr, attributes: [
-            .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
-            .foregroundColor: nameColor,
-        ])
+        nameNode.attributedText = NSAttributedString(
+            string: nameStr,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
+                .foregroundColor: nameColor,
+            ])
 
         if unread > 0 {
             let text = unread > 99 ? "99+" : "\(unread)"
             let para = NSMutableParagraphStyle()
             para.alignment = .center
-            badgeNode.attributedText = NSAttributedString(string: text, attributes: [
-                .font: UIFont.systemFont(ofSize: 10.sf, weight: .bold),
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: para,
-            ])
+            badgeNode.attributedText = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 10.sf, weight: .bold),
+                    .foregroundColor: UIColor.white,
+                    .paragraphStyle: para,
+                ])
             badgeNode.backgroundColor = .systemRed
             badgeNode.cornerRadius = 10.swh
             badgeNode.clipsToBounds = true
@@ -299,7 +318,9 @@ private final class ChannelItemCellNode: ASCellNode {
             children.append(contentsOf: [spacer, badgeNode])
         }
 
-        let row = ASStackLayoutSpec(direction: .horizontal, spacing: 10.sw, justifyContent: .start, alignItems: .center, children: children)
+        let row = ASStackLayoutSpec(
+            direction: .horizontal, spacing: 10.sw, justifyContent: .start, alignItems: .center,
+            children: children)
 
         let inset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 8.sh, left: 12.sw, bottom: 8.sh, right: 12.sw),
@@ -307,7 +328,8 @@ private final class ChannelItemCellNode: ASCellNode {
         )
 
         inset.style.minHeight = ASDimensionMake(36.sh)
-        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw), child: inset)
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw), child: inset)
     }
 }
 
@@ -316,38 +338,49 @@ private final class ThreadItemCellNode: ASCellNode {
     private let connectorNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
+    private let isLast: Bool
 
     init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool) {
+        self.isLast = isLast
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
+        clipsToBounds = false
 
         let t = UIColor.theme
         let unread = channel.countMessUnread
-        let isUnread = unread > 0
-            || (channel.hasLastSentMessage && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
+        let isUnread =
+            unread > 0
+            || (channel.hasLastSentMessage
+                && channel.lastSeenMessage.timestampSeconds
+                    < channel.lastSentMessage.timestampSeconds)
 
-        let connectorName = isLast ? "arrow.turn.down.right" : "arrow.turn.down.right"
-        connectorNode.image = UIImage(systemName: connectorName)
-        connectorNode.tintColor = t.channelNormal.withAlphaComponent(0.4)
+        let connectorName = isLast ? "Channel/ShortCorner" : "Channel/LongCorner"
+        connectorNode.image = UIImage(named: connectorName)
+        connectorNode.tintColor = t.channelNormal.withAlphaComponent(0.6)
         connectorNode.contentMode = .scaleAspectFit
 
-        let nameColor = isSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+        let nameColor =
+            isSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
         let nameWeight: UIFont.Weight = isUnread ? .semibold : .regular
-        nameNode.attributedText = NSAttributedString(string: channel.channelLabel, attributes: [
-            .font: UIFont.systemFont(ofSize: 13.sf, weight: nameWeight),
-            .foregroundColor: nameColor,
-        ])
+        nameNode.attributedText = NSAttributedString(
+            string: channel.channelLabel,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: nameWeight),
+                .foregroundColor: nameColor,
+            ])
 
         if unread > 0 {
             let text = unread > 99 ? "99+" : "\(unread)"
             let para = NSMutableParagraphStyle()
             para.alignment = .center
-            badgeNode.attributedText = NSAttributedString(string: text, attributes: [
-                .font: UIFont.systemFont(ofSize: 10.sf, weight: .bold),
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: para,
-            ])
+            badgeNode.attributedText = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 10.sf, weight: .bold),
+                    .foregroundColor: UIColor.white,
+                    .paragraphStyle: para,
+                ])
             badgeNode.backgroundColor = .systemRed
             badgeNode.cornerRadius = 10.swh
             badgeNode.clipsToBounds = true
@@ -356,14 +389,15 @@ private final class ThreadItemCellNode: ASCellNode {
             badgeNode.isHidden = true
         }
 
+        backgroundColor = isSelected ? t.colorActiveClan : .clear
         if isSelected {
             cornerRadius = 16.swh
-            backgroundColor = t.colorActiveClan
         }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        connectorNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
+        connectorNode.style.preferredSize = CGSize(
+            width: isLast ? 12.swh : 14.swh, height: isLast ? 14.swh : 26.swh)
         badgeNode.style.minWidth = ASDimensionMake(20.swh)
         badgeNode.style.height = ASDimensionMake(20.swh)
 
@@ -371,20 +405,29 @@ private final class ThreadItemCellNode: ASCellNode {
         let spacer = ASLayoutSpec()
         spacer.style.flexGrow = 1
 
-        var children: [ASLayoutElement] = [connectorNode, nameNode]
+        let topInset: CGFloat = isLast ? -4.sh : -18.sh
+        let leftInset: CGFloat = isLast ? 2.sw : 0
+        let connectorInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: topInset, left: leftInset, bottom: 0, right: 0),
+            child: connectorNode)
+
+        var children: [ASLayoutElement] = [connectorInset, nameNode]
         if !badgeNode.isHidden {
             children.append(contentsOf: [spacer, badgeNode])
         }
 
-        let row = ASStackLayoutSpec(direction: .horizontal, spacing: 8.sw, justifyContent: .start, alignItems: .center, children: children)
+        let row = ASStackLayoutSpec(
+            direction: .horizontal, spacing: 8.sw, justifyContent: .start, alignItems: .start,
+            children: children)
 
         let inset = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 6.sh, left: 38.sw, bottom: 6.sh, right: 12.sw),
+            insets: UIEdgeInsets(top: 4.sh, left: 14.sw, bottom: 4.sh, right: 12.sw),
             child: row
         )
 
         inset.style.minHeight = ASDimensionMake(30.sh)
-        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw), child: inset)
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw), child: inset)
     }
 }
 
@@ -412,11 +455,11 @@ private final class CategorySectionHeaderView: UIView {
 
     var onTap: (() -> Void)?
 
-    private let arrowLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 10.sf, weight: .semibold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
+    private let arrowIcon: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
     }()
 
     private let titleLabel: UILabel = {
@@ -428,16 +471,17 @@ private final class CategorySectionHeaderView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        addSubview(arrowLabel)
+        addSubview(arrowIcon)
         addSubview(titleLabel)
         NSLayoutConstraint.activate([
-            arrowLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8.sw),
-            arrowLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            arrowLabel.widthAnchor.constraint(equalToConstant: 14.sw),
+            arrowIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8.sw),
+            arrowIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            arrowIcon.widthAnchor.constraint(equalToConstant: 12.sw),
+            arrowIcon.heightAnchor.constraint(equalToConstant: 12.sw),
 
-            titleLabel.leadingAnchor.constraint(equalTo: arrowLabel.trailingAnchor, constant: 4.sw),
+            titleLabel.leadingAnchor.constraint(equalTo: arrowIcon.trailingAnchor, constant: 4.sw),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8.sw)
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8.sw),
         ])
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
     }
@@ -446,11 +490,12 @@ private final class CategorySectionHeaderView: UIView {
 
     func configure(category: ChannelCategory) {
         let t = UIColor.theme
-        backgroundColor      = .clear
+        backgroundColor = .clear
         titleLabel.textColor = t.textDisabled
-        arrowLabel.textColor = t.textDisabled
-        titleLabel.text      = category.name.uppercased()
-        arrowLabel.text      = category.isCollapsed ? "▶" : "▾"
+        let iconName = category.isCollapsed ? "Channel/ChevronRight" : "Channel/ChevronBottom"
+        arrowIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+        arrowIcon.tintColor = t.textDisabled
+        titleLabel.text = category.name.uppercased()
     }
 
     @objc private func handleTap() { onTap?() }
@@ -496,7 +541,7 @@ final class ChannelListHeaderView: UIView {
     }()
 
     private let searchIcon: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let iv = UIImageView(image: UIImage(named: "Channel/Search"))
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -512,16 +557,21 @@ final class ChannelListHeaderView: UIView {
 
     private let qrButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "qrcode"), for: .normal)
+        btn.setImage(UIImage(named: "Channel/QR")?.withRenderingMode(.alwaysOriginal), for: .normal)
         btn.layer.cornerRadius = 16
+        btn.layer.borderWidth = 1
+        btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
     }()
 
     private let eventButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "person.badge.plus"), for: .normal)
+        btn.setImage(
+            UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysOriginal), for: .normal)
         btn.layer.cornerRadius = 16
+        btn.layer.borderWidth = 1
+        btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
     }()
@@ -541,7 +591,9 @@ final class ChannelListHeaderView: UIView {
         titleStack.alignment = .center
         titleStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let infoRow = UIStackView(arrangedSubviews: [memberCountLabel, communityDot, communityLabel])
+        let infoRow = UIStackView(arrangedSubviews: [
+            memberCountLabel, communityDot, communityLabel,
+        ])
         infoRow.axis = .horizontal
         infoRow.spacing = 6
         infoRow.alignment = .center
@@ -620,9 +672,9 @@ final class ChannelListHeaderView: UIView {
         searchIcon.tintColor = t.textDisabled
         searchLabel.textColor = t.textDisabled
         qrButton.backgroundColor = t.tertiary
-        qrButton.tintColor = t.textDisabled
+        qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         eventButton.backgroundColor = t.tertiary
-        eventButton.tintColor = t.textDisabled
+        eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         separator.backgroundColor = t.border.withAlphaComponent(0.3)
     }
 }
