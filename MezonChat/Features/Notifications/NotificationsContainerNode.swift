@@ -259,6 +259,16 @@ final class NotificationItemCell: UITableViewCell {
         } else {
             timeLabel.text = "\(diff / 86400)d"
         }
+
+        // Theme colors
+        let t = UIColor.theme
+        titleLabel.textColor = t.textStrong
+        contentLabel.textColor = t.text
+        timeLabel.textColor = t.textDisabled
+        verticalLine.backgroundColor = t.border
+        separatorLine.backgroundColor = t.borderDim
+        avatarView.backgroundColor = t.primary
+        avatarPlaceholder.textColor = t.text
     }
 
     override func prepareForReuse() {
@@ -291,6 +301,14 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let tabStackView = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+
+    private lazy var gradientLayer: CAGradientLayer = {
+        let gl = CAGradientLayer()
+        gl.startPoint = CGPoint(x: 0, y: 0)
+        gl.endPoint = CGPoint(x: 1, y: 1)
+        gl.locations = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
+        return gl
+    }()
 
     // Empty state
     private let emptyStateStack: UIStackView = {
@@ -347,6 +365,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     init(signal: Signal<NotificationsState, NoError>, interaction: NotificationsInteraction) {
         self.interaction = interaction
         super.init()
+        backgroundColor = .clear
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -381,7 +400,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
-        view.backgroundColor = .mezonBackground
+        layer.insertSublayer(gradientLayer, at: 0)
 
         // Title label
         titleLabel.text = L(L10n.Notifications.title)
@@ -394,7 +413,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         cfg.background.strokeColor = .mezonBorder
         cfg.background.strokeWidth = 1.5
         cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-        if let raw = UIImage(named: "Notifications/addfriend") {
+        if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
             let iconSize = CGSize(width: 20, height: 20)
             let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
             let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
@@ -466,6 +485,8 @@ final class NotificationsContainerNode: ASDisplayNode {
             emptyStateStack.widthAnchor.constraint(
                 equalTo: view.widthAnchor, multiplier: 0.7),
         ])
+
+        applyTheme()
     }
 
     // MARK: Layout
@@ -479,6 +500,17 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     private func applyLayout(transition: ContainedViewLayoutTransition) {
         guard let layout = lastLayout else { return }
+
+        if layer.maskedCorners != [.layerMinXMinYCorner] {
+            layer.cornerRadius = 20.swh
+            layer.maskedCorners = [.layerMinXMinYCorner]
+            clipsToBounds = true
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        CATransaction.commit()
 
         let safeTop: CGFloat
         let realSafeTop = view.safeAreaInsets.top
@@ -547,10 +579,10 @@ final class NotificationsContainerNode: ASDisplayNode {
 
             var cfg = UIButton.Configuration.filled()
             cfg.cornerStyle = .fixed
-            cfg.background.cornerRadius = 10
-            cfg.imagePadding = 4
+            cfg.background.cornerRadius = 8
+            cfg.imagePadding = 2
             cfg.contentInsets = NSDirectionalEdgeInsets(
-                top: 0, leading: 6, bottom: 0, trailing: 6)
+                top: 6, leading: 4, bottom: 6, trailing: 4)
             cfg.attributedTitle = AttributedString(
                 tab.title,
                 attributes: AttributeContainer([
@@ -559,13 +591,13 @@ final class NotificationsContainerNode: ASDisplayNode {
             )
 
             if let raw = UIImage(named: tab.iconName) {
-                let iconSize = CGSize(width: 16, height: 16)
-                let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
+                let iconSize = CGSize(width: 16, height: 18)
+                let ratio = min(16 / raw.size.width, 16 / raw.size.height)
                 let drawSize = CGSize(
                     width: raw.size.width * ratio, height: raw.size.height * ratio)
                 let origin = CGPoint(
                     x: (iconSize.width - drawSize.width) / 2,
-                    y: (iconSize.height - drawSize.height) / 2)
+                    y: 0)
                 let renderer = UIGraphicsImageRenderer(size: iconSize)
                 let resized = renderer.image { _ in
                     raw.draw(in: CGRect(origin: origin, size: drawSize))
@@ -574,7 +606,8 @@ final class NotificationsContainerNode: ASDisplayNode {
             }
 
             btn.configuration = cfg
-            btn.heightAnchor.constraint(equalToConstant: 34).isActive = true
+            btn.clipsToBounds = false
+            btn.layer.masksToBounds = false
             btn.setContentHuggingPriority(.required, for: .horizontal)
             btn.setContentCompressionResistancePriority(.required, for: .horizontal)
             btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
@@ -586,18 +619,19 @@ final class NotificationsContainerNode: ASDisplayNode {
     }
 
     private func updateTabStyles() {
+        let t = UIColor.theme
         for (i, btn) in tabButtons.enumerated() {
             let selected = i == selectedTabIndex
 
             var cfg = btn.configuration
             if selected {
-                cfg?.baseBackgroundColor = .mezonLink
-                cfg?.baseForegroundColor = .white
+                cfg?.baseBackgroundColor = t.bgViolet
+                cfg?.baseForegroundColor = t.channelUnread
                 cfg?.background.strokeWidth = 0
             } else {
-                cfg?.baseBackgroundColor = .mezonTertiary
-                cfg?.baseForegroundColor = .mezonChannelText
-                cfg?.background.strokeColor = .mezonBorder
+                cfg?.baseBackgroundColor = t.secondaryLight
+                cfg?.baseForegroundColor = t.textDisabled
+                cfg?.background.strokeColor = t.borderDim
                 cfg?.background.strokeWidth = 1
             }
             btn.configuration = cfg
@@ -614,6 +648,32 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     @objc private func addFriendTapped() {
         // TODO: implement add friend action
+    }
+
+    func applyTheme() {
+        let t = UIColor.theme
+        gradientLayer.colors = [
+            t.primaryGradient.cgColor,
+            t.secondary.cgColor,
+            t.secondary.cgColor,
+            t.primaryGradient.cgColor,
+        ]
+        backgroundColor = .clear
+        tableView.backgroundColor = .clear
+        headerView.backgroundColor = .clear
+        tabScrollView.backgroundColor = .clear
+
+        titleLabel.textColor = t.textStrong
+        var addCfg = addFriendButton.configuration
+        addCfg?.baseForegroundColor = t.textStrong
+        addCfg?.background.strokeColor = t.border
+        addFriendButton.configuration = addCfg
+
+        emptyTitleLabel.textColor = t.textStrong
+        emptyDescLabel.textColor = t.textDisabled
+
+        updateTabStyles()
+        tableView.reloadData()
     }
 }
 
