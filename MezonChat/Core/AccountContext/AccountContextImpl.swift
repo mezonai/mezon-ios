@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseMessaging
 import SwiftProtobuf
 
 @MainActor
@@ -71,6 +72,7 @@ final class AccountContextImpl: AccountContext {
             if let freshSession = self.session {
                 applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
             }
+            self.registerFCMTokenIfNeeded()
         }
     }
 
@@ -88,6 +90,25 @@ final class AccountContextImpl: AccountContext {
         account.postbox.clearAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         setLoggedIn(false)
+    }
+
+    private func registerFCMTokenIfNeeded() {
+        guard let authToken = session?.token else { return }
+        guard let fcmToken = Messaging.messaging().fcmToken else {
+            AppLogger.network.info("[FCM] No FCM token available yet")
+            return
+        }
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        Task {
+            do {
+                _ = try await account.network.registFcmDeviceToken(
+                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: authToken
+                )
+                AppLogger.network.info("[FCM] Token registered on login")
+            } catch {
+                AppLogger.network.error("[FCM] Token registration on login failed: \(error)")
+            }
+        }
     }
 
     func refreshSession() async throws {

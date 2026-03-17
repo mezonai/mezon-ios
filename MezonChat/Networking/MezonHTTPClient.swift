@@ -424,6 +424,18 @@ final class MezonHTTPClient {
         )
     }
 
+    func registFcmDeviceToken(fcmToken: String, deviceId: String, platform: String = "ios", authToken: String) async throws -> Mezon_Api_RegistFcmDeviceTokenResponse {
+        var req = Mezon_Api_RegistFcmDeviceTokenRequest()
+        req.token = fcmToken
+        req.deviceID = deviceId
+        req.platform = platform
+        return try await postProto(
+            path: "/mezon.api.Mezon/RegistFCMDeviceToken",
+            message: req,
+            auth: .bearer(authToken)
+        )
+    }
+
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
         return try await execute(req)
