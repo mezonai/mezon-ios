@@ -133,7 +133,11 @@ extension MezonEngine {
 
         private func fetchBadgeCount(clanId: Int64, token: String) async {
             do {
-                let response = try await network.listClanBadgeCount(clanId: clanId, token: token)
+                var req = Mezon_Realtime_ListDataSocket()
+                req.apiName = "ListClanBadgeCount"
+                req.listClanBadgeCountReq.clanID = clanId
+                let result = try await engine.account.socket.listDataSocket(req)
+                let response = result.clanBadgeCount
                 var count = response.badgeCount.littleEndian
                 let data = withUnsafeBytes(of: &count) { Data($0) }
                 postbox.setPreferenceData(key: PreferencesKeys.clanBadgeCount(clanId: clanId), value: data)

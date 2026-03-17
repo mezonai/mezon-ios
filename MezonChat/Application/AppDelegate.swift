@@ -84,7 +84,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     private func startAuthFlow(context: AccountContext) {
@@ -117,7 +116,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
 
     @objc private func handleWillEnterForeground() { accountContext?.recoverFromForeground() }
-    @objc private func handleDidBecomeActive() { accountContext?.recoverFromForeground() }
 
     deinit { disposables.dispose() }
 }

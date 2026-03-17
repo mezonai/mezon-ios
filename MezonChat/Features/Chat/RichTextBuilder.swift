@@ -11,8 +11,11 @@ enum RichTextBuilder {
     struct Style {
         let bodyFont: UIFont
         let bodyColor: UIColor
+        let mentionFont: UIFont
         let mentionColor: UIColor
         let mentionBgColor: UIColor
+        let roleMentionColor: UIColor
+        let roleMentionBgColor: UIColor
         let linkColor: UIColor
         let codeBgColor: UIColor
         let codeFont: UIFont
@@ -24,8 +27,11 @@ enum RichTextBuilder {
             return Style(
                 bodyFont: .systemFont(ofSize: 15.sf),
                 bodyColor: t.textStrong,
+                mentionFont: .systemFont(ofSize: 15.sf, weight: .semibold),
                 mentionColor: t.textLink,
                 mentionBgColor: t.midnightBlue,
+                roleMentionColor: t.textRoleLink,
+                roleMentionBgColor: t.darkMossGreen,
                 linkColor: t.textLink,
                 codeBgColor: t.tertiary,
                 codeFont: UIFont(name: "Menlo", size: 14.sf) ?? .monospacedSystemFont(ofSize: 14.sf, weight: .regular),
@@ -72,8 +78,10 @@ enum RichTextBuilder {
 
             case .mention(let userId, let roleId, _):
                 var attrs = bodyAttributes(s)
-                attrs[.foregroundColor] = s.mentionColor
-                attrs[.backgroundColor] = s.mentionBgColor
+                attrs[.font] = s.mentionFont
+                let isRoleMention = roleId != nil && userId == nil
+                attrs[.foregroundColor] = isRoleMention ? s.roleMentionColor : s.mentionColor
+                attrs[.backgroundColor] = isRoleMention ? s.roleMentionBgColor : s.mentionBgColor
                 attrs[.mezonMention] = (userId ?? roleId ?? "") as NSString
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
