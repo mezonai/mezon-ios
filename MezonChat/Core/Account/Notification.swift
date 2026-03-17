@@ -1,7 +1,7 @@
 import Foundation
 import SwiftProtobuf
 
-struct Notification: PostboxCoding, Identifiable, Equatable {
+struct MezonNotification: PostboxCoding, Identifiable, Equatable {
     /// ID of the Notification.
     let id: Int64
     /// Subject of the notification.

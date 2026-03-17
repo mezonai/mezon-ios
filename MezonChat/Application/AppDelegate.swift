@@ -1,4 +1,7 @@
 import UIKit
+import FirebaseCore
+import FirebaseMessaging
+import UserNotifications
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelegate {
@@ -19,6 +22,21 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         MezonEnvironment.current = .prod
+
+        FirebaseApp.configure()
+
+        UNUserNotificationCenter.current().delegate = self
+        let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
+        UNUserNotificationCenter.current().requestAuthorization(options: authOptions) { granted, error in
+            if let error {
+                AppLogger.network.error("[FCM] Notification auth error: \(error)")
+            }
+            AppLogger.network.info("[FCM] Notification permission granted: \(granted)")
+        }
+        application.registerForRemoteNotifications()
+
+        Messaging.messaging().delegate = self
+
         return true
     }
 
@@ -115,7 +133,62 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
     }
 
-    @objc private func handleWillEnterForeground() { accountContext?.recoverFromForeground() }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Messaging.messaging().apnsToken = deviceToken
+        AppLogger.network.info("[FCM] APNs token registered")
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        AppLogger.network.error("[FCM] APNs registration failed: \(error)")
+    }
+
+    @objc private func handleWillEnterForeground() {
+        accountContext?.recoverFromForeground()
+        UIApplication.shared.applicationIconBadgeNumber = 0
+        UserDefaults(suiteName: "group.mezon.mobile")?.set(0, forKey: "badgeCount")
+    }
 
     deinit { disposables.dispose() }
+}
+
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .badge, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        AppLogger.network.info("[FCM] Notification tapped: \(userInfo)")
+        completionHandler()
+    }
+}
+
+extension AppDelegate: MessagingDelegate {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken else { return }
+        print("[FCM] Token: \(fcmToken)")
+        AppLogger.network.info("[FCM] Token received: \(fcmToken.prefix(20))...")
+
+        Task { @MainActor in
+            guard let context = self.accountContext, let session = context.session else { return }
+            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+            do {
+                _ = try await context.account.network.registFcmDeviceToken(
+                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: session.token
+                )
+                AppLogger.network.info("[FCM] Token registered with server")
+            } catch {
+                AppLogger.network.error("[FCM] Token registration failed: \(error)")
+            }
+        }
+    }
 }

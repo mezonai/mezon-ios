@@ -73,7 +73,6 @@ final class ClanListViewController: ViewController {
 
     @objc private func handleThemeChange() { clanListNode.applyTheme() }
 
-    /// Handle new message — only update DM unread (clan badge handled by MezonMentionReceived)
     @objc private func handleNewMessageReceived(_ notification: Notification) {
         guard let channelId = notification.userInfo?["channelId"] as? Int64,
               let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
@@ -93,7 +92,6 @@ final class ClanListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
-    /// Handle mention/reply — increment clan badge
     @objc private func handleMentionReceived(_ notification: Notification) {
         guard let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
         guard clanId != 0 else { return }
@@ -156,8 +154,10 @@ final class ClanListViewController: ViewController {
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
                 self.context.account.postbox.write { tx in tx.updateClans(records) }
-                if let sid = self.selectedClanId, sorted.contains(where: { $0.clanID == sid }) {
+                if let sid = self.selectedClanId, sid != 0, sorted.contains(where: { $0.clanID == sid }) {
+                    self.setSelectedClanId(sid)
                     self.context.currentClanId = sid
+                    self.persistToPostbox()
                     self.fetchClanData(clanId: sid)
                 } else if let first = sorted.first {
                     self.setSelectedClanId(first.clanID)
@@ -197,12 +197,12 @@ final class ClanListViewController: ViewController {
         }
     }
 
-    /// Fetch all clan-scoped data (members, roles, events, permissions, etc.)
-    /// Mirrors React Native's changeCurrentClan thunk.
     private func fetchClanData(clanId: Int64) {
         guard let token = context.session?.token else { return }
         context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
     }
+
+    private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"
 
     private func restoreFromPostbox() {
         let records = self.context.account.postbox.read { tx in tx.getClans() }
@@ -217,11 +217,23 @@ final class ClanListViewController: ViewController {
         } else if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.clans) {
             setClans(decodeProtoArray(data).sorted { $0.clanOrder < $1.clanOrder })
         }
-        if let selData = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
-            let id = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
-            setSelectedClanId(id)
-            context.currentClanId = id
+
+        // Read selected clan ID from UserDefaults (synchronous, survives app kill)
+        // Fallback to postbox (async writes may be lost on kill)
+        var restoredId: Int64 = 0
+        let udValue = UserDefaults.standard.integer(forKey: Self.selectedClanIdUserDefaultsKey)
+        if udValue != 0 {
+            restoredId = Int64(udValue)
+        } else if let selData = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
+            restoredId = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
         }
+
+        // Validate restored ID: must be non-zero and exist in loaded clans
+        if restoredId != 0, clans.contains(where: { $0.clanID == restoredId }) {
+            setSelectedClanId(restoredId)
+            context.currentClanId = restoredId
+        }
+
         if selectedClanId == nil, let first = clans.first?.clanID {
             setSelectedClanId(first)
             context.currentClanId = first
@@ -230,7 +242,8 @@ final class ClanListViewController: ViewController {
 
     private func persistToPostbox() {
         self.context.account.postbox.setPreferenceData(key: PreferencesKeys.clans, value: encodeProtoArray(clans))
-        if let id = selectedClanId {
+        if let id = selectedClanId, id != 0 {
+            UserDefaults.standard.set(Int(id), forKey: Self.selectedClanIdUserDefaultsKey)
             var le = id.littleEndian
             self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: withUnsafeBytes(of: &le) { Data($0) })
         }
