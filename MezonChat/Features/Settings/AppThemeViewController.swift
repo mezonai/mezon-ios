@@ -167,7 +167,12 @@ final class AppThemeViewController: BaseViewController {
     }
 
     private func buildSwatches() {
-        swatchButtons = AppTheme.allCases.map { theme in
+        var themes = AppTheme.allCases
+        if let systemIndex = themes.firstIndex(of: .system) {
+            let systemTheme = themes.remove(at: systemIndex)
+            themes.insert(systemTheme, at: 0)
+        }
+        swatchButtons = themes.map { theme in
             let btn = ThemeSwatchButton(theme: theme)
             btn.addTarget(self, action: #selector(swatchTapped(_:)), for: .touchUpInside)
             swatchStack.addArrangedSubview(btn)
@@ -426,6 +431,13 @@ private final class ThemeSwatchButton: UIButton {
         return v
     }()
 
+    private let iconView: UIImageView = {
+        let v = UIImageView()
+        v.contentMode = .scaleAspectFit
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
     init(theme: AppTheme) {
         self.theme = theme
         super.init(frame: .zero)
@@ -435,8 +447,15 @@ private final class ThemeSwatchButton: UIButton {
         colorSwatch.layer.borderWidth = 1
         colorSwatch.layer.borderColor = theme.attributes.border.cgColor
 
+        if theme == .system {
+            iconView.image = UIImage(named: "Setting/systemSync")?.withRenderingMode(
+                .alwaysTemplate)
+            iconView.tintColor = theme.attributes.text
+        }
+
         addSubview(selectionRing)
         addSubview(colorSwatch)
+        addSubview(iconView)
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 60.swh),
@@ -451,6 +470,11 @@ private final class ThemeSwatchButton: UIButton {
             colorSwatch.centerYAnchor.constraint(equalTo: centerYAnchor),
             colorSwatch.widthAnchor.constraint(equalToConstant: 48.swh),
             colorSwatch.heightAnchor.constraint(equalToConstant: 58.swh),
+
+            iconView.centerXAnchor.constraint(equalTo: colorSwatch.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: colorSwatch.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 24.swh),
+            iconView.heightAnchor.constraint(equalToConstant: 24.swh),
         ])
     }
 

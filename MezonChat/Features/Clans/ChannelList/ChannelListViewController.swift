@@ -88,7 +88,7 @@ func flattenCategoryToRows(_ category: ChannelCategory, allChannels: [Mezon_Api_
         rows.append(.channel(ch))
         let threads = allChannels.filter { $0.parentID == ch.channelID }.sorted { $0.channelLabel < $1.channelLabel }
         for (i, thread) in threads.enumerated() {
-            rows.append(.thread(thread, isLast: i == threads.count - 1))
+            rows.append(.thread(thread, isLast: i == 0))
         }
     }
     return rows

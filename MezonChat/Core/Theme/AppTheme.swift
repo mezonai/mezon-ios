@@ -63,6 +63,7 @@ enum AppTheme: String, CaseIterable {
     case purpleHaze
     case abyssDark
     case sunset
+    case system = "system"
 
     var localizedDisplayName: String {
         switch self {
@@ -73,6 +74,7 @@ enum AppTheme: String, CaseIterable {
         case .purpleHaze: return L(L10n.Theme.purpleHaze)
         case .abyssDark:  return L(L10n.Theme.abyssDark)
         case .sunset:     return L(L10n.Theme.sunset)
+        case .system:     return L(L10n.Theme.system)
         }
     }
 
@@ -85,6 +87,11 @@ enum AppTheme: String, CaseIterable {
         case .purpleHaze: return .purpleHaze
         case .abyssDark:  return .abyssDark
         case .sunset:     return .sunset
+        case .system:
+            if #available(iOS 13.0, *), UIScreen.main.traitCollection.userInterfaceStyle == .dark {
+                return .dark
+            }
+            return .light
         }
     }
 }

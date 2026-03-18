@@ -82,6 +82,7 @@ enum L10n {
         static let purpleHaze     = "theme.purpleHaze"
         static let abyssDark      = "theme.abyssDark"
         static let sunset        = "theme.sunset"
+        static let system        = "theme.system"
     }
 
     enum Login {
@@ -237,6 +238,7 @@ extension L10n {
         "theme.purpleHaze":       "Purple Haze",
         "theme.abyssDark":        "Abyss Dark",
         "theme.sunset":           "Sunset",
+        "theme.system":           "System",
 
         "login.welcomeBack":    "WELCOME BACK",
         "login.email":          "Email",
@@ -380,6 +382,7 @@ extension L10n {
         "theme.purpleHaze":       "Tím mộng mơ",
         "theme.abyssDark":        "Vực thẳm tối",
         "theme.sunset":           "Hoàng hôn",
+        "theme.system":           "Hệ thống",
 
         "login.welcomeBack":    "CHÀO MỪNG TRỞ LẠI",
         "login.email":          "Email",

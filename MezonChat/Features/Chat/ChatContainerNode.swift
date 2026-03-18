@@ -1,5 +1,6 @@
-import UIKit
+import AVFoundation
 import AsyncDisplayKit
+import UIKit
 
 struct ChatInteraction {
     let onBackTapped: () -> Void
@@ -18,6 +19,7 @@ final class ChatContainerNode: ASDisplayNode {
     let tableView: UITableView
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
+    private let channelIconView = UIImageView()
     let channelTitleLabel = UILabel()
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let loadingMoreIndicator = UIActivityIndicatorView(style: .medium)
@@ -42,13 +44,18 @@ final class ChatContainerNode: ASDisplayNode {
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
                 self.state = newState
-                let labelText = newState.channelLabel
-                let prefix = labelText.hasPrefix("#") ? "" : "#"
-                self.channelTitleLabel.text = "\(prefix)\(labelText)"
-                if newState.isLoading { self.loadingIndicator.startAnimating() }
-                else { self.loadingIndicator.stopAnimating() }
-                if newState.isLoadingMore { self.loadingMoreIndicator.startAnimating() }
-                else { self.loadingMoreIndicator.stopAnimating() }
+                self.channelTitleLabel.text = newState.channelLabel
+                self.updateHeaderIcon(state: newState)
+                if newState.isLoading {
+                    self.loadingIndicator.startAnimating()
+                } else {
+                    self.loadingIndicator.stopAnimating()
+                }
+                if newState.isLoadingMore {
+                    self.loadingMoreIndicator.startAnimating()
+                } else {
+                    self.loadingMoreIndicator.stopAnimating()
+                }
                 if let msg = newState.errorMessage { Toast.error(msg) }
                 self.emptyLabel.isHidden = !(!newState.isLoading && newState.messages.isEmpty)
                 self.tableView.reloadData()
@@ -86,6 +93,8 @@ final class ChatContainerNode: ASDisplayNode {
         channelTitleLabel.font = .systemFont(ofSize: 17.sf, weight: .semibold)
         channelTitleLabel.lineBreakMode = .byTruncatingTail
 
+        channelIconView.contentMode = .scaleAspectFit
+
         loadingIndicator.hidesWhenStopped = true
         loadingMoreIndicator.hidesWhenStopped = true
         emptyLabel.font = .systemFont(ofSize: 15.sf)
@@ -96,7 +105,7 @@ final class ChatContainerNode: ASDisplayNode {
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
-        for v in [backButton, channelTitleLabel] as [UIView] {
+        for v in [backButton, channelIconView, channelTitleLabel] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             headerView.addSubview(v)
         }
@@ -112,7 +121,14 @@ final class ChatContainerNode: ASDisplayNode {
             backButton.widthAnchor.constraint(equalToConstant: btnH),
             backButton.heightAnchor.constraint(equalToConstant: btnH),
 
-            channelTitleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: gap),
+            channelIconView.leadingAnchor.constraint(
+                equalTo: backButton.trailingAnchor, constant: gap),
+            channelIconView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            channelIconView.widthAnchor.constraint(equalToConstant: 16.swh),
+            channelIconView.heightAnchor.constraint(equalToConstant: 16.swh),
+
+            channelTitleLabel.leadingAnchor.constraint(
+                equalTo: channelIconView.trailingAnchor, constant: 4.sw),
             channelTitleLabel.topAnchor.constraint(equalTo: headerView.topAnchor),
             channelTitleLabel.heightAnchor.constraint(equalToConstant: btnH),
             channelTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -rightMargin),
@@ -126,6 +142,7 @@ final class ChatContainerNode: ASDisplayNode {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         channelTitleLabel.textColor = t.textStrong
+        channelIconView.tintColor = t.textStrong
         backButton.tintColor = t.textStrong
         loadingIndicator.color = t.textDisabled
         loadingMoreIndicator.color = t.textDisabled
@@ -173,6 +190,33 @@ final class ChatContainerNode: ASDisplayNode {
 
 
     @objc private func backTapped() { interaction.onBackTapped() }
+
+    private func updateHeaderIcon(state: ChatState) {
+        let type = state.channelType
+        let isPrivate = state.isPrivate
+        let isAgeRestricted = state.isAgeRestricted
+
+        var iconName = ""
+        if type == 10 {
+            iconName = "Channel/channelVoice"
+        } else if type == 4 {
+            iconName = "Channel/ChevronRight"
+        } else if type == 6 {
+            iconName = "Channel/channelStream"
+        } else if type == 8 {
+            iconName = "Channel/channelApp"
+        } else if type == 1 {
+            if isPrivate {
+                iconName = "Channel/channelPrivate"
+            } else if isAgeRestricted {
+                iconName = "Channel/channelWarning"
+            } else {
+                iconName = "Channel/channel"
+            }
+        }
+        let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+        channelIconView.image = image?.withRenderingMode(.alwaysTemplate)
+    }
 }
 
 extension ChatContainerNode: UITableViewDataSource, UITableViewDelegate {
@@ -707,7 +751,7 @@ final class MessageCell: UITableViewCell {
                 if raw.isEmpty {
                     preview = ""
                 } else if let data = raw.data(using: .utf8),
-                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                           let t = json["t"] as? String, !t.isEmpty {
                     preview = t.count > 80 ? String(t.prefix(80)) + "…" : t
                 } else {
@@ -1244,8 +1288,6 @@ private final class ReactionPillView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 }
-
-import AVFoundation
 
 final class MessageVideoView: UIView {
     private let thumbnailNode = TransformImageNode()

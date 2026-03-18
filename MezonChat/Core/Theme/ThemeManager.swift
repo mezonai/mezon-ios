@@ -14,7 +14,16 @@ final class ThemeManager {
 
     private init() {
         let stored = UserDefaults.standard.string(forKey: Self.userDefaultsKey) ?? ""
-        current = AppTheme(rawValue: stored) ?? .purpleHaze
+        current = AppTheme(rawValue: stored) ?? .system
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleSystemAppearanceChange),
+            name: Notification.Name("SystemAppearanceDidChange"), object: nil)
+    }
+
+    @objc private func handleSystemAppearanceChange() {
+        if current == .system {
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: current)
+        }
     }
 
     func set(_ theme: AppTheme) {
