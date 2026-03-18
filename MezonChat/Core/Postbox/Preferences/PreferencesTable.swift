@@ -88,4 +88,6 @@ enum PreferencesKeys {
     static func clanDefaultNotification(clanId: Int64) -> String { "clanDefaultNotif_\(clanId)" }
     static func clanCategoryNotification(clanId: Int64) -> String { "clanCatNotif_\(clanId)" }
     static let allPermissions = "allPermissions"
+    static func channelApps(clanId: Int64) -> String { "channelApps_\(clanId)" }
+    static func channelList(clanId: Int64) -> String { "channelList_\(clanId)" }
 }

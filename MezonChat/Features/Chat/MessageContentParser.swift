@@ -17,6 +17,7 @@ enum ContentTokenKind {
     case inlineCode
     case codeBlock
     case bold
+    case strikethrough
     case link
 }
 
@@ -131,7 +132,8 @@ enum MessageContentParser {
             let type = item["type"] as? String ?? ""
             let kind: ContentTokenKind
             switch type {
-            case "s", "c":      kind = .inlineCode
+            case "c":           kind = .inlineCode
+            case "s":           kind = .strikethrough
             case "t", "pre":    kind = .codeBlock
             case "b":           kind = .bold
             case "lk", "lk_yt", "lk_fb", "lk_tt", "vk", "lk_ogp":

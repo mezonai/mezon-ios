@@ -21,6 +21,9 @@ final class ClanListViewController: ViewController {
     private let needsReloadPipe = ValuePipe<Void>()
     private let unreadDMsPipe = ValuePipe<[Mezon_Api_ChannelDescription]>()
 
+    private let clansLoadedPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
+    var clansLoadedSignal: Signal<Bool, NoError> { clansLoadedPromise.get() }
+
     var selectedClanIdSignal: Signal<Int64?, NoError> { selectedClanIdPipe.signal() }
     var clansSignal: Signal<[Mezon_Api_ClanDesc], NoError> { clansPipe.signal() }
 
@@ -154,6 +157,7 @@ final class ClanListViewController: ViewController {
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
                 self.context.account.postbox.write { tx in tx.updateClans(records) }
+                self.setClans(sorted)
                 if let sid = self.selectedClanId, sid != 0, sorted.contains(where: { $0.clanID == sid }) {
                     self.setSelectedClanId(sid)
                     self.context.currentClanId = sid
@@ -165,6 +169,7 @@ final class ClanListViewController: ViewController {
                     self.persistToPostbox()
                     self.fetchClanData(clanId: first.clanID)
                 }
+                self.clansLoadedPromise.set(true)
             } catch {
                 self.error = error.localizedDescription
             }
@@ -218,8 +223,6 @@ final class ClanListViewController: ViewController {
             setClans(decodeProtoArray(data).sorted { $0.clanOrder < $1.clanOrder })
         }
 
-        // Read selected clan ID from UserDefaults (synchronous, survives app kill)
-        // Fallback to postbox (async writes may be lost on kill)
         var restoredId: Int64 = 0
         let udValue = UserDefaults.standard.integer(forKey: Self.selectedClanIdUserDefaultsKey)
         if udValue != 0 {
@@ -228,7 +231,6 @@ final class ClanListViewController: ViewController {
             restoredId = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
         }
 
-        // Validate restored ID: must be non-zero and exist in loaded clans
         if restoredId != 0, clans.contains(where: { $0.clanID == restoredId }) {
             setSelectedClanId(restoredId)
             context.currentClanId = restoredId
@@ -237,6 +239,10 @@ final class ClanListViewController: ViewController {
         if selectedClanId == nil, let first = clans.first?.clanID {
             setSelectedClanId(first)
             context.currentClanId = first
+        }
+
+        if !clans.isEmpty {
+            clansLoadedPromise.set(true)
         }
     }
 

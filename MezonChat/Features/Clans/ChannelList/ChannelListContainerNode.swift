@@ -4,12 +4,22 @@ import AsyncDisplayKit
 struct ChannelListInteraction {
     let onSelectChannel: (Mezon_Api_ChannelDescription) -> Void
     let onToggleCollapse: (Int64) -> Void
+    let onRefresh: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
 
     let tableNode: ASTableNode
     private let headerUIView = ChannelListHeaderView()
+    private let bannerView = ChannelBannerView()
+    private let headerSpacer = UIView()
+    private var stickyTopOffset: CGFloat = 0
+    private let headerH: CGFloat = 100.sh
+    private var channelApps: [Mezon_Api_ChannelAppResponse] = []
+    private var isChannelAppsExpanded = true
+    private var hasChannelAppsSection: Bool { !channelApps.isEmpty }
+    private let compactViewThreshold = 3
+    private var isCompactView: Bool { channelApps.count <= compactViewThreshold }
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0, y: 0)
@@ -46,6 +56,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.tableNode.reloadData()
                 } else {
                     var paths: [IndexPath] = []
+                    let sectionOffset = self.hasChannelAppsSection ? 1 : 0
                     for s in 0..<newState.categories.count {
                         let oldCh = prevState.categories[s].channels
                         let newCh = newState.categories[s].channels
@@ -60,7 +71,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                                 || (oldDesc?.lastSeenMessage.timestampSeconds != newDesc?.lastSeenMessage.timestampSeconds)
                                 || (chId == prevState.selectedChannelId) != (chId == newState.selectedChannelId)
                             if changed {
-                                paths.append(IndexPath(row: r, section: s))
+                                paths.append(IndexPath(row: r, section: s + sectionOffset))
                             }
                         }
                     }
@@ -82,11 +93,57 @@ final class ChannelListContainerNode: ASDisplayNode {
         tableNode.backgroundColor = .clear
         tableNode.view.separatorStyle = .none
         tableNode.view.showsVerticalScrollIndicator = false
+        if #available(iOS 15.0, *) {
+            tableNode.view.sectionHeaderTopPadding = 0
+        }
         tableNode.delegate = self
         tableNode.dataSource = self
 
-        view.addSubview(headerUIView)
+        let refreshControl = UIRefreshControl()
+        refreshControl.tintColor = UIColor.theme.textDisabled
+        refreshControl.addTarget(self, action: #selector(handleRefresh(_:)), for: .valueChanged)
+        tableNode.view.refreshControl = refreshControl
+
+        headerSpacer.backgroundColor = .clear
+        headerSpacer.translatesAutoresizingMaskIntoConstraints = false
+        headerSpacer.heightAnchor.constraint(equalToConstant: headerH).isActive = true
+
+        let tableHeader = UIStackView(arrangedSubviews: [bannerView, headerSpacer])
+        tableHeader.axis = .vertical
+        tableHeader.spacing = 0
+        tableNode.view.tableHeaderView = tableHeader
+        bannerView.isHidden = true
+
         headerUIView.applyTheme()
+        headerUIView.backgroundColor = UIColor.theme.secondary
+        view.addSubview(headerUIView)
+        headerUIView.layer.zPosition = 100
+    }
+
+    private func updateTableHeaderLayout() {
+        guard let header = tableNode.view.tableHeaderView else { return }
+        header.setNeedsLayout()
+        header.layoutIfNeeded()
+        let size = header.systemLayoutSizeFitting(
+            CGSize(width: tableNode.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        if header.frame.size.height != size.height {
+            header.frame.size.height = size.height
+            tableNode.view.tableHeaderView = header
+        }
+        updateStickyHeaderPosition()
+    }
+
+    private func categoryIndex(forSection section: Int) -> Int {
+        hasChannelAppsSection ? section - 1 : section
+    }
+
+    private var totalSections: Int {
+        let appsSections = hasChannelAppsSection ? 1 : 0
+        let catSections = state.isLoading && state.categories.isEmpty ? 1 : state.categories.count
+        return appsSections + catSections
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -101,16 +158,77 @@ final class ChannelListContainerNode: ASDisplayNode {
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
         CATransaction.commit()
 
-        let topOffset = layout.safeInsets.top + 10.sh
-        let headerH: CGFloat = 90.sh
-        let headerFrame = CGRect(x: 0, y: topOffset, width: layout.size.width, height: headerH)
-        let tableFrame = CGRect(x: 0, y: headerFrame.maxY, width: layout.size.width, height: layout.size.height - headerFrame.maxY - layout.intrinsicInsets.bottom)
-        transition.updateFrame(view: headerUIView, frame: headerFrame)
+        let topInset: CGFloat = 0
+        stickyTopOffset = topInset
+        let tableFrame = CGRect(x: 0, y: topInset, width: layout.size.width, height: layout.size.height - topInset - layout.intrinsicInsets.bottom)
         transition.updateFrame(node: tableNode, frame: tableFrame)
+        updateTableHeaderLayout()
     }
 
-    func configure(clanName: String) {
-        headerUIView.configure(title: clanName)
+    private static let bannerKnownHeight: CGFloat = 140.sh
+
+    private func updateStickyHeaderPosition() {
+        let bannerHeight = bannerView.isHidden ? 0 : Self.bannerKnownHeight
+        let contentOffsetY = tableNode.view.contentOffset.y
+        let headerY = max(0, bannerHeight - contentOffsetY)
+        headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: headerH)
+    }
+
+    func configure(clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+        headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
+        channelApps = []
+        isChannelAppsExpanded = true
+
+        UIView.performWithoutAnimation {
+            if let url = bannerURL, !url.isEmpty {
+                bannerView.isHidden = false
+                bannerView.loadBanner(urlString: url)
+            } else {
+                bannerView.isHidden = true
+                bannerView.clearBanner()
+            }
+            if let header = tableNode.view.tableHeaderView {
+                header.setNeedsLayout()
+                header.layoutIfNeeded()
+                let size = header.systemLayoutSizeFitting(
+                    CGSize(width: tableNode.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+                    withHorizontalFittingPriority: .required,
+                    verticalFittingPriority: .fittingSizeLevel
+                )
+                if header.frame.size.height != size.height {
+                    header.frame.size.height = size.height
+                    tableNode.view.tableHeaderView = header
+                }
+            }
+        }
+        tableNode.view.contentOffset = .zero
+        updateStickyHeaderPosition()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateTableHeaderLayout()
+            self?.updateStickyHeaderPosition()
+        }
+    }
+
+    func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
+        channelApps = apps
+        tableNode.reloadData()
+    }
+
+    func updateMemberCount(_ count: Int) {
+        headerUIView.updateMemberCount(count)
+    }
+
+    @objc private func handleRefresh(_ sender: UIRefreshControl) {
+        interaction.onRefresh?()
+    }
+
+    func endRefreshing() {
+        tableNode.view.refreshControl?.endRefreshing()
+    }
+
+    private func toggleChannelAppsExpand() {
+        isChannelAppsExpanded.toggle()
+        tableNode.reloadData()
     }
 
     func applyTheme() {
@@ -124,17 +242,19 @@ final class ChannelListContainerNode: ASDisplayNode {
         backgroundColor = .clear
         tableNode.backgroundColor = .clear
         headerUIView.applyTheme()
+        headerUIView.backgroundColor = t.primaryGradient
         tableNode.reloadData()
     }
 
     private func reloadSelectionRows(previous: Int64?, current: Int64?) {
         var paths: [IndexPath] = []
+        let sectionOffset = hasChannelAppsSection ? 1 : 0
         for s in 0..<state.categories.count {
             let rows = rowsForSection(s)
             for (r, row) in rows.enumerated() {
                 let chId = row.channelDesc.channelID
                 if chId == previous || chId == current {
-                    paths.append(IndexPath(row: r, section: s))
+                    paths.append(IndexPath(row: r, section: s + sectionOffset))
                 }
             }
         }
@@ -153,17 +273,36 @@ final class ChannelListContainerNode: ASDisplayNode {
 extension ChannelListContainerNode: ASTableDataSource {
 
     func numberOfSections(in tableNode: ASTableNode) -> Int {
-        state.isLoading && state.categories.isEmpty ? 1 : state.categories.count
+        totalSections
     }
 
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
+        if hasChannelAppsSection && section == 0 {
+            if isCompactView {
+                return isChannelAppsExpanded ? channelApps.count : 0
+            } else {
+                return 1 // single horizontal scroll row
+            }
+        }
+        let catIdx = categoryIndex(forSection: section)
         if state.isLoading && state.categories.isEmpty { return 1 }
-        return rowsForSection(section).count
+        return rowsForSection(catIdx).count
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
+        if hasChannelAppsSection && indexPath.section == 0 {
+            if isCompactView {
+                guard indexPath.row < channelApps.count else { return { ASCellNode() } }
+                let app = channelApps[indexPath.row]
+                return { ChannelAppCellNode(app: app) }
+            } else {
+                let apps = channelApps
+                return { ChannelAppHorizontalCellNode(apps: apps) }
+            }
+        }
+        let catIdx = categoryIndex(forSection: indexPath.section)
         if state.isLoading && state.categories.isEmpty { return { ChannelLoadingCellNode() } }
-        let rows = rowsForSection(indexPath.section)
+        let rows = rowsForSection(catIdx)
         guard indexPath.row < rows.count else { return { ASCellNode() } }
         let row = rows[indexPath.row]
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
@@ -176,8 +315,19 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        guard section < state.categories.count else { return nil }
-        let cat = state.categories[section]
+        if hasChannelAppsSection && section == 0 {
+            if isCompactView {
+                let header = CategorySectionHeaderView()
+                header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
+                header.onTap = { [weak self] in self?.toggleChannelAppsExpand() }
+                return header
+            } else {
+                return nil // no header for horizontal mode
+            }
+        }
+        let catIdx = categoryIndex(forSection: section)
+        guard catIdx < state.categories.count else { return nil }
+        let cat = state.categories[catIdx]
         let header = CategorySectionHeaderView()
         header.configure(category: cat)
         header.onTap = { [weak self] in self?.interaction.onToggleCollapse(cat.id) }
@@ -185,7 +335,19 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        state.categories.isEmpty ? 0 : 32.sh
+        if hasChannelAppsSection && section == 0 {
+            return isCompactView ? 32.sh : 0
+        }
+        let catIdx = categoryIndex(forSection: section)
+        return catIdx < state.categories.count ? 32.sh : 0
+    }
+
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        0
+    }
+
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        nil
     }
 }
 
@@ -193,9 +355,15 @@ extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: false)
-        let rows = rowsForSection(indexPath.section)
+        if hasChannelAppsSection && indexPath.section == 0 { return }
+        let catIdx = categoryIndex(forSection: indexPath.section)
+        let rows = rowsForSection(catIdx)
         guard indexPath.row < rows.count else { return }
         interaction.onSelectChannel(rows[indexPath.row].channelDesc)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateStickyHeaderPosition()
     }
 }
 
@@ -259,6 +427,8 @@ private final class ChannelItemCellNode: ASCellNode {
         let nameColor =
             cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
         let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
+        nameNode.maximumNumberOfLines = 1
+        nameNode.truncationMode = .byTruncatingTail
         nameNode.attributedText = NSAttributedString(
             string: nameStr,
             attributes: [
@@ -464,7 +634,7 @@ private final class CategorySectionHeaderView: UIView {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 11.sf, weight: .bold)
+        l.font = .systemFont(ofSize: 13.sf, weight: .bold)
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
@@ -476,12 +646,12 @@ private final class CategorySectionHeaderView: UIView {
         NSLayoutConstraint.activate([
             arrowIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8.sw),
             arrowIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            arrowIcon.widthAnchor.constraint(equalToConstant: 12.sw),
-            arrowIcon.heightAnchor.constraint(equalToConstant: 12.sw),
+            arrowIcon.widthAnchor.constraint(equalToConstant: 18.sw),
+            arrowIcon.heightAnchor.constraint(equalToConstant: 18.sw),
 
-            titleLabel.leadingAnchor.constraint(equalTo: arrowIcon.trailingAnchor, constant: 4.sw),
+            titleLabel.leadingAnchor.constraint(equalTo: arrowIcon.trailingAnchor, constant: 2.sw),
             titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8.sw),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
         ])
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
     }
@@ -496,6 +666,16 @@ private final class CategorySectionHeaderView: UIView {
         arrowIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
         arrowIcon.tintColor = t.textDisabled
         titleLabel.text = category.name.uppercased()
+    }
+
+    func configureAppsHeader(isCollapsed: Bool) {
+        let t = UIColor.theme
+        backgroundColor = .clear
+        titleLabel.textColor = t.textDisabled
+        let iconName = isCollapsed ? "Channel/ChevronRight" : "Channel/ChevronBottom"
+        arrowIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+        arrowIcon.tintColor = t.textDisabled
+        titleLabel.text = "CHANNEL APPS"
     }
 
     @objc private func handleTap() { onTap?() }
@@ -591,11 +771,20 @@ final class ChannelListHeaderView: UIView {
         titleStack.alignment = .center
         titleStack.translatesAutoresizingMaskIntoConstraints = false
 
+        let communityStack = UIStackView(arrangedSubviews: [communityDot, communityLabel])
+        communityStack.axis = .horizontal
+        communityStack.spacing = 6
+        communityStack.alignment = .center
+        communityStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let infoSpacer = UIView()
+        infoSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
         let infoRow = UIStackView(arrangedSubviews: [
-            memberCountLabel, communityDot, communityLabel,
+            memberCountLabel, communityStack, infoSpacer,
         ])
         infoRow.axis = .horizontal
-        infoRow.spacing = 6
+        infoRow.spacing = 14
         infoRow.alignment = .center
         infoRow.translatesAutoresizingMaskIntoConstraints = false
 
@@ -611,6 +800,7 @@ final class ChannelListHeaderView: UIView {
         let mainStack = UIStackView(arrangedSubviews: [titleStack, infoRow, actionRow])
         mainStack.axis = .vertical
         mainStack.spacing = 4
+        mainStack.setCustomSpacing(8, after: titleStack)
         mainStack.setCustomSpacing(10, after: infoRow)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -648,17 +838,27 @@ final class ChannelListHeaderView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(title: String, memberCount: Int = 0) {
+    func configure(title: String, memberCount: Int = 0, isCommunity: Bool = false) {
         titleLabel.text = title
         if memberCount > 0 {
-            memberCountLabel.text = "\(memberCount) Members"
+            memberCountLabel.text = memberCount == 1 ? "\(memberCount) Member" : "\(memberCount) Members"
             memberCountLabel.isHidden = false
-            communityDot.isHidden = false
-            communityLabel.isHidden = false
+        } else {
+            memberCountLabel.isHidden = true
+        }
+        communityDot.isHidden = !isCommunity || memberCount <= 0
+        communityLabel.isHidden = !isCommunity
+        communityLabel.text = "Community"
+    }
+
+    func updateMemberCount(_ count: Int) {
+        if count > 0 {
+            memberCountLabel.text = count == 1 ? "\(count) Member" : "\(count) Members"
+            memberCountLabel.isHidden = false
+            communityDot.isHidden = communityLabel.isHidden
         } else {
             memberCountLabel.isHidden = true
             communityDot.isHidden = true
-            communityLabel.isHidden = true
         }
     }
 
@@ -676,5 +876,270 @@ final class ChannelListHeaderView: UIView {
         eventButton.backgroundColor = t.tertiary
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         separator.backgroundColor = t.border.withAlphaComponent(0.3)
+    }
+}
+
+// MARK: - Channel Banner View
+
+private final class ChannelBannerView: UIView {
+
+    private let imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    private var currentURL: String?
+    private let heightConstraint: NSLayoutConstraint
+
+    override init(frame: CGRect) {
+        heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 140.sh)
+        super.init(frame: frame)
+        addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightConstraint,
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func loadBanner(urlString: String) {
+        guard urlString != currentURL else { return }
+        currentURL = urlString
+        imageView.image = nil
+
+        guard let url = URL(string: urlString) else { return }
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self, let data, let image = UIImage(data: data), self.currentURL == urlString else { return }
+            DispatchQueue.main.async {
+                self.imageView.image = image
+            }
+        }
+        task.resume()
+    }
+
+    func clearBanner() {
+        currentURL = nil
+        imageView.image = nil
+    }
+}
+
+// MARK: - Channel App Cell Node (compact card as table row)
+
+private final class ChannelAppCellNode: ASCellNode {
+
+    private let cardNode = ASDisplayNode()
+    private let logoNode = ASImageNode()
+    private let nameNode = ASTextNode2()
+    private let statusDot = ASDisplayNode()
+
+    init(app: Mezon_Api_ChannelAppResponse) {
+        super.init()
+        automaticallyManagesSubnodes = true
+        backgroundColor = .clear
+        selectionStyle = .none
+
+        let t = UIColor.theme
+
+        cardNode.backgroundColor = t.secondaryLight
+        cardNode.cornerRadius = 12.swh
+        cardNode.borderWidth = 1
+        cardNode.borderColor = t.border.cgColor
+
+        logoNode.style.preferredSize = CGSize(width: 30.swh, height: 30.swh)
+        logoNode.cornerRadius = 10.swh
+        logoNode.clipsToBounds = true
+        logoNode.contentMode = .scaleAspectFit
+
+        if !app.appLogo.isEmpty, let url = URL(string: app.appLogo) {
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let self, let data, let image = UIImage(data: data) else { return }
+                DispatchQueue.main.async {
+                    self.logoNode.image = image
+                }
+            }.resume()
+        } else {
+            logoNode.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)
+            logoNode.tintColor = t.textDisabled
+            logoNode.contentMode = .center
+        }
+
+        let name = app.appName.isEmpty ? "App" : app.appName
+        nameNode.attributedText = NSAttributedString(
+            string: name,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
+                .foregroundColor: t.textStrong
+            ]
+        )
+        nameNode.maximumNumberOfLines = 1
+        nameNode.style.flexShrink = 1
+
+        statusDot.style.preferredSize = CGSize(width: 8.swh, height: 8.swh)
+        statusDot.cornerRadius = 4.swh
+        statusDot.backgroundColor = UIColor(red: 0.24, green: 0.82, blue: 0.44, alpha: 1)
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let contentRow = ASStackLayoutSpec.horizontal()
+        contentRow.children = [logoNode, nameNode]
+        contentRow.spacing = 8.sw  // compactCardLogo marginRight: 8
+        contentRow.alignItems = .center
+        contentRow.style.flexShrink = 1
+        contentRow.style.flexGrow = 1
+
+        let fullRow = ASStackLayoutSpec.horizontal()
+        fullRow.children = [contentRow, statusDot]
+        fullRow.spacing = 8.sw   // compactCardContent marginRight: 8
+        fullRow.alignItems = .center
+
+        let cardInsets = UIEdgeInsets(top: 0, left: 8.sw, bottom: 0, right: 16.sw)
+        let insetContent = ASInsetLayoutSpec(insets: cardInsets, child: fullRow)
+
+        cardNode.style.height = ASDimension(unit: .points, value: 42.sh)
+        let cardSpec = ASBackgroundLayoutSpec(child: insetContent, background: cardNode)
+
+        let cellInsets = UIEdgeInsets(top: 0, left: 12.sw, bottom: 8.sh, right: 12.sw)
+        return ASInsetLayoutSpec(insets: cellInsets, child: cardSpec)
+    }
+}
+
+// MARK: - Channel App Horizontal Cell Node (>3 apps, horizontal scroll)
+
+private final class ChannelAppHorizontalCellNode: ASCellNode {
+
+    private let displayApps: [Mezon_Api_ChannelAppResponse]
+
+    init(apps: [Mezon_Api_ChannelAppResponse]) {
+        let limit = 10
+        displayApps = apps.count > limit ? Array(apps.prefix(limit)) : apps
+        super.init()
+        backgroundColor = .clear
+        selectionStyle = .none
+    }
+
+    override func didLoad() {
+        super.didLoad()
+
+        let scrollView = UIScrollView()
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(scrollView)
+
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 20.sw
+        stack.alignment = .top
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(stack)
+
+        for app in displayApps {
+            let item = ChannelAppIconItemView()
+            item.configure(app: app)
+            stack.addArrangedSubview(item)
+        }
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor, constant: 8.sh),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8.sh),
+
+            stack.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            stack.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor, constant: 12.sw),
+            stack.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor, constant: -12.sw),
+            stack.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.heightAnchor),
+        ])
+    }
+
+    override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
+        return CGSize(width: constrainedSize.width, height: 72.sh)
+    }
+}
+
+// MARK: - Channel App Icon Item (for horizontal mode)
+
+private final class ChannelAppIconItemView: UIView {
+
+    private let logoContainer: UIView = {
+        let v = UIView()
+        v.layer.cornerRadius = 20.swh
+        v.clipsToBounds = true
+        v.layer.borderWidth = 0.5
+        v.layer.borderColor = UIColor.clear.cgColor
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.backgroundColor = UIColor.theme.primary
+        return v
+    }()
+
+    private let logoView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.clipsToBounds = true
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    private let nameLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 10.sf, weight: .regular)
+        l.textColor = UIColor.theme.text
+        l.textAlignment = .center
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.numberOfLines = 1
+        return l
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+
+        logoContainer.addSubview(logoView)
+        addSubview(logoContainer)
+        addSubview(nameLabel)
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 40.sw),
+
+            logoContainer.topAnchor.constraint(equalTo: topAnchor),
+            logoContainer.centerXAnchor.constraint(equalTo: centerXAnchor),
+            logoContainer.widthAnchor.constraint(equalToConstant: 40.swh),
+            logoContainer.heightAnchor.constraint(equalToConstant: 40.swh),
+
+            logoView.centerXAnchor.constraint(equalTo: logoContainer.centerXAnchor),
+            logoView.centerYAnchor.constraint(equalTo: logoContainer.centerYAnchor),
+            logoView.widthAnchor.constraint(equalToConstant: 24.swh),
+            logoView.heightAnchor.constraint(equalToConstant: 24.swh),
+
+            nameLabel.topAnchor.constraint(equalTo: logoContainer.bottomAnchor, constant: 2.sh),
+            nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            nameLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(app: Mezon_Api_ChannelAppResponse) {
+        nameLabel.text = app.appName.isEmpty ? "App" : app.appName
+        if !app.appLogo.isEmpty, let url = URL(string: app.appLogo) {
+            let id = app.appName
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let self, let data, let image = UIImage(data: data),
+                      self.nameLabel.text == id else { return }
+                DispatchQueue.main.async { self.logoView.image = image }
+            }.resume()
+        } else {
+            logoView.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)
+            logoView.tintColor = UIColor.theme.textDisabled
+            logoView.contentMode = .center
+            logoContainer.layer.borderColor = UIColor.theme.textDisabled.cgColor
+        }
     }
 }

@@ -52,6 +52,16 @@ final class DirectMessagesViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        print("[DM-DEBUG] viewWillAppear: lastLayout=\(lastLayout != nil), dataCount=\(directMessages.count)")
+        if let layout = lastLayout {
+            let safeTop = max(layout.safeInsets.top, 54)
+            directMessagesNode.updateLayout(
+                size: layout.size,
+                safeTop: safeTop,
+                bottomInset: layout.intrinsicInsets.bottom,
+                transition: .immediate
+            )
+        }
         Task { await fetchDirectMessages() }
     }
 
@@ -128,14 +138,14 @@ final class DirectMessagesViewController: ViewController {
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
-        directMessagesNode.updateLayout(layout: layout, transition: transition)
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        if let layout = lastLayout {
-            directMessagesNode.updateLayout(layout: layout, transition: .immediate)
-        }
+        print("[DM-DEBUG] containerLayoutUpdated: size=\(layout.size), safeTop=\(layout.safeInsets.top), bottomInset=\(layout.intrinsicInsets.bottom)")
+        let safeTop = max(layout.safeInsets.top, 54)
+        directMessagesNode.updateLayout(
+            size: layout.size,
+            safeTop: safeTop,
+            bottomInset: layout.intrinsicInsets.bottom,
+            transition: transition
+        )
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) { directMessages = v; directMessagesPipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -144,13 +154,18 @@ final class DirectMessagesViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
     func fetchDirectMessages() async {
-        guard let token = context.session?.token else { return }
+        guard let token = context.session?.token else {
+            print("[DM-DEBUG] fetchDirectMessages: NO TOKEN - session=\(String(describing: context.session))")
+            return
+        }
+        print("[DM-DEBUG] fetchDirectMessages: START, token=\(String(token.prefix(20)))...")
         setIsLoading(true)
         setErrorMessage(nil)
         defer { setIsLoading(false) }
 
         do {
             let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+            print("[DM-DEBUG] fetchDirectMessages: SUCCESS, channels=\(channels.count)")
             let sorted = channels.sorted { ch1, ch2 in
                 let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
                 let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
@@ -159,6 +174,7 @@ final class DirectMessagesViewController: ViewController {
             setDirectMessages(sorted)
             setIsEmpty(sorted.isEmpty)
         } catch {
+            print("[DM-DEBUG] fetchDirectMessages: ERROR \(error)")
             setErrorMessage(error.localizedDescription)
             AppLogger.network.error("fetchDirectMessages: \(error)")
         }

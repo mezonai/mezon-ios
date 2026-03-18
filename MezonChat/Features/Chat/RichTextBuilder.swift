@@ -129,6 +129,11 @@ enum RichTextBuilder {
                 attrs[.font] = s.boldFont
                 result.append(NSAttributedString(string: rawText, attributes: attrs))
 
+            case .strikethrough:
+                var attrs = bodyAttributes(s)
+                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                result.append(NSAttributedString(string: rawText, attributes: attrs))
+
             case .link:
                 var attrs = bodyAttributes(s)
                 attrs[.foregroundColor] = s.linkColor

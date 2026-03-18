@@ -86,7 +86,7 @@ private final class WindowRootViewControllerView: UIView {
     }
 }
 
-private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate {
+private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate, StatusBarStyleUpdatable {
     private var voiceOverStatusObserver: AnyObject?
     private var registeredForPreviewing = false
     
@@ -156,6 +156,11 @@ private final class WindowRootViewController: UIViewController, UIWindowSceneDel
                 }
             }
         }
+    }
+
+    func updatePreferredStatusBarStyle(_ style: UIStatusBarStyle) {
+        self.statusBarStyle = style
+        self.setNeedsStatusBarAppearanceUpdate()
     }
     
     override var preferredStatusBarStyle: UIStatusBarStyle {

@@ -11,14 +11,6 @@ struct DirectMessagesInteraction {
 final class DirectMessagesContainerNode: ASDisplayNode {
 
     private let headerView = UIView()
-    private let logoImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.clipsToBounds = true
-        iv.layer.cornerRadius = 18.swh
-        iv.image = UIImage(named: "MezonLogo")
-        return iv
-    }()
     private let titleLabel = UILabel()
     private let addFriendButton = UIButton(type: .system)
     private let searchButton = UIButton(type: .system)
@@ -37,6 +29,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let disposables = DisposableSet()
     private let context: AccountContext
 
+    private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
+
     init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction, context: AccountContext) {
         tableView = UITableView(frame: .zero, style: .plain)
         self.interaction = interaction
@@ -46,10 +40,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
+                print("[DM-DEBUG] State updated: \(newState.directMessages.count) messages, isEmpty=\(newState.isEmpty), isLoading=\(newState.isLoading)")
                 self.state = newState
                 self.tableView.reloadData()
                 self.emptyLabel.isHidden = !(newState.isEmpty && !newState.isLoading)
-
             })
         )
     }
@@ -96,67 +90,69 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         searchButton.configuration = searchCfg
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
-
-
         emptyLabel.font = .systemFont(ofSize: 15.sf)
         emptyLabel.textColor = .mezonTextSecondary
         emptyLabel.textAlignment = .center
         emptyLabel.text = L(L10n.ChannelMessages.emptyMessages)
         emptyLabel.isHidden = true
-        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        headerView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(headerView)
         view.addSubview(addFriendButton)
         view.addSubview(searchButton)
         view.addSubview(tableView)
-
         view.addSubview(emptyLabel)
 
         headerView.addSubview(titleLabel)
+
+        if validLayout != nil {
+            applyLayout(transition: .immediate)
+        }
     }
 
-    private var lastLayout: ContainerViewLayout?
-
-    func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
-        lastLayout = layout
+    func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
+        print("[DM-DEBUG] updateLayout: size=\(size), safeTop=\(safeTop), bottomInset=\(bottomInset)")
+        self.validLayout = (size, safeTop, bottomInset)
         applyLayout(transition: transition)
     }
 
     private func applyLayout(transition: ContainedViewLayoutTransition) {
-        guard let layout = lastLayout else { return }
-        let realSafeTop = view.safeAreaInsets.top
-        let safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
+        guard let (size, safeTop, bottomInset) = validLayout else {
+            print("[DM-DEBUG] applyLayout: NO validLayout")
+            return
+        }
+
         let topY = safeTop + 10.sh
         let sideInset: CGFloat = 18.sw
 
         let titleH: CGFloat = 36.sh
-        transition.updateFrame(view: headerView, frame: CGRect(x: 0, y: topY, width: layout.size.width, height: titleH))
-        transition.updateFrame(view: titleLabel, frame: CGRect(x: sideInset, y: 0, width: layout.size.width - sideInset * 2, height: titleH))
+        transition.updateFrame(view: headerView, frame: CGRect(x: 0, y: topY, width: size.width, height: titleH))
+        transition.updateFrame(view: titleLabel, frame: CGRect(x: sideInset, y: 0, width: size.width - sideInset * 2, height: titleH))
 
         let actionY = topY + titleH + 10.sh
         let actionH: CGFloat = 32.sh
         let searchSize: CGFloat = 32.swh
-        let addW = layout.size.width - sideInset * 2 - searchSize - 10.sw
+        let addW = size.width - sideInset * 2 - searchSize - 10.sw
         transition.updateFrame(view: addFriendButton, frame: CGRect(x: sideInset, y: actionY, width: addW, height: actionH))
-        transition.updateFrame(view: searchButton, frame: CGRect(x: layout.size.width - sideInset - searchSize, y: actionY, width: searchSize, height: searchSize))
+        transition.updateFrame(view: searchButton, frame: CGRect(x: size.width - sideInset - searchSize, y: actionY, width: searchSize, height: searchSize))
 
         let tvTop = actionY + actionH + 8.sh
-        transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: layout.size.width, height: layout.size.height - tvTop - layout.intrinsicInsets.bottom))
+        let tvHeight = size.height - tvTop - bottomInset
+        print("[DM-DEBUG] applyLayout: tableView frame=(0, \(tvTop), \(size.width), \(tvHeight)), dataCount=\(state.directMessages.count), isViewLoaded=\(isNodeLoaded)")
+        transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: size.width, height: tvHeight))
 
-        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (layout.size.height - 44.sh) / 2, width: layout.size.width, height: 44.sh))
+        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (size.height - 44.sh) / 2, width: size.width, height: 44.sh))
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        gradientLayer.frame = CGRect(origin: .zero, size: size)
         CATransaction.commit()
     }
 
-    override func layout() {
-        super.layout()
-        applyLayout(transition: .immediate)
+    func applyTheme() {
+        let t = UIColor.theme
+        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        titleLabel.textColor = .mezonTextPrimary
+        emptyLabel.textColor = .mezonTextSecondary
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
