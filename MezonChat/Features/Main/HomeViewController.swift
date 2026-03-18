@@ -48,12 +48,12 @@ final class HomeViewController: BaseViewController {
         }))
     }
 
-    /// On launch: if we have a cached selected clan, configure channel list and fetch channels.
     private func applyInitialClanSelection() {
         guard let id = clanListVC.selectedClanId,
               let clan = clanListVC.clans.first(where: { $0.clanID == id }) else { return }
         context.currentClanId = id
-        channelListVC.configure(clanId: id, clanName: clan.clanName)
+        let memberCount = context.engine.clanData.getClanUsers(clanId: id)?.clanUsers.count ?? 0
+        channelListVC.configure(clanId: id, clanName: clan.clanName, bannerURL: clan.banner, memberCount: memberCount, isCommunity: clan.isCommunity)
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -84,7 +84,7 @@ final class HomeViewController: BaseViewController {
             clanListVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             clanListVC.view.widthAnchor.constraint(equalToConstant: clanSidebarWidth),
 
-            channelListVC.view.topAnchor.constraint(equalTo: view.topAnchor),
+            channelListVC.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             channelListVC.view.leadingAnchor.constraint(equalTo: clanListVC.view.trailingAnchor),
             channelListVC.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             channelListVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -105,8 +105,17 @@ final class HomeViewController: BaseViewController {
             (clanListVC.selectedClanIdSignal |> deliverOnMainQueue)
                 .start(next: { [weak self] clanId in
                     guard let clanId, let self else { return }
-                    let name = self.clanListVC.clans.first(where: { $0.clanID == clanId })?.clanName ?? ""
-                    self.channelListVC.configure(clanId: clanId, clanName: name)
+                    let clan = self.clanListVC.clans.first(where: { $0.clanID == clanId })
+                    let memberCount = self.context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
+                    self.channelListVC.configure(clanId: clanId, clanName: clan?.clanName ?? "", bannerURL: clan?.banner, memberCount: memberCount, isCommunity: clan?.isCommunity ?? false)
+                })
+        )
+        disposables.add(
+            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] clanId in
+                    guard let self, clanId == self.channelListVC.clanId else { return }
+                    let memberCount = self.context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
+                    self.channelListVC.updateMemberCount(memberCount)
                 })
         )
     }
@@ -210,7 +219,7 @@ final class HomeViewController: BaseViewController {
            let clan = clanListVC.clans.first(where: { $0.clanID == clanIdInt }),
            clanIdInt != clanListVC.selectedClanId {
             clanListVC.select(clan: clan)
-            channelListVC.configure(clanId: clanIdInt, clanName: clan.clanName)
+            channelListVC.configure(clanId: clanIdInt, clanName: clan.clanName, bannerURL: clan.banner)
         }
 
         let loaded = channelListVC.channelsLoadedSignal

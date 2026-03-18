@@ -187,7 +187,7 @@ private final class ToastView: UIView {
         messageLabel.text = messageText
         messageLabel.font = .systemFont(ofSize: 14.sf)
         messageLabel.textColor = type == .notification ? .init(white: 0.8, alpha: 1) : .init(white: 0.35, alpha: 1)
-        messageLabel.numberOfLines = 0
+        messageLabel.numberOfLines = 3
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let closeBtn = UIButton(type: .system)

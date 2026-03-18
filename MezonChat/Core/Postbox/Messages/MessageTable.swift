@@ -28,13 +28,13 @@ final class MessageTable: Table {
             "CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at DESC)"
         )
 
-        db.rawExecute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT NOT NULL DEFAULT ''")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN sender_avatar_url TEXT")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN sending_state INTEGER NOT NULL DEFAULT 1")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN attachments_json BLOB")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN reactions_json BLOB")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN references_data BLOB")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN mentions_json BLOB")
+        addColumnIfNeeded("messages", column: "sender_display_name", definition: "TEXT NOT NULL DEFAULT ''")
+        addColumnIfNeeded("messages", column: "sender_avatar_url", definition: "TEXT")
+        addColumnIfNeeded("messages", column: "sending_state", definition: "INTEGER NOT NULL DEFAULT 1")
+        addColumnIfNeeded("messages", column: "attachments_json", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "reactions_json", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "references_data", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "mentions_json", definition: "BLOB")
     }
 
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {

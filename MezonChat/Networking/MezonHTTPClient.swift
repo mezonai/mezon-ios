@@ -436,6 +436,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func listChannelApps(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelAppResponse] {
+        var req = Mezon_Api_ListChannelAppsRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListChannelAppsResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelApps",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channelApps
+    }
+
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
         return try await execute(req)

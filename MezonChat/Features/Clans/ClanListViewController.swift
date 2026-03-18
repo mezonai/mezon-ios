@@ -157,6 +157,7 @@ final class ClanListViewController: ViewController {
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
                 self.context.account.postbox.write { tx in tx.updateClans(records) }
+                self.setClans(sorted)
                 if let sid = self.selectedClanId, sid != 0, sorted.contains(where: { $0.clanID == sid }) {
                     self.setSelectedClanId(sid)
                     self.context.currentClanId = sid
