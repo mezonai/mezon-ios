@@ -355,8 +355,8 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let tabs: [TabInfo] = [
         TabInfo(title: L(L10n.Notifications.mentions), tag: 1, iconName: "Notifications/mentions"),
         TabInfo(title: L(L10n.Notifications.messages), tag: 2, iconName: "Notifications/messages"),
-        TabInfo(title: L(L10n.Notifications.forYou), tag: 3, iconName: "Notifications/forYou"),
         TabInfo(title: L(L10n.Notifications.topic), tag: 4, iconName: "Notifications/topic"),
+        TabInfo(title: L(L10n.Notifications.forYou), tag: 3, iconName: "Notifications/forYou"),
     ]
     private var selectedTabIndex: Int = 0
 
@@ -582,7 +582,7 @@ final class NotificationsContainerNode: ASDisplayNode {
             cfg.background.cornerRadius = 8
             cfg.imagePadding = 2
             cfg.contentInsets = NSDirectionalEdgeInsets(
-                top: 6, leading: 4, bottom: 6, trailing: 4)
+                top: 8, leading: 12, bottom: 6, trailing: 10)
             cfg.attributedTitle = AttributedString(
                 tab.title,
                 attributes: AttributeContainer([

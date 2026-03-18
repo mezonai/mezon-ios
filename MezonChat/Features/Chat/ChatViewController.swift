@@ -62,13 +62,16 @@ struct ChatMessageDisplay: Identifiable {
 struct ChatState {
     var messages: [ChatMessageDisplay]
     var channelLabel: String
+    var channelType: Int32
+    var isPrivate: Bool
+    var isAgeRestricted: Bool
     var showWelcome: Bool
     var hasMoreOlder: Bool
     var isLoadingMore: Bool
     var isLoading: Bool
     var errorMessage: String?
 
-    static let empty = ChatState(messages: [], channelLabel: "", showWelcome: false, hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
+    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, showWelcome: false, hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
 }
 
 final class ChatViewController: ViewController {
@@ -398,7 +401,18 @@ final class ChatViewController: ViewController {
     }
 
     var currentState: ChatState {
-        ChatState(messages: messages, channelLabel: channelLabel, showWelcome: showWelcome, hasMoreOlder: hasMoreOlder, isLoadingMore: isLoadingMore, isLoading: isLoading, errorMessage: errorMessage)
+        ChatState(
+            messages: messages,
+            channelLabel: channelLabel,
+            channelType: channel.type,
+            isPrivate: channel.channelPrivate != 0,
+            isAgeRestricted: channel.ageRestricted != 0,
+            showWelcome: showWelcome,
+            hasMoreOlder: hasMoreOlder,
+            isLoadingMore: isLoadingMore,
+            isLoading: isLoading,
+            errorMessage: errorMessage
+        )
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
