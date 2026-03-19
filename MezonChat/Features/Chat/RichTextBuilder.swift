@@ -42,7 +42,17 @@ enum RichTextBuilder {
     }
 
     static func build(from content: ParsedContent, style: Style? = nil) -> NSAttributedString {
-        let s = style ?? .fromTheme()
+        var s = style ?? .fromTheme()
+        if content.isOnlyEmoji {
+            s = Style(
+                bodyFont: s.bodyFont, bodyColor: s.bodyColor,
+                mentionFont: s.mentionFont, mentionColor: s.mentionColor,
+                mentionBgColor: s.mentionBgColor, roleMentionColor: s.roleMentionColor,
+                roleMentionBgColor: s.roleMentionBgColor, linkColor: s.linkColor,
+                codeBgColor: s.codeBgColor, codeFont: s.codeFont, boldFont: s.boldFont,
+                emojiSize: 48.sf
+            )
+        }
         let text = content.text
 
         guard !text.isEmpty else {
@@ -72,9 +82,7 @@ enum RichTextBuilder {
             switch token.kind {
             case .emoji(let emojiId):
                 let attachment = EmojiTextAttachment(emojiId: emojiId, emojiSize: s.emojiSize)
-                let emojiStr = NSMutableAttributedString(attachment: attachment)
-                emojiStr.addAttribute(.baselineOffset, value: -4.0, range: NSRange(location: 0, length: emojiStr.length))
-                result.append(emojiStr)
+                result.append(NSAttributedString(attachment: attachment))
 
             case .mention(let userId, let roleId, _):
                 var attrs = bodyAttributes(s)
@@ -161,45 +169,54 @@ enum RichTextBuilder {
 }
 
 final class EmojiTextAttachment: NSTextAttachment {
+    static let imageDidLoad = Notification.Name("EmojiTextAttachment.imageDidLoad")
+
     let emojiId: String
     let emojiSize: CGFloat
-    private var loadedImage: UIImage?
 
     init(emojiId: String, emojiSize: CGFloat) {
         self.emojiId = emojiId
         self.emojiSize = emojiSize
         super.init(data: nil, ofType: nil)
-        self.bounds = CGRect(x: 0, y: -4, width: emojiSize, height: emojiSize)
+        let font = UIFont.systemFont(ofSize: 15.sf)
+        let yOffset = (font.ascender + font.descender - emojiSize) / 2
+        self.bounds = CGRect(x: 0, y: yOffset, width: emojiSize, height: emojiSize)
+        self.image = makePlaceholder()
         loadEmojiImage()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    override func image(forBounds imageBounds: CGRect, textContainer: NSTextContainer?, characterIndex charIndex: Int) -> UIImage? {
-        return loadedImage ?? makePlaceholder()
-    }
-
     private func loadEmojiImage() {
         guard let url = MezonConfig.emojiImageURL(emojiId: emojiId) else { return }
+        let key = url.absoluteString
 
-        if let cached = ImageCache.shared.image(forKey: url.absoluteString) {
-            self.loadedImage = cached
+        if ImageCache.shared.image(forKey: key) != nil {
             return
         }
 
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self, let data, let image = UIImage(data: data) else { return }
-            ImageCache.shared.setImage(image, data: data, forKey: url.absoluteString)
-            self.loadedImage = image
+            guard let self, let data, !data.isEmpty else { return }
+            guard let img = UIImage.decodeImage(from: data) else { return }
+            ImageCache.shared.setImage(img, data: data, forKey: key)
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: EmojiTextAttachment.imageDidLoad, object: nil)
+            }
         }.resume()
     }
 
+    private func resized(_ img: UIImage) -> UIImage {
+        let sz = CGSize(width: emojiSize, height: emojiSize)
+        return UIGraphicsImageRenderer(size: sz).image { _ in
+            img.draw(in: CGRect(origin: .zero, size: sz))
+        }
+    }
+
     private func makePlaceholder() -> UIImage {
-        let size = CGSize(width: emojiSize, height: emojiSize)
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { ctx in
-            UIColor.gray.withAlphaComponent(0.2).setFill()
-            ctx.fill(CGRect(origin: .zero, size: size))
+        let sz = CGSize(width: emojiSize, height: emojiSize)
+        return UIGraphicsImageRenderer(size: sz).image { ctx in
+            UIColor.clear.setFill()
+            ctx.fill(CGRect(origin: .zero, size: sz))
         }
     }
 }

@@ -23,10 +23,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     ) -> Bool {
         MezonEnvironment.current = .prod
 
-        FirebaseApp.configure()
-
-        UNUserNotificationCenter.current().delegate = self
-        Messaging.messaging().delegate = self
+        DispatchQueue.main.async {
+            FirebaseApp.configure()
+            UNUserNotificationCenter.current().delegate = self
+            Messaging.messaging().delegate = self
+        }
 
         return true
     }

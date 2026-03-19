@@ -52,12 +52,19 @@ open class TransformImageNode: ASDisplayNode {
     
     override open func didLoad() {
         super.didLoad()
-        
+
         if #available(iOSApplicationExtension 11.0, iOS 11.0, *), !self.isLayerBacked {
             self.view.accessibilityIgnoresInvertColors = true
         }
         if self.captureProtected {
             setLayerDisableScreenshots(self.layer, self.captureProtected)
+        }
+    }
+
+    override open func didEnterDisplayState() {
+        super.didEnterDisplayState()
+        if let image = self.image, self.contents == nil {
+            self.contents = image.cgImage
         }
     }
     

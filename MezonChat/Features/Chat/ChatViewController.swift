@@ -108,6 +108,7 @@ final class ChatViewController: ViewController {
     private var inputBarBottomConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
     private let inputBarHeight: CGFloat = 56
+    private var currentKeyboardOffset: CGFloat = 0
     private var shouldScrollToBottom = true
     private var hasMarkedAsRead = false
 
@@ -170,7 +171,7 @@ final class ChatViewController: ViewController {
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
-        messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight, transition: transition)
+        messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight + currentKeyboardOffset, transition: transition)
     }
 
     private var lastLayout: ContainerViewLayout?
@@ -418,11 +419,30 @@ final class ChatViewController: ViewController {
     func stateSignal() -> Signal<ChatState, NoError> {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
+            var lastIds = self.messages.map { $0.id }
+            var lastLoading = self.isLoading
+            var lastLoadingMore = self.isLoadingMore
+            var lastWelcome = self.showWelcome
+            var lastError = self.errorMessage
             subscriber.putNext(self.currentState)
             return (self.needsReloadPipe.signal()
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
-            ).start(next: { subscriber.putNext($0) })
+            ).start(next: { newState in
+                let newIds = newState.messages.map { $0.id }
+                let changed = newIds != lastIds
+                    || newState.isLoading != lastLoading
+                    || newState.isLoadingMore != lastLoadingMore
+                    || newState.showWelcome != lastWelcome
+                    || newState.errorMessage != lastError
+                guard changed else { return }
+                lastIds = newIds
+                lastLoading = newState.isLoading
+                lastLoadingMore = newState.isLoadingMore
+                lastWelcome = newState.showWelcome
+                lastError = newState.errorMessage
+                subscriber.putNext(newState)
+            })
         }
     }
 
@@ -474,7 +494,9 @@ final class ChatViewController: ViewController {
     private static func applyCombine(to displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         displays.enumerated().map { i, d in
             let prev = i > 0 ? displays[i - 1].message : nil
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev), attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply)
+            let hasReply = d.replyRef != nil || d.isDeletedReply
+            let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
+            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply)
         }
     }
 
@@ -671,6 +693,7 @@ final class ChatViewController: ViewController {
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false
         messagesNode.tableView.addGestureRecognizer(tap)
+        messagesNode.tableView.keyboardDismissMode = .onDrag
     }
 
     private func setupKeyboardObservers() {
@@ -683,8 +706,20 @@ final class ChatViewController: ViewController {
               let keyboardFrame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
               let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
               let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt else { return }
-        inputBarBottomConstraint?.constant = -keyboardFrame.height + view.safeAreaInsets.bottom
-        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) { self.view.layoutIfNeeded() }
+        let keyboardBottomPadding: CGFloat = 20
+        let keyboardOffset = keyboardFrame.height - view.safeAreaInsets.bottom + keyboardBottomPadding
+        inputBarBottomConstraint?.constant = -keyboardOffset
+        currentKeyboardOffset = keyboardOffset
+        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
+            self.view.layoutIfNeeded()
+            if let layout = self.lastLayout {
+                self.messagesNode.updateLayout(
+                    layout: layout,
+                    inputBarHeight: self.inputBarHeight + keyboardOffset,
+                    transition: .immediate
+                )
+            }
+        }
         scrollToBottomIfNeeded()
     }
 
@@ -693,7 +728,17 @@ final class ChatViewController: ViewController {
               let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
               let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt else { return }
         inputBarBottomConstraint?.constant = 0
-        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) { self.view.layoutIfNeeded() }
+        currentKeyboardOffset = 0
+        UIView.animate(withDuration: duration, delay: 0, options: UIView.AnimationOptions(rawValue: curve << 16)) {
+            self.view.layoutIfNeeded()
+            if let layout = self.lastLayout {
+                self.messagesNode.updateLayout(
+                    layout: layout,
+                    inputBarHeight: self.inputBarHeight,
+                    transition: .immediate
+                )
+            }
+        }
     }
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
@@ -701,7 +746,7 @@ final class ChatViewController: ViewController {
     private func scrollToBottomIfNeeded() {
         guard shouldScrollToBottom, !messages.isEmpty else { return }
         let tv = messagesNode.tableView
-        guard tv.numberOfRows(inSection: 0) > 0 else { return }
+        guard tv.numberOfSections > 0, tv.numberOfRows(inSection: 0) > 0 else { return }
         tv.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
     }
 }

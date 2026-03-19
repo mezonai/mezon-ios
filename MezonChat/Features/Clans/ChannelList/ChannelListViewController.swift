@@ -1,7 +1,7 @@
 import UIKit
 import SwiftProtobuf
 
-struct ChannelListState {
+struct ChannelListState: Equatable {
     var categories: [ChannelCategory]
     var allChannels: [Mezon_Api_ChannelDescription] = []
     var selectedChannelId: Int64?
@@ -9,6 +9,15 @@ struct ChannelListState {
     var errorMessage: String?
 
     static let empty = ChannelListState(categories: [], allChannels: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
+
+    static func == (lhs: ChannelListState, rhs: ChannelListState) -> Bool {
+        lhs.isLoading == rhs.isLoading
+        && lhs.selectedChannelId == rhs.selectedChannelId
+        && lhs.errorMessage == rhs.errorMessage
+        && lhs.categories.count == rhs.categories.count
+        && lhs.allChannels.count == rhs.allChannels.count
+        && zip(lhs.categories, rhs.categories).allSatisfy { $0.id == $1.id && $0.isCollapsed == $1.isCollapsed && $0.channels.count == $1.channels.count }
+    }
 }
 
 enum ChannelFetchError: Error {
@@ -82,13 +91,33 @@ private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription]) 
     }
 }
 
+/// Pre-built thread lookup for O(1) access instead of O(n) filter per channel.
+/// Call once per state change, reuse for all sections.
+func buildThreadLookup(_ allChannels: [Mezon_Api_ChannelDescription]) -> [Int64: [Mezon_Api_ChannelDescription]] {
+    var lookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
+    for ch in allChannels where ch.parentID != 0 {
+        lookup[ch.parentID, default: []].append(ch)
+    }
+    // Sort each group once
+    for key in lookup.keys {
+        lookup[key]?.sort { $0.channelLabel < $1.channelLabel }
+    }
+    return lookup
+}
+
 func flattenCategoryToRows(_ category: ChannelCategory, allChannels: [Mezon_Api_ChannelDescription]) -> [ChannelListRow] {
+    let lookup = buildThreadLookup(allChannels)
+    return flattenCategoryToRows(category, threadLookup: lookup)
+}
+
+func flattenCategoryToRows(_ category: ChannelCategory, threadLookup: [Int64: [Mezon_Api_ChannelDescription]]) -> [ChannelListRow] {
     var rows: [ChannelListRow] = []
     for ch in category.channels {
         rows.append(.channel(ch))
-        let threads = allChannels.filter { $0.parentID == ch.channelID }.sorted { $0.channelLabel < $1.channelLabel }
-        for (i, thread) in threads.enumerated() {
-            rows.append(.thread(thread, isLast: i == 0))
+        if let threads = threadLookup[ch.channelID] {
+            for (i, thread) in threads.enumerated() {
+                rows.append(.thread(thread, isLast: i == 0))
+            }
         }
     }
     return rows
@@ -170,8 +199,10 @@ final class ChannelListViewController: ViewController {
 
     func fetchChannels() {
         guard clanId != 0 else { return }
-        setIsLoading(true)
-        setErrorMessage(nil)
+        isLoading = true
+        errorMessage = nil
+        // Single emission instead of separate setIsLoading + setErrorMessage
+        needsReloadPipe.putNext(())
         fetchChannelsWithoutLoadingSignal()
     }
 
@@ -268,12 +299,12 @@ final class ChannelListViewController: ViewController {
         self.clanId = clanId
         self.clanName = clanName
         channelsLoadedPromise.set(false)
-        isLoading = true
         errorMessage = nil
 
         let hadCache = restoreCachedChannels(clanId: clanId)
+        // Only show loading state if we have no cached data to display
+        isLoading = !hadCache
         if !hadCache {
-            isLoadingPipe.putNext(true)
             needsReloadPipe.putNext(())
         }
         fetchChannelsWithoutLoadingSignal()
@@ -340,11 +371,17 @@ final class ChannelListViewController: ViewController {
     func stateSignal() -> Signal<ChannelListState, NoError> {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
-            subscriber.putNext(self.currentState)
+            var lastEmitted = self.currentState
+            subscriber.putNext(lastEmitted)
             return (self.needsReloadPipe.signal()
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
-            ).start(next: { subscriber.putNext($0) })
+            ).start(next: { newState in
+                // Skip duplicate emissions to avoid unnecessary UI reloads
+                guard newState != lastEmitted else { return }
+                lastEmitted = newState
+                subscriber.putNext(newState)
+            })
         }
     }
 

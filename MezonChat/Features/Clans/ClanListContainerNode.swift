@@ -387,11 +387,14 @@ private final class ClanCell: UICollectionViewCell {
     }
 
     private func loadImage(url: URL) {
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage.decodeImage(from: data) else { return }
-            DispatchQueue.main.async { self?.avatarImageView.image = image }
+        let urlString = url.absoluteString
+        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            avatarImageView.image = cached
+            return
         }
-        imageTask?.resume()
+        imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
+            self?.avatarImageView.image = image
+        }
     }
 
     private func initials(for name: String) -> String {
@@ -510,7 +513,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         ]
         avatarContainer.backgroundColor = colors[abs(name.hashValue) % colors.count]
 
-        // For DM: use dm.avatars[0] (user avatar); for Group: use dm.channelAvatar
         let isDM = dm.type == MezonConstants.ChannelType.dm.rawValue
         let avatarURL: String
         if isDM {
@@ -520,14 +522,16 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             avatarURL = (!groupAvatar.isEmpty && !groupAvatar.contains("avatar-group")) ? groupAvatar : ""
         }
 
-        if !avatarURL.isEmpty, let url = URL(string: avatarURL) {
+        if !avatarURL.isEmpty {
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
-            imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let data, let image = UIImage.decodeImage(from: data) else { return }
-                DispatchQueue.main.async { self?.avatarImageView.image = image }
+            if let cached = ImageCache.shared.cachedImage(forURL: avatarURL) {
+                avatarImageView.image = cached
+            } else {
+                imageTask = ImageCache.shared.loadImage(urlString: avatarURL) { [weak self] image in
+                    self?.avatarImageView.image = image
+                }
             }
-            imageTask?.resume()
         } else {
             avatarImageView.isHidden = true
             initialsLabel.isHidden = false

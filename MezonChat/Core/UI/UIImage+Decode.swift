@@ -33,6 +33,39 @@ extension UIImage {
         return nil
     }
 
+    static func animatedImage(from data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard count > 1 else { return nil }
+
+        var images: [UIImage] = []
+        var duration: Double = 0
+
+        for i in 0..<count {
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) else { continue }
+            images.append(UIImage(cgImage: cgImage))
+
+            if let props = CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [String: Any] {
+                let delay: Double
+                if let webp = props["{WebP}"] as? [String: Any],
+                   let d = webp["DelayTime"] as? Double {
+                    delay = d
+                } else if let gif = props["{GIF}"] as? [String: Any],
+                          let d = gif["DelayTime"] as? Double {
+                    delay = d
+                } else {
+                    delay = 0.1
+                }
+                duration += max(delay, 0.02)
+            } else {
+                duration += 0.1
+            }
+        }
+
+        guard images.count > 1 else { return nil }
+        return UIImage.animatedImage(with: images, duration: duration)
+    }
+
     private static func imageOrientation(from source: CGImageSource) -> UIImage.Orientation {
         guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?,
               let value = props[kCGImagePropertyOrientation] as? NSNumber else { return .up }

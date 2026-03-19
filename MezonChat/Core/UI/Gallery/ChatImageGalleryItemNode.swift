@@ -56,12 +56,15 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
     }
 
     private func loadRemoteImage(url: URL) {
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                self?.setImage(image)
-            }
-        }.resume()
+        let urlString = url.absoluteString
+        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            setImage(cached)
+            return
+        }
+        ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
+            guard let image else { return }
+            self?.setImage(image)
+        }
     }
 
     override func containerLayoutUpdated(_ size: CGSize, navigationBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
