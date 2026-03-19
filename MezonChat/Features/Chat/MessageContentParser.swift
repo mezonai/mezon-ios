@@ -8,6 +8,22 @@ struct ParsedContent {
     static let empty = ParsedContent(text: "", tokens: [])
 
     var isPlainText: Bool { tokens.isEmpty }
+
+    var isOnlyEmoji: Bool {
+        guard !tokens.isEmpty else { return false }
+        let allEmoji = tokens.allSatisfy {
+            if case .emoji = $0.kind { return true }
+            return false
+        }
+        guard allEmoji else { return false }
+        var remaining = text
+        for token in tokens.sorted(by: { $0.start > $1.start }) {
+            let s = remaining.index(remaining.startIndex, offsetBy: token.start, limitedBy: remaining.endIndex) ?? remaining.endIndex
+            let e = remaining.index(remaining.startIndex, offsetBy: token.end, limitedBy: remaining.endIndex) ?? remaining.endIndex
+            if s < e { remaining.removeSubrange(s..<e) }
+        }
+        return remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 enum ContentTokenKind {

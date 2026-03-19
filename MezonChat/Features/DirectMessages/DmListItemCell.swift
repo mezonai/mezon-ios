@@ -218,11 +218,14 @@ final class DmListItemCell: UITableViewCell {
     }
 
     private func loadImage(url: URL) {
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let img = UIImage.decodeImage(from: data) else { return }
-            DispatchQueue.main.async { self?.avatarView.image = img }
+        let urlString = url.absoluteString
+        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            avatarView.image = cached
+            return
         }
-        imageTask?.resume()
+        imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
+            self?.avatarView.image = image
+        }
     }
 
     private func displayName(for channel: Mezon_Api_ChannelDescription) -> String {

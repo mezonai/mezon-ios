@@ -29,8 +29,13 @@ final class HomeViewController: BaseViewController {
         applyInitialClanSelection()
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleHomeThemeChange), name: ThemeManager.didChangeNotification, object: nil)
 
         processPendingNavigation()
+    }
+
+    @objc private func handleHomeThemeChange() {
+        view.backgroundColor = UIColor.theme.primary
     }
 
     private func processPendingNavigation() {
@@ -168,7 +173,6 @@ final class HomeViewController: BaseViewController {
             return
         }
 
-        // 2. Fetch from API (non-blocking — push immediately once found)
         guard let token = context.session?.token else { return }
 
         Task { @MainActor [weak self] in

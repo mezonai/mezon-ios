@@ -55,6 +55,11 @@ final class ImageCache {
         }
     }
 
+    func cachedData(forKey key: String) -> Data? {
+        let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
+        return try? Data(contentsOf: fileURL)
+    }
+
     func clearDiskCache() {
         ioQueue.async { [diskCacheURL] in
             try? FileManager.default.removeItem(at: diskCacheURL)
@@ -78,6 +83,37 @@ final class ImageCache {
                 try? FileManager.default.removeItem(at: file)
             }
         }
+    }
+
+    @discardableResult
+    func loadImage(
+        urlString: String,
+        completion: @escaping (UIImage?) -> Void
+    ) -> URLSessionDataTask? {
+        guard let url = URL(string: urlString), !urlString.isEmpty else {
+            completion(nil)
+            return nil
+        }
+
+        if let cached = image(forKey: urlString) {
+            completion(cached)
+            return nil
+        }
+
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage.decodeImage(from: data) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            self?.setImage(image, data: data, forKey: urlString)
+            DispatchQueue.main.async { completion(image) }
+        }
+        task.resume()
+        return task
+    }
+
+    func cachedImage(forURL urlString: String) -> UIImage? {
+        return image(forKey: urlString)
     }
 }
 
