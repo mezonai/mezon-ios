@@ -193,6 +193,14 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
     }
 }
 
+func staticImageSignal(image: UIImage, resizeMode: ImageResizeMode = .fill) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return Signal { subscriber in
+        subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+        subscriber.putCompletion()
+        return EmptyDisposable
+    }
+}
+
 func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
     return Signal { subscriber in
         guard let imageURL = URL(string: url), !url.isEmpty else {
