@@ -1,11 +1,12 @@
-import UIKit
 import AsyncDisplayKit
+import UIKit
 
 final class ThreadItemCellNode: ASCellNode {
 
     private let connectorNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
+    private let selectionNode = ASDisplayNode()
     private let isLast: Bool
 
     init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool) {
@@ -29,7 +30,7 @@ final class ThreadItemCellNode: ASCellNode {
         connectorNode.contentMode = .scaleAspectFit
 
         let nameColor =
-            isSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+            isUnread ? t.channelUnread : t.channelNormal
         let nameWeight: UIFont.Weight = isUnread ? .semibold : .regular
         nameNode.attributedText = NSAttributedString(
             string: channel.channelLabel,
@@ -57,15 +58,22 @@ final class ThreadItemCellNode: ASCellNode {
             badgeNode.isHidden = true
         }
 
-        backgroundColor = isSelected ? t.colorActiveClan : .clear
+        backgroundColor = .clear
+        let theme = ThemeManager.shared.current
+        let isLight =
+            theme == .light
+            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
+        selectionNode.backgroundColor =
+            isSelected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
         if isSelected {
-            cornerRadius = 16.swh
+            selectionNode.cornerRadius = 16.swh
         }
+        selectionNode.isHidden = !isSelected
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         connectorNode.style.preferredSize = CGSize(
-            width: isLast ? 12.swh : 14.swh, height: isLast ? 14.swh : 26.swh)
+            width: isLast ? 13.swh : 14.swh, height: isLast ? 18.swh : 34.swh)
         badgeNode.style.minWidth = ASDimensionMake(20.swh)
         badgeNode.style.height = ASDimensionMake(20.swh)
 
@@ -73,23 +81,36 @@ final class ThreadItemCellNode: ASCellNode {
         let spacer = ASLayoutSpec()
         spacer.style.flexGrow = 1
 
-        let topInset: CGFloat = isLast ? -4.sh : -18.sh
-        let leftInset: CGFloat = isLast ? 2.sw : 0
+        let topInset: CGFloat = isLast ? -4.sh : -30.sh
+        let leftInset: CGFloat = isLast ? 1.sw : 0
         let connectorInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: topInset, left: leftInset, bottom: 0, right: 0),
             child: connectorNode)
 
-        var children: [ASLayoutElement] = [connectorInset, nameNode]
+        var contentChildren: [ASLayoutElement] = [nameNode]
         if !badgeNode.isHidden {
-            children.append(contentsOf: [spacer, badgeNode])
+            contentChildren.append(contentsOf: [spacer, badgeNode])
         }
 
+        let contentStack = ASStackLayoutSpec(
+            direction: .horizontal, spacing: 8.sw, justifyContent: .start, alignItems: .center,
+            children: contentChildren)
+        contentStack.style.flexGrow = 1
+
+        let contentWithBackground = ASBackgroundLayoutSpec(
+            child: ASInsetLayoutSpec(
+                insets: UIEdgeInsets(top: 8.sh, left: 8.sw, bottom: 6.sh, right: 12.sw),
+                child: contentStack),
+            background: selectionNode
+        )
+        contentWithBackground.style.flexGrow = 1
+
         let row = ASStackLayoutSpec(
-            direction: .horizontal, spacing: 8.sw, justifyContent: .start, alignItems: .start,
-            children: children)
+            direction: .horizontal, spacing: 0, justifyContent: .start, alignItems: .center,
+            children: [connectorInset, contentWithBackground])
 
         let inset = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 4.sh, left: 14.sw, bottom: 4.sh, right: 12.sw),
+            insets: UIEdgeInsets(top: 0, left: 14.sw, bottom: 0, right: 0),
             child: row
         )
 

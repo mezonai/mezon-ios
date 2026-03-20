@@ -266,19 +266,19 @@ final class ChatContainerNode: ASDisplayNode {
 
         let liS: CGFloat = 24
         transition.updateFrame(node: loadingMoreNode, frame: CGRect(
-            x: (fullWidth - liS) / 2,
-            y: headerFrame.maxY + 12,
-            width: liS,
-            height: liS
-        ))
+                x: (fullWidth - liS) / 2,
+                y: headerFrame.maxY + 12,
+                width: liS,
+                height: liS
+            ))
         let tableY = tvFrame.minY
         let tableH = tvFrame.height
         transition.updateFrame(node: emptyNode, frame: CGRect(
-            x: 0,
-            y: tableY + (tableH - 44) / 2,
-            width: fullWidth,
-            height: 44
-        ))
+                x: 0,
+                y: tableY + (tableH - 44) / 2,
+                width: fullWidth,
+                height: 44
+            ))
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -308,8 +308,16 @@ extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
 
         if currentState.showWelcome, indexPath.row == msgCount {
             let label = currentState.channelLabel
+            let channelType = currentState.channelType
+            let isPrivate = currentState.isPrivate
+            let isAgeRestricted = currentState.isAgeRestricted
             return {
-                let node = WelcomeCellNode(channelLabel: label)
+                let node = WelcomeCellNode(
+                    channelLabel: label,
+                    channelType: channelType,
+                    isPrivate: isPrivate,
+                    isAgeRestricted: isAgeRestricted
+                )
                 node.transform = CATransform3DMakeScale(1, -1, 1)
                 return node
             }
@@ -340,9 +348,9 @@ extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
 
 // MARK: - Array diff helpers
 
-private extension Array where Element: Equatable {
+extension Array where Element: Equatable {
     /// newIds.hasSuffix(oldIds) → old IDs are at the end of new IDs (new messages appended at end)
-    func hasSuffix(_ other: [Element]) -> Bool {
+    fileprivate func hasSuffix(_ other: [Element]) -> Bool {
         guard other.count <= count else { return false }
         guard !other.isEmpty else { return true }
         let offset = count - other.count
@@ -351,7 +359,7 @@ private extension Array where Element: Equatable {
         }
         return true
     }
-    func hasPrefix(_ other: [Element]) -> Bool {
+    fileprivate func hasPrefix(_ other: [Element]) -> Bool {
         guard other.count <= count else { return false }
         guard !other.isEmpty else { return true }
         for i in 0..<other.count {
