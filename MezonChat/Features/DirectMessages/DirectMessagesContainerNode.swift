@@ -28,6 +28,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let interaction: DirectMessagesInteraction
     private let disposables = DisposableSet()
     private let context: AccountContext
+    private var needsReloadOnLayout = false
 
     private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
 
@@ -40,9 +41,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
-                print("[DM-DEBUG] State updated: \(newState.directMessages.count) messages, isEmpty=\(newState.isEmpty), isLoading=\(newState.isLoading)")
                 self.state = newState
-                self.tableView.reloadData()
+                if self.tableView.frame.width > 0 {
+                    self.tableView.reloadData()
+                } else {
+                    self.needsReloadOnLayout = true
+                }
                 self.emptyLabel.isHidden = !(newState.isEmpty && !newState.isLoading)
             })
         )
@@ -110,14 +114,16 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     }
 
     func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
-        print("[DM-DEBUG] updateLayout: size=\(size), safeTop=\(safeTop), bottomInset=\(bottomInset)")
         self.validLayout = (size, safeTop, bottomInset)
         applyLayout(transition: transition)
+        if needsReloadOnLayout && tableView.frame.width > 0 {
+            needsReloadOnLayout = false
+            tableView.reloadData()
+        }
     }
 
     private func applyLayout(transition: ContainedViewLayoutTransition) {
         guard let (size, safeTop, bottomInset) = validLayout else {
-            print("[DM-DEBUG] applyLayout: NO validLayout")
             return
         }
 
@@ -137,7 +143,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         let tvTop = actionY + actionH + 8.sh
         let tvHeight = size.height - tvTop - bottomInset
-        print("[DM-DEBUG] applyLayout: tableView frame=(0, \(tvTop), \(size.width), \(tvHeight)), dataCount=\(state.directMessages.count), isViewLoaded=\(isNodeLoaded)")
+
         transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: size.width, height: tvHeight))
 
         transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (size.height - 44.sh) / 2, width: size.width, height: 44.sh))
