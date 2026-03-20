@@ -14,15 +14,17 @@ final class MessageBubbleNode: ASCellNode {
     private var deletedReplyNode: MessageDeletedReplyNode?
     private var textContentNode: MessageTextContentNode?
     private var mediaContentNode: MessageMediaContentNode?
+    private var fileAttachmentNode: MessageFileAttachmentNode?
+    private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
-
-    // MARK: - State
 
     private let display: ChatMessageDisplay
     private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
+    private let hasFiles: Bool
+    private let hasEmbeds: Bool
     private let hasReactions: Bool
     private let hasReply: Bool
     private let hasDeletedReply: Bool
@@ -45,7 +47,10 @@ final class MessageBubbleNode: ASCellNode {
         }
 
         let mediaAttachments = display.attachments.filter { $0.isMedia }
+        let fileAttachments = display.attachments.filter { !$0.isMedia && !$0.url.isEmpty }
         self.hasMedia = !mediaAttachments.isEmpty
+        self.hasFiles = !fileAttachments.isEmpty
+        self.hasEmbeds = !parsed.embeds.isEmpty
         self.hasReactions = !display.reactions.isEmpty
 
         super.init()
@@ -111,6 +116,22 @@ final class MessageBubbleNode: ASCellNode {
                 self?.handleImageTap(index: index, media: mediaAttachments, interaction: interaction)
             }
             mediaContentNode = mcn
+        }
+
+        if hasFiles {
+            let fan = MessageFileAttachmentNode()
+            fan.configure(files: fileAttachments)
+            fan.onFileTapped = { url in
+                guard let fileURL = URL(string: url) else { return }
+                UIApplication.shared.open(fileURL)
+            }
+            fileAttachmentNode = fan
+        }
+
+        if hasEmbeds {
+            let en = MessageEmbedNode()
+            en.configure(embeds: parsed.embeds)
+            embedNode = en
         }
 
         if hasReactions {
@@ -267,6 +288,16 @@ final class MessageBubbleNode: ASCellNode {
             mediaContentNode.style.maxWidth = ASDimensionMake(contentWidth)
             mediaContentNode.style.alignSelf = .start
             contentChildren.append(mediaContentNode)
+        }
+
+        if let fileAttachmentNode = fileAttachmentNode {
+            fileAttachmentNode.style.maxWidth = ASDimensionMake(contentWidth)
+            contentChildren.append(fileAttachmentNode)
+        }
+
+        if let embedNode = embedNode {
+            embedNode.style.maxWidth = ASDimensionMake(contentWidth)
+            contentChildren.append(embedNode)
         }
 
         if let reactionsNode = reactionsNode {
