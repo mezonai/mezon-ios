@@ -207,6 +207,7 @@ final class MessageBubbleNode: ASCellNode {
 
         if let mediaContentNode = mediaContentNode {
             mediaContentNode.style.maxWidth = ASDimensionMake(contentWidth)
+            mediaContentNode.style.alignSelf = .start
             contentChildren.append(mediaContentNode)
         }
 

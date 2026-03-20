@@ -11,17 +11,26 @@ struct ParsedAttachment: Equatable {
     var isUploading: Bool = false
 
     var isImage: Bool {
-        filetype.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
+        filetype.hasPrefix("image/") || filetype == "sticker"
+            || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
+            || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(urlExtension)
     }
 
     var isVideo: Bool {
         filetype.hasPrefix("video/") || ["mp4", "mov", "m4v", "webm"].contains(fileExtension)
     }
 
+    var isSticker: Bool { filetype == "sticker" }
+
     var isMedia: Bool { isImage || isVideo }
 
     var fileExtension: String {
         (filename as NSString).pathExtension.lowercased()
+    }
+
+    var urlExtension: String {
+        guard let urlPath = URL(string: url)?.pathExtension else { return "" }
+        return urlPath.lowercased()
     }
 
     static func ==(lhs: ParsedAttachment, rhs: ParsedAttachment) -> Bool {
