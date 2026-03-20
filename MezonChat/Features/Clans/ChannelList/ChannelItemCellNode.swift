@@ -1,5 +1,5 @@
-import UIKit
 import AsyncDisplayKit
+import UIKit
 
 final class ChannelItemCellNode: ASCellNode {
 
@@ -8,6 +8,7 @@ final class ChannelItemCellNode: ASCellNode {
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
     private let unreadDot = ASDisplayNode()
+    private let selectionNode = ASDisplayNode()
 
     private let channel: Mezon_Api_ChannelDescription
     private let cellSelected: Bool
@@ -93,13 +94,15 @@ final class ChannelItemCellNode: ASCellNode {
         unreadDot.cornerRadius = 3.swh
         unreadDot.isHidden = !(unread > 0 && !cellSelected)
 
-        if cellSelected {
-            cornerRadius = 20.swh
-            backgroundColor = t.colorActiveClan
-        } else {
-            cornerRadius = 0
-            backgroundColor = .clear
-        }
+        selectionNode.isHidden = !cellSelected
+        let theme = ThemeManager.shared.current
+        let isLight =
+            theme == .light
+            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
+        selectionNode.backgroundColor =
+            cellSelected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
+        selectionNode.cornerRadius = 16.swh
+        backgroundColor = .clear
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -132,7 +135,9 @@ final class ChannelItemCellNode: ASCellNode {
         )
 
         inset.style.minHeight = ASDimensionMake(36.sh)
+        let contentWithBackground = ASBackgroundLayoutSpec(child: inset, background: selectionNode)
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw), child: inset)
+            insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw),
+            child: contentWithBackground)
     }
 }

@@ -42,6 +42,9 @@ final class ChatHeaderNode: ASDisplayNode {
         case 4:  iconName = "Channel/ChevronRight"
         case 6:  iconName = "Channel/channelStream"
         case 8:  iconName = "Channel/channelApp"
+        case 7:
+            if isPrivate { iconName = "Channel/channelThreadPrivate" }
+            else {iconName = "Channel/channelThread"}
         case 1:
             if isPrivate { iconName = "Channel/channelPrivate" }
             else if isAgeRestricted { iconName = "Channel/channelWarning" }
