@@ -1,6 +1,16 @@
 import UIKit
 import SwiftProtobuf
 
+enum ActiveChannelTracker {
+    private static let lock = NSLock()
+    private static var _channelId: Int64 = 0
+
+    static var currentChannelId: Int64 {
+        get { lock.lock(); defer { lock.unlock() }; return _channelId }
+        set { lock.lock(); defer { lock.unlock() }; _channelId = newValue }
+    }
+}
+
 struct ParsedAttachment: Equatable {
     let url: String
     let filename: String
@@ -226,6 +236,7 @@ final class ChatViewController: ViewController {
     func start() {
         context.currentClanId = clanId
         context.currentChannel = channel
+        ActiveChannelTracker.currentChannelId = channel.channelID
 
         let channelIdStr = "\(channel.channelID)"
         stateDisposables.add(
@@ -253,6 +264,7 @@ final class ChatViewController: ViewController {
 
     func onLeave() {
         context.currentChannel = nil
+        ActiveChannelTracker.currentChannelId = 0
         stateDisposables.dispose()
     }
 

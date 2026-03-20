@@ -78,7 +78,6 @@ final class MessageMediaContentNode: ASDisplayNode {
     private func loadStickerImage(url: String, into node: ASDisplayNode) {
         guard let imageURL = URL(string: url), !url.isEmpty else { return }
 
-        // Check cache first
         if let cachedData = ImageCache.shared.cachedData(forKey: url) {
             if let animated = UIImage.animatedImage(from: cachedData) {
                 DispatchQueue.main.async {
