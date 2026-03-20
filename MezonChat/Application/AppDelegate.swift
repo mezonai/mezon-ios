@@ -193,9 +193,18 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let body = notification.request.content.body
 
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
-        Toast.notification(title: title, message: body) {
-            DispatchQueue.main.async {
-                Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+
+        // Skip toast if user is already viewing this channel
+        let isViewingChannel: Bool = {
+            guard let chId = channelId, let chIdInt = Int64(chId) else { return false }
+            return ActiveChannelTracker.currentChannelId == chIdInt
+        }()
+
+        if !isViewingChannel {
+            Toast.notification(title: title, message: body) {
+                DispatchQueue.main.async {
+                    Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+                }
             }
         }
 

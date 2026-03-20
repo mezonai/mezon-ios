@@ -99,9 +99,11 @@ final class HomeViewController: BaseViewController {
     private func bindLogoTap() {
         clanListVC.onLogoTapped = { [weak self] in
             guard let self else { return }
+            let rootController = self.navigationController as? MezonRootController
             if let tabBar = self.parent as? TabBarController {
                 tabBar.selectedIndex = 1
             }
+            rootController?.directMessagesController?.fetchDirectMessages()
         }
     }
 
@@ -180,7 +182,7 @@ final class HomeViewController: BaseViewController {
             do {
                 let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 if let dmVC = rootController.directMessagesController {
-                    await dmVC.fetchDirectMessages()
+                    dmVC.fetchDirectMessages()
                 }
                 if let ch = channels.first(where: { $0.channelID == channelIdInt }) {
                     if !self.isChatAlreadyVisible(channelId: channelIdInt) {

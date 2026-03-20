@@ -14,14 +14,17 @@ final class MessageBubbleNode: ASCellNode {
     private var deletedReplyNode: MessageDeletedReplyNode?
     private var textContentNode: MessageTextContentNode?
     private var mediaContentNode: MessageMediaContentNode?
+    private var fileAttachmentNode: MessageFileAttachmentNode?
+    private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
 
-    // MARK: - State
-
     private let display: ChatMessageDisplay
+    private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
+    private let hasFiles: Bool
+    private let hasEmbeds: Bool
     private let hasReactions: Bool
     private let hasReply: Bool
     private let hasDeletedReply: Bool
@@ -31,6 +34,7 @@ final class MessageBubbleNode: ASCellNode {
 
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
         self.display = display
+        self.interaction = interaction
         self.isCombine = display.isCombine
         self.hasReply = display.replyRef != nil
         self.hasDeletedReply = display.isDeletedReply
@@ -43,7 +47,10 @@ final class MessageBubbleNode: ASCellNode {
         }
 
         let mediaAttachments = display.attachments.filter { $0.isMedia }
+        let fileAttachments = display.attachments.filter { !$0.isMedia && !$0.url.isEmpty }
         self.hasMedia = !mediaAttachments.isEmpty
+        self.hasFiles = !fileAttachments.isEmpty
+        self.hasEmbeds = !parsed.embeds.isEmpty
         self.hasReactions = !display.reactions.isEmpty
 
         super.init()
@@ -111,6 +118,22 @@ final class MessageBubbleNode: ASCellNode {
             mediaContentNode = mcn
         }
 
+        if hasFiles {
+            let fan = MessageFileAttachmentNode()
+            fan.configure(files: fileAttachments)
+            fan.onFileTapped = { url in
+                guard let fileURL = URL(string: url) else { return }
+                UIApplication.shared.open(fileURL)
+            }
+            fileAttachmentNode = fan
+        }
+
+        if hasEmbeds {
+            let en = MessageEmbedNode()
+            en.configure(embeds: parsed.embeds)
+            embedNode = en
+        }
+
         if hasReactions {
             let rn = MessageReactionsNode()
             rn.configure(reactions: display.reactions)
@@ -167,6 +190,62 @@ final class MessageBubbleNode: ASCellNode {
         return nil
     }
 
+    private let highlightNode = ASDisplayNode()
+
+    override func didLoad() {
+        super.didLoad()
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.25
+        view.addGestureRecognizer(longPress)
+
+        highlightNode.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        highlightNode.alpha = 0
+        highlightNode.isUserInteractionEnabled = false
+        addSubnode(highlightNode)
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        showHighlight(true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.showHighlight(false)
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>?, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        showHighlight(false)
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            showHighlight(true)
+            interaction.onMessageLongPressed(display)
+        case .ended, .cancelled, .failed:
+            break // highlight dismissed by sheet onDismiss
+        default:
+            break
+        }
+    }
+
+    func showHighlight(_ show: Bool) {
+        highlightNode.frame = bounds
+        UIView.animate(withDuration: show ? 0.15 : 0.3) {
+            self.highlightNode.alpha = show ? 1 : 0
+        }
+    }
+
+    func dismissHighlight() {
+        showHighlight(false)
+    }
+
     override func layout() {
         super.layout()
         let sz = avatarContainerNode.bounds.size
@@ -207,7 +286,18 @@ final class MessageBubbleNode: ASCellNode {
 
         if let mediaContentNode = mediaContentNode {
             mediaContentNode.style.maxWidth = ASDimensionMake(contentWidth)
+            mediaContentNode.style.alignSelf = .start
             contentChildren.append(mediaContentNode)
+        }
+
+        if let fileAttachmentNode = fileAttachmentNode {
+            fileAttachmentNode.style.maxWidth = ASDimensionMake(contentWidth)
+            contentChildren.append(fileAttachmentNode)
+        }
+
+        if let embedNode = embedNode {
+            embedNode.style.maxWidth = ASDimensionMake(contentWidth)
+            contentChildren.append(embedNode)
         }
 
         if let reactionsNode = reactionsNode {

@@ -52,7 +52,6 @@ final class DirectMessagesViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        print("[DM-DEBUG] viewWillAppear: lastLayout=\(lastLayout != nil), dataCount=\(directMessages.count)")
         if let layout = lastLayout {
             let safeTop = max(layout.safeInsets.top, 54)
             directMessagesNode.updateLayout(
@@ -62,7 +61,7 @@ final class DirectMessagesViewController: ViewController {
                 transition: .immediate
             )
         }
-        Task { await fetchDirectMessages() }
+        fetchDirectMessages()
     }
 
     override func viewDidLoad() {
@@ -138,7 +137,7 @@ final class DirectMessagesViewController: ViewController {
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
-        print("[DM-DEBUG] containerLayoutUpdated: size=\(layout.size), safeTop=\(layout.safeInsets.top), bottomInset=\(layout.intrinsicInsets.bottom)")
+
         let safeTop = max(layout.safeInsets.top, 54)
         directMessagesNode.updateLayout(
             size: layout.size,
@@ -153,30 +152,27 @@ final class DirectMessagesViewController: ViewController {
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
-    func fetchDirectMessages() async {
-        guard let token = context.session?.token else {
-            print("[DM-DEBUG] fetchDirectMessages: NO TOKEN - session=\(String(describing: context.session))")
-            return
-        }
-        print("[DM-DEBUG] fetchDirectMessages: START, token=\(String(token.prefix(20)))...")
+    func fetchDirectMessages() {
+        guard let token = context.session?.token else { return }
         setIsLoading(true)
         setErrorMessage(nil)
-        defer { setIsLoading(false) }
 
-        do {
-            let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
-            print("[DM-DEBUG] fetchDirectMessages: SUCCESS, channels=\(channels.count)")
-            let sorted = channels.sorted { ch1, ch2 in
-                let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
-                let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
-                return t1 > t2
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.setIsLoading(false) }
+            do {
+                let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                let sorted = channels.sorted { ch1, ch2 in
+                    let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
+                    let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
+                    return t1 > t2
+                }
+                self.setDirectMessages(sorted)
+                self.setIsEmpty(sorted.isEmpty)
+            } catch {
+                self.setErrorMessage(error.localizedDescription)
+                AppLogger.network.error("fetchDirectMessages: \(error)")
             }
-            setDirectMessages(sorted)
-            setIsEmpty(sorted.isEmpty)
-        } catch {
-            print("[DM-DEBUG] fetchDirectMessages: ERROR \(error)")
-            setErrorMessage(error.localizedDescription)
-            AppLogger.network.error("fetchDirectMessages: \(error)")
         }
     }
 

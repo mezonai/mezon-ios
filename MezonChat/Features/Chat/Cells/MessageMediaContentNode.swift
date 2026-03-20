@@ -6,6 +6,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var imageNodes: [TransformImageNode] = []
     private var videoOverlayNodes: [ASDisplayNode] = []
     private var overlayCountNode: ASTextNode2?
+    private var stickerNode: ASDisplayNode?
     private var attachments: [ParsedAttachment] = []
     private(set) var isUploading: Bool = false
 
@@ -22,13 +23,24 @@ final class MessageMediaContentNode: ASDisplayNode {
         imageNodes.removeAll()
         videoOverlayNodes.removeAll()
         overlayCountNode = nil
+        stickerNode = nil
         attachments = media
 
         isUploading = media.contains { $0.isUploading }
 
         guard !media.isEmpty else { return }
 
-        if media.count == 1 {
+        if media.count == 1, media[0].isSticker {
+            let node = ASDisplayNode()
+            node.setViewBlock {
+                let imageView = UIImageView()
+                imageView.contentMode = .scaleAspectFit
+                imageView.clipsToBounds = true
+                return imageView
+            }
+            stickerNode = node
+            loadStickerImage(url: media[0].url, into: node)
+        } else if media.count == 1 {
             let node = TransformImageNode()
             node.contentAnimations = [.firstUpdate]
             imageNodes.append(node)
@@ -61,6 +73,36 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
         setNeedsLayout()
+    }
+
+    private func loadStickerImage(url: String, into node: ASDisplayNode) {
+        guard let imageURL = URL(string: url), !url.isEmpty else { return }
+
+        if let cachedData = ImageCache.shared.cachedData(forKey: url) {
+            if let animated = UIImage.animatedImage(from: cachedData) {
+                DispatchQueue.main.async {
+                    (node.view as? UIImageView)?.image = animated
+                }
+                return
+            }
+        }
+        if let cached = ImageCache.shared.cachedImage(forURL: url) {
+            DispatchQueue.main.async {
+                (node.view as? UIImageView)?.image = cached
+            }
+            return
+        }
+
+        URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+            guard let data else { return }
+            let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+            if let image {
+                ImageCache.shared.setImage(image, data: data, forKey: url)
+                DispatchQueue.main.async {
+                    (node.view as? UIImageView)?.image = image
+                }
+            }
+        }.resume()
     }
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool) {
@@ -115,6 +157,19 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        if let stickerNode = stickerNode {
+            let stickerSize: CGFloat = 120
+            stickerNode.style.preferredSize = CGSize(width: stickerSize, height: stickerSize)
+            let wrapper = ASWrapperLayoutSpec(layoutElement: stickerNode)
+            return ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 0,
+                justifyContent: .start,
+                alignItems: .start,
+                children: [wrapper]
+            )
+        }
+
         guard !imageNodes.isEmpty else {
             return ASLayoutSpec()
         }
@@ -153,19 +208,25 @@ final class MessageMediaContentNode: ASDisplayNode {
         let apply = layout(args)
         apply()
 
+        var imageSpec: ASLayoutElement = node
+
         if att.isVideo {
             let overlay = makePlayOverlayNode()
             overlay.style.preferredSize = CGSize(width: 48, height: 48)
             let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: overlay)
-            return ASOverlayLayoutSpec(child: node, overlay: center)
-        }
-
-        if att.isUploading {
+            imageSpec = ASOverlayLayoutSpec(child: node, overlay: center)
+        } else if att.isUploading {
             let overlay = makeUploadingOverlay()
-            return ASOverlayLayoutSpec(child: node, overlay: overlay)
+            imageSpec = ASOverlayLayoutSpec(child: node, overlay: overlay)
         }
 
-        return ASWrapperLayoutSpec(layoutElement: node)
+        return ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 0,
+            justifyContent: .start,
+            alignItems: .start,
+            children: [imageSpec]
+        )
     }
 
     private func layoutMultipleImages(maxW: CGFloat) -> ASLayoutSpec {

@@ -162,6 +162,16 @@ enum L10n {
         static let addFriend = "directMessage.addFriend"
     }
 
+    enum MessageAction {
+        static let reply         = "messageAction.reply"
+        static let copyText      = "messageAction.copyText"
+        static let editMessage   = "messageAction.editMessage"
+        static let deleteMessage = "messageAction.deleteMessage"
+        static let pinMessage    = "messageAction.pinMessage"
+        static let forward       = "messageAction.forward"
+        static let copied        = "messageAction.copied"
+    }
+
     enum Error {
         static let networkError           = "error.networkError"
         static let connectionFailed       = "error.connectionFailed"
@@ -302,6 +312,14 @@ extension L10n {
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
+
+        "messageAction.reply": "Reply",
+        "messageAction.copyText": "Copy Text",
+        "messageAction.editMessage": "Edit Message",
+        "messageAction.deleteMessage": "Delete Message",
+        "messageAction.pinMessage": "Pin Message",
+        "messageAction.forward": "Forward",
+        "messageAction.copied": "Copied to clipboard",
 
         "profile.addStatus": "Add Status",
         "profile.editProfile": "Edit Profile",
@@ -446,6 +464,14 @@ extension L10n {
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
+
+        "messageAction.reply": "Trả lời",
+        "messageAction.copyText": "Sao chép văn bản",
+        "messageAction.editMessage": "Chỉnh sửa tin nhắn",
+        "messageAction.deleteMessage": "Xóa tin nhắn",
+        "messageAction.pinMessage": "Ghim tin nhắn",
+        "messageAction.forward": "Chuyển tiếp",
+        "messageAction.copied": "Đã sao chép",
 
         "profile.addStatus": "Thêm trạng thái",
         "profile.editProfile": "Chỉnh sửa hồ sơ",

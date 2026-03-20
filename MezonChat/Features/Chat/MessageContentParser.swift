@@ -1,11 +1,28 @@
 import Foundation
 import SwiftProtobuf
 
+struct ParsedEmbed {
+    let color: String?
+    let title: String?
+    let url: String?
+    let description: String?
+    let imageURL: String?
+    let imageWidth: Int?
+    let imageHeight: Int?
+    let thumbnailURL: String?
+    let footerText: String?
+    let footerIconURL: String?
+    let authorName: String?
+    let authorIconURL: String?
+    let timestamp: String?
+}
+
 struct ParsedContent {
     let text: String
     let tokens: [ContentToken]
+    let embeds: [ParsedEmbed]
 
-    static let empty = ParsedContent(text: "", tokens: [])
+    static let empty = ParsedContent(text: "", tokens: [], embeds: [])
 
     var isPlainText: Bool { tokens.isEmpty }
 
@@ -52,10 +69,12 @@ enum MessageContentParser {
             return .empty
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ParsedContent(text: str, tokens: [])
+            return ParsedContent(text: str, tokens: [], embeds: [])
         }
         let text = json["t"] as? String ?? json["text"] as? String ?? ""
-        guard !text.isEmpty else { return ParsedContent(text: "", tokens: []) }
+        let embeds = parseEmbeds(json["embed"])
+        if text.isEmpty && embeds.isEmpty { return ParsedContent(text: "", tokens: [], embeds: []) }
+        guard !text.isEmpty else { return ParsedContent(text: "", tokens: [], embeds: embeds) }
 
         var tokens: [ContentToken] = []
 
@@ -88,7 +107,7 @@ enum MessageContentParser {
         let maxLen = text.count
         tokens = tokens.filter { $0.start >= 0 && $0.end <= maxLen && $0.start < $0.end }
 
-        return ParsedContent(text: text, tokens: tokens)
+        return ParsedContent(text: text, tokens: tokens, embeds: embeds)
     }
 
     private static func parseEmojis(_ items: [[String: Any]]) -> [ContentToken] {
@@ -170,5 +189,40 @@ enum MessageContentParser {
     private static func stringValue(_ v: Any?) -> String? {
         guard let s = v as? String, !s.isEmpty, s != "0" else { return nil }
         return s
+    }
+
+    private static func parseEmbeds(_ value: Any?) -> [ParsedEmbed] {
+        guard let arr = value as? [[String: Any]], !arr.isEmpty else { return [] }
+        return arr.compactMap { item -> ParsedEmbed? in
+            let title = item["title"] as? String
+            let description = item["description"] as? String
+            let url = item["url"] as? String
+            let color = item["color"] as? String
+
+            let imageURL = (item["image"] as? [String: Any])?["url"] as? String
+            let imageWidth = intValue((item["image"] as? [String: Any])?["width"])
+            let imageHeight = intValue((item["image"] as? [String: Any])?["height"])
+            let thumbnailURL = (item["thumbnail"] as? [String: Any])?["url"] as? String
+
+            let footer = item["footer"] as? [String: Any]
+            let footerText = footer?["text"] as? String
+            let footerIconURL = footer?["icon_url"] as? String
+
+            let author = item["author"] as? [String: Any]
+            let authorName = author?["name"] as? String
+            let authorIconURL = author?["icon_url"] as? String
+
+            let timestamp = item["timestamp"] as? String
+
+            let hasContent = title != nil || description != nil || imageURL != nil || thumbnailURL != nil || authorName != nil
+            guard hasContent else { return nil }
+
+            return ParsedEmbed(
+                color: color, title: title, url: url, description: description,
+                imageURL: imageURL, imageWidth: imageWidth, imageHeight: imageHeight,
+                thumbnailURL: thumbnailURL, footerText: footerText, footerIconURL: footerIconURL,
+                authorName: authorName, authorIconURL: authorIconURL, timestamp: timestamp
+            )
+        }
     }
 }

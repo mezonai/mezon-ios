@@ -11,6 +11,7 @@ struct ChatInteraction {
     let onScrolledToBottom: (Bool) -> Void
     let onMentionTapped: (String) -> Void
     let onHashtagTapped: (String) -> Void
+    let onMessageLongPressed: (ChatMessageDisplay) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 

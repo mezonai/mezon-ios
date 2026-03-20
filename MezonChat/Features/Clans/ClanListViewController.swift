@@ -151,7 +151,7 @@ final class ClanListViewController: ViewController {
             defer { self.setIsLoading(false) }
             do {
                 let result = try await self.context.account.network.listClanDescs(token: token)
-                let sorted = result.sorted { $0.clanOrder < $1.clanOrder }
+                let sorted = result.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
                 let records = sorted.map { api -> ClanRecord in
                     let data = (try? api.serializedData()) ?? Data()
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
@@ -217,10 +217,10 @@ final class ClanListViewController: ViewController {
                     var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
                 }
                 return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
-            }.sorted { $0.clanOrder < $1.clanOrder }
+            }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
             setClans(apiClans)
         } else if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.clans) {
-            setClans(decodeProtoArray(data).sorted { $0.clanOrder < $1.clanOrder })
+            setClans(decodeProtoArray(data).sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID })
         }
 
         var restoredId: Int64 = 0
@@ -271,7 +271,7 @@ final class ClanListViewController: ViewController {
                         var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
                     }
                     return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
-                }.sorted { $0.clanOrder < $1.clanOrder }
+                }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
                 subscriber.putNext(self.currentState)
             })
             let reloadDisposable = (self.needsReloadPipe.signal()

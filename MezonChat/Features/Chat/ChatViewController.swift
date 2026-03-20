@@ -1,6 +1,16 @@
 import UIKit
 import SwiftProtobuf
 
+enum ActiveChannelTracker {
+    private static let lock = NSLock()
+    private static var _channelId: Int64 = 0
+
+    static var currentChannelId: Int64 {
+        get { lock.lock(); defer { lock.unlock() }; return _channelId }
+        set { lock.lock(); defer { lock.unlock() }; _channelId = newValue }
+    }
+}
+
 struct ParsedAttachment: Equatable {
     let url: String
     let filename: String
@@ -11,17 +21,26 @@ struct ParsedAttachment: Equatable {
     var isUploading: Bool = false
 
     var isImage: Bool {
-        filetype.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
+        filetype.hasPrefix("image/") || filetype == "sticker"
+            || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
+            || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(urlExtension)
     }
 
     var isVideo: Bool {
         filetype.hasPrefix("video/") || ["mp4", "mov", "m4v", "webm"].contains(fileExtension)
     }
 
+    var isSticker: Bool { filetype == "sticker" }
+
     var isMedia: Bool { isImage || isVideo }
 
     var fileExtension: String {
         (filename as NSString).pathExtension.lowercased()
+    }
+
+    var urlExtension: String {
+        guard let urlPath = URL(string: url)?.pathExtension else { return "" }
+        return urlPath.lowercased()
     }
 
     static func ==(lhs: ParsedAttachment, rhs: ParsedAttachment) -> Bool {
@@ -153,6 +172,9 @@ final class ChatViewController: ViewController {
             onHashtagTapped: { channelId in
                 AppLogger.network.info("[Chat] Hashtag tapped: \(channelId)")
             },
+            onMessageLongPressed: { [weak self] display in
+                self?.showMessageActions(display)
+            },
             onMessagesReloaded: nil
         )
         interaction.onMessagesReloaded = { [weak self] in self?.scrollToBottomIfNeeded() }
@@ -214,6 +236,7 @@ final class ChatViewController: ViewController {
     func start() {
         context.currentClanId = clanId
         context.currentChannel = channel
+        ActiveChannelTracker.currentChannelId = channel.channelID
 
         let channelIdStr = "\(channel.channelID)"
         stateDisposables.add(
@@ -241,6 +264,7 @@ final class ChatViewController: ViewController {
 
     func onLeave() {
         context.currentChannel = nil
+        ActiveChannelTracker.currentChannelId = 0
         stateDisposables.dispose()
     }
 
@@ -792,5 +816,44 @@ final class ChatViewController: ViewController {
         let tv = messagesNode.tableView
         guard tv.numberOfSections > 0, tv.numberOfRows(inSection: 0) > 0 else { return }
         tv.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+    }
+
+    private func showMessageActions(_ display: ChatMessageDisplay) {
+        view.endEditing(true)
+        let isOwnMessage = display.message.senderId == context.currentUser?.id
+        let sheet = MessageActionSheet(display: display, isOwnMessage: isOwnMessage) { [weak self] action in
+            self?.handleMessageAction(action, display: display)
+        }
+        sheet.onDismiss = { [weak self] in
+            self?.dismissMessageHighlight(for: display.id)
+        }
+        present(sheet, animated: false)
+    }
+
+    private func dismissMessageHighlight(for messageId: String) {
+        let tableNode = messagesNode.tableNode
+        for cell in tableNode.visibleNodes {
+            if let bubble = cell as? MessageBubbleNode {
+                bubble.dismissHighlight()
+            }
+        }
+    }
+
+    private func handleMessageAction(_ action: MessageAction, display: ChatMessageDisplay) {
+        switch action {
+        case .reply:
+            break // TODO: implement reply
+        case .copyText:
+            UIPasteboard.general.string = display.parsedContent.text
+            Toast.success(L(L10n.MessageAction.copied))
+        case .editMessage:
+            break // TODO: implement edit
+        case .deleteMessage:
+            break // TODO: implement delete
+        case .pinMessage:
+            break // TODO: implement pin
+        case .forward:
+            break // TODO: implement forward
+        }
     }
 }
