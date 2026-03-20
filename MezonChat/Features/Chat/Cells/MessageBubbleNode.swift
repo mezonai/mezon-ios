@@ -19,6 +19,7 @@ final class MessageBubbleNode: ASCellNode {
     // MARK: - State
 
     private let display: ChatMessageDisplay
+    private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
@@ -31,6 +32,7 @@ final class MessageBubbleNode: ASCellNode {
 
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
         self.display = display
+        self.interaction = interaction
         self.isCombine = display.isCombine
         self.hasReply = display.replyRef != nil
         self.hasDeletedReply = display.isDeletedReply
@@ -165,6 +167,62 @@ final class MessageBubbleNode: ASCellNode {
             responder = next
         }
         return nil
+    }
+
+    private let highlightNode = ASDisplayNode()
+
+    override func didLoad() {
+        super.didLoad()
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.25
+        view.addGestureRecognizer(longPress)
+
+        highlightNode.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        highlightNode.alpha = 0
+        highlightNode.isUserInteractionEnabled = false
+        addSubnode(highlightNode)
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        showHighlight(true)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.showHighlight(false)
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>?, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        showHighlight(false)
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            showHighlight(true)
+            interaction.onMessageLongPressed(display)
+        case .ended, .cancelled, .failed:
+            break // highlight dismissed by sheet onDismiss
+        default:
+            break
+        }
+    }
+
+    func showHighlight(_ show: Bool) {
+        highlightNode.frame = bounds
+        UIView.animate(withDuration: show ? 0.15 : 0.3) {
+            self.highlightNode.alpha = show ? 1 : 0
+        }
+    }
+
+    func dismissHighlight() {
+        showHighlight(false)
     }
 
     override func layout() {
