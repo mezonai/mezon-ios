@@ -69,6 +69,7 @@ struct ChatMessageDisplay: Identifiable {
     let parsedContent: ParsedContent
     let replyRef: Mezon_Api_MessageRef?
     let isDeletedReply: Bool
+    let isWelcome: Bool
     var id: String { message.id }
 
     var checkOneLinkImage: Bool {
@@ -93,13 +94,12 @@ struct ChatState {
     var channelType: Int32
     var isPrivate: Bool
     var isAgeRestricted: Bool
-    var showWelcome: Bool
     var hasMoreOlder: Bool
     var isLoadingMore: Bool
     var isLoading: Bool
     var errorMessage: String?
 
-    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, showWelcome: false, hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
+    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
 }
 
 final class ChatViewController: ViewController {
@@ -114,7 +114,6 @@ final class ChatViewController: ViewController {
 
     private(set) var messages: [ChatMessageDisplay] = []
     private(set) var channelLabel: String = ""
-    private(set) var showWelcome: Bool = false
     private(set) var hasMoreOlder: Bool = true
     private(set) var isLoadingMore: Bool = false
     private(set) var isLoading: Bool = false
@@ -221,9 +220,8 @@ final class ChatViewController: ViewController {
 
     deinit { stateDisposables.dispose() }
 
-    private func setMessages(_ v: [ChatMessageDisplay], showWelcome w: Bool = false) {
+    private func setMessages(_ v: [ChatMessageDisplay]) {
         messages = v
-        showWelcome = w
         needsReloadPipe.putNext(())
         markChannelAsRead()
     }
@@ -243,8 +241,8 @@ final class ChatViewController: ViewController {
             (self.context.account.postbox.messageHistoryView(channelId: channelIdStr) |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
                     guard let self else { return }
-                    let (displays, showWelcome) = self.buildDisplayMessages(from: view.messages)
-                    self.setMessages(displays, showWelcome: showWelcome)
+                    let displays = self.buildDisplayMessages(from: view.messages)
+                    self.setMessages(displays)
                 })
         )
         stateDisposables.add(
@@ -444,7 +442,6 @@ final class ChatViewController: ViewController {
             channelType: channel.type,
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
-            showWelcome: showWelcome,
             hasMoreOlder: hasMoreOlder,
             isLoadingMore: isLoadingMore,
             isLoading: isLoading,
@@ -458,7 +455,6 @@ final class ChatViewController: ViewController {
             var lastIds = self.messages.map { $0.id }
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
-            var lastWelcome = self.showWelcome
             var lastError = self.errorMessage
             subscriber.putNext(self.currentState)
             return (self.needsReloadPipe.signal()
@@ -469,40 +465,23 @@ final class ChatViewController: ViewController {
                 let changed = newIds != lastIds
                     || newState.isLoading != lastLoading
                     || newState.isLoadingMore != lastLoadingMore
-                    || newState.showWelcome != lastWelcome
                     || newState.errorMessage != lastError
                 guard changed else { return }
                 lastIds = newIds
                 lastLoading = newState.isLoading
                 lastLoadingMore = newState.isLoadingMore
-                lastWelcome = newState.showWelcome
                 lastError = newState.errorMessage
                 subscriber.putNext(newState)
             })
         }
     }
 
-    private static func hasNoTextContent(_ textContent: String) -> Bool {
-        let trimmed = textContent.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty || trimmed == "{}"
-    }
 
-    private static func isSystemWelcomeMessage(_ record: MessageRecord, textContent: String) -> Bool {
-        record.senderId == "0"
-            && hasNoTextContent(textContent)
-            && record.senderDisplayName.lowercased() == "system"
-    }
 
-    private func buildDisplayMessages(from records: [MessageRecord]) -> ([ChatMessageDisplay], showWelcome: Bool) {
+    private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
-        var showWelcome = false
-        var recordsToShow = validRecords
-        if let first = validRecords.first, Self.isSystemWelcomeMessage(first, textContent: extractTextFromContent(first)) {
-            showWelcome = true
-            recordsToShow = Array(validRecords.dropFirst())
-        }
-        let displays = recordsToShow.map { record -> ChatMessageDisplay in
+        let displays = validRecords.map { record -> ChatMessageDisplay in
             let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
@@ -525,9 +504,12 @@ final class ChatViewController: ViewController {
 
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
             let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
-            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply)
+            let isWelcome = record.senderId == "0"
+                && parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && record.senderDisplayName.lowercased() == "system"
+            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome)
         }
-        return (Self.applyCombine(to: displays), showWelcome)
+        return Self.applyCombine(to: displays)
     }
 
     private static func firstReplyRef(from data: Data) -> (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool) {
@@ -548,7 +530,7 @@ final class ChatViewController: ViewController {
             let prev = i > 0 ? displays[i - 1].message : nil
             let hasReply = d.replyRef != nil || d.isDeletedReply
             let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply)
+            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome)
         }
     }
 
@@ -704,16 +686,6 @@ final class ChatViewController: ViewController {
                 isMe: currentUserId.map { value.senderIds.contains($0) } ?? false
             )
         }
-    }
-
-    private func extractTextFromContent(_ record: MessageRecord) -> String {
-        guard let str = String(data: record.content, encoding: .utf8), !str.isEmpty else { return "" }
-        let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let data = trimmed.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return str }
-        if let t = json["t"] as? String { return t }
-        if let text = json["text"] as? String { return text }
-        return str
     }
 
     private func joinChat() {

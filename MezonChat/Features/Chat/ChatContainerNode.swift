@@ -34,7 +34,6 @@ final class ChatContainerNode: ASDisplayNode {
 
     private(set) var state: ChatState = .empty
     private var committedMessageIds: [String] = []
-    private var committedShowWelcome: Bool = false
     private let interaction: ChatInteraction
     private let disposables = DisposableSet()
 
@@ -162,17 +161,11 @@ final class ChatContainerNode: ASDisplayNode {
     private func safeReloadData() {
         tableNode.reloadData()
         committedMessageIds = state.messages.map { $0.id }
-        committedShowWelcome = state.showWelcome
     }
 
     private func applyDiff(old: ChatState, new: ChatState) {
         let oldIds = committedMessageIds
         let newIds = new.messages.map { $0.id }
-
-        if committedShowWelcome != new.showWelcome {
-            safeReloadData()
-            return
-        }
 
         if oldIds.isEmpty && !newIds.isEmpty {
             safeReloadData()
@@ -201,7 +194,7 @@ final class ChatContainerNode: ASDisplayNode {
 
         if newIds.count > oldIds.count && newIds.hasSuffix(oldIds) {
             let insertCount = newIds.count - oldIds.count
-            let baseRow = oldIds.count + (new.showWelcome ? 0 : 0)
+            let baseRow = oldIds.count
             let paths = (0..<insertCount).map { IndexPath(row: baseRow + $0, section: 0) }
 
             tableNode.performBatch(animated: false) {
@@ -298,8 +291,7 @@ final class ChatContainerNode: ASDisplayNode {
 extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
-        let welcomeRows = state.showWelcome ? 1 : 0
-        return welcomeRows + state.messages.count
+        return state.messages.count
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
@@ -307,7 +299,14 @@ extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
         let currentState = state
         let chatInteraction = interaction
 
-        if currentState.showWelcome, indexPath.row == msgCount {
+        let messageIndex = msgCount - 1 - indexPath.row
+        guard messageIndex >= 0, messageIndex < msgCount else {
+            return { ASCellNode() }
+        }
+
+        let display = currentState.messages[messageIndex]
+
+        if display.isWelcome {
             let label = currentState.channelLabel
             let channelType = currentState.channelType
             let isPrivate = currentState.isPrivate
@@ -324,12 +323,6 @@ extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
             }
         }
 
-        let messageIndex = msgCount - 1 - indexPath.row
-        guard messageIndex >= 0, messageIndex < msgCount else {
-            return { ASCellNode() }
-        }
-
-        let display = currentState.messages[messageIndex]
         return {
             let node = MessageBubbleNode(display: display, interaction: chatInteraction)
             node.transform = CATransform3DMakeScale(1, -1, 1)
