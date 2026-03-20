@@ -7,6 +7,8 @@ struct ParsedAttachment: Equatable {
     let filetype: String
     let width: Int?
     let height: Int?
+    var localImage: UIImage?
+    var isUploading: Bool = false
 
     var isImage: Bool {
         filetype.hasPrefix("image/") || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
@@ -21,6 +23,13 @@ struct ParsedAttachment: Equatable {
     var fileExtension: String {
         (filename as NSString).pathExtension.lowercased()
     }
+
+    static func ==(lhs: ParsedAttachment, rhs: ParsedAttachment) -> Bool {
+        lhs.url == rhs.url && lhs.filename == rhs.filename && lhs.filetype == rhs.filetype
+            && lhs.width == rhs.width && lhs.height == rhs.height && lhs.isUploading == rhs.isUploading
+    }
+
+    static var pendingImageCache: [String: [UIImage]] = [:]
 }
 
 struct ParsedReaction: Equatable {
@@ -102,12 +111,15 @@ final class ChatViewController: ViewController {
         )
         vc.onSent = { [weak self] in self?.shouldScrollToBottom = true }
         vc.onError = { Toast.error($0) }
+        vc.onHeightChanged = { [weak self] newHeight in
+            self?.updateInputBarHeight(newHeight)
+        }
         return vc
     }()
 
     private var inputBarBottomConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    private let inputBarHeight: CGFloat = 56
+    private var inputBarHeight: CGFloat = 56
     private var currentKeyboardOffset: CGFloat = 0
     private var shouldScrollToBottom = true
     private var hasMarkedAsRead = false
@@ -470,7 +482,23 @@ final class ChatViewController: ViewController {
             let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
-            let attachments = Self.parseAttachments(record.attachmentsJSON)
+
+            var attachments = Self.parseAttachments(record.attachmentsJSON)
+            if record.sendingState == .pending,
+               let localImages = ParsedAttachment.pendingImageCache[record.id], !localImages.isEmpty {
+                attachments = localImages.map { image in
+                    ParsedAttachment(
+                        url: "",
+                        filename: "uploading.jpg",
+                        filetype: "image/jpeg",
+                        width: Int(image.size.width),
+                        height: Int(image.size.height),
+                        localImage: image,
+                        isUploading: true
+                    )
+                }
+            }
+
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
             let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
             return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply)
@@ -679,6 +707,7 @@ final class ChatViewController: ViewController {
         sendInputViewController.didMove(toParent: self)
         sendInputViewController.view.translatesAutoresizingMaskIntoConstraints = false
 
+        inputBarHeight = sendInputViewController.totalHeight
         let bottomConstraint = sendInputViewController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         inputBarBottomConstraint = bottomConstraint
         inputBarHeightConstraint = sendInputViewController.view.heightAnchor.constraint(equalToConstant: inputBarHeight)
@@ -694,6 +723,21 @@ final class ChatViewController: ViewController {
         tap.cancelsTouchesInView = false
         messagesNode.tableView.addGestureRecognizer(tap)
         messagesNode.tableView.keyboardDismissMode = .onDrag
+    }
+
+    private func updateInputBarHeight(_ newHeight: CGFloat) {
+        inputBarHeight = newHeight
+        inputBarHeightConstraint?.constant = newHeight
+        UIView.animate(withDuration: 0.25) {
+            self.view.layoutIfNeeded()
+            if let layout = self.lastLayout {
+                self.messagesNode.updateLayout(
+                    layout: layout,
+                    inputBarHeight: newHeight + self.currentKeyboardOffset,
+                    transition: .immediate
+                )
+            }
+        }
     }
 
     private func setupKeyboardObservers() {

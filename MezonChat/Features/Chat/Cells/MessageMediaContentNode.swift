@@ -7,6 +7,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var videoOverlayNodes: [ASDisplayNode] = []
     private var overlayCountNode: ASTextNode2?
     private var attachments: [ParsedAttachment] = []
+    private(set) var isUploading: Bool = false
 
     var onImageTapped: ((Int) -> Void)?
 
@@ -22,6 +23,8 @@ final class MessageMediaContentNode: ASDisplayNode {
         videoOverlayNodes.removeAll()
         overlayCountNode = nil
         attachments = media
+
+        isUploading = media.contains { $0.isUploading }
 
         guard !media.isEmpty else { return }
 
@@ -61,12 +64,39 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool) {
-        let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
-        if media.isVideo {
-            node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
+        if let localImage = media.localImage {
+            node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
         } else {
-            node.setSignal(remoteImageSignal(url: media.url, resizeMode: resizeMode), attemptSynchronously: false)
+            let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
+            if media.isVideo {
+                node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
+            } else {
+                node.setSignal(remoteImageSignal(url: media.url, resizeMode: resizeMode), attemptSynchronously: false)
+            }
         }
+    }
+
+    private func makeUploadingOverlay() -> ASDisplayNode {
+        let overlay = ASDisplayNode()
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        overlay.cornerRadius = 8.swh
+        overlay.clipsToBounds = true
+        overlay.automaticallyManagesSubnodes = true
+        overlay.isUserInteractionEnabled = false
+
+        let spinner = ASDisplayNode()
+        spinner.setViewBlock {
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.color = .white
+            indicator.startAnimating()
+            return indicator
+        }
+        spinner.style.preferredSize = CGSize(width: 36, height: 36)
+
+        overlay.layoutSpecBlock = { _, _ in
+            return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
+        }
+        return overlay
     }
 
     override func didLoad() {
@@ -103,9 +133,11 @@ final class MessageMediaContentNode: ASDisplayNode {
         let att = attachments[0]
         let node = imageNodes[0]
 
-        var w = CGFloat(att.width ?? 300)
-        var h = CGFloat(att.height ?? 200)
-        let ratio = min(maxW / w, maxH / h, 1.0)
+        var w = max(CGFloat(att.width ?? 300), 1)
+        var h = max(CGFloat(att.height ?? 200), 1)
+        let safeMaxW = max(maxW, 1)
+        let safeMaxH = max(maxH, 1)
+        let ratio = min(safeMaxW / w, safeMaxH / h, 1.0)
         w = max(floor(w * ratio), 100)
         h = max(floor(h * ratio), 80)
 
@@ -128,17 +160,22 @@ final class MessageMediaContentNode: ASDisplayNode {
             return ASOverlayLayoutSpec(child: node, overlay: center)
         }
 
+        if att.isUploading {
+            let overlay = makeUploadingOverlay()
+            return ASOverlayLayoutSpec(child: node, overlay: overlay)
+        }
+
         return ASWrapperLayoutSpec(layoutElement: node)
     }
 
     private func layoutMultipleImages(maxW: CGFloat) -> ASLayoutSpec {
-        let thumbH: CGFloat = 120.sh
+        let thumbH: CGFloat = max(120.sh, 1)
         let spacing: CGFloat = 4.sw
         let items = Array(imageNodes.prefix(4))
 
         // Apply transform arguments to each image
         for node in items {
-            let itemW = (maxW - spacing) / 2
+            let itemW = max((maxW - spacing) / 2, 1)
             node.style.preferredSize = CGSize(width: itemW, height: thumbH)
             let args = TransformImageArguments(
                 corners: ImageCorners(radius: 8.swh),
@@ -151,14 +188,21 @@ final class MessageMediaContentNode: ASDisplayNode {
             apply()
         }
 
-        // Build rows
-        let row1Items = Array(items.prefix(2))
+        // Build row children — only add overlay if uploading
+        let rowItems: [ASLayoutElement] = items.enumerated().map { i, node in
+            if isUploading, i < attachments.count, attachments[i].isUploading {
+                return ASOverlayLayoutSpec(child: node, overlay: makeUploadingOverlay())
+            }
+            return node as ASLayoutElement
+        }
+
+        let row1Children = Array(rowItems.prefix(2))
         let row1 = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: spacing,
             justifyContent: .start,
             alignItems: .stretch,
-            children: row1Items.map { $0 as ASLayoutElement }
+            children: row1Children
         )
         row1.style.height = ASDimensionMake(thumbH)
 
@@ -166,7 +210,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         if items.count > 2 {
             let row2Items = Array(items[2...])
-            var row2Children: [ASLayoutElement] = row2Items.map { $0 as ASLayoutElement }
+            var row2Children: [ASLayoutElement] = Array(rowItems[2...])
 
             // Add overlay count on last item if needed
             if let countNode = overlayCountNode, let lastNode = row2Items.last {

@@ -233,7 +233,7 @@ final class MessageBubbleNode: ASCellNode {
         }
 
         if isCombine {
-            let combineLeading: CGFloat = 6.sw + Self.avatarSize + 6.sw
+            let combineLeading: CGFloat = 6.sw + Self.avatarSize + 10.sw
             let contentInsets = UIEdgeInsets(top: 0, left: combineLeading, bottom: 0, right: 12.sw)
             let contentSpec = ASInsetLayoutSpec(insets: contentInsets, child: contentColumn)
 

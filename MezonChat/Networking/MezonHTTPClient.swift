@@ -436,6 +436,46 @@ final class MezonHTTPClient {
         )
     }
 
+    func uploadAttachmentFile(
+        filename: String,
+        filetype: String,
+        size: Int,
+        width: Int = 0,
+        height: Int = 0,
+        token: String
+    ) async throws -> Mezon_Api_UploadAttachment {
+        var req = Mezon_Api_UploadAttachmentRequest()
+        req.filename = filename
+        req.filetype = filetype
+        req.size = Int32(size)
+        req.width = Int32(width)
+        req.height = Int32(height)
+        return try await postProto(
+            path: "/mezon.api.Mezon/UploadAttachmentFile",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func uploadToMinIO(url: String, data: Data, contentType: String) async throws {
+        guard let uploadURL = URL(string: url) else {
+            throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
+        }
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
+        request.httpBody = data
+
+        AppLogger.network.debug("→ PUT (minio) \(url)")
+        let (_, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        AppLogger.network.debug("← \(http.statusCode) (minio)")
+        guard (200..<300).contains(http.statusCode) else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")
+        }
+    }
+
     func listChannelApps(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelAppResponse] {
         var req = Mezon_Api_ListChannelAppsRequest()
         req.clanID = clanId

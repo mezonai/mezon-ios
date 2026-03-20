@@ -92,12 +92,17 @@ final class MessageTextContentNode: ASDisplayNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         if let emojiLabelNode, let attrText = currentAttrText {
-            let maxWidth = constrainedSize.max.width
+            var maxWidth = constrainedSize.max.width
+            if maxWidth > 10000 || maxWidth == .infinity {
+                maxWidth = UIScreen.main.bounds.width - 80
+            }
             let size = Self.textSize(for: attrText, maxWidth: maxWidth)
-            emojiLabelNode.style.preferredSize = size
+            emojiLabelNode.style.preferredSize = CGSize(width: maxWidth, height: size.height)
+            emojiLabelNode.style.maxWidth = ASDimensionMake(maxWidth)
             return ASWrapperLayoutSpec(layoutElement: emojiLabelNode)
         }
         if let textNode {
+            textNode.style.maxWidth = ASDimensionMake(constrainedSize.max.width)
             return ASWrapperLayoutSpec(layoutElement: textNode)
         }
         return ASLayoutSpec()

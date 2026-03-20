@@ -20,7 +20,7 @@ final class ChatContainerNode: ASDisplayNode {
     var tableView: UITableView { tableNode.view }
 
     private let headerNode = ChatHeaderNode()
-    private let loadingNode = ASDisplayNode()
+    private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingMoreNode = ASDisplayNode()
     private let emptyNode = ASTextNode2()
 
@@ -44,12 +44,6 @@ final class ChatContainerNode: ASDisplayNode {
         self.interaction = interaction
 
         let t = UIColor.theme
-        loadingNode.setViewBlock {
-            let indicator = UIActivityIndicatorView(style: .medium)
-            indicator.hidesWhenStopped = true
-            indicator.color = t.textDisabled
-            return indicator
-        }
         loadingMoreNode.setViewBlock {
             let indicator = UIActivityIndicatorView(style: .medium)
             indicator.hidesWhenStopped = true
@@ -60,7 +54,7 @@ final class ChatContainerNode: ASDisplayNode {
         super.init()
         addSubnode(headerNode)
         addSubnode(tableNode)
-        addSubnode(loadingNode)
+        addSubnode(skeletonNode)
         addSubnode(loadingMoreNode)
         addSubnode(emptyNode)
 
@@ -108,6 +102,7 @@ final class ChatContainerNode: ASDisplayNode {
         tableNode.view.transform = CGAffineTransform(scaleX: 1, y: -1)
         tableNode.view.separatorStyle = .none
         tableNode.view.showsVerticalScrollIndicator = false
+        tableNode.contentInset = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
     }
 
     // MARK: - Theme
@@ -138,15 +133,13 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     private func updateLoadingState(_ state: ChatState) {
-        if let indicator = loadingNode.view as? UIActivityIndicatorView {
-            state.isLoading ? indicator.startAnimating() : indicator.stopAnimating()
-        }
+        let showSkeleton = state.isLoading && state.messages.isEmpty
+        skeletonNode.isHidden = !showSkeleton
+        skeletonNode.alpha = showSkeleton ? 1 : 0
         if let indicator = loadingMoreNode.view as? UIActivityIndicatorView {
             state.isLoadingMore ? indicator.startAnimating() : indicator.stopAnimating()
         }
     }
-
-    // MARK: - Layout
 
     private var lastLayout: ContainerViewLayout?
     private var lastInputBarHeight: CGFloat = 0
@@ -269,13 +262,9 @@ final class ChatContainerNode: ASDisplayNode {
         )
         transition.updateFrame(node: tableNode, frame: tvFrame)
 
+        transition.updateFrame(node: skeletonNode, frame: tvFrame)
+
         let liS: CGFloat = 24
-        transition.updateFrame(node: loadingNode, frame: CGRect(
-            x: (fullWidth - liS) / 2,
-            y: (layout.size.height - liS) / 2,
-            width: liS,
-            height: liS
-        ))
         transition.updateFrame(node: loadingMoreNode, frame: CGRect(
             x: (fullWidth - liS) / 2,
             y: headerFrame.maxY + 12,
@@ -362,8 +351,6 @@ private extension Array where Element: Equatable {
         }
         return true
     }
-
-    /// newIds.hasPrefix(oldIds) → old IDs are at the start of new IDs (older messages prepended)
     func hasPrefix(_ other: [Element]) -> Bool {
         guard other.count <= count else { return false }
         guard !other.isEmpty else { return true }
