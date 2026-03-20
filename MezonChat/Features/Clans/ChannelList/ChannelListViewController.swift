@@ -187,6 +187,7 @@ final class ChannelListViewController: ViewController {
 
     func configure(clanId: Int64, clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+        guard clanId != self.clanId else { return }
         restoreCachedChannelApps(clanId: clanId)
         load(clanId: clanId, clanName: clanName)
     }
@@ -389,7 +390,7 @@ final class ChannelListViewController: ViewController {
         let context = self.context
         return Signal { subscriber in
             let task = Task { @MainActor in
-                guard let token = context.session?.token else { subscriber.putError(.noSession); return }
+                guard let token = await context.getToken() else { subscriber.putError(.noSession); return }
                 do {
                     let channels = try await context.account.network.listChannelDescs(clanId: clanId, token: token)
                     subscriber.putNext(channels)

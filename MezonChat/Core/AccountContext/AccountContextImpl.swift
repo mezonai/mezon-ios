@@ -19,6 +19,30 @@ final class AccountContextImpl: AccountContext {
     private(set) var isLoggedIn: Bool = false
     private var hasCompletedInitialSetup = false
     private(set) var isSessionReady: Bool = false
+    private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
+    func waitForSessionReady() async {
+        if isSessionReady { return }
+        await withCheckedContinuation { continuation in
+            if isSessionReady {
+                continuation.resume()
+            } else {
+                sessionReadyContinuations.append(continuation)
+            }
+        }
+    }
+
+    func getToken() async -> String? {
+        await waitForSessionReady()
+        return session?.token
+    }
+
+    private func markSessionReady() {
+        guard !isSessionReady else { return }
+        isSessionReady = true
+        let continuations = sessionReadyContinuations
+        sessionReadyContinuations.removeAll()
+        for c in continuations { c.resume() }
+    }
 
     var currentClanId: Int64 = 0
     var currentChannel: Mezon_Api_ChannelDescription?
@@ -45,7 +69,7 @@ final class AccountContextImpl: AccountContext {
         if let session {
             restoreAndRefreshSession(saved: session, onReady: onReady)
         } else {
-            isSessionReady = true
+            markSessionReady()
             onReady(self)
         }
 
@@ -62,6 +86,7 @@ final class AccountContextImpl: AccountContext {
         setLoggedIn(true)
         hasCompletedInitialSetup = true
         lastRecoverTime = Date()
+        markSessionReady()
 
         Task { @MainActor in
             do {
@@ -165,19 +190,20 @@ final class AccountContextImpl: AccountContext {
         )
         setLoggedIn(true)
         account.network.updateBaseURL(from: saved)
+        markSessionReady()
 
         SessionRefreshManager.shared.refreshOnAppLaunch(
             session: saved,
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 self.applySession(newSession, user: self.currentUser, connectSocket: true)
+                self.registerFCMTokenIfNeeded()
             },
             onExpired: { [weak self] in
                 SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
             },
             onReady: { [weak self] in
                 guard let self else { return }
-                self.isSessionReady = true
                 onReady(self)
             }
         )

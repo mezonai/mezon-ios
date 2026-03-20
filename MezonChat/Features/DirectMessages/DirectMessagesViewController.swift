@@ -153,12 +153,12 @@ final class DirectMessagesViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
     func fetchDirectMessages() {
-        guard let token = context.session?.token else { return }
         setIsLoading(true)
         setErrorMessage(nil)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard let token = await self.context.getToken() else { self.setIsLoading(false); return }
             defer { self.setIsLoading(false) }
             do {
                 let channels = try await self.context.account.network.listDirectMessageChannels(token: token)

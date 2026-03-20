@@ -66,23 +66,27 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
         let savedSession = SessionStore.load()
 
-        let context = sharedContext.createUnauthorizedContext(onReady: { [weak self] context in
+        let onReady: @MainActor (AccountContextImpl) -> Void = { [weak self] context in
             guard let self, !self.hasStartedAuthFlow else { return }
             self.hasStartedAuthFlow = true
             self.startAuthFlow(context: context)
-        })
-        self.accountContext = context
+        }
 
+        let context: AccountContextImpl
         if let savedSession {
-            context.login(
-                user: User(
-                    id: savedSession.userId ?? UUID().uuidString,
-                    username: savedSession.username ?? "me",
-                    displayName: savedSession.username ?? "Me",
-                    avatarURL: nil, status: .online, bio: nil
-                ),
-                session: savedSession
+            let user = User(
+                id: savedSession.userId ?? UUID().uuidString,
+                username: savedSession.username ?? "me",
+                displayName: savedSession.username ?? "Me",
+                avatarURL: nil, status: .online, bio: nil
             )
+            context = sharedContext.createAccountContext(session: savedSession, user: user, onReady: { _ in })
+            self.accountContext = context
+            self.hasStartedAuthFlow = true
+            self.startAuthFlow(context: context)
+        } else {
+            context = sharedContext.createUnauthorizedContext(onReady: onReady)
+            self.accountContext = context
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -94,6 +98,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+        if let notificationResponse = connectionOptions.notificationResponse {
+            let userInfo = notificationResponse.notification.request.content.userInfo
+            let title = notificationResponse.notification.request.content.title
+            AppLogger.network.info("[FCM] Cold launch from notification: \(userInfo)")
+            let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
+            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+        }
     }
 
     private func startAuthFlow(context: AccountContext) {

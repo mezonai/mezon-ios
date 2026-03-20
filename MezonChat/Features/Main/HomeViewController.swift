@@ -42,12 +42,8 @@ final class HomeViewController: BaseViewController {
         guard let pending = AppDelegate.pendingNavigation else { return }
         AppDelegate.pendingNavigation = nil
 
-        let ready = combineLatest(
-            clanListVC.clansLoadedSignal |> filter { $0 } |> take(1),
-            channelListVC.channelsLoadedSignal |> filter { $0 } |> take(1)
-        ) |> map { _ in () } |> deliverOnMainQueue
-
-        navigationDisposable.set(ready.start(next: { [weak self] in
+        let ready = clanListVC.clansLoadedSignal |> filter { $0 } |> take(1) |> deliverOnMainQueue
+        navigationDisposable.set(ready.start(next: { [weak self] _ in
             guard self != nil else { return }
             NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
         }))
@@ -175,10 +171,9 @@ final class HomeViewController: BaseViewController {
             return
         }
 
-        guard let token = context.session?.token else { return }
-
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 if let dmVC = rootController.directMessagesController {
