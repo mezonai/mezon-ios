@@ -219,10 +219,15 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
             committedSectionCount = expectedAfter
         } else if prevCatSections >= 0 && newCatSections >= 0 {
+            let oldRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + prevCatSections))
+            let newRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + newCatSections))
+            guard !oldRange.isEmpty || !newRange.isEmpty else {
+                safeReloadData()
+                CATransaction.commit()
+                return
+            }
             UIView.performWithoutAnimation {
                 self.tableNode.performBatch(animated: false) {
-                    let oldRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + prevCatSections))
-                    let newRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + newCatSections))
                     if !oldRange.isEmpty { self.tableNode.deleteSections(oldRange, with: .none) }
                     if !newRange.isEmpty { self.tableNode.insertSections(newRange, with: .none) }
                 }
@@ -384,8 +389,12 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func configure(clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
+        let hadAppsSection = hasChannelAppsSection
         channelApps = []
         isChannelAppsExpanded = true
+        if hadAppsSection {
+            safeReloadData()
+        }
 
         UIView.performWithoutAnimation {
             if let url = bannerURL, !url.isEmpty {

@@ -95,11 +95,13 @@ struct ChatState {
     var isPrivate: Bool
     var isAgeRestricted: Bool
     var hasMoreOlder: Bool
+    var hasMoreNewer: Bool
     var isLoadingMore: Bool
+    var isLoadingNewer: Bool
     var isLoading: Bool
     var errorMessage: String?
 
-    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, hasMoreOlder: false, isLoadingMore: false, isLoading: false, errorMessage: nil)
+    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false, isLoading: false, errorMessage: nil)
 }
 
 final class ChatViewController: ViewController {
@@ -115,7 +117,12 @@ final class ChatViewController: ViewController {
     private(set) var messages: [ChatMessageDisplay] = []
     private(set) var channelLabel: String = ""
     private(set) var hasMoreOlder: Bool = true
+    private(set) var hasMoreNewer: Bool = false
     private(set) var isLoadingMore: Bool = false
+    private(set) var isLoadingNewer: Bool = false
+    private var lastFetchedOlderMessageId: Int64?
+    private var lastFetchedNewerMessageId: Int64?
+    private var isJumping: Bool = false
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
     private(set) var channelMeta: ChannelRecord?
@@ -141,6 +148,7 @@ final class ChatViewController: ViewController {
     private var currentKeyboardOffset: CGFloat = 0
     private var shouldScrollToBottom = true
     private var hasMarkedAsRead = false
+    private var readyToLoadMore = false
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
@@ -161,10 +169,15 @@ final class ChatViewController: ViewController {
             onHistoryTapped: { },
             onMenuTapped: { },
             onScrolledNearTop: { [weak self] in
-                guard let self, self.hasMoreOlder, !self.isLoadingMore else { return }
-                self.fetchMoreMessages()
+                guard let self, !self.isJumping, self.readyToLoadMore, self.hasMoreOlder, !self.isLoadingMore else { return }
+                self.fetchOlderMessages()
+            },
+            onScrolledNearBottom: { [weak self] in
+                guard let self, !self.isJumping, self.readyToLoadMore, self.hasMoreNewer, !self.isLoadingNewer else { return }
+                self.fetchNewerMessages()
             },
             onScrolledToBottom: { [weak self] atBottom in self?.shouldScrollToBottom = atBottom },
+            onJumpToPresent: { [weak self] in self?.jumpToPresent() },
             onMentionTapped: { mentionId in
                 AppLogger.network.info("[Chat] Mention tapped: \(mentionId)")
             },
@@ -173,6 +186,9 @@ final class ChatViewController: ViewController {
             },
             onMessageLongPressed: { [weak self] display in
                 self?.showMessageActions(display)
+            },
+            onReplyTapped: { [weak self] messageId in
+                self?.jumpToMessage(id: messageId)
             },
             onMessagesReloaded: nil
         )
@@ -186,6 +202,11 @@ final class ChatViewController: ViewController {
         setupInputBar()
         setupKeyboardObservers()
         start()
+
+        // Enable load-more 1s after view loads (matching RN readyToLoadMore pattern)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.readyToLoadMore = true
+        }
 
         stateDisposables.add((needsReloadSignal |> deliverOnMainQueue).start(next: { [weak self] _ in
             DispatchQueue.main.async { self?.scrollToBottomIfNeeded() }
@@ -221,13 +242,22 @@ final class ChatViewController: ViewController {
     deinit { stateDisposables.dispose() }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
+        let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
+        let oldLastId = messages.last?.id
         messages = v
+        // Reset dedup guards when the boundary messages actually change
+        let newFirstId = v.first(where: { !$0.isWelcome })?.id
+        let newLastId = v.last?.id
+        if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
+        if newLastId != oldLastId { lastFetchedNewerMessageId = nil }
         needsReloadPipe.putNext(())
         markChannelAsRead()
     }
     private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
-    private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v }
+    private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v; needsReloadPipe.putNext(()) }
+    private func setHasMoreNewer(_ v: Bool) { hasMoreNewer = v; needsReloadPipe.putNext(()) }
     private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; needsReloadPipe.putNext(()) }
+    private func setIsLoadingNewer(_ v: Bool) { isLoadingNewer = v; needsReloadPipe.putNext(()) }
     private func setIsLoading(_ v: Bool) { isLoading = v; needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; needsReloadPipe.putNext(()) }
 
@@ -315,11 +345,13 @@ final class ChatViewController: ViewController {
         Task { @MainActor in
             defer { self.setIsLoading(false) }
             do {
-                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 50, topicId: 0, token: token)
+                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: 0, token: token)
                 if response.messages.isEmpty {
-                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 50, topicId: 0, token: token)
+                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 30, topicId: 0, token: token)
                 }
-                self.setHasMoreOlder(response.messages.count >= 50)
+                // Initial load uses direction 2 (AROUND) which may return fewer than limit
+                // Assume there are older messages unless the response is very small
+                self.setHasMoreOlder(response.messages.count > 1)
                 self.context.account.postbox.write { tx in tx.addMessages(response.messages.map { MessageRecord(from: $0) }) }
             } catch {
                 self.setErrorMessage(error.localizedDescription)
@@ -327,23 +359,105 @@ final class ChatViewController: ViewController {
         }
     }
 
-    func fetchMoreMessages() {
+    func fetchOlderMessages() {
         guard hasMoreOlder, !isLoadingMore else { return }
         guard let token = context.session?.token else { return }
-        guard let oldest = messages.first, let msgId = Int64(oldest.message.id) else { return }
+        guard messages.count >= 10 else { return }
+
+        // Skip welcome messages (senderId "0") to find the real oldest message
+        guard let oldest = messages.first(where: { !$0.isWelcome }),
+              let msgId = Int64(oldest.message.id), msgId != 0 else {
+            setHasMoreOlder(false)
+            return
+        }
+
+        // Prevent duplicate fetch with same oldest ID (postbox may not have emitted yet)
+        guard msgId != lastFetchedOlderMessageId else { return }
+        lastFetchedOlderMessageId = msgId
 
         setIsLoadingMore(true)
         Task { @MainActor in
             defer { self.setIsLoadingMore(false) }
             do {
-                let response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: msgId, direction: 3, limit: 50, topicId: 0, token: token)
-                self.setHasMoreOlder(response.messages.count >= 50)
-                self.context.account.postbox.write { tx in tx.addMessages(response.messages.map { MessageRecord(from: $0) }) }
+                // direction 3 = BEFORE_TIMESTAMP (older)
+                let response = try await self.context.account.network.listChannelMessages(
+                    clanId: clanId, channelId: channel.channelID,
+                    messageId: msgId, direction: 3, limit: 30, topicId: 0, token: token
+                )
+                // Only stop when response is empty — API may return < limit even when more exist
+                self.setHasMoreOlder(!response.messages.isEmpty)
+                if !response.messages.isEmpty {
+                    self.context.account.postbox.write { tx in
+                        tx.addMessages(response.messages.map { MessageRecord(from: $0) })
+                    }
+                }
+            } catch {
+                self.lastFetchedOlderMessageId = nil
+                self.setErrorMessage(error.localizedDescription)
+            }
+        }
+    }
+
+    func fetchNewerMessages() {
+        guard hasMoreNewer, !isLoadingNewer else { return }
+        guard let token = context.session?.token else { return }
+        guard messages.count >= 10 else { return }
+        guard let newest = messages.last, let msgId = Int64(newest.message.id) else { return }
+
+        // Prevent duplicate fetch with same newest ID
+        guard msgId != lastFetchedNewerMessageId else { return }
+        lastFetchedNewerMessageId = msgId
+
+        // Don't auto-scroll to bottom when loading more — preserve scroll position
+        shouldScrollToBottom = false
+        setIsLoadingNewer(true)
+        Task { @MainActor in
+            defer { self.setIsLoadingNewer(false) }
+            do {
+                // direction 1 = AFTER_TIMESTAMP (newer)
+                let response = try await self.context.account.network.listChannelMessages(
+                    clanId: clanId, channelId: channel.channelID,
+                    messageId: msgId, direction: 1, limit: 30, topicId: 0, token: token
+                )
+                self.setHasMoreNewer(!response.messages.isEmpty)
+                if !response.messages.isEmpty {
+                    self.context.account.postbox.write { tx in
+                        tx.addMessages(response.messages.map { MessageRecord(from: $0) })
+                    }
+                }
+            } catch {
+                self.lastFetchedNewerMessageId = nil
+                self.setErrorMessage(error.localizedDescription)
+            }
+        }
+    }
+
+    private func jumpToPresent() {
+        guard let token = context.session?.token else { return }
+        shouldScrollToBottom = true
+        setHasMoreNewer(false)
+
+        Task { @MainActor in
+            do {
+                // direction 2 = AROUND_TIMESTAMP, messageId 0 = latest
+                let response = try await self.context.account.network.listChannelMessages(
+                    clanId: clanId, channelId: channel.channelID,
+                    messageId: 0, direction: 2, limit: 30, topicId: 0, token: token
+                )
+                self.setHasMoreOlder(response.messages.count >= 30)
+                let channelIdStr = "\(self.channel.channelID)"
+                self.context.account.postbox.write { tx in
+                    tx.replaceAllMessages(
+                        response.messages.map { MessageRecord(from: $0) },
+                        channelId: channelIdStr
+                    )
+                }
             } catch {
                 self.setErrorMessage(error.localizedDescription)
             }
         }
     }
+
 
     private func fetchNotificationSetting() {
         guard let token = context.session?.token else { return }
@@ -443,7 +557,9 @@ final class ChatViewController: ViewController {
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
             hasMoreOlder: hasMoreOlder,
+            hasMoreNewer: hasMoreNewer,
             isLoadingMore: isLoadingMore,
+            isLoadingNewer: isLoadingNewer,
             isLoading: isLoading,
             errorMessage: errorMessage
         )
@@ -455,7 +571,10 @@ final class ChatViewController: ViewController {
             var lastIds = self.messages.map { $0.id }
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
+            var lastLoadingNewer = self.isLoadingNewer
             var lastError = self.errorMessage
+            var lastHasMoreOlder = self.hasMoreOlder
+            var lastHasMoreNewer = self.hasMoreNewer
             subscriber.putNext(self.currentState)
             return (self.needsReloadPipe.signal()
                 |> map { [weak self] _ in self?.currentState ?? .empty }
@@ -465,12 +584,18 @@ final class ChatViewController: ViewController {
                 let changed = newIds != lastIds
                     || newState.isLoading != lastLoading
                     || newState.isLoadingMore != lastLoadingMore
+                    || newState.isLoadingNewer != lastLoadingNewer
                     || newState.errorMessage != lastError
+                    || newState.hasMoreOlder != lastHasMoreOlder
+                    || newState.hasMoreNewer != lastHasMoreNewer
                 guard changed else { return }
                 lastIds = newIds
                 lastLoading = newState.isLoading
                 lastLoadingMore = newState.isLoadingMore
+                lastLoadingNewer = newState.isLoadingNewer
                 lastError = newState.errorMessage
+                lastHasMoreOlder = newState.hasMoreOlder
+                lastHasMoreNewer = newState.hasMoreNewer
                 subscriber.putNext(newState)
             })
         }
@@ -783,7 +908,74 @@ final class ChatViewController: ViewController {
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
 
+    private func jumpToMessage(id messageId: String) {
+        shouldScrollToBottom = false
+        isJumping = true
+
+        // Check if message is already loaded
+        if messages.contains(where: { $0.id == messageId }) {
+            messagesNode.pendingJumpMessageId = messageId
+            messagesNode.triggerPendingJump()
+            // Re-enable loadmore after scroll settles
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.isJumping = false
+            }
+            return
+        }
+
+        // Message not in current list — fetch around it
+        guard let token = context.session?.token,
+              let msgId = Int64(messageId) else {
+            isJumping = false
+            return
+        }
+
+        readyToLoadMore = false
+        messagesNode.pendingJumpMessageId = messageId
+        // Reset dedup guards since we're replacing all messages
+        lastFetchedOlderMessageId = nil
+        lastFetchedNewerMessageId = nil
+
+        Task { @MainActor in
+            defer {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    self?.isJumping = false
+                    self?.readyToLoadMore = true
+                }
+            }
+            do {
+                let response = try await self.context.account.network.listChannelMessages(
+                    clanId: self.clanId,
+                    channelId: self.channel.channelID,
+                    messageId: msgId,
+                    direction: 2,
+                    limit: 30,
+                    topicId: 0,
+                    token: token
+                )
+                guard !response.messages.isEmpty else {
+                    self.messagesNode.pendingJumpMessageId = nil
+                    return
+                }
+                let channelIdStr = "\(self.channel.channelID)"
+                self.setHasMoreOlder(response.messages.count > 1)
+                self.setHasMoreNewer(true)
+                self.context.account.postbox.write { tx in
+                    tx.replaceAllMessages(
+                        response.messages.map { MessageRecord(from: $0) },
+                        channelId: channelIdStr
+                    )
+                }
+            } catch {
+                self.messagesNode.pendingJumpMessageId = nil
+                AppLogger.network.warning("[Chat] jumpToMessage failed: \(error)")
+            }
+        }
+    }
+
     private func scrollToBottomIfNeeded() {
+        // Don't override a pending jump-to-message
+        guard messagesNode.pendingJumpMessageId == nil else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
         let tv = messagesNode.tableView
         guard tv.numberOfSections > 0, tv.numberOfRows(inSection: 0) > 0 else { return }

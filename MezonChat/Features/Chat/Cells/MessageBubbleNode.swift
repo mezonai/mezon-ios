@@ -95,6 +95,8 @@ final class MessageBubbleNode: ASCellNode {
         if let ref = display.replyRef {
             let rn = MessageReplyNode()
             rn.configure(ref: ref)
+            let refId = "\(ref.messageRefID)"
+            rn.onTapped = { interaction.onReplyTapped(refId) }
             replyNode = rn
         } else if display.isDeletedReply {
             deletedReplyNode = MessageDeletedReplyNode()
@@ -244,6 +246,13 @@ final class MessageBubbleNode: ASCellNode {
 
     func dismissHighlight() {
         showHighlight(false)
+    }
+
+    func flashHighlight() {
+        showHighlight(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.showHighlight(false)
+        }
     }
 
     override func layout() {

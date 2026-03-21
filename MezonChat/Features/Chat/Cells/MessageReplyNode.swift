@@ -14,6 +14,8 @@ final class MessageReplyNode: ASDisplayNode {
     private var hasAttachment = false
     private var hasAvatar = false
 
+    var onTapped: (() -> Void)?
+
     override init() {
         super.init()
         automaticallyManagesSubnodes = true
@@ -39,6 +41,16 @@ final class MessageReplyNode: ASDisplayNode {
         attachmentIconNode.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
         attachmentIconNode.tintColor = UIColor.theme.textDisabled
         attachmentIconNode.contentMode = .scaleAspectFit
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func handleTap() {
+        onTapped?()
     }
 
     func configure(ref: Mezon_Api_MessageRef) {
