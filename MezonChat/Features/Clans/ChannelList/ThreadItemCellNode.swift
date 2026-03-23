@@ -31,11 +31,11 @@ final class ThreadItemCellNode: ASCellNode {
 
         let nameColor =
             isUnread ? t.channelUnread : t.channelNormal
-        let nameWeight: UIFont.Weight = isUnread ? .semibold : .regular
+        let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
         nameNode.attributedText = NSAttributedString(
             string: channel.channelLabel,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: nameWeight),
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
                 .foregroundColor: nameColor,
             ])
 

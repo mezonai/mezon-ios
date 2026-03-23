@@ -90,9 +90,8 @@ final class SessionRefreshManager {
                     AppLogger.app.warning("Session refresh failed (retries left: \(retriesLeft)): \(error)")
                     print("[SessionRefreshManager] refresh MezonError: \(error)")
 
-                    safeOnReady(source: "MezonError")
-
                     if retriesLeft == 0 {
+                        safeOnReady(source: "MezonError")
                         switch error {
                         case .httpError(let code, _) where code == 401 || code == 403:
                             try? await Task.sleep(nanoseconds: 500_000_000)

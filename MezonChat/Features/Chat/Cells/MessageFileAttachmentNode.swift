@@ -8,10 +8,10 @@ final class MessageFileAttachmentNode: ASDisplayNode {
 
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
     }
 
     func configure(files: [ParsedAttachment]) {
+        fileNodes.forEach { $0.removeFromSupernode() }
         fileNodes.removeAll()
         for (i, file) in files.enumerated() {
             let node = FileItemNode(attachment: file)
@@ -20,23 +20,36 @@ final class MessageFileAttachmentNode: ASDisplayNode {
                 self?.onFileTapped?(file.url)
             }
             fileNodes.append(node)
+            addSubnode(node)
         }
-        setNeedsLayout()
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        guard !fileNodes.isEmpty else { return ASLayoutSpec() }
-        return ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 6,
-            justifyContent: .start,
-            alignItems: .start,
-            children: fileNodes
-        )
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        guard !fileNodes.isEmpty else { return .zero }
+        let spacing: CGFloat = 6
+        var totalH: CGFloat = 0
+        for (i, node) in fileNodes.enumerated() {
+            let size = node.measureSize(maxWidth: maxWidth)
+            _ = size
+            if i > 0 { totalH += spacing }
+            totalH += node.cachedSize.height
+        }
+        return CGSize(width: maxWidth, height: totalH)
+    }
+
+    override func layout() {
+        super.layout()
+        let spacing: CGFloat = 6
+        var y: CGFloat = 0
+        for (i, node) in fileNodes.enumerated() {
+            if i > 0 { y += spacing }
+            node.frame = CGRect(x: 0, y: y, width: node.cachedSize.width, height: node.cachedSize.height)
+            y += node.cachedSize.height
+        }
     }
 }
 
-private final class FileItemNode: ASDisplayNode {
+final class FileItemNode: ASDisplayNode {
 
     private let iconNode = ASImageNode()
     private let nameNode = ASTextNode2()
@@ -45,19 +58,24 @@ private final class FileItemNode: ASDisplayNode {
     var onTapped: (() -> Void)?
     var tag: Int = 0
 
+    fileprivate(set) var cachedSize: CGSize = .zero
+    private var cachedIconSize = CGSize(width: 30, height: 30)
+    private var cachedNameSize: CGSize = .zero
+
     init(attachment: ParsedAttachment) {
         super.init()
-        automaticallyManagesSubnodes = true
 
         let t = UIColor.theme
 
         bgNode.backgroundColor = t.secondaryLight
         bgNode.cornerRadius = 8
+        addSubnode(bgNode)
 
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
         iconNode.image = UIImage(systemName: Self.iconName(for: attachment), withConfiguration: iconConfig)?
             .withTintColor(.systemIndigo, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
+        addSubnode(iconNode)
 
         let filename = attachment.filename.isEmpty ? Self.fallbackFilename(from: attachment.url) : attachment.filename
         nameNode.attributedText = NSAttributedString(
@@ -69,6 +87,7 @@ private final class FileItemNode: ASDisplayNode {
         )
         nameNode.maximumNumberOfLines = 2
         nameNode.truncationMode = .byTruncatingMiddle
+        addSubnode(nameNode)
     }
 
     override func didLoad() {
@@ -81,23 +100,34 @@ private final class FileItemNode: ASDisplayNode {
         onTapped?()
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        iconNode.style.preferredSize = CGSize(width: 30, height: 30)
-        nameNode.style.flexShrink = 1
-        nameNode.style.maxWidth = ASDimensionMake(constrainedSize.max.width * 0.7)
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        let insetH: CGFloat = 12
+        let insetV: CGFloat = 10
+        let spacing: CGFloat = 10
+        let nameMaxW = maxWidth * 0.7 - cachedIconSize.width - spacing - insetH * 2
 
-        let row = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 10,
-            justifyContent: .start,
-            alignItems: .center,
-            children: [iconNode, nameNode]
-        )
+        cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: .greatestFiniteMagnitude))
 
-        let insets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
-        let insetSpec = ASInsetLayoutSpec(insets: insets, child: row)
+        let contentW = insetH + cachedIconSize.width + spacing + cachedNameSize.width + insetH
+        let contentH = insetV + max(cachedIconSize.height, cachedNameSize.height) + insetV
 
-        return ASBackgroundLayoutSpec(child: insetSpec, background: bgNode)
+        cachedSize = CGSize(width: contentW, height: contentH)
+        return cachedSize
+    }
+
+    override func layout() {
+        super.layout()
+        let insetH: CGFloat = 12
+        let spacing: CGFloat = 10
+
+        bgNode.frame = bounds
+        let centerY = bounds.height / 2
+
+        let iconX = insetH
+        iconNode.frame = CGRect(x: iconX, y: centerY - cachedIconSize.height / 2, width: cachedIconSize.width, height: cachedIconSize.height)
+
+        let nameX = iconX + cachedIconSize.width + spacing
+        nameNode.frame = CGRect(x: nameX, y: centerY - cachedNameSize.height / 2, width: cachedNameSize.width, height: cachedNameSize.height)
     }
 
     private static func iconName(for attachment: ParsedAttachment) -> String {

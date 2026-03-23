@@ -135,6 +135,14 @@ final class MessageTable: Table {
         }
     }
 
+    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
+        cache[channelId] = messages.sorted { $0.createdAt < $1.createdAt }
+        pendingWrites.insert(channelId)
+        db.run("DELETE FROM messages WHERE channel_id = ?") {
+            sqlite3_bind_text($0, 1, channelId, -1, nil)
+        }
+    }
+
     func deleteMessage(id: String) {
         pendingDeletes.insert(id)
         for key in cache.keys {

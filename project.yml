@@ -65,7 +65,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.86"
+        MARKETING_VERSION: "1.2.88"
         CURRENT_PROJECT_VERSION: "86"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
@@ -87,6 +87,8 @@ targets:
       path: MezonChat/Resources/Info.plist
       properties:
         CFBundleDisplayName: Mezon
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
           UIColorName: LaunchBackground
           ImageName: SplashScreen
@@ -135,6 +137,7 @@ targets:
     info:
       path: NotificationService/Info.plist
       properties:
+        CFBundleDisplayName: $(PRODUCT_NAME)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService

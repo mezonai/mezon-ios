@@ -143,11 +143,11 @@ final class ClanListViewController: ViewController {
     private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) { unreadDMs = v; unreadDMsPipe.putNext(v); needsReloadPipe.putNext(()) }
 
     func loadClans() {
-        guard let token = context.session?.token else { return }
         setIsLoading(true)
         error = nil
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard let token = await self.context.getToken() else { self.setIsLoading(false); return }
             defer { self.setIsLoading(false) }
             do {
                 let result = try await self.context.account.network.listClanDescs(token: token)
@@ -189,9 +189,9 @@ final class ClanListViewController: ViewController {
     }
 
     func fetchUnreadDMs() {
-        guard let token = context.session?.token else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 let unread = channels.filter { $0.countMessUnread > 0 }
@@ -203,8 +203,11 @@ final class ClanListViewController: ViewController {
     }
 
     private func fetchClanData(clanId: Int64) {
-        guard let token = context.session?.token else { return }
-        context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            self.context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
+        }
     }
 
     private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"

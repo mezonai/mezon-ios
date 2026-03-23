@@ -14,12 +14,22 @@ final class MessageReplyNode: ASDisplayNode {
     private var hasAttachment = false
     private var hasAvatar = false
 
+    var onTapped: (() -> Void)?
+
+    private var cachedIconSize = CGSize(width: 30, height: 10)
+    private let avatarSz: CGFloat = 20
+    private var cachedNameSize: CGSize = .zero
+    private var cachedPreviewSize: CGSize = .zero
+    private let attachmentIconSize = CGSize(width: 14, height: 14)
+    private let leadingInset: CGFloat = 30.sw
+    private let bottomInset: CGFloat = 6.sh
+
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
 
         iconNode.image = Self.replyIcon(tintColor: UIColor.theme.textDisabled)
         iconNode.contentMode = .scaleAspectFit
+        addSubnode(iconNode)
 
         avatarContainerNode.backgroundColor = .colorAvatarDefault
         avatarContainerNode.cornerRadius = 10
@@ -33,12 +43,25 @@ final class MessageReplyNode: ASDisplayNode {
         avatarPlaceholderNode.isLayerBacked = true
 
         nameNode.maximumNumberOfLines = 1
+        addSubnode(nameNode)
+
         previewNode.maximumNumberOfLines = 1
         previewNode.truncationMode = .byTruncatingTail
+        addSubnode(previewNode)
 
         attachmentIconNode.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
         attachmentIconNode.tintColor = UIColor.theme.textDisabled
         attachmentIconNode.contentMode = .scaleAspectFit
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func handleTap() {
+        onTapped?()
     }
 
     func configure(ref: Mezon_Api_MessageRef) {
@@ -61,6 +84,9 @@ final class MessageReplyNode: ASDisplayNode {
             avatarPlaceholderNode.isHidden = true
             avatarImageNode.isHidden = false
             avatarImageNode.url = url
+            avatarContainerNode.removeFromSupernode()
+            avatarPlaceholderNode.removeFromSupernode()
+            if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
         } else {
             hasAvatar = false
             avatarImageNode.isHidden = true
@@ -72,6 +98,11 @@ final class MessageReplyNode: ASDisplayNode {
                     .foregroundColor: UIColor.white
                 ]
             )
+            avatarImageNode.removeFromSupernode()
+            if avatarContainerNode.supernode == nil {
+                addSubnode(avatarContainerNode)
+                avatarContainerNode.addSubnode(avatarPlaceholderNode)
+            }
         }
 
         if ref.hasAttachment_p {
@@ -83,8 +114,10 @@ final class MessageReplyNode: ASDisplayNode {
                     .foregroundColor: t.textDisabled
                 ]
             )
+            if attachmentIconNode.supernode == nil { addSubnode(attachmentIconNode) }
         } else {
             hasAttachment = false
+            attachmentIconNode.removeFromSupernode()
             let raw = ref.content
             let preview: String
             if raw.isEmpty {
@@ -106,49 +139,55 @@ final class MessageReplyNode: ASDisplayNode {
         }
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        iconNode.style.preferredSize = CGSize(width: 30, height: 10)
-        let avatarSz: CGFloat = 20
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        let contentWidth = maxWidth - leadingInset
+        let spacing: CGFloat = 6.sw
+        let textSpacing: CGFloat = 4.sw
 
-        // Avatar: either image or placeholder letter on colored background
-        let avatarSpec: ASLayoutElement
+        cachedNameSize = nameNode.measure(CGSize(width: contentWidth * 0.4, height: 30))
+
+        let remainW = contentWidth - cachedIconSize.width - spacing - avatarSz - spacing - cachedNameSize.width - textSpacing
+            - (hasAttachment ? attachmentIconSize.width + textSpacing : 0)
+        cachedPreviewSize = previewNode.measure(CGSize(width: max(remainW, 50), height: 30))
+
+        let rowH = max(avatarSz, cachedNameSize.height, cachedPreviewSize.height)
+        return CGSize(width: maxWidth, height: rowH + bottomInset)
+    }
+
+    override func layout() {
+        super.layout()
+        let spacing: CGFloat = 6.sw
+        let textSpacing: CGFloat = 4.sw
+        var x = leadingInset
+
+        iconNode.frame = CGRect(x: x, y: 0, width: cachedIconSize.width, height: cachedIconSize.height)
+        x += cachedIconSize.width + spacing
+
+        let rowH = bounds.height - bottomInset
+        let centerY = rowH / 2
+
         if hasAvatar {
-            avatarImageNode.style.preferredSize = CGSize(width: avatarSz, height: avatarSz)
-            avatarSpec = avatarImageNode
+            avatarImageNode.frame = CGRect(x: x, y: centerY - avatarSz / 2, width: avatarSz, height: avatarSz)
         } else {
-            avatarContainerNode.style.preferredSize = CGSize(width: avatarSz, height: avatarSz)
-            let placeholderCenter = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: avatarPlaceholderNode)
-            avatarSpec = ASBackgroundLayoutSpec(child: placeholderCenter, background: avatarContainerNode)
+            avatarContainerNode.frame = CGRect(x: x, y: centerY - avatarSz / 2, width: avatarSz, height: avatarSz)
+            let phSize = avatarPlaceholderNode.measure(CGSize(width: avatarSz, height: avatarSz))
+            avatarPlaceholderNode.frame = CGRect(
+                x: (avatarSz - phSize.width) / 2,
+                y: (avatarSz - phSize.height) / 2,
+                width: phSize.width, height: phSize.height
+            )
         }
+        x += avatarSz + spacing
 
-        nameNode.style.flexShrink = 0
-        previewNode.style.flexShrink = 1
+        nameNode.frame = CGRect(x: x, y: centerY - cachedNameSize.height / 2, width: cachedNameSize.width, height: cachedNameSize.height)
+        x += cachedNameSize.width + textSpacing
 
-        var textChildren: [ASLayoutElement] = [nameNode, previewNode]
+        previewNode.frame = CGRect(x: x, y: centerY - cachedPreviewSize.height / 2, width: cachedPreviewSize.width, height: cachedPreviewSize.height)
+        x += cachedPreviewSize.width + textSpacing
+
         if hasAttachment {
-            attachmentIconNode.style.preferredSize = CGSize(width: 14, height: 14)
-            textChildren.append(attachmentIconNode)
+            attachmentIconNode.frame = CGRect(x: x, y: centerY - attachmentIconSize.height / 2, width: attachmentIconSize.width, height: attachmentIconSize.height)
         }
-
-        let textRow = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 4.sw,
-            justifyContent: .start,
-            alignItems: .center,
-            children: textChildren
-        )
-        textRow.style.flexShrink = 1
-
-        let row = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 6.sw,
-            justifyContent: .start,
-            alignItems: .center,
-            children: [iconNode, avatarSpec, textRow]
-        )
-
-        let insets = UIEdgeInsets(top: 0, left: 30.sw, bottom: 6.sh, right: 0)
-        return ASInsetLayoutSpec(insets: insets, child: row)
     }
 
     static func replyIcon(tintColor: UIColor) -> UIImage? {
@@ -173,17 +212,23 @@ final class MessageDeletedReplyNode: ASDisplayNode {
     private let trashNode = ASImageNode()
     private let labelNode = ASTextNode2()
 
+    private let iconSize = CGSize(width: 20, height: 20)
+    private let trashSize = CGSize(width: 12, height: 12)
+    private var cachedLabelSize: CGSize = .zero
+    private let leadingInset: CGFloat = 30.sw
+
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
 
         let t = UIColor.theme
         iconNode.image = MessageReplyNode.replyIcon(tintColor: t.textDisabled)
         iconNode.contentMode = .scaleAspectFit
+        addSubnode(iconNode)
 
         trashNode.image = UIImage(systemName: "trash")?.withRenderingMode(.alwaysTemplate)
         trashNode.tintColor = t.textDisabled
         trashNode.contentMode = .scaleAspectFit
+        addSubnode(trashNode)
 
         labelNode.attributedText = NSAttributedString(
             string: "Original message was deleted",
@@ -192,21 +237,29 @@ final class MessageDeletedReplyNode: ASDisplayNode {
                 .foregroundColor: t.textDisabled
             ]
         )
+        addSubnode(labelNode)
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        iconNode.style.preferredSize = CGSize(width: 20, height: 20)
-        trashNode.style.preferredSize = CGSize(width: 12, height: 12)
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        let spacing: CGFloat = 4.sw
+        let contentW = maxWidth - leadingInset - iconSize.width - spacing - trashSize.width - spacing
+        cachedLabelSize = labelNode.measure(CGSize(width: contentW, height: 30))
+        let height = max(iconSize.height, trashSize.height, cachedLabelSize.height)
+        return CGSize(width: maxWidth, height: height)
+    }
 
-        let row = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 4.sw,
-            justifyContent: .start,
-            alignItems: .center,
-            children: [iconNode, trashNode, labelNode]
-        )
+    override func layout() {
+        super.layout()
+        let spacing: CGFloat = 4.sw
+        var x = leadingInset
+        let centerY = bounds.height / 2
 
-        let insets = UIEdgeInsets(top: 0, left: 30.sw, bottom: 0, right: 0)
-        return ASInsetLayoutSpec(insets: insets, child: row)
+        iconNode.frame = CGRect(x: x, y: centerY - iconSize.height / 2, width: iconSize.width, height: iconSize.height)
+        x += iconSize.width + spacing
+
+        trashNode.frame = CGRect(x: x, y: centerY - trashSize.height / 2, width: trashSize.width, height: trashSize.height)
+        x += trashSize.width + spacing
+
+        labelNode.frame = CGRect(x: x, y: centerY - cachedLabelSize.height / 2, width: cachedLabelSize.width, height: cachedLabelSize.height)
     }
 }

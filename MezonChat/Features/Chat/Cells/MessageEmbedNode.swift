@@ -4,30 +4,48 @@ import AsyncDisplayKit
 final class MessageEmbedNode: ASDisplayNode {
 
     private var embedNodes: [EmbedItemNode] = []
+    private var cachedTotalSize: CGSize = .zero
 
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
     }
 
     func configure(embeds: [ParsedEmbed]) {
+        embedNodes.forEach { $0.removeFromSupernode() }
         embedNodes = embeds.map { EmbedItemNode(embed: $0) }
-        setNeedsLayout()
+        embedNodes.forEach { addSubnode($0) }
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        guard !embedNodes.isEmpty else { return ASLayoutSpec() }
-        return ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: embedNodes
-        )
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        guard !embedNodes.isEmpty else {
+            cachedTotalSize = .zero
+            return .zero
+        }
+        let spacing: CGFloat = 8
+        var totalH: CGFloat = 0
+        for (i, node) in embedNodes.enumerated() {
+            if i > 0 { totalH += spacing }
+            let sz = node.measureSize(maxWidth: maxWidth)
+            _ = sz
+            totalH += node.cachedSize.height
+        }
+        cachedTotalSize = CGSize(width: maxWidth, height: totalH)
+        return cachedTotalSize
+    }
+
+    override func layout() {
+        super.layout()
+        let spacing: CGFloat = 8
+        var y: CGFloat = 0
+        for (i, node) in embedNodes.enumerated() {
+            if i > 0 { y += spacing }
+            node.frame = CGRect(x: 0, y: y, width: node.cachedSize.width, height: node.cachedSize.height)
+            y += node.cachedSize.height
+        }
     }
 }
 
-private final class EmbedItemNode: ASDisplayNode {
+final class EmbedItemNode: ASDisplayNode {
 
     private let colorBarNode = ASDisplayNode()
     private let contentBgNode = ASDisplayNode()
@@ -44,27 +62,39 @@ private final class EmbedItemNode: ASDisplayNode {
 
     private static let colorBarWidth: CGFloat = 4
     private static let thumbnailSize: CGFloat = 50
+    private static let contentInsetH: CGFloat = 10
+    private static let contentInsetV: CGFloat = 10
+
+    fileprivate(set) var cachedSize: CGSize = .zero
+
+    private var cachedAuthorIconSize: CGSize = .zero
+    private var cachedAuthorNameSize: CGSize = .zero
+    private var cachedTitleSize: CGSize = .zero
+    private var cachedDescSize: CGSize = .zero
+    private var cachedImageSize: CGSize = .zero
+    private var cachedThumbSize: CGSize = .zero
+    private var cachedFooterIconSize: CGSize = .zero
+    private var cachedFooterTextSize: CGSize = .zero
+    private var cachedContentColumnH: CGFloat = 0
 
     init(embed: ParsedEmbed) {
         self.embed = embed
         super.init()
-        automaticallyManagesSubnodes = true
 
         let t = UIColor.theme
 
-        // Color bar
         if let hex = embed.color, !hex.isEmpty {
             colorBarNode.backgroundColor = UIColor(embedHex: hex)
         } else {
             colorBarNode.backgroundColor = .systemIndigo
         }
         colorBarNode.cornerRadius = 2
+        addSubnode(colorBarNode)
 
-        // Content background
         contentBgNode.backgroundColor = t.secondaryLight
         contentBgNode.cornerRadius = 4
+        insertSubnode(contentBgNode, at: 0)
 
-        // Author
         if let authorName = embed.authorName, !authorName.isEmpty {
             let node = ASTextNode2()
             node.attributedText = NSAttributedString(
@@ -76,6 +106,7 @@ private final class EmbedItemNode: ASDisplayNode {
             )
             node.maximumNumberOfLines = 1
             authorNameNode = node
+            addSubnode(node)
 
             if let iconURL = embed.authorIconURL, !iconURL.isEmpty {
                 let icon = TransformImageNode()
@@ -89,10 +120,10 @@ private final class EmbedItemNode: ASDisplayNode {
                 ))
                 apply()
                 authorIconNode = icon
+                addSubnode(icon)
             }
         }
 
-        // Title
         if let title = embed.title, !title.isEmpty {
             let node = ASTextNode2()
             let attrs: [NSAttributedString.Key: Any]
@@ -111,9 +142,9 @@ private final class EmbedItemNode: ASDisplayNode {
             node.attributedText = NSAttributedString(string: title, attributes: attrs)
             node.maximumNumberOfLines = 3
             titleNode = node
+            addSubnode(node)
         }
 
-        // Description
         if let desc = embed.description, !desc.isEmpty {
             let node = ASTextNode2()
             node.attributedText = NSAttributedString(
@@ -125,17 +156,17 @@ private final class EmbedItemNode: ASDisplayNode {
             )
             node.maximumNumberOfLines = 10
             descriptionNode = node
+            addSubnode(node)
         }
 
-        // Image
         if let imageURL = embed.imageURL, !imageURL.isEmpty {
             let node = TransformImageNode()
             node.contentAnimations = [.firstUpdate]
             node.setSignal(remoteImageSignal(url: imageURL, resizeMode: .fit), attemptSynchronously: false)
             imageNode = node
+            addSubnode(node)
         }
 
-        // Thumbnail
         if let thumbURL = embed.thumbnailURL, !thumbURL.isEmpty {
             let node = TransformImageNode()
             node.setSignal(remoteImageSignal(url: thumbURL, resizeMode: .fill), attemptSynchronously: false)
@@ -148,9 +179,9 @@ private final class EmbedItemNode: ASDisplayNode {
             ))
             apply()
             thumbnailNode = node
+            addSubnode(node)
         }
 
-        // Footer
         if let footerText = embed.footerText, !footerText.isEmpty {
             let node = ASTextNode2()
             var text = footerText
@@ -167,6 +198,7 @@ private final class EmbedItemNode: ASDisplayNode {
             )
             node.maximumNumberOfLines = 1
             footerTextNode = node
+            addSubnode(node)
 
             if let iconURL = embed.footerIconURL, !iconURL.isEmpty {
                 let icon = TransformImageNode()
@@ -180,6 +212,7 @@ private final class EmbedItemNode: ASDisplayNode {
                 ))
                 apply()
                 footerIconNode = icon
+                addSubnode(icon)
             }
         }
     }
@@ -198,115 +231,139 @@ private final class EmbedItemNode: ASDisplayNode {
         UIApplication.shared.open(url)
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let maxW = constrainedSize.max.width
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        let barW = Self.colorBarWidth
+        let inH = Self.contentInsetH
+        let inV = Self.contentInsetV
+        let spacing: CGFloat = 6
 
-        // Build content column
-        var contentChildren: [ASLayoutElement] = []
+        let thumbW = thumbnailNode != nil ? Self.thumbnailSize + 10 : 0
+        let contentMaxW = maxWidth - barW - inH * 2 - thumbW
 
-        // Author row
-        if let authorNameNode = authorNameNode {
-            if let authorIconNode = authorIconNode {
-                authorIconNode.style.preferredSize = CGSize(width: 28, height: 28)
-                let row = ASStackLayoutSpec(direction: .horizontal, spacing: 8, justifyContent: .start, alignItems: .center, children: [authorIconNode, authorNameNode])
-                contentChildren.append(row)
-            } else {
-                contentChildren.append(authorNameNode)
-            }
+        var contentH: CGFloat = 0
+
+        // Author
+        if let authorNameNode {
+            cachedAuthorNameSize = authorNameNode.measure(CGSize(width: contentMaxW - 36, height: 30))
+            cachedAuthorIconSize = authorIconNode != nil ? CGSize(width: 28, height: 28) : .zero
+            let rowH = max(cachedAuthorIconSize.height, cachedAuthorNameSize.height)
+            contentH += rowH + spacing
         }
 
-        if let titleNode = titleNode {
-            contentChildren.append(titleNode)
+        // Title
+        if let titleNode {
+            cachedTitleSize = titleNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
+            contentH += cachedTitleSize.height + spacing
         }
 
-        if let descriptionNode = descriptionNode {
-            contentChildren.append(descriptionNode)
+        // Description
+        if let descriptionNode {
+            cachedDescSize = descriptionNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
+            contentH += cachedDescSize.height + spacing
         }
 
-        // Footer row
-        if let footerTextNode = footerTextNode {
-            if let footerIconNode = footerIconNode {
-                footerIconNode.style.preferredSize = CGSize(width: 24, height: 24)
-                let row = ASStackLayoutSpec(direction: .horizontal, spacing: 6, justifyContent: .start, alignItems: .center, children: [footerIconNode, footerTextNode])
-                contentChildren.append(row)
-            } else {
-                contentChildren.append(footerTextNode)
-            }
+        // Footer
+        if let footerTextNode {
+            cachedFooterTextSize = footerTextNode.measure(CGSize(width: contentMaxW - 30, height: 30))
+            cachedFooterIconSize = footerIconNode != nil ? CGSize(width: 24, height: 24) : .zero
+            let rowH = max(cachedFooterIconSize.height, cachedFooterTextSize.height)
+            contentH += rowH + spacing
         }
 
-        let contentColumn = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 6,
-            justifyContent: .start,
-            alignItems: .start,
-            children: contentChildren
-        )
-        contentColumn.style.flexShrink = 1
-        contentColumn.style.flexGrow = 1
+        if contentH > 0 { contentH -= spacing } // remove last spacing
+        cachedContentColumnH = contentH
 
-        // Main row: content + optional thumbnail
-        var mainRowChildren: [ASLayoutElement] = [contentColumn]
-        if let thumbnailNode = thumbnailNode {
-            thumbnailNode.style.preferredSize = CGSize(width: Self.thumbnailSize, height: Self.thumbnailSize)
-            mainRowChildren.append(thumbnailNode)
-        }
+        // Thumbnail
+        cachedThumbSize = thumbnailNode != nil ? CGSize(width: Self.thumbnailSize, height: Self.thumbnailSize) : .zero
+        let mainRowH = max(contentH, cachedThumbSize.height)
 
-        let mainRow = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 10,
-            justifyContent: .start,
-            alignItems: .start,
-            children: mainRowChildren
-        )
+        var totalH = inV + mainRowH + inV
 
-        // Vertical: main row + optional image
-        var verticalChildren: [ASLayoutElement] = [mainRow]
-
-        if let imageNode = imageNode {
+        // Image
+        if let imageNode {
             let imgW = CGFloat(embed.imageWidth ?? 400)
             let imgH = CGFloat(embed.imageHeight ?? 200)
-            let contentW = maxW - Self.colorBarWidth - 10 - 20
-            let ratio = min(contentW / max(imgW, 1), 1.0)
+            let imgContentW = maxWidth - barW - inH * 2
+            let ratio = min(imgContentW / max(imgW, 1), 1.0)
             let finalW = max(floor(imgW * ratio), 100)
             let finalH = max(floor(imgH * ratio), 60)
+            cachedImageSize = CGSize(width: finalW, height: finalH)
 
-            imageNode.style.preferredSize = CGSize(width: finalW, height: finalH)
             let args = TransformImageArguments(
                 corners: ImageCorners(radius: 4),
-                imageSize: CGSize(width: finalW, height: finalH),
-                boundingSize: CGSize(width: finalW, height: finalH),
+                imageSize: cachedImageSize,
+                boundingSize: cachedImageSize,
                 intrinsicInsets: .zero
             )
             let layout = imageNode.asyncLayout()
             let apply = layout(args)
             apply()
-            verticalChildren.append(imageNode)
+
+            totalH += 8 + finalH
         }
 
-        let contentStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: verticalChildren
-        )
+        cachedSize = CGSize(width: maxWidth, height: totalH)
+        return cachedSize
+    }
 
-        let contentInsets = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        let contentInsetSpec = ASInsetLayoutSpec(insets: contentInsets, child: contentStack)
+    override func layout() {
+        super.layout()
+        let barW = Self.colorBarWidth
+        let inH = Self.contentInsetH
+        let inV = Self.contentInsetV
+        let spacing: CGFloat = 6
+        let w = bounds.width
+        let h = bounds.height
 
-        // Color bar
-        colorBarNode.style.width = ASDimensionMake(Self.colorBarWidth)
-        colorBarNode.style.flexGrow = 1
+        contentBgNode.frame = bounds
+        colorBarNode.frame = CGRect(x: 0, y: 0, width: barW, height: h)
 
-        let barAndContent = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 0,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: [colorBarNode, contentInsetSpec]
-        )
+        var y = inV
+        let contentX = barW + inH
 
-        return ASBackgroundLayoutSpec(child: barAndContent, background: contentBgNode)
+        let thumbW = thumbnailNode != nil ? Self.thumbnailSize + 10 : 0
+        let contentMaxW = w - barW - inH * 2 - thumbW
+
+        if let authorNameNode {
+            var ax = contentX
+            if let authorIconNode {
+                authorIconNode.frame = CGRect(x: ax, y: y, width: cachedAuthorIconSize.width, height: cachedAuthorIconSize.height)
+                ax += cachedAuthorIconSize.width + 8
+            }
+            let rowH = max(cachedAuthorIconSize.height, cachedAuthorNameSize.height)
+            authorNameNode.frame = CGRect(x: ax, y: y + (rowH - cachedAuthorNameSize.height) / 2, width: cachedAuthorNameSize.width, height: cachedAuthorNameSize.height)
+            y += rowH + spacing
+        }
+
+        if let titleNode {
+            titleNode.frame = CGRect(x: contentX, y: y, width: cachedTitleSize.width, height: cachedTitleSize.height)
+            y += cachedTitleSize.height + spacing
+        }
+
+        if let descriptionNode {
+            descriptionNode.frame = CGRect(x: contentX, y: y, width: cachedDescSize.width, height: cachedDescSize.height)
+            y += cachedDescSize.height + spacing
+        }
+
+        if let footerTextNode {
+            var fx = contentX
+            if let footerIconNode {
+                footerIconNode.frame = CGRect(x: fx, y: y, width: cachedFooterIconSize.width, height: cachedFooterIconSize.height)
+                fx += cachedFooterIconSize.width + 6
+            }
+            let rowH = max(cachedFooterIconSize.height, cachedFooterTextSize.height)
+            footerTextNode.frame = CGRect(x: fx, y: y + (rowH - cachedFooterTextSize.height) / 2, width: cachedFooterTextSize.width, height: cachedFooterTextSize.height)
+            y += rowH + spacing
+        }
+
+        // Thumbnail (right side)
+        if let thumbnailNode {
+            thumbnailNode.frame = CGRect(x: w - inH - Self.thumbnailSize, y: inV, width: Self.thumbnailSize, height: Self.thumbnailSize)
+        }
+
+        if let imageNode {
+            imageNode.frame = CGRect(x: contentX, y: y + 2, width: cachedImageSize.width, height: cachedImageSize.height)
+        }
     }
 
     private static func formatTimestamp(_ ts: String) -> String {

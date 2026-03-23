@@ -153,12 +153,12 @@ final class DirectMessagesViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
     func fetchDirectMessages() {
-        guard let token = context.session?.token else { return }
         setIsLoading(true)
         setErrorMessage(nil)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard let token = await self.context.getToken() else { self.setIsLoading(false); return }
             defer { self.setIsLoading(false) }
             do {
                 let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
@@ -169,11 +169,29 @@ final class DirectMessagesViewController: ViewController {
                 }
                 self.setDirectMessages(sorted)
                 self.setIsEmpty(sorted.isEmpty)
+                self.context.account.postbox.setPreferenceData(
+                    key: PreferencesKeys.dmChannelList,
+                    value: self.encodeDMChannelList(sorted)
+                )
             } catch {
                 self.setErrorMessage(error.localizedDescription)
                 AppLogger.network.error("fetchDirectMessages: \(error)")
             }
         }
+    }
+
+    private func encodeDMChannelList(_ channels: [Mezon_Api_ChannelDescription]) -> Data {
+        var result = Data()
+        var count = UInt32(channels.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for ch in channels {
+            if let d = try? ch.serializedData() {
+                var len = UInt32(d.count)
+                result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+                result.append(d)
+            }
+        }
+        return result
     }
 
     var currentState: DirectMessagesState {

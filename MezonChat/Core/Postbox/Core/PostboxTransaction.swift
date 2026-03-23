@@ -78,6 +78,11 @@ final class PostboxTransaction {
         for m in messages { updatedMessageChannelIds.insert(m.channelId) }
     }
 
+    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
+        messageTable.replaceAllMessages(messages, channelId: channelId)
+        updatedMessageChannelIds.insert(channelId)
+    }
+
     func deleteMessage(id: String) {
         messageTable.deleteMessage(id: id)
     }

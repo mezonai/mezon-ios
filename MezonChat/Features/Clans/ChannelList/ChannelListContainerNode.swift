@@ -55,14 +55,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                     Toast.error(msg)
                 }
 
-                // When transitioning to loading state and we already have categories displayed,
-                // skip the reload to avoid flashing empty/loading UI during clan switch.
-                if newState.isLoading && newState.categories.isEmpty && !prevState.categories.isEmpty {
-                    self.isClanSwitching = true
-                    self.state = newState
-                    return
-                }
-
                 let wasClanSwitching = self.isClanSwitching
                 self.isClanSwitching = false
                 self.state = newState
@@ -70,15 +62,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                 self.cachedRows = [:]
                 self.cachedHeaders = [:]
 
-                // Determine what actually changed structurally (section count, IDs, collapse, row counts).
-                // isLoading toggle alone is NOT structural — it only matters when categories are empty.
                 let prevCats = prevState.categories
                 let newCats = newState.categories
-                let loadingBecameEmpty = !prevState.isLoading && newState.isLoading && newCats.isEmpty
-                let emptyBecameLoaded = prevState.isLoading && prevCats.isEmpty && !newCats.isEmpty
-
-                let structureChanged = loadingBecameEmpty || emptyBecameLoaded
-                    || prevCats.count != newCats.count
+                let structureChanged = prevCats.count != newCats.count
                     || zip(prevCats, newCats).contains(where: {
                         $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.channels.count != $1.channels.count
                     })
@@ -107,33 +93,19 @@ final class ChannelListContainerNode: ASDisplayNode {
         committedSectionCount = totalSections
     }
 
-    /// Full crossfade for clan switches — snapshot old UI, reload underneath, fade out snapshot.
     private func applyCrossfadeReload() {
-        let snapshot = tableNode.view.snapshotView(afterScreenUpdates: false)
-        if let snapshot {
-            snapshot.frame = tableNode.view.bounds
-            tableNode.view.addSubview(snapshot)
-        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         tableNode.reloadData()
+        tableNode.view.contentOffset = .zero
         CATransaction.commit()
         committedSectionCount = totalSections
-        if let snapshot {
-            UIView.animate(withDuration: 0.2, animations: {
-                snapshot.alpha = 0
-            }, completion: { _ in
-                snapshot.removeFromSuperview()
-            })
-        }
+        updateStickyHeaderPosition()
     }
 
-    /// Batch insert/delete sections and rows instead of reloadData() — avoids tearing down unchanged cells.
     private func applyBatchStructureUpdate(prev: ChannelListState, new: ChannelListState) {
         let expectedAfter = totalSections
 
-        // Safety: if committed count doesn't match what the table currently has,
-        // fall back to full reload to avoid batch-update assertion failures.
         guard committedSectionCount == tableNode.numberOfSections else {
             safeReloadData()
             return
@@ -142,7 +114,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         let sectionOffset = hasChannelAppsSection ? 1 : 0
         let prevCatSections = committedSectionCount - sectionOffset
         let newCatSections = expectedAfter - sectionOffset
-
         // If the category IDs match 1:1 we can do granular row-level diffs.
         let canPatch = prevCatSections == newCatSections
             && prevCatSections == prev.categories.count
@@ -164,7 +135,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let nc = new.categories[i]
                 let section = i + sectionOffset
 
-                // Collapse toggle — must reload entire section
                 if pc.isCollapsed != nc.isCollapsed {
                     sectionsToReload.insert(section)
                     continue
@@ -176,7 +146,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let oldIds = oldRows.map { $0.channelDesc.channelID }
                 let newIds = newRows.map { $0.channelDesc.channelID }
 
-                // Same row IDs in same order — only check data changes
                 if oldIds == newIds {
                     for (r, row) in newRows.enumerated() {
                         if channelRowDataChanged(old: oldRows[r], new: row,
@@ -191,7 +160,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let oldSet = Set(oldIds)
                 let newSet = Set(newIds)
 
-                // If common elements reordered, fall back to section reload
                 let commonOld = oldIds.filter { newSet.contains($0) }
                 let commonNew = newIds.filter { oldSet.contains($0) }
                 if commonOld != commonNew {
@@ -199,7 +167,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                     continue
                 }
 
-                // Row-level insert/delete (no reorder among common rows)
                 for (r, id) in oldIds.enumerated() where !newSet.contains(id) {
                     rowsToDelete.append(IndexPath(row: r, section: section))
                 }
@@ -207,7 +174,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                     rowsToInsert.append(IndexPath(row: r, section: section))
                 }
 
-                // Reload common rows whose data changed (pre-update indices)
                 var newRowLookup: [Int64: ChannelListRow] = [:]
                 for row in newRows { newRowLookup[row.channelDesc.channelID] = row }
                 for (r, oldRow) in oldRows.enumerated() {
@@ -243,10 +209,15 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
             committedSectionCount = expectedAfter
         } else if prevCatSections >= 0 && newCatSections >= 0 {
+            let oldRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + prevCatSections))
+            let newRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + newCatSections))
+            guard !oldRange.isEmpty || !newRange.isEmpty else {
+                safeReloadData()
+                CATransaction.commit()
+                return
+            }
             UIView.performWithoutAnimation {
                 self.tableNode.performBatch(animated: false) {
-                    let oldRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + prevCatSections))
-                    let newRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + newCatSections))
                     if !oldRange.isEmpty { self.tableNode.deleteSections(oldRange, with: .none) }
                     if !newRange.isEmpty { self.tableNode.insertSections(newRange, with: .none) }
                 }
@@ -271,7 +242,6 @@ final class ChannelListContainerNode: ASDisplayNode {
             || (chId == prevSelected) != (chId == newSelected)
     }
 
-    /// Only reload individual rows whose data actually changed (unread, selection, timestamps).
     private func applyRowDiff(prev: ChannelListState, new: ChannelListState) {
         var paths: [IndexPath] = []
         let sectionOffset = hasChannelAppsSection ? 1 : 0
@@ -281,7 +251,6 @@ final class ChannelListContainerNode: ASDisplayNode {
             let newCh = new.categories[s].channels
             let rows = rowsForSection(s)
 
-            // Build lookup for O(1) access instead of O(n) first(where:) per row
             var oldLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
             for ch in oldCh { oldLookup[ch.channelID] = ch }
             var newLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
@@ -348,7 +317,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.layer.zPosition = 100
     }
 
-    /// Simple reload for non-signal callers (theme change, channel apps toggle).
     private func scheduleReload() {
         cachedRows = [:]
         cachedHeaders = [:]
@@ -377,7 +345,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private var totalSections: Int {
         let appsSections = hasChannelAppsSection ? 1 : 0
-        let catSections = state.isLoading && state.categories.isEmpty ? 1 : state.categories.count
+        let catSections = state.categories.count
         return appsSections + catSections
     }
 
@@ -409,10 +377,18 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: headerH)
     }
 
+    func markClanSwitching() {
+        isClanSwitching = true
+    }
+
     func configure(clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
+        let hadAppsSection = hasChannelAppsSection
         channelApps = []
         isChannelAppsExpanded = true
+        if hadAppsSection && !isClanSwitching {
+            safeReloadData()
+        }
 
         UIView.performWithoutAnimation {
             if let url = bannerURL, !url.isEmpty {
@@ -436,7 +412,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
             }
         }
-        tableNode.view.contentOffset = .zero
+        if !isClanSwitching {
+            tableNode.view.contentOffset = .zero
+        }
         updateStickyHeaderPosition()
         DispatchQueue.main.async { [weak self] in
             self?.updateTableHeaderLayout()
@@ -445,8 +423,13 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
+        let oldIds = channelApps.map { $0.id }
+        let newIds = apps.map { $0.id }
+        guard oldIds != newIds else { return }
         channelApps = apps
-        scheduleReload()
+        if !isClanSwitching {
+            scheduleReload()
+        }
     }
 
     func updateMemberCount(_ count: Int) {
@@ -523,7 +506,6 @@ extension ChannelListContainerNode: ASTableDataSource {
             }
         }
         let catIdx = categoryIndex(forSection: section)
-        if state.isLoading && state.categories.isEmpty { return 1 }
         return rowsForSection(catIdx).count
     }
 
@@ -539,7 +521,7 @@ extension ChannelListContainerNode: ASTableDataSource {
             }
         }
         let catIdx = categoryIndex(forSection: indexPath.section)
-        if state.isLoading && state.categories.isEmpty { return { ChannelLoadingCellNode() } }
+
         let rows = rowsForSection(catIdx)
         guard indexPath.row < rows.count else { return { ASCellNode() } }
         let row = rows[indexPath.row]
@@ -610,25 +592,7 @@ extension ChannelListContainerNode: ASTableDelegate {
 // ChannelItemCellNode → ChannelItemCellNode.swift
 // ThreadItemCellNode  → ThreadItemCellNode.swift
 
-private final class ChannelLoadingCellNode: ASCellNode {
-    private let spinner: ASDisplayNode
 
-    override init() {
-        spinner = ASDisplayNode { UIActivityIndicatorView(style: .medium) }
-        super.init()
-        automaticallyManagesSubnodes = true
-        spinner.style.preferredSize = CGSize(width: 24, height: 24)
-        DispatchQueue.main.async { [weak spinner] in
-            (spinner?.view as? UIActivityIndicatorView)?.startAnimating()
-        }
-    }
-
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
-        center.style.height = ASDimensionMake(60)
-        return center
-    }
-}
 
 private final class CategorySectionHeaderView: UIView {
 

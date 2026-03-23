@@ -6,31 +6,47 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var imageNodes: [TransformImageNode] = []
     private var videoOverlayNodes: [ASDisplayNode] = []
     private var overlayCountNode: ASTextNode2?
+    private var overlayBgNode: ASDisplayNode?
     private var stickerNode: ASDisplayNode?
     private var attachments: [ParsedAttachment] = []
     private(set) var isUploading: Bool = false
 
     var onImageTapped: ((Int) -> Void)?
 
+    // Cached layout
+    private var cachedImageFrames: [CGRect] = []
+    private var cachedTotalSize: CGSize = .zero
+    private var isSingleImage = false
+    private var isSticker = false
+    private var isMultiple = false
+
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
     }
 
     func configure(media: [ParsedAttachment]) {
         // Clear previous
-        imageNodes.forEach { $0.reset() }
+        imageNodes.forEach { $0.removeFromSupernode(); $0.reset() }
         imageNodes.removeAll()
+        videoOverlayNodes.forEach { $0.removeFromSupernode() }
         videoOverlayNodes.removeAll()
+        overlayCountNode?.removeFromSupernode()
         overlayCountNode = nil
+        overlayBgNode?.removeFromSupernode()
+        overlayBgNode = nil
+        stickerNode?.removeFromSupernode()
         stickerNode = nil
         attachments = media
+        cachedImageFrames = []
 
         isUploading = media.contains { $0.isUploading }
 
         guard !media.isEmpty else { return }
 
         if media.count == 1, media[0].isSticker {
+            isSticker = true
+            isSingleImage = false
+            isMultiple = false
             let node = ASDisplayNode()
             node.setViewBlock {
                 let imageView = UIImageView()
@@ -39,25 +55,52 @@ final class MessageMediaContentNode: ASDisplayNode {
                 return imageView
             }
             stickerNode = node
+            addSubnode(node)
             loadStickerImage(url: media[0].url, into: node)
         } else if media.count == 1 {
+            isSticker = false
+            isSingleImage = true
+            isMultiple = false
             let node = TransformImageNode()
             node.contentAnimations = [.firstUpdate]
             imageNodes.append(node)
+            addSubnode(node)
             loadImage(at: 0, into: node, media: media[0], isMultiple: false)
+
+            if media[0].isVideo {
+                let overlay = makePlayOverlayNode()
+                videoOverlayNodes.append(overlay)
+                addSubnode(overlay)
+            }
+            if media[0].isUploading {
+                let overlay = makeUploadingOverlay()
+                videoOverlayNodes.append(overlay)
+                addSubnode(overlay)
+            }
         } else {
+            isSticker = false
+            isSingleImage = false
+            isMultiple = true
             let items = Array(media.prefix(4))
             for (i, att) in items.enumerated() {
                 let node = TransformImageNode()
                 node.contentAnimations = [.firstUpdate]
                 imageNodes.append(node)
+                addSubnode(node)
                 loadImage(at: i, into: node, media: att, isMultiple: true)
 
                 if att.isVideo {
                     let overlay = makePlayOverlayNode()
                     videoOverlayNodes.append(overlay)
+                    addSubnode(overlay)
+                } else if att.isUploading {
+                    let overlay = makeUploadingOverlay()
+                    videoOverlayNodes.append(overlay)
+                    addSubnode(overlay)
                 } else {
-                    videoOverlayNodes.append(ASDisplayNode()) // placeholder
+                    let placeholder = ASDisplayNode()
+                    placeholder.isHidden = true
+                    videoOverlayNodes.append(placeholder)
                 }
             }
             if media.count > 4 {
@@ -70,10 +113,150 @@ final class MessageMediaContentNode: ASDisplayNode {
                     ]
                 )
                 overlayCountNode = countNode
+                let bg = ASDisplayNode()
+                bg.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+                overlayBgNode = bg
+                addSubnode(bg)
+                addSubnode(countNode)
             }
         }
-        setNeedsLayout()
     }
+
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        let maxH = UIScreen.main.bounds.height * 0.5
+        cachedImageFrames = []
+
+        if isSticker {
+            let stickerSize: CGFloat = 120
+            cachedTotalSize = CGSize(width: stickerSize, height: stickerSize)
+            return cachedTotalSize
+        }
+
+        if isSingleImage {
+            let att = attachments[0]
+            var w = max(CGFloat(att.width ?? 300), 1)
+            var h = max(CGFloat(att.height ?? 200), 1)
+            let safeMaxW = max(maxWidth, 1)
+            let safeMaxH = max(maxH, 1)
+            let ratio = min(safeMaxW / w, safeMaxH / h, 1.0)
+            w = max(floor(w * ratio), 100)
+            h = max(floor(h * ratio), 80)
+
+            cachedImageFrames = [CGRect(x: 0, y: 0, width: w, height: h)]
+            cachedTotalSize = CGSize(width: w, height: h)
+
+            // Apply transform
+            if let node = imageNodes.first {
+                let args = TransformImageArguments(
+                    corners: ImageCorners(radius: 8.swh),
+                    imageSize: CGSize(width: w, height: h),
+                    boundingSize: CGSize(width: w, height: h),
+                    intrinsicInsets: .zero
+                )
+                let layout = node.asyncLayout()
+                let apply = layout(args)
+                apply()
+            }
+            return cachedTotalSize
+        }
+
+        if isMultiple {
+            let thumbH: CGFloat = max(120.sh, 1)
+            let spacing: CGFloat = 4.sw
+            let itemW = max((maxWidth - spacing) / 2, 1)
+            let items = Array(imageNodes.prefix(4))
+
+            var frames: [CGRect] = []
+            let row1Count = min(items.count, 2)
+            for i in 0..<row1Count {
+                frames.append(CGRect(x: CGFloat(i) * (itemW + spacing), y: 0, width: itemW, height: thumbH))
+            }
+
+            if items.count > 2 {
+                let row2Count = items.count - 2
+                for i in 0..<row2Count {
+                    frames.append(CGRect(x: CGFloat(i) * (itemW + spacing), y: thumbH + spacing, width: itemW, height: thumbH))
+                }
+            }
+
+            // Apply transform args
+            for (i, node) in items.enumerated() {
+                let args = TransformImageArguments(
+                    corners: ImageCorners(radius: 8.swh),
+                    imageSize: CGSize(width: itemW, height: thumbH),
+                    boundingSize: CGSize(width: itemW, height: thumbH),
+                    intrinsicInsets: .zero
+                )
+                let layout = node.asyncLayout()
+                let apply = layout(args)
+                apply()
+            }
+
+            cachedImageFrames = frames
+            let totalH = items.count > 2 ? thumbH * 2 + spacing : thumbH
+            cachedTotalSize = CGSize(width: maxWidth, height: totalH)
+            return cachedTotalSize
+        }
+
+        cachedTotalSize = .zero
+        return .zero
+    }
+
+    override func layout() {
+        super.layout()
+
+        if isSticker {
+            stickerNode?.frame = CGRect(origin: .zero, size: cachedTotalSize)
+            return
+        }
+
+        for (i, node) in imageNodes.enumerated() {
+            guard i < cachedImageFrames.count else { break }
+            node.frame = cachedImageFrames[i]
+        }
+
+        // Video overlays
+        if isSingleImage {
+            if let overlay = videoOverlayNodes.first, !overlay.isHidden {
+                let imgFrame = cachedImageFrames.first ?? bounds
+                if attachments.first?.isVideo == true {
+                    let sz: CGFloat = 48
+                    overlay.frame = CGRect(
+                        x: imgFrame.midX - sz / 2,
+                        y: imgFrame.midY - sz / 2,
+                        width: sz, height: sz
+                    )
+                } else if attachments.first?.isUploading == true {
+                    overlay.frame = imgFrame
+                }
+            }
+        } else if isMultiple {
+            for (i, overlay) in videoOverlayNodes.enumerated() {
+                guard i < cachedImageFrames.count, !overlay.isHidden else { continue }
+                if i < attachments.count, attachments[i].isVideo {
+                    let imgFrame = cachedImageFrames[i]
+                    let sz: CGFloat = 48
+                    overlay.frame = CGRect(x: imgFrame.midX - sz / 2, y: imgFrame.midY - sz / 2, width: sz, height: sz)
+                } else if i < attachments.count, attachments[i].isUploading {
+                    overlay.frame = cachedImageFrames[i]
+                }
+            }
+
+            // Overlay count on last image
+            if let countNode = overlayCountNode, let bg = overlayBgNode,
+               let lastFrame = cachedImageFrames.last {
+                bg.frame = lastFrame
+                let countSz = countNode.measure(lastFrame.size)
+                countNode.frame = CGRect(
+                    x: lastFrame.midX - countSz.width / 2,
+                    y: lastFrame.midY - countSz.height / 2,
+                    width: countSz.width, height: countSz.height
+                )
+            }
+        }
+    }
+
+    // MARK: - Loading
 
     private func loadStickerImage(url: String, into node: ASDisplayNode) {
         guard let imageURL = URL(string: url), !url.isEmpty else { return }
@@ -118,29 +301,6 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
     }
 
-    private func makeUploadingOverlay() -> ASDisplayNode {
-        let overlay = ASDisplayNode()
-        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        overlay.cornerRadius = 8.swh
-        overlay.clipsToBounds = true
-        overlay.automaticallyManagesSubnodes = true
-        overlay.isUserInteractionEnabled = false
-
-        let spinner = ASDisplayNode()
-        spinner.setViewBlock {
-            let indicator = UIActivityIndicatorView(style: .medium)
-            indicator.color = .white
-            indicator.startAnimating()
-            return indicator
-        }
-        spinner.style.preferredSize = CGSize(width: 36, height: 36)
-
-        overlay.layoutSpecBlock = { _, _ in
-            return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
-        }
-        return overlay
-    }
-
     override func didLoad() {
         super.didLoad()
         for (i, node) in imageNodes.enumerated() {
@@ -156,159 +316,30 @@ final class MessageMediaContentNode: ASDisplayNode {
         onImageTapped?(view.tag)
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        if let stickerNode = stickerNode {
-            let stickerSize: CGFloat = 120
-            stickerNode.style.preferredSize = CGSize(width: stickerSize, height: stickerSize)
-            let wrapper = ASWrapperLayoutSpec(layoutElement: stickerNode)
-            return ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: 0,
-                justifyContent: .start,
-                alignItems: .start,
-                children: [wrapper]
-            )
+    private func makeUploadingOverlay() -> ASDisplayNode {
+        let overlay = ASDisplayNode()
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        overlay.cornerRadius = 8.swh
+        overlay.clipsToBounds = true
+        overlay.isUserInteractionEnabled = false
+
+        let spinner = ASDisplayNode()
+        spinner.setViewBlock {
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.color = .white
+            indicator.startAnimating()
+            return indicator
         }
-
-        guard !imageNodes.isEmpty else {
-            return ASLayoutSpec()
-        }
-
-        let maxW = constrainedSize.max.width
-        let maxH = UIScreen.main.bounds.height * 0.5
-
-        if imageNodes.count == 1 {
-            return layoutSingleImage(maxW: maxW, maxH: maxH)
-        } else {
-            return layoutMultipleImages(maxW: maxW)
-        }
-    }
-
-    private func layoutSingleImage(maxW: CGFloat, maxH: CGFloat) -> ASLayoutSpec {
-        let att = attachments[0]
-        let node = imageNodes[0]
-
-        var w = max(CGFloat(att.width ?? 300), 1)
-        var h = max(CGFloat(att.height ?? 200), 1)
-        let safeMaxW = max(maxW, 1)
-        let safeMaxH = max(maxH, 1)
-        let ratio = min(safeMaxW / w, safeMaxH / h, 1.0)
-        w = max(floor(w * ratio), 100)
-        h = max(floor(h * ratio), 80)
-
-        node.style.preferredSize = CGSize(width: w, height: h)
-
-        let args = TransformImageArguments(
-            corners: ImageCorners(radius: 8.swh),
-            imageSize: CGSize(width: w, height: h),
-            boundingSize: CGSize(width: w, height: h),
-            intrinsicInsets: .zero
-        )
-        let layout = node.asyncLayout()
-        let apply = layout(args)
-        apply()
-
-        var imageSpec: ASLayoutElement = node
-
-        if att.isVideo {
-            let overlay = makePlayOverlayNode()
-            overlay.style.preferredSize = CGSize(width: 48, height: 48)
-            let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: overlay)
-            imageSpec = ASOverlayLayoutSpec(child: node, overlay: center)
-        } else if att.isUploading {
-            let overlay = makeUploadingOverlay()
-            imageSpec = ASOverlayLayoutSpec(child: node, overlay: overlay)
-        }
-
-        return ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 0,
-            justifyContent: .start,
-            alignItems: .start,
-            children: [imageSpec]
-        )
-    }
-
-    private func layoutMultipleImages(maxW: CGFloat) -> ASLayoutSpec {
-        let thumbH: CGFloat = max(120.sh, 1)
-        let spacing: CGFloat = 4.sw
-        let items = Array(imageNodes.prefix(4))
-
-        // Apply transform arguments to each image
-        for node in items {
-            let itemW = max((maxW - spacing) / 2, 1)
-            node.style.preferredSize = CGSize(width: itemW, height: thumbH)
-            let args = TransformImageArguments(
-                corners: ImageCorners(radius: 8.swh),
-                imageSize: CGSize(width: itemW, height: thumbH),
-                boundingSize: CGSize(width: itemW, height: thumbH),
-                intrinsicInsets: .zero
-            )
-            let layout = node.asyncLayout()
-            let apply = layout(args)
-            apply()
-        }
-
-        // Build row children — only add overlay if uploading
-        let rowItems: [ASLayoutElement] = items.enumerated().map { i, node in
-            if isUploading, i < attachments.count, attachments[i].isUploading {
-                return ASOverlayLayoutSpec(child: node, overlay: makeUploadingOverlay())
-            }
-            return node as ASLayoutElement
-        }
-
-        let row1Children = Array(rowItems.prefix(2))
-        let row1 = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: spacing,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: row1Children
-        )
-        row1.style.height = ASDimensionMake(thumbH)
-
-        var rows: [ASLayoutElement] = [row1]
-
-        if items.count > 2 {
-            let row2Items = Array(items[2...])
-            var row2Children: [ASLayoutElement] = Array(rowItems[2...])
-
-            // Add overlay count on last item if needed
-            if let countNode = overlayCountNode, let lastNode = row2Items.last {
-                let overlayBg = ASDisplayNode()
-                overlayBg.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-                let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: countNode)
-                let overlaid = ASOverlayLayoutSpec(child: lastNode, overlay: ASOverlayLayoutSpec(child: overlayBg, overlay: center))
-                row2Children[row2Children.count - 1] = overlaid
-            }
-
-            let row2 = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: spacing,
-                justifyContent: .start,
-                alignItems: .stretch,
-                children: row2Children
-            )
-            row2.style.height = ASDimensionMake(thumbH)
-            rows.append(row2)
-        }
-
-        return ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: spacing,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: rows
-        )
+        spinner.style.preferredSize = CGSize(width: 36, height: 36)
+        overlay.addSubnode(spinner)
+        return overlay
     }
 
     private func makePlayOverlayNode() -> ASDisplayNode {
         let container = ASDisplayNode()
-        container.automaticallyManagesSubnodes = true
         container.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         container.cornerRadius = 24
         container.clipsToBounds = true
-        container.style.preferredSize = CGSize(width: 48, height: 48)
         container.isUserInteractionEnabled = false
 
         let playIcon = ASImageNode()
@@ -321,14 +352,12 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
         playIcon.contentMode = .scaleAspectFit
-        playIcon.style.preferredSize = CGSize(width: 22, height: 22)
+        container.addSubnode(playIcon)
 
+        // Manual centering in layout
         container.layoutSpecBlock = { _, _ in
-            return ASCenterLayoutSpec(
-                centeringOptions: .XY,
-                sizingOptions: [],
-                child: playIcon
-            )
+            playIcon.style.preferredSize = CGSize(width: 22, height: 22)
+            return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: playIcon)
         }
 
         return container

@@ -20,4 +20,6 @@ protocol AccountContext: AnyObject {
     func logout()
     func refreshSession() async throws
     func recoverFromForeground()
+    func waitForSessionReady() async
+    func getToken() async -> String?
 }
