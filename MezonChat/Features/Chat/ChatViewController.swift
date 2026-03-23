@@ -111,6 +111,7 @@ final class ChatViewController: ViewController {
     let context: AccountContext
 
     private let needsReloadPipe = ValuePipe<Void>()
+    private let metadataOnlyPipe = ValuePipe<Void>()
     var needsReloadSignal: Signal<Void, NoError> { needsReloadPipe.signal() }
     private let stateDisposables = DisposableSet()
 
@@ -208,9 +209,7 @@ final class ChatViewController: ViewController {
             self?.readyToLoadMore = true
         }
 
-        stateDisposables.add((needsReloadSignal |> deliverOnMainQueue).start(next: { [weak self] _ in
-            DispatchQueue.main.async { self?.scrollToBottomIfNeeded() }
-        }))
+
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
@@ -254,12 +253,12 @@ final class ChatViewController: ViewController {
         markChannelAsRead()
     }
     private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
-    private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v; needsReloadPipe.putNext(()) }
-    private func setHasMoreNewer(_ v: Bool) { hasMoreNewer = v; needsReloadPipe.putNext(()) }
-    private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; needsReloadPipe.putNext(()) }
-    private func setIsLoadingNewer(_ v: Bool) { isLoadingNewer = v; needsReloadPipe.putNext(()) }
-    private func setIsLoading(_ v: Bool) { isLoading = v; needsReloadPipe.putNext(()) }
-    private func setErrorMessage(_ v: String?) { errorMessage = v; needsReloadPipe.putNext(()) }
+    private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v; metadataOnlyPipe.putNext(()) }
+    private func setHasMoreNewer(_ v: Bool) { hasMoreNewer = v; metadataOnlyPipe.putNext(()) }
+    private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; metadataOnlyPipe.putNext(()) }
+    private func setIsLoadingNewer(_ v: Bool) { isLoadingNewer = v; metadataOnlyPipe.putNext(()) }
+    private func setIsLoading(_ v: Bool) { isLoading = v; metadataOnlyPipe.putNext(()) }
+    private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
     func start() {
         context.currentClanId = clanId
@@ -383,8 +382,6 @@ final class ChatViewController: ViewController {
                 if response.messages.isEmpty {
                     response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 30, topicId: 0, token: token)
                 }
-                // Initial load uses direction 2 (AROUND) which may return fewer than limit
-                // Assume there are older messages unless the response is very small
                 self.setHasMoreOlder(response.messages.count > 1)
                 self.context.account.postbox.write { tx in tx.addMessages(response.messages.map { MessageRecord(from: $0) }) }
             } catch {
@@ -439,7 +436,6 @@ final class ChatViewController: ViewController {
         shouldScrollToBottom = false
         setIsLoadingNewer(true)
         Task { @MainActor in
-            defer { self.setIsLoadingNewer(false) }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
@@ -450,9 +446,19 @@ final class ChatViewController: ViewController {
                     self.context.account.postbox.write { tx in
                         tx.addMessages(response.messages.map { MessageRecord(from: $0) })
                     }
+                    // Delay clearing loading flag so the postbox observer can update
+                    // messages before applyTransition checks isLoadingNewer.
+                    // Without this, isLoadingNewer becomes false before messages arrive,
+                    // causing applyTransition to auto-scroll instead of preserving position.
+                    DispatchQueue.main.async {
+                        self.setIsLoadingNewer(false)
+                    }
+                } else {
+                    self.setIsLoadingNewer(false)
                 }
             } catch {
                 self.setHasMoreNewer(false)
+                self.setIsLoadingNewer(false)
             }
         }
     }
@@ -464,7 +470,6 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor in
             do {
-                // direction 2 = AROUND_TIMESTAMP, messageId 0 = latest
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
                     messageId: 0, direction: 2, limit: 30, topicId: 0, token: token
@@ -601,7 +606,12 @@ final class ChatViewController: ViewController {
             var lastHasMoreOlder = self.hasMoreOlder
             var lastHasMoreNewer = self.hasMoreNewer
             subscriber.putNext(self.currentState)
-            return (self.needsReloadPipe.signal()
+            let merged = Signal<Void, NoError> { subscriber in
+                let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
+                let d2 = self.metadataOnlyPipe.signal().start(next: { subscriber.putNext(()) })
+                return ActionDisposable { d1.dispose(); d2.dispose() }
+            }
+            return (merged
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
             ).start(next: { newState in
@@ -867,8 +877,8 @@ final class ChatViewController: ViewController {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false
-        messagesNode.tableView.addGestureRecognizer(tap)
-        messagesNode.tableView.keyboardDismissMode = .onDrag
+        messagesNode.listView.view.addGestureRecognizer(tap)
+        messagesNode.listView.scroller.keyboardDismissMode = .onDrag
     }
 
     private func updateInputBarHeight(_ newHeight: CGFloat) {
@@ -999,14 +1009,18 @@ final class ChatViewController: ViewController {
     }
 
     private func scrollToBottomIfNeeded() {
-        // Don't override a pending jump-to-message
         guard messagesNode.pendingJumpMessageId == nil else { return }
-        // applyDiff already handled smooth scroll for incoming messages
         guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
-        let tv = messagesNode.tableView
-        guard tv.numberOfSections > 0, tv.numberOfRows(inSection: 0) > 0 else { return }
-        tv.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: false)
+        messagesNode.listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [],
+            options: [.Synchronous],
+            scrollToItem: ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
     }
 
     private func showMessageActions(_ display: ChatMessageDisplay) {
@@ -1022,10 +1036,13 @@ final class ChatViewController: ViewController {
     }
 
     private func dismissMessageHighlight(for messageId: String) {
-        let tableNode = messagesNode.tableNode
-        for cell in tableNode.visibleNodes {
-            if let bubble = cell as? MessageBubbleNode {
-                bubble.dismissHighlight()
+        messagesNode.listView.forEachItemNode { node in
+            if let itemNode = node as? ChatMessageItemNode {
+                for sub in itemNode.subnodes ?? [] {
+                    if let bubble = sub as? MessageBubbleNode {
+                        bubble.dismissHighlight()
+                    }
+                }
             }
         }
     }

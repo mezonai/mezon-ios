@@ -1,7 +1,7 @@
 import AsyncDisplayKit
 import UIKit
 
-final class WelcomeCellNode: ASCellNode {
+final class WelcomeCellNode: ASDisplayNode {
 
     private let iconContainerNode = ASDisplayNode()
     private let iconImageNode = ASImageNode()
@@ -13,7 +13,6 @@ final class WelcomeCellNode: ASCellNode {
     init(channelLabel: String, channelType: Int32, isPrivate: Bool, isAgeRestricted: Bool) {
         super.init()
         automaticallyManagesSubnodes = true
-        selectionStyle = .none
         backgroundColor = .clear
 
         let t = UIColor.theme

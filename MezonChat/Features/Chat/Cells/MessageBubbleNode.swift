@@ -1,7 +1,7 @@
 import UIKit
 import AsyncDisplayKit
 
-final class MessageBubbleNode: ASCellNode {
+final class MessageBubbleNode: ASDisplayNode {
 
     private let avatarContainerNode = ASDisplayNode()
     private let avatarImageNode = TransformImageNode()
@@ -18,7 +18,7 @@ final class MessageBubbleNode: ASCellNode {
     private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
 
-    private let display: ChatMessageDisplay
+    let display: ChatMessageDisplay
     private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasContent: Bool
@@ -55,7 +55,6 @@ final class MessageBubbleNode: ASCellNode {
 
         super.init()
         automaticallyManagesSubnodes = true
-        selectionStyle = .none
         backgroundColor = .clear
 
         let t = UIColor.theme

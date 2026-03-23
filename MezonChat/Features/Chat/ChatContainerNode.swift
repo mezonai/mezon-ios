@@ -20,8 +20,7 @@ struct ChatInteraction {
 
 final class ChatContainerNode: ASDisplayNode {
 
-    let tableNode: ASTableNode
-    var tableView: UITableView { tableNode.view }
+    let listView: ListView
 
     private let headerNode = ChatHeaderNode()
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
@@ -39,14 +38,16 @@ final class ChatContainerNode: ASDisplayNode {
     }()
 
     private(set) var state: ChatState = .empty
+    private var committedItems: [ListViewItem] = []
     private var committedMessageIds: [String] = []
     private let interaction: ChatInteraction
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
+    private var isLoadMoreGuardActive = false
 
     init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction) {
-        tableNode = ASTableNode(style: .plain)
+        listView = ListView()
         self.interaction = interaction
 
         let t = UIColor.theme
@@ -68,17 +69,45 @@ final class ChatContainerNode: ASDisplayNode {
 
         super.init()
         addSubnode(headerNode)
-        addSubnode(tableNode)
+        addSubnode(listView)
         addSubnode(skeletonNode)
         addSubnode(loadingOlderNode)
         addSubnode(loadingNewerNode)
         addSubnode(emptyNode)
         addSubnode(jumpToPresentNode)
 
-        tableNode.dataSource = self
-        tableNode.delegate = self
+        listView.rotated = true
+        listView.transform = CATransform3DMakeScale(1.0, -1.0, 1.0)
+        listView.preloadPages = true
 
-        headerNode.onBackTapped = { [weak self] in self?.interaction.onBackTapped() }
+        listView.visibleContentOffsetChanged = { [weak self] offset, _ in
+            guard let self else { return }
+            switch offset {
+            case let .known(value):
+                let atBottom = value < 100
+                self.interaction.onScrolledToBottom(atBottom)
+                self.setJumpButtonVisible(value >= 100)
+            case .none, .unknown:
+                break
+            }
+        }
+
+        listView.displayedItemRangeChanged = { [weak self] range, _ in
+            guard let self, !self.isLoadMoreGuardActive else { return }
+            guard let loadedRange = range.loadedRange else { return }
+            let totalItems = self.committedMessageIds.count
+            guard totalItems > 0 else { return }
+
+            if loadedRange.lastIndex >= totalItems - 5 {
+                let hasWelcome = self.state.messages.contains(where: { $0.isWelcome })
+                if !hasWelcome {
+                    self.interaction.onScrolledNearTop()
+                }
+            }
+            if loadedRange.firstIndex <= 2 {
+                self.interaction.onScrolledNearBottom()
+            }
+        }
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -92,12 +121,12 @@ final class ChatContainerNode: ASDisplayNode {
                 let isEmpty = newState.messages.isEmpty
                 self.emptyNode.isHidden = !(!newState.isLoading && isEmpty)
 
-                if self.tableNode.bounds.width > 0 {
-                    self.applyDiff(old: oldState, new: newState)
+                if self.listView.bounds.width > 0 {
+                    self.applyTransition(old: oldState, new: newState)
                 } else {
                     self.needsReloadAfterLayout = true
                 }
-                if !isEmpty {
+                if !isEmpty && oldState.messages.isEmpty {
                     self.interaction.onMessagesReloaded?()
                 }
                 if self.pendingJumpMessageId != nil {
@@ -116,13 +145,8 @@ final class ChatContainerNode: ASDisplayNode {
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         layer.insertSublayer(gradientLayer, at: 0)
 
-        tableNode.backgroundColor = .clear
-        tableNode.view.transform = CGAffineTransform(scaleX: 1, y: -1)
-        tableNode.view.separatorStyle = .none
-        tableNode.view.showsVerticalScrollIndicator = false
-        tableNode.contentInset = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
+        listView.backgroundColor = .clear
 
-        // Jump to present button
         let btnSize: CGFloat = 40
         jumpToPresentNode.setImage(
             UIImage(systemName: "chevron.down")?.withConfiguration(
@@ -167,7 +191,7 @@ final class ChatContainerNode: ASDisplayNode {
                 .foregroundColor: t.textDisabled,
             ]
         )
-        safeReloadData()
+        reloadAllItems()
     }
 
     private func updateHeader(state: ChatState) {
@@ -202,13 +226,13 @@ final class ChatContainerNode: ASDisplayNode {
     private var needsReloadAfterLayout = false
 
     func updateLayout(layout: ContainerViewLayout, inputBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
-        let hadZeroFrame = tableNode.bounds.width == 0
+        let hadZeroFrame = listView.bounds.width == 0
         lastLayout = layout
         lastInputBarHeight = inputBarHeight
         applyFrameLayout(transition: transition)
-        if hadZeroFrame && tableNode.bounds.width > 0 || needsReloadAfterLayout {
+        if hadZeroFrame && listView.bounds.width > 0 || needsReloadAfterLayout {
             needsReloadAfterLayout = false
-            safeReloadData()
+            reloadAllItems()
         }
     }
 
@@ -216,7 +240,6 @@ final class ChatContainerNode: ASDisplayNode {
         guard let jumpId = pendingJumpMessageId,
               state.messages.contains(where: { $0.id == jumpId }) else { return }
         pendingJumpMessageId = nil
-        tableNode.waitUntilAllUpdatesAreProcessed()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             self?.scrollToMessage(id: jumpId)
         }
@@ -225,117 +248,168 @@ final class ChatContainerNode: ASDisplayNode {
     func scrollToMessage(id: String) {
         guard let messageIndex = state.messages.firstIndex(where: { $0.id == id }) else { return }
         let row = state.messages.count - 1 - messageIndex
-        let indexPath = IndexPath(row: row, section: 0)
-        guard row >= 0, row < tableNode.numberOfRows(inSection: 0) else { return }
-        tableNode.scrollToRow(at: indexPath, at: .middle, animated: true)
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [],
+            options: [.Synchronous],
+            scrollToItem: ListViewScrollToItem(index: row, position: .center(.top), animated: true, curve: .Default(duration: nil), directionHint: .Down),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             guard let self else { return }
             guard let idx = self.state.messages.firstIndex(where: { $0.id == id }) else { return }
-            let currentRow = self.state.messages.count - 1 - idx
-            let currentPath = IndexPath(row: currentRow, section: 0)
-            guard let node = self.tableNode.nodeForRow(at: currentPath) as? MessageBubbleNode else { return }
-            node.flashHighlight()
+            let itemIndex = self.state.messages.count - 1 - idx
+            self.listView.forEachItemNode { node in
+                if let node = node as? ChatMessageItemNode, node.index == itemIndex {
+                    if let bubble = self.findBubble(in: node) {
+                        bubble.flashHighlight()
+                    }
+                }
+            }
         }
     }
 
-    private func safeReloadData() {
-        committedMessageIds = state.messages.map { $0.id }
-        tableNode.reloadData()
+    private func findBubble(in node: ListViewItemNode) -> MessageBubbleNode? {
+        for sub in node.subnodes ?? [] {
+            if let bubble = sub as? MessageBubbleNode { return bubble }
+        }
+        return nil
     }
 
-    private func applyDiff(old: ChatState, new: ChatState) {
+    private func buildItems(from state: ChatState) -> [ListViewItem] {
+        let messages = state.messages
+        var items: [ListViewItem] = []
+        for display in messages.reversed() {
+            if display.isWelcome {
+                items.append(ChatWelcomeItem(
+                    channelLabel: state.channelLabel,
+                    channelType: state.channelType,
+                    isPrivate: state.isPrivate,
+                    isAgeRestricted: state.isAgeRestricted
+                ))
+            } else {
+                items.append(ChatMessageItem(display: display, interaction: interaction))
+            }
+        }
+        return items
+    }
+
+    private func reloadAllItems() {
+        let items = buildItems(from: state)
+        let newIds = state.messages.reversed().map { $0.id }
+
+        var deleteItems: [ListViewDeleteItem] = []
+        for i in (0..<committedMessageIds.count).reversed() {
+            deleteItems.append(ListViewDeleteItem(index: i, directionHint: nil))
+        }
+
+        var insertItems: [ListViewInsertItem] = []
+        for (i, item) in items.enumerated() {
+            insertItems.append(ListViewInsertItem(index: i, previousIndex: nil, item: item, directionHint: nil))
+        }
+
+        committedItems = items
+        committedMessageIds = Array(newIds)
+
+        listView.transaction(
+            deleteIndices: deleteItems,
+            insertIndicesAndItems: insertItems,
+            updateIndicesAndItems: [],
+            options: [.Synchronous, .LowLatency],
+            scrollToItem: nil,
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
+    }
+
+    private func applyTransition(old: ChatState, new: ChatState) {
         didAutoScrollForNewMessages = false
         let oldIds = committedMessageIds
-        let newIds = new.messages.map { $0.id }
+        let newIds: [String] = new.messages.reversed().map { $0.id }
 
         guard oldIds != newIds else { return }
 
-        if oldIds.isEmpty || newIds.isEmpty {
-            safeReloadData()
+        if oldIds.isEmpty {
+            reloadAllItems()
             return
         }
 
-        if newIds.count > oldIds.count && newIds.hasPrefix(oldIds) {
-            let insertCount = newIds.count - oldIds.count
-            let insertPaths = (0..<insertCount).map { IndexPath(row: $0, section: 0) }
-            let reloadPath = IndexPath(row: 0, section: 0)
+        let newItems = buildItems(from: new)
 
-            let tableView = tableNode.view
-            let oldOffset = tableView.contentOffset
-            let isNearBottom = oldOffset.y < 200
+        let oldSet = Set(oldIds)
+        let newSet = Set(newIds)
+        let removedIds = oldSet.subtracting(newSet)
+        let addedIds = newSet.subtracting(oldSet)
 
-            let oldContentHeight = tableView.contentSize.height
+        guard !addedIds.isEmpty || !removedIds.isEmpty else { return }
 
-            committedMessageIds = newIds
-            tableNode.performBatch(animated: false) {
-                self.tableNode.insertRows(at: insertPaths, with: .none)
-                self.tableNode.reloadRows(at: [reloadPath], with: .none)
-            } completion: { _ in }
-            tableNode.waitUntilAllUpdatesAreProcessed()
+        let oldIndexMap = Dictionary(uniqueKeysWithValues: oldIds.enumerated().map { ($1, $0) })
 
-            if isNearBottom {
-                didAutoScrollForNewMessages = true
-                tableView.setContentOffset(.zero, animated: true)
-            } else {
-                let newContentHeight = tableView.contentSize.height
-                let heightDiff = newContentHeight - oldContentHeight
-                if heightDiff > 0 {
-                    tableView.contentOffset = CGPoint(
-                        x: oldOffset.x,
-                        y: oldOffset.y + heightDiff
-                    )
+        var deleteItems: [ListViewDeleteItem] = []
+        for id in removedIds {
+            if let idx = oldIndexMap[id] {
+                deleteItems.append(ListViewDeleteItem(index: idx, directionHint: nil))
+            }
+        }
+        deleteItems.sort { $0.index > $1.index }
+
+        let hasNewAtBottom = !addedIds.isEmpty && newIds.first.map({ addedIds.contains($0) }) ?? false
+        let hasOlderAtTop = !addedIds.isEmpty && newIds.last.map({ addedIds.contains($0) }) ?? false
+
+        var insertItems: [ListViewInsertItem] = []
+        for (newIdx, id) in newIds.enumerated() {
+            if addedIds.contains(id) {
+                let hint: ListViewItemOperationDirectionHint = hasNewAtBottom ? .Up : .Down
+                insertItems.append(ListViewInsertItem(index: newIdx, previousIndex: nil, item: newItems[newIdx], directionHint: hint))
+            }
+        }
+        insertItems.sort { $0.index < $1.index }
+
+        let isNearBottom: Bool = {
+            if case let .known(offset) = self.listView.visibleContentOffset() {
+                return offset < 200
+            }
+            return true
+        }()
+
+        isLoadMoreGuardActive = true
+
+        committedItems = newItems
+        committedMessageIds = Array(newIds)
+
+        var scrollToItem: ListViewScrollToItem?
+        let isLoadMoreResult = old.isLoadingMore || old.isLoadingNewer
+            || new.isLoadingMore || new.isLoadingNewer
+        let isBatchInsert = addedIds.count > 1
+        if isNearBottom && hasNewAtBottom && !isLoadMoreResult && !isBatchInsert {
+            didAutoScrollForNewMessages = true
+            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Default(duration: nil), directionHint: .Up)
+        }
+
+        let stationaryRange: (Int, Int)?
+        if scrollToItem == nil && !addedIds.isEmpty {
+            stationaryRange = (0, Int.max)
+        } else {
+            stationaryRange = nil
+        }
+
+        listView.transaction(
+            deleteIndices: deleteItems,
+            insertIndicesAndItems: insertItems,
+            updateIndicesAndItems: [],
+            options: [.Synchronous, .LowLatency],
+            scrollToItem: scrollToItem,
+            stationaryItemRange: stationaryRange,
+            updateOpaqueState: nil,
+            completion: { [weak self] _ in
+                DispatchQueue.main.async {
+                    self?.isLoadMoreGuardActive = false
                 }
             }
-            return
-        }
-
-        if newIds.count > oldIds.count && newIds.hasSuffix(oldIds) {
-            let insertCount = newIds.count - oldIds.count
-            let baseRow = oldIds.count
-            let insertPaths = (0..<insertCount).map { IndexPath(row: baseRow + $0, section: 0) }
-
-            let tableView = tableNode.view
-            let oldContentHeight = tableView.contentSize.height
-            let oldOffset = tableView.contentOffset
-
-            committedMessageIds = newIds
-            tableNode.performBatch(animated: false) {
-                self.tableNode.insertRows(at: insertPaths, with: .none)
-            } completion: { _ in }
-            tableNode.waitUntilAllUpdatesAreProcessed()
-            let newContentHeight = tableView.contentSize.height
-            let heightDiff = newContentHeight - oldContentHeight
-            if heightDiff > 0 {
-                tableView.contentOffset = CGPoint(
-                    x: oldOffset.x,
-                    y: oldOffset.y + heightDiff
-                )
-            }
-            return
-        }
-
-        if newIds.count == oldIds.count {
-            let msgCount = newIds.count
-            var changedRows: [IndexPath] = []
-            for i in 0..<msgCount {
-                if oldIds[i] != newIds[i] {
-                    changedRows.append(IndexPath(row: msgCount - 1 - i, section: 0))
-                }
-            }
-            if !changedRows.isEmpty && changedRows.count <= 5 {
-                committedMessageIds = newIds
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                tableNode.performBatch(animated: false) {
-                    self.tableNode.reloadRows(at: changedRows, with: .none)
-                } completion: { _ in }
-                CATransaction.commit()
-                return
-            }
-        }
-
-        safeReloadData()
+        )
     }
 
     private func applyFrameLayout(transition: ContainedViewLayoutTransition) {
@@ -355,7 +429,19 @@ final class ChatContainerNode: ASDisplayNode {
             width: fullWidth,
             height: max(layout.size.height - headerFrame.maxY - inputBarHeight - layout.intrinsicInsets.bottom, 0)
         )
-        transition.updateFrame(node: tableNode, frame: tvFrame)
+        transition.updateFrame(node: listView, frame: tvFrame)
+
+        let listInsets = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [],
+            options: [.Synchronous],
+            scrollToItem: nil,
+            updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: tvFrame.size, insets: listInsets, duration: 0, curve: .Default(duration: nil)),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
 
         transition.updateFrame(node: skeletonNode, frame: tvFrame)
 
@@ -398,90 +484,5 @@ final class ChatContainerNode: ASDisplayNode {
     override func layout() {
         super.layout()
         applyFrameLayout(transition: .immediate)
-    }
-}
-
-extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
-
-    func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
-        return state.messages.count
-    }
-
-    func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
-        let msgCount = state.messages.count
-        let currentState = state
-        let chatInteraction = interaction
-
-        let messageIndex = msgCount - 1 - indexPath.row
-        guard messageIndex >= 0, messageIndex < msgCount else {
-            return { ASCellNode() }
-        }
-
-        let display = currentState.messages[messageIndex]
-
-        if display.isWelcome {
-            let label = currentState.channelLabel
-            let channelType = currentState.channelType
-            let isPrivate = currentState.isPrivate
-            let isAgeRestricted = currentState.isAgeRestricted
-            return {
-                let node = WelcomeCellNode(
-                    channelLabel: label,
-                    channelType: channelType,
-                    isPrivate: isPrivate,
-                    isAgeRestricted: isAgeRestricted
-                )
-                node.transform = CATransform3DMakeScale(1, -1, 1)
-                return node
-            }
-        }
-
-        return {
-            let node = MessageBubbleNode(display: display, interaction: chatInteraction)
-            node.transform = CATransform3DMakeScale(1, -1, 1)
-            return node
-        }
-    }
-
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let atBottom = scrollView.contentOffset.y < 100
-        interaction.onScrolledToBottom(atBottom)
-
-        setJumpButtonVisible(scrollView.contentOffset.y >= 100)
-
-        let visiblePaths = tableNode.indexPathsForVisibleRows()
-        guard !visiblePaths.isEmpty else { return }
-
-        let maxVisibleRow = visiblePaths.map(\.row).max() ?? 0
-        let totalRows = tableNode.numberOfRows(inSection: 0)
-
-        if maxVisibleRow >= totalRows - 5 && totalRows > 0 {
-            interaction.onScrolledNearTop()
-        }
-
-        let minVisibleRow = visiblePaths.map(\.row).min() ?? 0
-        if minVisibleRow <= 2 && scrollView.contentOffset.y <= 0 && totalRows > 0 {
-            interaction.onScrolledNearBottom()
-        }
-    }
-}
-
-extension Array where Element: Equatable {
-    fileprivate func hasSuffix(_ other: [Element]) -> Bool {
-        guard other.count <= count else { return false }
-        guard !other.isEmpty else { return true }
-        let offset = count - other.count
-        for i in 0..<other.count {
-            if self[offset + i] != other[i] { return false }
-        }
-        return true
-    }
-    fileprivate func hasPrefix(_ other: [Element]) -> Bool {
-        guard other.count <= count else { return false }
-        guard !other.isEmpty else { return true }
-        for i in 0..<other.count {
-            if self[i] != other[i] { return false }
-        }
-        return true
     }
 }
