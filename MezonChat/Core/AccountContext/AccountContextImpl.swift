@@ -190,7 +190,6 @@ final class AccountContextImpl: AccountContext {
         )
         setLoggedIn(true)
         account.network.updateBaseURL(from: saved)
-        markSessionReady()
 
         SessionRefreshManager.shared.refreshOnAppLaunch(
             session: saved,
@@ -198,12 +197,16 @@ final class AccountContextImpl: AccountContext {
                 guard let self else { return }
                 self.applySession(newSession, user: self.currentUser, connectSocket: true)
                 self.registerFCMTokenIfNeeded()
+                self.markSessionReady()
             },
             onExpired: { [weak self] in
+                self?.markSessionReady()
                 SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
             },
             onReady: { [weak self] in
                 guard let self else { return }
+                // Fallback: mark ready on timeout even if refresh hasn't completed
+                self.markSessionReady()
                 onReady(self)
             }
         )

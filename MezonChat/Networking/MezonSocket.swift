@@ -113,6 +113,7 @@ final class MezonSocket: NSObject {
         urlSession?.invalidateAndCancel()
         urlSession = nil
         isConnected = false
+        NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
@@ -134,6 +135,7 @@ final class MezonSocket: NSObject {
 
     private func cleanupForReconnect() {
         isConnected = false
+        NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -481,6 +483,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.reconnectAttempts = 0
             self.hasTriedRefreshSinceConnect = false
             AppLogger.app.info("MezonSocket connected")
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
             self.onConnected?()
         }
     }
@@ -493,6 +496,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
     ) {
         Task { @MainActor in
             self.isConnected = false
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
             self.onDisconnect?()
             AppLogger.app.info("MezonSocket disconnected (code: \(closeCode.rawValue))")
 

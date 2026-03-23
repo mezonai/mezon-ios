@@ -94,23 +94,13 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyCrossfadeReload() {
-        let snapshot = tableNode.view.snapshotView(afterScreenUpdates: false)
-        if let snapshot {
-            snapshot.frame = tableNode.view.bounds
-            tableNode.view.addSubview(snapshot)
-        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         tableNode.reloadData()
+        tableNode.view.contentOffset = .zero
         CATransaction.commit()
         committedSectionCount = totalSections
-        if let snapshot {
-            UIView.animate(withDuration: 0.2, animations: {
-                snapshot.alpha = 0
-            }, completion: { _ in
-                snapshot.removeFromSuperview()
-            })
-        }
+        updateStickyHeaderPosition()
     }
 
     private func applyBatchStructureUpdate(prev: ChannelListState, new: ChannelListState) {
@@ -387,12 +377,16 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: headerH)
     }
 
+    func markClanSwitching() {
+        isClanSwitching = true
+    }
+
     func configure(clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
         let hadAppsSection = hasChannelAppsSection
         channelApps = []
         isChannelAppsExpanded = true
-        if hadAppsSection {
+        if hadAppsSection && !isClanSwitching {
             safeReloadData()
         }
 
@@ -418,7 +412,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
             }
         }
-        tableNode.view.contentOffset = .zero
+        if !isClanSwitching {
+            tableNode.view.contentOffset = .zero
+        }
         updateStickyHeaderPosition()
         DispatchQueue.main.async { [weak self] in
             self?.updateTableHeaderLayout()
@@ -427,8 +423,13 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
+        let oldIds = channelApps.map { $0.id }
+        let newIds = apps.map { $0.id }
+        guard oldIds != newIds else { return }
         channelApps = apps
-        scheduleReload()
+        if !isClanSwitching {
+            scheduleReload()
+        }
     }
 
     func updateMemberCount(_ count: Int) {

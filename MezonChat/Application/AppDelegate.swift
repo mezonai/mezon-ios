@@ -55,6 +55,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         hostView.containerView.backgroundColor = UIColor.theme.primary
         nativeWindow.makeKeyAndVisible()
 
+        NetworkMonitor.shared.start()
+        NetworkBannerView.install(on: nativeWindow)
+        SocketStatusBannerView.install(on: nativeWindow)
+
         let statusBarHost = SceneStatusBarHost(scene: windowScene)
         let mainWindow = Window1(hostView: hostView, statusBarHost: statusBarHost)
         self.mainWindow = mainWindow
@@ -165,8 +169,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     @objc private func handleWillEnterForeground() {
         accountContext?.recoverFromForeground()
-        UIApplication.shared.applicationIconBadgeNumber = 0
-        UserDefaults(suiteName: "group.mezon.mobile")?.set(0, forKey: "badgeCount")
     }
 
     deinit { disposables.dispose() }
@@ -251,6 +253,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
 extension Notification.Name {
     static let mezonNavigateToChannel = Notification.Name("MezonNavigateToChannel")
+    static let mezonSocketStatusChanged = Notification.Name("MezonSocketStatusChanged")
 }
 
 extension AppDelegate: MessagingDelegate {

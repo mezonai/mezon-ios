@@ -341,6 +341,44 @@ final class Postbox {
         return result
     }
 
+    func getChannelDescription(channelId: Int64) -> (clanId: Int64, channel: Mezon_Api_ChannelDescription)? {
+        let clanRecords = read { tx in tx.getClans() }
+        let clanIds = clanRecords.map(\.id)
+
+        for clanId in clanIds {
+            guard let data = getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) else { continue }
+            let channels = decodeChannelList(data)
+            if let ch = channels.first(where: { $0.channelID == channelId }) {
+                return (clanId, ch)
+            }
+        }
+        return nil
+    }
+
+    func getDMChannelDescription(channelId: Int64) -> Mezon_Api_ChannelDescription? {
+        guard let data = getPreferenceData(key: PreferencesKeys.dmChannelList) else { return nil }
+        let channels = decodeChannelList(data)
+        return channels.first(where: { $0.channelID == channelId })
+    }
+
+    private func decodeChannelList(_ data: Data) -> [Mezon_Api_ChannelDescription] {
+        guard data.count >= 4 else { return [] }
+        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result: [Mezon_Api_ChannelDescription] = []
+        var offset = 4
+        for _ in 0..<count {
+            guard offset + 4 <= data.count else { break }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            offset += 4
+            guard offset + Int(len) <= data.count else { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+                result.append(m)
+            }
+            offset += Int(len)
+        }
+        return result
+    }
+
     func clearAll() {
         queue.async { [self] in
             authDb.rawExecute("DELETE FROM auth_sessions")

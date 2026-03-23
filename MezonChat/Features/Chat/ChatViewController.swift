@@ -265,6 +265,7 @@ final class ChatViewController: ViewController {
         context.currentClanId = clanId
         context.currentChannel = channel
         ActiveChannelTracker.currentChannelId = channel.channelID
+        Self.removeDeliveredNotifications(forChannelId: channel.channelID)
 
         let channelIdStr = "\(channel.channelID)"
         stateDisposables.add(
@@ -282,12 +283,45 @@ final class ChatViewController: ViewController {
                     self.channelMeta = view.record
                 })
         )
-        fetchMessages()
-        joinChat()
-        fetchNotificationSetting()
-        fetchChannelPermissions()
-        fetchChannelMembers()
-        checkBanStatus()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.context.waitForSessionReady()
+            self.fetchMessages()
+            self.joinChat()
+            self.fetchNotificationSetting()
+            self.fetchChannelPermissions()
+            self.fetchChannelMembers()
+            self.checkBanStatus()
+        }
+    }
+
+    static func removeDeliveredNotifications(forChannelId channelId: Int64) {
+        let center = UNUserNotificationCenter.current()
+        let channelIdStr = "\(channelId)"
+
+        center.getDeliveredNotifications { notifications in
+            let matchingIds = notifications
+                .filter { notification in
+                    let userInfo = notification.request.content.userInfo
+                    if let ch = userInfo["channel"] as? String { return ch == channelIdStr }
+                    if let ch = userInfo["channel"] { return "\(ch)" == channelIdStr }
+                    return false
+                }
+                .map { $0.request.identifier }
+
+            guard !matchingIds.isEmpty else { return }
+            center.removeDeliveredNotifications(withIdentifiers: matchingIds)
+
+            let shared = UserDefaults(suiteName: "group.mezon.mobile")
+            let current = shared?.integer(forKey: "badgeCount") ?? 0
+            let newCount = max(0, current - matchingIds.count)
+            shared?.set(newCount, forKey: "badgeCount")
+
+            DispatchQueue.main.async {
+                UIApplication.shared.applicationIconBadgeNumber = newCount
+            }
+        }
     }
 
     func onLeave() {
@@ -338,12 +372,12 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages() {
-        guard let token = context.session?.token else { return }
         setIsLoading(true)
         setErrorMessage(nil)
 
         Task { @MainActor in
             defer { self.setIsLoading(false) }
+            guard let token = await self.context.getToken() else { return }
             do {
                 var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: 0, token: token)
                 if response.messages.isEmpty {
@@ -364,14 +398,12 @@ final class ChatViewController: ViewController {
         guard let token = context.session?.token else { return }
         guard messages.count >= 10 else { return }
 
-        // Skip welcome messages (senderId "0") to find the real oldest message
         guard let oldest = messages.first(where: { !$0.isWelcome }),
               let msgId = Int64(oldest.message.id), msgId != 0 else {
             setHasMoreOlder(false)
             return
         }
 
-        // Prevent duplicate fetch with same oldest ID (postbox may not have emitted yet)
         guard msgId != lastFetchedOlderMessageId else { return }
         lastFetchedOlderMessageId = msgId
 
@@ -379,12 +411,10 @@ final class ChatViewController: ViewController {
         Task { @MainActor in
             defer { self.setIsLoadingMore(false) }
             do {
-                // direction 3 = BEFORE_TIMESTAMP (older)
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
                     messageId: msgId, direction: 3, limit: 30, topicId: 0, token: token
                 )
-                // Only stop when response is empty — API may return < limit even when more exist
                 self.setHasMoreOlder(!response.messages.isEmpty)
                 if !response.messages.isEmpty {
                     self.context.account.postbox.write { tx in
@@ -392,8 +422,7 @@ final class ChatViewController: ViewController {
                     }
                 }
             } catch {
-                self.lastFetchedOlderMessageId = nil
-                self.setErrorMessage(error.localizedDescription)
+                self.setHasMoreOlder(false)
             }
         }
     }
@@ -404,17 +433,14 @@ final class ChatViewController: ViewController {
         guard messages.count >= 10 else { return }
         guard let newest = messages.last, let msgId = Int64(newest.message.id) else { return }
 
-        // Prevent duplicate fetch with same newest ID
         guard msgId != lastFetchedNewerMessageId else { return }
         lastFetchedNewerMessageId = msgId
 
-        // Don't auto-scroll to bottom when loading more — preserve scroll position
         shouldScrollToBottom = false
         setIsLoadingNewer(true)
         Task { @MainActor in
             defer { self.setIsLoadingNewer(false) }
             do {
-                // direction 1 = AFTER_TIMESTAMP (newer)
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
                     messageId: msgId, direction: 1, limit: 30, topicId: 0, token: token
@@ -426,8 +452,7 @@ final class ChatViewController: ViewController {
                     }
                 }
             } catch {
-                self.lastFetchedNewerMessageId = nil
-                self.setErrorMessage(error.localizedDescription)
+                self.setHasMoreNewer(false)
             }
         }
     }
@@ -976,6 +1001,8 @@ final class ChatViewController: ViewController {
     private func scrollToBottomIfNeeded() {
         // Don't override a pending jump-to-message
         guard messagesNode.pendingJumpMessageId == nil else { return }
+        // applyDiff already handled smooth scroll for incoming messages
+        guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
         let tv = messagesNode.tableView
         guard tv.numberOfSections > 0, tv.numberOfRows(inSection: 0) > 0 else { return }

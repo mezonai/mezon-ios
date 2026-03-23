@@ -135,6 +135,7 @@ targets:
     info:
       path: NotificationService/Info.plist
       properties:
+        CFBundleDisplayName: $(PRODUCT_NAME)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService

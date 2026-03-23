@@ -169,11 +169,29 @@ final class DirectMessagesViewController: ViewController {
                 }
                 self.setDirectMessages(sorted)
                 self.setIsEmpty(sorted.isEmpty)
+                self.context.account.postbox.setPreferenceData(
+                    key: PreferencesKeys.dmChannelList,
+                    value: self.encodeDMChannelList(sorted)
+                )
             } catch {
                 self.setErrorMessage(error.localizedDescription)
                 AppLogger.network.error("fetchDirectMessages: \(error)")
             }
         }
+    }
+
+    private func encodeDMChannelList(_ channels: [Mezon_Api_ChannelDescription]) -> Data {
+        var result = Data()
+        var count = UInt32(channels.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for ch in channels {
+            if let d = try? ch.serializedData() {
+                var len = UInt32(d.count)
+                result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+                result.append(d)
+            }
+        }
+        return result
     }
 
     var currentState: DirectMessagesState {

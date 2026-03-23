@@ -42,11 +42,12 @@ final class HomeViewController: BaseViewController {
         guard let pending = AppDelegate.pendingNavigation else { return }
         AppDelegate.pendingNavigation = nil
 
-        let ready = clanListVC.clansLoadedSignal |> filter { $0 } |> take(1) |> deliverOnMainQueue
-        navigationDisposable.set(ready.start(next: { [weak self] _ in
-            guard self != nil else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.context.waitForSessionReady()
+            guard self.context.session?.token != nil else { return }
             NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
-        }))
+        }
     }
 
     private func applyInitialClanSelection() {
@@ -171,8 +172,14 @@ final class HomeViewController: BaseViewController {
             return
         }
 
+        if let cached = context.account.postbox.getDMChannelDescription(channelId: channelIdInt) {
+            rootController.pushViewController(ChatViewController(clanId: 0, channel: cached, context: context), animated: false)
+            return
+        }
+
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await self.context.waitForSessionReady()
             guard let token = await self.context.getToken() else { return }
             do {
                 let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
@@ -211,6 +218,18 @@ final class HomeViewController: BaseViewController {
         if let ch = channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
             channelListVC.selectWithoutNavigation(channelId: channelIdInt)
             let chatVC = ChatViewController(clanId: channelListVC.clanId, channel: ch, context: context)
+            navigationController?.pushViewController(chatVC, animated: false)
+            return
+        }
+
+        if let (cachedClanId, cachedChannel) = context.account.postbox.getChannelDescription(channelId: channelIdInt) {
+            if cachedClanId != clanListVC.selectedClanId,
+               let clan = clanListVC.clans.first(where: { $0.clanID == cachedClanId }) {
+                clanListVC.select(clan: clan)
+                channelListVC.configure(clanId: cachedClanId, clanName: clan.clanName, bannerURL: clan.banner)
+            }
+            channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            let chatVC = ChatViewController(clanId: cachedClanId, channel: cachedChannel, context: context)
             navigationController?.pushViewController(chatVC, animated: false)
             return
         }

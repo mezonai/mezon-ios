@@ -11,12 +11,19 @@ struct ChannelListState: Equatable {
     static let empty = ChannelListState(categories: [], allChannels: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
 
     static func == (lhs: ChannelListState, rhs: ChannelListState) -> Bool {
-        lhs.isLoading == rhs.isLoading
-        && lhs.selectedChannelId == rhs.selectedChannelId
-        && lhs.errorMessage == rhs.errorMessage
-        && lhs.categories.count == rhs.categories.count
-        && lhs.allChannels.count == rhs.allChannels.count
-        && zip(lhs.categories, rhs.categories).allSatisfy { $0.id == $1.id && $0.isCollapsed == $1.isCollapsed && $0.channels.count == $1.channels.count }
+        guard lhs.isLoading == rhs.isLoading
+            && lhs.selectedChannelId == rhs.selectedChannelId
+            && lhs.errorMessage == rhs.errorMessage
+            && lhs.categories.count == rhs.categories.count
+            && lhs.allChannels.count == rhs.allChannels.count
+            && zip(lhs.categories, rhs.categories).allSatisfy({ $0.id == $1.id && $0.isCollapsed == $1.isCollapsed && $0.channels.count == $1.channels.count })
+        else { return false }
+        return zip(lhs.allChannels, rhs.allChannels).allSatisfy {
+            $0.channelID == $1.channelID
+            && $0.countMessUnread == $1.countMessUnread
+            && $0.lastSentMessage.timestampSeconds == $1.lastSentMessage.timestampSeconds
+            && $0.lastSeenMessage.timestampSeconds == $1.lastSeenMessage.timestampSeconds
+        }
     }
 }
 
@@ -186,8 +193,12 @@ final class ChannelListViewController: ViewController {
     }
 
     func configure(clanId: Int64, clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+        guard clanId != self.clanId else {
+            channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+            return
+        }
+        channelListNode.markClanSwitching()
         channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
-        guard clanId != self.clanId else { return }
         restoreCachedChannelApps(clanId: clanId)
         load(clanId: clanId, clanName: clanName)
     }

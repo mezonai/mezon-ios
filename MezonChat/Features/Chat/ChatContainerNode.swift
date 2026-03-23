@@ -43,8 +43,7 @@ final class ChatContainerNode: ASDisplayNode {
     private let interaction: ChatInteraction
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
-
-    // MARK: - Init
+    private(set) var didAutoScrollForNewMessages = false
 
     init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction) {
         tableNode = ASTableNode(style: .plain)
@@ -110,8 +109,6 @@ final class ChatContainerNode: ASDisplayNode {
 
     deinit { disposables.dispose() }
 
-    // MARK: - Lifecycle
-
     override func didLoad() {
         super.didLoad()
 
@@ -159,8 +156,6 @@ final class ChatContainerNode: ASDisplayNode {
         }
     }
 
-    // MARK: - Theme
-
     func applyTheme() {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
@@ -174,8 +169,6 @@ final class ChatContainerNode: ASDisplayNode {
         )
         safeReloadData()
     }
-
-    // MARK: - State helpers
 
     private func updateHeader(state: ChatState) {
         headerNode.configure(
@@ -236,10 +229,8 @@ final class ChatContainerNode: ASDisplayNode {
         guard row >= 0, row < tableNode.numberOfRows(inSection: 0) else { return }
         tableNode.scrollToRow(at: indexPath, at: .middle, animated: true)
 
-        // Wait for scroll animation to complete before highlighting
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             guard let self else { return }
-            // Re-check row index since table may have updated
             guard let idx = self.state.messages.firstIndex(where: { $0.id == id }) else { return }
             let currentRow = self.state.messages.count - 1 - idx
             let currentPath = IndexPath(row: currentRow, section: 0)
@@ -248,101 +239,87 @@ final class ChatContainerNode: ASDisplayNode {
         }
     }
 
-    // MARK: - Differential updates
-
     private func safeReloadData() {
         committedMessageIds = state.messages.map { $0.id }
         tableNode.reloadData()
     }
 
     private func applyDiff(old: ChatState, new: ChatState) {
+        didAutoScrollForNewMessages = false
         let oldIds = committedMessageIds
         let newIds = new.messages.map { $0.id }
 
         guard oldIds != newIds else { return }
 
-        // Empty → populated or vice versa: full reload
         if oldIds.isEmpty || newIds.isEmpty {
             safeReloadData()
             return
         }
 
-        // Case 1: New messages appended at end of array (newest messages)
-        // Inverted table: inserting at row 0 pushes existing content up
         if newIds.count > oldIds.count && newIds.hasPrefix(oldIds) {
             let insertCount = newIds.count - oldIds.count
             let insertPaths = (0..<insertCount).map { IndexPath(row: $0, section: 0) }
             let reloadPath = IndexPath(row: 0, section: 0)
 
-            // Save content state before insert to preserve scroll position
             let tableView = tableNode.view
-            let oldContentHeight = tableView.contentSize.height
             let oldOffset = tableView.contentOffset
+            let isNearBottom = oldOffset.y < 200
+
+            let oldContentHeight = tableView.contentSize.height
 
             committedMessageIds = newIds
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
             tableNode.performBatch(animated: false) {
                 self.tableNode.insertRows(at: insertPaths, with: .none)
                 self.tableNode.reloadRows(at: [reloadPath], with: .none)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                // Always adjust offset so visible messages stay in place
-                let newContentHeight = self.tableNode.view.contentSize.height
+            } completion: { _ in }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+
+            if isNearBottom {
+                didAutoScrollForNewMessages = true
+                tableView.setContentOffset(.zero, animated: true)
+            } else {
+                let newContentHeight = tableView.contentSize.height
                 let heightDiff = newContentHeight - oldContentHeight
                 if heightDiff > 0 {
-                    self.tableNode.view.contentOffset = CGPoint(
+                    tableView.contentOffset = CGPoint(
                         x: oldOffset.x,
                         y: oldOffset.y + heightDiff
                     )
                 }
             }
-            CATransaction.commit()
             return
         }
 
-        // Case 2: Older messages prepended at start of array
-        // Inverted table: these appear at the top (high row indices)
         if newIds.count > oldIds.count && newIds.hasSuffix(oldIds) {
             let insertCount = newIds.count - oldIds.count
             let baseRow = oldIds.count
-            // Insert rows use AFTER-state indices → at the top of inverted table
             let insertPaths = (0..<insertCount).map { IndexPath(row: baseRow + $0, section: 0) }
 
-            // Save content state before insert to restore scroll position
             let tableView = tableNode.view
             let oldContentHeight = tableView.contentSize.height
             let oldOffset = tableView.contentOffset
 
             committedMessageIds = newIds
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
             tableNode.performBatch(animated: false) {
                 self.tableNode.insertRows(at: insertPaths, with: .none)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                // Adjust content offset to keep visible messages in place
-                let newContentHeight = self.tableNode.view.contentSize.height
-                let heightDiff = newContentHeight - oldContentHeight
-                if heightDiff > 0 {
-                    self.tableNode.view.contentOffset = CGPoint(
-                        x: oldOffset.x,
-                        y: oldOffset.y + heightDiff
-                    )
-                }
+            } completion: { _ in }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+            let newContentHeight = tableView.contentSize.height
+            let heightDiff = newContentHeight - oldContentHeight
+            if heightDiff > 0 {
+                tableView.contentOffset = CGPoint(
+                    x: oldOffset.x,
+                    y: oldOffset.y + heightDiff
+                )
             }
-            CATransaction.commit()
             return
         }
 
-        // Case 3: Same count — some IDs replaced (e.g. pending → real message)
-        // Only reload the changed rows instead of full reloadData
         if newIds.count == oldIds.count {
             let msgCount = newIds.count
             var changedRows: [IndexPath] = []
             for i in 0..<msgCount {
                 if oldIds[i] != newIds[i] {
-                    // Inverted table: array index i → row (msgCount - 1 - i)
                     changedRows.append(IndexPath(row: msgCount - 1 - i, section: 0))
                 }
             }
@@ -358,7 +335,6 @@ final class ChatContainerNode: ASDisplayNode {
             }
         }
 
-        // All other cases: full reload
         safeReloadData()
     }
 
@@ -405,7 +381,6 @@ final class ChatContainerNode: ASDisplayNode {
                 height: 44
             ))
 
-        // Jump to present button — bottom-right, 10pt from right, 28pt from bottom of table
         let btnS: CGFloat = 40
         transition.updateFrame(node: jumpToPresentNode, frame: CGRect(
             x: fullWidth - btnS - 10,
@@ -425,8 +400,6 @@ final class ChatContainerNode: ASDisplayNode {
         applyFrameLayout(transition: .immediate)
     }
 }
-
-// MARK: - ASTableDataSource & ASTableDelegate
 
 extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
 
@@ -474,22 +447,18 @@ extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
         let atBottom = scrollView.contentOffset.y < 100
         interaction.onScrolledToBottom(atBottom)
 
-        // Show/hide jump to present button (inverted table: offset > 100 = scrolled away from latest)
         setJumpButtonVisible(scrollView.contentOffset.y >= 100)
 
-        // Use visible index paths for reliable load-more detection in inverted table
         let visiblePaths = tableNode.indexPathsForVisibleRows()
         guard !visiblePaths.isEmpty else { return }
 
         let maxVisibleRow = visiblePaths.map(\.row).max() ?? 0
         let totalRows = tableNode.numberOfRows(inSection: 0)
 
-        // Near oldest end (high row numbers in inverted table = top of screen)
         if maxVisibleRow >= totalRows - 5 && totalRows > 0 {
             interaction.onScrolledNearTop()
         }
 
-        // Near newest end (low row numbers in inverted table = bottom of screen)
         let minVisibleRow = visiblePaths.map(\.row).min() ?? 0
         if minVisibleRow <= 2 && scrollView.contentOffset.y <= 0 && totalRows > 0 {
             interaction.onScrolledNearBottom()
@@ -497,10 +466,7 @@ extension ChatContainerNode: ASTableDataSource, ASTableDelegate {
     }
 }
 
-// MARK: - Array diff helpers
-
 extension Array where Element: Equatable {
-    /// newIds.hasSuffix(oldIds) → old IDs are at the end of new IDs (new messages appended at end)
     fileprivate func hasSuffix(_ other: [Element]) -> Bool {
         guard other.count <= count else { return false }
         guard !other.isEmpty else { return true }
