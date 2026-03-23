@@ -5,69 +5,73 @@ final class MessageReactionsNode: ASDisplayNode {
 
     private var pillNodes: [ReactionPillNode] = []
 
+    private struct LayoutRow {
+        var frames: [(index: Int, frame: CGRect)]
+        var height: CGFloat
+    }
+    private var cachedRows: [LayoutRow] = []
+    private var cachedTotalSize: CGSize = .zero
+
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
     }
 
     func configure(reactions: [ParsedReaction]) {
+        pillNodes.forEach { $0.removeFromSupernode() }
         pillNodes = reactions.map { ReactionPillNode(reaction: $0) }
-        setNeedsLayout()
+        pillNodes.forEach { addSubnode($0) }
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+    func measureSize(maxWidth: CGFloat) -> CGSize {
         guard !pillNodes.isEmpty else {
-            return ASLayoutSpec()
+            cachedTotalSize = .zero
+            cachedRows = []
+            return .zero
         }
 
-        // Flow layout: wrap pills into rows
-        let maxW = constrainedSize.max.width
         let spacing: CGFloat = 6.sw
+        var rows: [LayoutRow] = []
+        var currentRowFrames: [(index: Int, frame: CGRect)] = []
+        var currentX: CGFloat = 0
+        var currentRowMaxH: CGFloat = 0
+        var totalY: CGFloat = 0
 
-        var rows: [ASStackLayoutSpec] = []
-        var currentRowChildren: [ASLayoutElement] = []
-        var currentRowWidth: CGFloat = 0
+        for (i, pill) in pillNodes.enumerated() {
+            let pillSize = pill.calculatedSize(maxWidth: maxWidth)
+            let neededWidth = currentRowFrames.isEmpty ? pillSize.width : pillSize.width + spacing
 
-        for pill in pillNodes {
-            let pillSize = pill.calculatedSize(maxWidth: maxW)
-            let neededWidth = currentRowChildren.isEmpty ? pillSize.width : pillSize.width + spacing
-
-            if currentRowWidth + neededWidth > maxW && !currentRowChildren.isEmpty {
-                let row = ASStackLayoutSpec(
-                    direction: .horizontal,
-                    spacing: spacing,
-                    justifyContent: .start,
-                    alignItems: .center,
-                    children: currentRowChildren
-                )
-                rows.append(row)
-                currentRowChildren = []
-                currentRowWidth = 0
+            if currentX + neededWidth > maxWidth && !currentRowFrames.isEmpty {
+                rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
+                totalY += currentRowMaxH + spacing
+                currentRowFrames = []
+                currentX = 0
+                currentRowMaxH = 0
             }
 
-            pill.style.preferredSize = pillSize
-            currentRowChildren.append(pill)
-            currentRowWidth += currentRowChildren.count == 1 ? pillSize.width : pillSize.width + spacing
+            let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
+            currentRowFrames.append((index: i, frame: CGRect(x: x, y: totalY, width: pillSize.width, height: pillSize.height)))
+            currentX = x + pillSize.width
+            currentRowMaxH = max(currentRowMaxH, pillSize.height)
         }
 
-        if !currentRowChildren.isEmpty {
-            let row = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: spacing,
-                justifyContent: .start,
-                alignItems: .center,
-                children: currentRowChildren
-            )
-            rows.append(row)
+        if !currentRowFrames.isEmpty {
+            rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
+            totalY += currentRowMaxH
         }
 
-        return ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: spacing,
-            justifyContent: .start,
-            alignItems: .start,
-            children: rows
-        )
+        cachedRows = rows
+        cachedTotalSize = CGSize(width: maxWidth, height: totalY)
+        return cachedTotalSize
+    }
+
+    override func layout() {
+        super.layout()
+        for row in cachedRows {
+            for entry in row.frames {
+                guard entry.index < pillNodes.count else { continue }
+                pillNodes[entry.index].frame = entry.frame
+            }
+        }
     }
 }
 
@@ -83,9 +87,10 @@ final class ReactionPillNode: ASDisplayNode {
     private static let emojiSize: CGFloat = 20
     private static let pillHeight: CGFloat = 28
 
+    private var cachedCountSize: CGSize = .zero
+
     init(reaction: ParsedReaction) {
         super.init()
-        automaticallyManagesSubnodes = true
 
         let t = UIColor.theme
 
@@ -101,6 +106,7 @@ final class ReactionPillNode: ASDisplayNode {
 
         emojiImageNode.contentMode = .scaleAspectFit
         emojiImageNode.clipsToBounds = true
+        addSubnode(emojiImageNode)
 
         let fallbackText = !reaction.emoji.isEmpty ? reaction.emoji : "?"
         emojiFallbackNode.attributedText = NSAttributedString(
@@ -109,6 +115,7 @@ final class ReactionPillNode: ASDisplayNode {
                 .font: UIFont.systemFont(ofSize: 16.sf),
             ]
         )
+        addSubnode(emojiFallbackNode)
 
         countNode.attributedText = NSAttributedString(
             string: "\(reaction.count)",
@@ -117,6 +124,7 @@ final class ReactionPillNode: ASDisplayNode {
                 .foregroundColor: t.textStrong,
             ]
         )
+        addSubnode(countNode)
 
         let url = MezonConfig.emojiImageURL(emojiId: reaction.emojiId)
         if let url = url {
@@ -132,13 +140,8 @@ final class ReactionPillNode: ASDisplayNode {
     }
 
     func calculatedSize(maxWidth: CGFloat) -> CGSize {
-        let countSize = countNode.attributedText?.boundingRect(
-            with: CGSize(width: maxWidth, height: Self.pillHeight),
-            options: .usesLineFragmentOrigin,
-            context: nil
-        ).size ?? .zero
-
-        let width = 6.sw + Self.emojiSize + 4.sw + ceil(countSize.width) + 6.sw
+        cachedCountSize = countNode.measure(CGSize(width: maxWidth, height: Self.pillHeight))
+        let width = 6.sw + Self.emojiSize + 4.sw + ceil(cachedCountSize.width) + 6.sw
         return CGSize(width: width, height: Self.pillHeight.sh)
     }
 
@@ -158,24 +161,18 @@ final class ReactionPillNode: ASDisplayNode {
         imageTask?.resume()
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+    override func layout() {
+        super.layout()
         let emojiSz = Self.emojiSize
-        emojiImageNode.style.preferredSize = CGSize(width: emojiSz, height: emojiSz)
-        emojiFallbackNode.style.preferredSize = CGSize(width: emojiSz, height: emojiSz)
+        let insetH: CGFloat = 6.sw
+        let spacing: CGFloat = 4.sw
+        let centerY = bounds.height / 2
 
-        let emojiNode: ASLayoutElement = emojiImageNode.isHidden ? emojiFallbackNode : emojiImageNode
+        let emojiX = insetH
+        emojiImageNode.frame = CGRect(x: emojiX, y: centerY - emojiSz / 2, width: emojiSz, height: emojiSz)
+        emojiFallbackNode.frame = CGRect(x: emojiX, y: centerY - emojiSz / 2, width: emojiSz, height: emojiSz)
 
-        let row = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 4.sw,
-            justifyContent: .center,
-            alignItems: .center,
-            children: [emojiNode, countNode]
-        )
-
-        let insets = UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw)
-        let inset = ASInsetLayoutSpec(insets: insets, child: row)
-        inset.style.height = ASDimensionMake(Self.pillHeight.sh)
-        return inset
+        let countX = emojiX + emojiSz + spacing
+        countNode.frame = CGRect(x: countX, y: centerY - cachedCountSize.height / 2, width: cachedCountSize.width, height: cachedCountSize.height)
     }
 }

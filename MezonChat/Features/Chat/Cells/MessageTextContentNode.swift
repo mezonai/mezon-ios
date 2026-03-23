@@ -14,9 +14,10 @@ final class MessageTextContentNode: ASDisplayNode {
     private var currentAttrText: NSAttributedString?
     private var hasEmoji = false
 
+    private var cachedTextSize: CGSize = .zero
+
     override init() {
         super.init()
-        automaticallyManagesSubnodes = true
     }
 
     override func didLoad() {
@@ -66,6 +67,9 @@ final class MessageTextContentNode: ASDisplayNode {
         }
         currentAttrText = attrText
 
+        textNode?.removeFromSupernode()
+        emojiLabelNode?.removeFromSupernode()
+
         if containsEmoji {
             textNode = nil
             let node = ASDisplayNode { [weak self] () -> UIView in
@@ -74,6 +78,7 @@ final class MessageTextContentNode: ASDisplayNode {
                 return view
             }
             emojiLabelNode = node
+            addSubnode(node)
         } else {
             emojiLabelNode = nil
             let tn = ASTextNode2()
@@ -87,25 +92,38 @@ final class MessageTextContentNode: ASDisplayNode {
             ]
             tn.attributedText = attrText
             textNode = tn
+            addSubnode(tn)
         }
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+    func measureSize(maxWidth: CGFloat) -> CGSize {
         if let emojiLabelNode, let attrText = currentAttrText {
-            var maxWidth = constrainedSize.max.width
-            if maxWidth > 10000 || maxWidth == .infinity {
-                maxWidth = UIScreen.main.bounds.width - 80
+            var safeMaxW = maxWidth
+            if safeMaxW > 10000 || safeMaxW == .infinity {
+                safeMaxW = UIScreen.main.bounds.width - 80
             }
-            let size = Self.textSize(for: attrText, maxWidth: maxWidth)
-            emojiLabelNode.style.preferredSize = CGSize(width: maxWidth, height: size.height)
-            emojiLabelNode.style.maxWidth = ASDimensionMake(maxWidth)
-            return ASWrapperLayoutSpec(layoutElement: emojiLabelNode)
+            let size = Self.textSize(for: attrText, maxWidth: safeMaxW)
+            cachedTextSize = CGSize(width: safeMaxW, height: size.height)
+            return cachedTextSize
         }
         if let textNode {
-            textNode.style.maxWidth = ASDimensionMake(constrainedSize.max.width)
-            return ASWrapperLayoutSpec(layoutElement: textNode)
+            let size = textNode.measure(CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
+            cachedTextSize = size
+            return size
         }
-        return ASLayoutSpec()
+        cachedTextSize = .zero
+        return .zero
+    }
+
+    override func layout() {
+        super.layout()
+        let size = bounds.size
+        if let emojiLabelNode {
+            emojiLabelNode.frame = CGRect(origin: .zero, size: CGSize(width: size.width, height: cachedTextSize.height))
+        }
+        if let textNode {
+            textNode.frame = CGRect(origin: .zero, size: cachedTextSize)
+        }
     }
 
     private static func textSize(for attrText: NSAttributedString, maxWidth: CGFloat) -> CGSize {
@@ -156,8 +174,6 @@ final class MessageTextContentNode: ASDisplayNode {
     }
 }
 
-// MARK: - ASTextNodeDelegate
-
 extension MessageTextContentNode: ASTextNodeDelegate {
 
     func textNode(_ textNode: ASTextNode, shouldHighlightLinkAttribute attribute: String, value: Any, at point: CGPoint) -> Bool {
@@ -178,8 +194,6 @@ extension MessageTextContentNode: ASTextNodeDelegate {
         }
     }
 }
-
-// MARK: - EmojiTextView
 
 final class EmojiTextView: UIView {
 

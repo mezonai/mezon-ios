@@ -79,7 +79,7 @@ final class ChatMessageItemNode: ListViewItemNode {
             }
 
             let constrainedSize = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let measuredSize = bubble.layoutThatFits(ASSizeRange(min: CGSize(width: width, height: 0), max: constrainedSize)).size
+            let measuredSize = bubble.measureSize(width: width)
 
             let nodeLayout = ListViewItemNodeLayout(
                 contentSize: CGSize(width: width, height: measuredSize.height),

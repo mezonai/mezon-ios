@@ -9,10 +9,14 @@ final class WelcomeCellNode: ASDisplayNode {
     private let subtitleNode = ASTextNode2()
 
     private static let iconSize: CGFloat = 70
+    private static let iconImageSize: CGFloat = 36
+
+    private var cachedTitleSize: CGSize = .zero
+    private var cachedSubtitleSize: CGSize = .zero
+    private var cachedTotalSize: CGSize = .zero
 
     init(channelLabel: String, channelType: Int32, isPrivate: Bool, isAgeRestricted: Bool) {
         super.init()
-        automaticallyManagesSubnodes = true
         backgroundColor = .clear
 
         let t = UIColor.theme
@@ -21,6 +25,7 @@ final class WelcomeCellNode: ASDisplayNode {
         iconContainerNode.backgroundColor = t.secondaryLight
         iconContainerNode.cornerRadius = Self.iconSize / 2
         iconContainerNode.clipsToBounds = true
+        addSubnode(iconContainerNode)
 
         let iconName: String
         switch channelType {
@@ -48,6 +53,7 @@ final class WelcomeCellNode: ASDisplayNode {
         iconImageNode.image = image?.withRenderingMode(.alwaysTemplate)
         iconImageNode.tintColor = t.textStrong
         iconImageNode.contentMode = .scaleAspectFit
+        iconContainerNode.addSubnode(iconImageNode)
 
         titleNode.attributedText = NSAttributedString(
             string: "Welcome to \(name)",
@@ -57,6 +63,7 @@ final class WelcomeCellNode: ASDisplayNode {
             ]
         )
         titleNode.maximumNumberOfLines = 0
+        addSubnode(titleNode)
 
         subtitleNode.attributedText = NSAttributedString(
             string: "This is the start of the \(name) channel",
@@ -66,31 +73,43 @@ final class WelcomeCellNode: ASDisplayNode {
             ]
         )
         subtitleNode.maximumNumberOfLines = 0
+        addSubnode(subtitleNode)
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+    func measureSize(width: CGFloat) -> CGSize {
+        let insetH: CGFloat = 10.sw
+        let insetV: CGFloat = 30.sh
+        let spacing: CGFloat = 10.sh
+        let contentW = width - insetH * 2
+
+        cachedTitleSize = titleNode.measure(CGSize(width: contentW, height: .greatestFiniteMagnitude))
+        cachedSubtitleSize = subtitleNode.measure(CGSize(width: contentW, height: .greatestFiniteMagnitude))
+
+        let totalH = insetV + Self.iconSize + spacing + cachedTitleSize.height + spacing + cachedSubtitleSize.height + insetV
+        cachedTotalSize = CGSize(width: width, height: totalH)
+        return cachedTotalSize
+    }
+
+    override func layout() {
+        super.layout()
+        let insetH: CGFloat = 10.sw
+        let insetV: CGFloat = 30.sh
+        let spacing: CGFloat = 10.sh
         let iconSz = Self.iconSize
-        iconImageNode.style.preferredSize = CGSize(width: 36, height: 36)
+        let imgSz = Self.iconImageSize
+        var y = insetV
 
-        let iconCenter = ASCenterLayoutSpec(
-            centeringOptions: .XY,
-            sizingOptions: [],
-            child: iconImageNode
+        iconContainerNode.frame = CGRect(x: insetH, y: y, width: iconSz, height: iconSz)
+        iconImageNode.frame = CGRect(
+            x: (iconSz - imgSz) / 2,
+            y: (iconSz - imgSz) / 2,
+            width: imgSz, height: imgSz
         )
-        iconCenter.style.preferredSize = CGSize(width: iconSz, height: iconSz)
+        y += iconSz + spacing
 
-        iconContainerNode.style.preferredSize = CGSize(width: iconSz, height: iconSz)
-        let iconSpec = ASBackgroundLayoutSpec(child: iconCenter, background: iconContainerNode)
+        titleNode.frame = CGRect(x: insetH, y: y, width: cachedTitleSize.width, height: cachedTitleSize.height)
+        y += cachedTitleSize.height + spacing
 
-        let column = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 10.sh,
-            justifyContent: .start,
-            alignItems: .start,
-            children: [iconSpec, titleNode, subtitleNode]
-        )
-
-        let insets = UIEdgeInsets(top: 30.sh, left: 10.sw, bottom: 30.sh, right: 10.sw)
-        return ASInsetLayoutSpec(insets: insets, child: column)
+        subtitleNode.frame = CGRect(x: insetH, y: y, width: cachedSubtitleSize.width, height: cachedSubtitleSize.height)
     }
 }

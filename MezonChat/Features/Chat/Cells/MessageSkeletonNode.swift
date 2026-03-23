@@ -9,11 +9,18 @@ final class MessageSkeletonCellNode: ASCellNode {
     private let longLineNode: ASDisplayNode?
     private var shimmerLayers: [CAGradientLayer] = []
 
+    private let showLongLine: Bool
+
     init(showLongLine: Bool) {
+        self.showLongLine = showLongLine
         longLineNode = showLongLine ? ASDisplayNode() : nil
         super.init()
-        automaticallyManagesSubnodes = true
         selectionStyle = .none
+
+        addSubnode(avatarNode)
+        addSubnode(shortLineNode)
+        addSubnode(normalLineNode)
+        if let longLineNode { addSubnode(longLineNode) }
     }
 
     override func didLoad() {
@@ -37,41 +44,46 @@ final class MessageSkeletonCellNode: ASCellNode {
         }
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        avatarNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
-        shortLineNode.style.preferredSize = CGSize(width: 100.sf, height: 12.sf)
-        normalLineNode.style.preferredSize = CGSize(width: 200.sf, height: 12.sf)
-
-        var lines: [ASLayoutElement] = [shortLineNode, normalLineNode]
-        if let longLine = longLineNode {
-            longLine.style.preferredSize = CGSize(width: 260.sf, height: 12.sf)
-            lines.append(longLine)
-        }
-
-        let linesStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8.sf,
-            justifyContent: .start,
-            alignItems: .start,
-            children: lines
-        )
-        linesStack.style.flexShrink = 1
-
-        let row = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 12.sf,
-            justifyContent: .start,
-            alignItems: .start,
-            children: [avatarNode, linesStack]
-        )
-
-        return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 10.sf, left: 14.sf, bottom: 10.sf, right: 14.sf),
-            child: row
-        )
+    override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
+        let inset: CGFloat = 14.sf
+        let avatarSz: CGFloat = 40.sf
+        let lineH: CGFloat = 12.sf
+        let lineSpacing: CGFloat = 8.sf
+        let lineCount: CGFloat = showLongLine ? 3 : 2
+        let linesH = lineH * lineCount + lineSpacing * (lineCount - 1)
+        let height = inset + max(avatarSz, linesH) + inset
+        return CGSize(width: constrainedSize.width, height: height)
     }
 
-    // MARK: - Shimmer
+    override func layout() {
+        super.layout()
+        let inset: CGFloat = 14.sf
+        let avatarSz: CGFloat = 40.sf
+        let lineH: CGFloat = 12.sf
+        let lineSpacing: CGFloat = 8.sf
+        let rowSpacing: CGFloat = 12.sf
+
+        avatarNode.frame = CGRect(x: inset, y: inset, width: avatarSz, height: avatarSz)
+        let lineX = inset + avatarSz + rowSpacing
+        var y = inset
+
+        shortLineNode.frame = CGRect(x: lineX, y: y, width: 100.sf, height: lineH)
+        y += lineH + lineSpacing
+
+        normalLineNode.frame = CGRect(x: lineX, y: y, width: 200.sf, height: lineH)
+        y += lineH + lineSpacing
+
+        if let longLineNode {
+            longLineNode.frame = CGRect(x: lineX, y: y, width: 260.sf, height: lineH)
+        }
+
+        let nodes: [ASDisplayNode?] = [avatarNode, shortLineNode, normalLineNode, longLineNode]
+        for (i, node) in nodes.enumerated() {
+            guard let node, i < shimmerLayers.count else { continue }
+            shimmerLayers[i].frame = node.layer.bounds
+        }
+    }
+
 
     private func addShimmer() {
         let skeletonNodes: [ASDisplayNode?] = [avatarNode, shortLineNode, normalLineNode, longLineNode]
@@ -101,15 +113,6 @@ final class MessageSkeletonCellNode: ASCellNode {
         }
     }
 
-    override func layout() {
-        super.layout()
-        let nodes: [ASDisplayNode?] = [avatarNode, shortLineNode, normalLineNode, longLineNode]
-        for (i, node) in nodes.enumerated() {
-            guard let node, i < shimmerLayers.count else { continue }
-            shimmerLayers[i].frame = node.layer.bounds
-        }
-    }
-
     override func didExitVisibleState() {
         super.didExitVisibleState()
         for layer in shimmerLayers {
@@ -134,29 +137,46 @@ final class MessageSkeletonCellNode: ASCellNode {
 final class MessageSkeletonContainerNode: ASDisplayNode {
 
     private let skeletonNodes: [MessageSkeletonCellNode]
-    private let count: Int
 
     init(count: Int = 8) {
-        self.count = count
         self.skeletonNodes = (0..<count).map { i in
             MessageSkeletonCellNode(showLongLine: i % 2 == 1)
         }
         super.init()
-        automaticallyManagesSubnodes = true
         isUserInteractionEnabled = false
+        skeletonNodes.forEach { addSubnode($0) }
     }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let stack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 4.sf,
-            justifyContent: .end,
-            alignItems: .stretch,
-            children: skeletonNodes
-        )
-        return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 0, left: 0, bottom: 8.sf, right: 0),
-            child: stack
-        )
+    override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
+        let spacing: CGFloat = 4.sf
+        var totalH: CGFloat = 0
+        for (i, node) in skeletonNodes.enumerated() {
+            if i > 0 { totalH += spacing }
+            let sz = node.calculateSizeThatFits(constrainedSize)
+            _ = sz
+            totalH += sz.height
+        }
+        return CGSize(width: constrainedSize.width, height: totalH + 8.sf)
+    }
+
+    override func layout() {
+        super.layout()
+        let spacing: CGFloat = 4.sf
+        let w = bounds.width
+        var y: CGFloat = 0
+
+        var heights: [CGFloat] = []
+        for node in skeletonNodes {
+            let sz = node.calculateSizeThatFits(CGSize(width: w, height: .greatestFiniteMagnitude))
+            heights.append(sz.height)
+        }
+        let totalH = heights.reduce(0, +) + spacing * CGFloat(max(skeletonNodes.count - 1, 0))
+        y = max(bounds.height - 8.sf - totalH, 0)
+
+        for (i, node) in skeletonNodes.enumerated() {
+            if i > 0 { y += spacing }
+            node.frame = CGRect(x: 0, y: y, width: w, height: heights[i])
+            y += heights[i]
+        }
     }
 }

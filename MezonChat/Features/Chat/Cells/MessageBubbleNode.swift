@@ -32,6 +32,16 @@ final class MessageBubbleNode: ASDisplayNode {
     private static let avatarSize: CGFloat = 40
     private static let contentLeading: CGFloat = 40 + 12.sw
 
+    private var cachedNameSize: CGSize = .zero
+    private var cachedTimeSize: CGSize = .zero
+    private var cachedReplySize: CGSize = .zero
+    private var cachedTextSize: CGSize = .zero
+    private var cachedMediaSize: CGSize = .zero
+    private var cachedFileSize: CGSize = .zero
+    private var cachedEmbedSize: CGSize = .zero
+    private var cachedReactionsSize: CGSize = .zero
+    private var cachedTotalSize: CGSize = .zero
+
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
         self.display = display
         self.interaction = interaction
@@ -54,12 +64,10 @@ final class MessageBubbleNode: ASDisplayNode {
         self.hasReactions = !display.reactions.isEmpty
 
         super.init()
-        automaticallyManagesSubnodes = true
         backgroundColor = .clear
 
         let t = UIColor.theme
 
-        // Avatar — container manages placeholder + image directly
         avatarContainerNode.backgroundColor = .colorAvatarDefault
         avatarContainerNode.cornerRadius = Self.avatarSize / 2
         avatarContainerNode.clipsToBounds = true
@@ -91,14 +99,25 @@ final class MessageBubbleNode: ASDisplayNode {
             ]
         )
 
+        // Add subnodes
+        if !isCombine {
+            addSubnode(avatarContainerNode)
+            addSubnode(nameNode)
+            addSubnode(timeNode)
+            loadAvatar()
+        }
+
         if let ref = display.replyRef {
             let rn = MessageReplyNode()
             rn.configure(ref: ref)
             let refId = "\(ref.messageRefID)"
             rn.onTapped = { interaction.onReplyTapped(refId) }
             replyNode = rn
+            addSubnode(rn)
         } else if display.isDeletedReply {
-            deletedReplyNode = MessageDeletedReplyNode()
+            let drn = MessageDeletedReplyNode()
+            deletedReplyNode = drn
+            addSubnode(drn)
         }
 
         if hasContent {
@@ -108,6 +127,7 @@ final class MessageBubbleNode: ASDisplayNode {
             tcn.onHashtagTapped = { interaction.onHashtagTapped($0) }
             tcn.onLinkTapped = { UIApplication.shared.open($0) }
             textContentNode = tcn
+            addSubnode(tcn)
         }
 
         if hasMedia {
@@ -117,6 +137,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 self?.handleImageTap(index: index, media: mediaAttachments, interaction: interaction)
             }
             mediaContentNode = mcn
+            addSubnode(mcn)
         }
 
         if hasFiles {
@@ -127,22 +148,21 @@ final class MessageBubbleNode: ASDisplayNode {
                 UIApplication.shared.open(fileURL)
             }
             fileAttachmentNode = fan
+            addSubnode(fan)
         }
 
         if hasEmbeds {
             let en = MessageEmbedNode()
             en.configure(embeds: parsed.embeds)
             embedNode = en
+            addSubnode(en)
         }
 
         if hasReactions {
             let rn = MessageReactionsNode()
             rn.configure(reactions: display.reactions)
             reactionsNode = rn
-        }
-
-        if !isCombine {
-            loadAvatar()
+            addSubnode(rn)
         }
     }
 
@@ -230,7 +250,7 @@ final class MessageBubbleNode: ASDisplayNode {
             showHighlight(true)
             interaction.onMessageLongPressed(display)
         case .ended, .cancelled, .failed:
-            break // highlight dismissed by sheet onDismiss
+            break
         default:
             break
         }
@@ -254,134 +274,144 @@ final class MessageBubbleNode: ASDisplayNode {
         }
     }
 
-    override func layout() {
-        super.layout()
-        let sz = avatarContainerNode.bounds.size
-        avatarImageNode.frame = CGRect(origin: .zero, size: sz)
-        let phSize = avatarPlaceholderNode.calculateSizeThatFits(sz)
-        avatarPlaceholderNode.frame = CGRect(
-            x: (sz.width - phSize.width) / 2,
-            y: (sz.height - phSize.height) / 2,
-            width: phSize.width,
-            height: phSize.height
-        )
-    }
 
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+    func measureSize(width: CGFloat) -> CGSize {
         let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 6.sw
         let trailingInset: CGFloat = 12.sw
-        let contentWidth = max(constrainedSize.max.width - contentLeadingTotal - trailingInset, 1)
+        let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
+        let vertSpacing: CGFloat = 4.sh
 
-        var contentChildren: [ASLayoutElement] = []
-
-        if !isCombine {
-            timeNode.style.flexShrink = 0
-            nameNode.style.flexShrink = 1
-            let nameTimeRow = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: 4.sw,
-                justifyContent: .start,
-                alignItems: .end,
-                children: [nameNode, timeNode]
-            )
-            contentChildren.append(nameTimeRow)
-        }
-
-        if let textContentNode = textContentNode {
-            textContentNode.style.width = ASDimensionMake(contentWidth)
-            contentChildren.append(textContentNode)
-        }
-
-        if let mediaContentNode = mediaContentNode {
-            mediaContentNode.style.maxWidth = ASDimensionMake(contentWidth)
-            mediaContentNode.style.alignSelf = .start
-            contentChildren.append(mediaContentNode)
-        }
-
-        if let fileAttachmentNode = fileAttachmentNode {
-            fileAttachmentNode.style.maxWidth = ASDimensionMake(contentWidth)
-            contentChildren.append(fileAttachmentNode)
-        }
-
-        if let embedNode = embedNode {
-            embedNode.style.maxWidth = ASDimensionMake(contentWidth)
-            contentChildren.append(embedNode)
-        }
-
-        if let reactionsNode = reactionsNode {
-            reactionsNode.style.maxWidth = ASDimensionMake(contentWidth)
-            contentChildren.append(reactionsNode)
-        }
-
-        let contentColumn = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 4.sh,
-            justifyContent: .start,
-            alignItems: .start,
-            children: contentChildren
-        )
-
-        var replySpec: ASLayoutElement?
-        if let replyNode = replyNode {
-            let replyInsets = UIEdgeInsets(top: 0, left: 6.sw, bottom: 2.sh, right: 12.sw)
-            replySpec = ASInsetLayoutSpec(insets: replyInsets, child: replyNode)
-        } else if let deletedReplyNode = deletedReplyNode {
-            let replyInsets = UIEdgeInsets(top: 0, left: 6.sw, bottom: 2.sh, right: 12.sw)
-            replySpec = ASInsetLayoutSpec(insets: replyInsets, child: deletedReplyNode)
-        }
+        var totalH: CGFloat = 0
 
         if isCombine {
-            let combineLeading: CGFloat = 6.sw + Self.avatarSize + 10.sw
-            let contentInsets = UIEdgeInsets(top: 0, left: combineLeading, bottom: 0, right: 12.sw)
-            let contentSpec = ASInsetLayoutSpec(insets: contentInsets, child: contentColumn)
-
-            var verticalChildren: [ASLayoutElement] = []
-            if let replySpec = replySpec { verticalChildren.append(replySpec) }
-            verticalChildren.append(contentSpec)
-
-            let verticalStack = ASStackLayoutSpec(
-                direction: .vertical,
-                spacing: 0,
-                justifyContent: .start,
-                alignItems: .stretch,
-                children: verticalChildren
-            )
-
-            let outerInsets = UIEdgeInsets(top: 2.sh, left: 0, bottom: 12.sh, right: 0)
-            return ASInsetLayoutSpec(insets: outerInsets, child: verticalStack)
+            totalH += 2.sh
+        } else {
+            totalH += 10.sh
         }
 
-        let avatarSz = Self.avatarSize
-        avatarContainerNode.style.preferredSize = CGSize(width: avatarSz, height: avatarSz)
+        if let replyNode {
+            cachedReplySize = replyNode.measureSize(maxWidth: width)
+            totalH += cachedReplySize.height
+        } else if let deletedReplyNode {
+            cachedReplySize = deletedReplyNode.measureSize(maxWidth: width)
+            totalH += cachedReplySize.height + 2.sh
+        } else {
+            cachedReplySize = .zero
+        }
 
-        contentColumn.style.flexShrink = 1
-        contentColumn.style.flexGrow = 1
+        if !isCombine {
+            cachedTimeSize = timeNode.measure(CGSize(width: contentWidth, height: 30))
+            let nameMaxW = contentWidth - cachedTimeSize.width - 4.sw
+            cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: 30))
+            totalH += max(cachedNameSize.height, cachedTimeSize.height) + vertSpacing
+        }
 
-        let mainRow = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 10.sw,
-            justifyContent: .start,
-            alignItems: .start,
-            children: [avatarContainerNode, contentColumn]
-        )
+        if let textContentNode {
+            cachedTextSize = textContentNode.measureSize(maxWidth: contentWidth)
+            totalH += cachedTextSize.height + vertSpacing
+        } else {
+            cachedTextSize = .zero
+        }
 
-        let mainRowInsets = UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 12.sw)
-        let mainRowSpec = ASInsetLayoutSpec(insets: mainRowInsets, child: mainRow)
+        if let mediaContentNode {
+            cachedMediaSize = mediaContentNode.measureSize(maxWidth: contentWidth)
+            totalH += cachedMediaSize.height + vertSpacing
+        } else {
+            cachedMediaSize = .zero
+        }
 
-        var verticalChildren: [ASLayoutElement] = []
-        if let replySpec = replySpec { verticalChildren.append(replySpec) }
-        verticalChildren.append(mainRowSpec)
+        if let fileAttachmentNode {
+            cachedFileSize = fileAttachmentNode.measureSize(maxWidth: contentWidth)
+            totalH += cachedFileSize.height + vertSpacing
+        } else {
+            cachedFileSize = .zero
+        }
 
-        let verticalStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 0,
-            justifyContent: .start,
-            alignItems: .stretch,
-            children: verticalChildren
-        )
+        if let embedNode {
+            cachedEmbedSize = embedNode.measureSize(maxWidth: contentWidth)
+            totalH += cachedEmbedSize.height + vertSpacing
+        } else {
+            cachedEmbedSize = .zero
+        }
 
-        let insets = UIEdgeInsets(top: 10.sh, left: 0, bottom: 12.sh, right: 0)
-        return ASInsetLayoutSpec(insets: insets, child: verticalStack)
+        if let reactionsNode {
+            cachedReactionsSize = reactionsNode.measureSize(maxWidth: contentWidth)
+            totalH += cachedReactionsSize.height + vertSpacing
+        } else {
+            cachedReactionsSize = .zero
+        }
+
+        totalH += 12.sh
+
+        cachedTotalSize = CGSize(width: width, height: totalH)
+        return cachedTotalSize
+    }
+
+    override func layout() {
+        super.layout()
+        let width = bounds.width
+        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 6.sw
+        let combineLeading: CGFloat = 6.sw + Self.avatarSize + 10.sw
+        let trailingInset: CGFloat = 12.sw
+        let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
+        let vertSpacing: CGFloat = 4.sh
+
+        let contentX = isCombine ? combineLeading : contentLeadingTotal
+        var y: CGFloat = isCombine ? 2.sh : 10.sh
+
+        if let replyNode {
+            replyNode.frame = CGRect(x: 6.sw, y: y, width: width - 6.sw - 12.sw, height: cachedReplySize.height)
+            y += cachedReplySize.height
+        } else if let deletedReplyNode {
+            deletedReplyNode.frame = CGRect(x: 6.sw, y: y, width: width - 6.sw - 12.sw, height: cachedReplySize.height)
+            y += cachedReplySize.height + 2.sh
+        }
+
+        if !isCombine {
+            let avatarX: CGFloat = 6.sw
+            let avatarSz = Self.avatarSize
+            avatarContainerNode.frame = CGRect(x: avatarX, y: y, width: avatarSz, height: avatarSz)
+            avatarImageNode.frame = CGRect(origin: .zero, size: CGSize(width: avatarSz, height: avatarSz))
+            let phSize = avatarPlaceholderNode.measure(CGSize(width: avatarSz, height: avatarSz))
+            avatarPlaceholderNode.frame = CGRect(
+                x: (avatarSz - phSize.width) / 2,
+                y: (avatarSz - phSize.height) / 2,
+                width: phSize.width, height: phSize.height
+            )
+
+            nameNode.frame = CGRect(x: contentX, y: y, width: cachedNameSize.width, height: cachedNameSize.height)
+            let timeX = contentX + cachedNameSize.width + 4.sw
+            let nameRowH = max(cachedNameSize.height, cachedTimeSize.height)
+            timeNode.frame = CGRect(x: timeX, y: y + nameRowH - cachedTimeSize.height, width: cachedTimeSize.width, height: cachedTimeSize.height)
+            y += nameRowH + vertSpacing
+        }
+
+        if let textContentNode {
+            textContentNode.frame = CGRect(x: contentX, y: y, width: contentWidth, height: cachedTextSize.height)
+            y += cachedTextSize.height + vertSpacing
+        }
+
+        if let mediaContentNode {
+            mediaContentNode.frame = CGRect(x: contentX, y: y, width: cachedMediaSize.width, height: cachedMediaSize.height)
+            y += cachedMediaSize.height + vertSpacing
+        }
+
+        if let fileAttachmentNode {
+            fileAttachmentNode.frame = CGRect(x: contentX, y: y, width: cachedFileSize.width, height: cachedFileSize.height)
+            y += cachedFileSize.height + vertSpacing
+        }
+
+        if let embedNode {
+            embedNode.frame = CGRect(x: contentX, y: y, width: cachedEmbedSize.width, height: cachedEmbedSize.height)
+            y += cachedEmbedSize.height + vertSpacing
+        }
+
+        if let reactionsNode {
+            reactionsNode.frame = CGRect(x: contentX, y: y, width: cachedReactionsSize.width, height: cachedReactionsSize.height)
+            y += cachedReactionsSize.height + vertSpacing
+        }
+
+        highlightNode.frame = bounds
     }
 
     private static let timeFormatter: DateFormatter = {
