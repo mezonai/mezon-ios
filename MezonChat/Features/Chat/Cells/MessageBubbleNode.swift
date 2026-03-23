@@ -17,6 +17,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var fileAttachmentNode: MessageFileAttachmentNode?
     private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
+    private var errorTextNode: ASTextNode2?
 
     let display: ChatMessageDisplay
     private let interaction: ChatInteraction
@@ -28,6 +29,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private let hasReactions: Bool
     private let hasReply: Bool
     private let hasDeletedReply: Bool
+    private var isFailed: Bool = false
 
     private static let avatarSize: CGFloat = 40
     private static let contentLeading: CGFloat = 40 + 12.sw
@@ -40,6 +42,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedFileSize: CGSize = .zero
     private var cachedEmbedSize: CGSize = .zero
     private var cachedReactionsSize: CGSize = .zero
+    private var cachedErrorSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
 
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
@@ -164,6 +167,22 @@ final class MessageBubbleNode: ASDisplayNode {
             reactionsNode = rn
             addSubnode(rn)
         }
+
+        if display.isFailed {
+            let etn = ASTextNode2()
+            etn.attributedText = NSAttributedString(
+                string: "Unable to send message",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                    .foregroundColor: UIColor.systemRed,
+                ]
+            )
+            etn.maximumNumberOfLines = 1
+            errorTextNode = etn
+            addSubnode(etn)
+        }
+
+        self.isFailed = display.isFailed
     }
 
     private func loadAvatar() {
@@ -268,15 +287,16 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     func flashHighlight() {
-        showHighlight(true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        highlightNode.frame = bounds
+        highlightNode.alpha = 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.showHighlight(false)
         }
     }
 
 
     func measureSize(width: CGFloat) -> CGSize {
-        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 6.sw
+        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let trailingInset: CGFloat = 12.sw
         let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
         let vertSpacing: CGFloat = 4.sh
@@ -284,9 +304,9 @@ final class MessageBubbleNode: ASDisplayNode {
         var totalH: CGFloat = 0
 
         if isCombine {
-            totalH += 2.sh
+            totalH += 1.sh
         } else {
-            totalH += 10.sh
+            totalH += 6.sh
         }
 
         if let replyNode {
@@ -341,7 +361,14 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedReactionsSize = .zero
         }
 
-        totalH += 12.sh
+        if let errorTextNode {
+            cachedErrorSize = errorTextNode.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
+            totalH += cachedErrorSize.height + vertSpacing
+        } else {
+            cachedErrorSize = .zero
+        }
+
+        totalH += 4.sh
 
         cachedTotalSize = CGSize(width: width, height: totalH)
         return cachedTotalSize
@@ -350,14 +377,14 @@ final class MessageBubbleNode: ASDisplayNode {
     override func layout() {
         super.layout()
         let width = bounds.width
-        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 6.sw
+        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let combineLeading: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let trailingInset: CGFloat = 12.sw
         let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
         let vertSpacing: CGFloat = 4.sh
 
         let contentX = isCombine ? combineLeading : contentLeadingTotal
-        var y: CGFloat = isCombine ? 2.sh : 10.sh
+        var y: CGFloat = isCombine ? 1.sh : 6.sh
 
         if let replyNode {
             replyNode.frame = CGRect(x: 6.sw, y: y, width: width - 6.sw - 12.sw, height: cachedReplySize.height)
@@ -411,7 +438,19 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedReactionsSize.height + vertSpacing
         }
 
+        if let errorTextNode {
+            errorTextNode.frame = CGRect(x: contentX, y: y, width: cachedErrorSize.width, height: cachedErrorSize.height)
+            y += cachedErrorSize.height + vertSpacing
+        }
+
         highlightNode.frame = bounds
+
+        // Apply opacity for failed messages
+        let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
+        textContentNode?.alpha = contentAlpha
+        mediaContentNode?.alpha = contentAlpha
+        fileAttachmentNode?.alpha = contentAlpha
+        embedNode?.alpha = contentAlpha
     }
 
     private static let timeFormatter: DateFormatter = {

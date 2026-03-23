@@ -143,6 +143,13 @@ final class MessageTable: Table {
         }
     }
 
+    func channelIdForMessage(id: String) -> String? {
+        for (channelId, msgs) in cache {
+            if msgs.contains(where: { $0.id == id }) { return channelId }
+        }
+        return nil
+    }
+
     func deleteMessage(id: String) {
         pendingDeletes.insert(id)
         for key in cache.keys {

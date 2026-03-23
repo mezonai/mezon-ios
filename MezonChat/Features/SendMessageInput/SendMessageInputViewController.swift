@@ -399,8 +399,21 @@ final class SendMessageInputViewController: UIViewController {
             contentStr = "{}"
         }
 
-        let mode: Int32 = clanId == 0 ? (channel.type == MezonConstants.ChannelType.dm.rawValue ? 4 : 3) : 2
-        let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
+        let mode: Int32 = {
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                return MezonConstants.ChannelStreamMode.thread.rawValue // 6
+            case MezonConstants.ChannelType.dm.rawValue:
+                return MezonConstants.ChannelStreamMode.dm.rawValue // 4
+            case MezonConstants.ChannelType.group.rawValue:
+                return MezonConstants.ChannelStreamMode.group.rawValue // 3
+            default:
+                return clanId == 0
+                    ? MezonConstants.ChannelStreamMode.group.rawValue // 3
+                    : MezonConstants.ChannelStreamMode.channel.rawValue // 2
+            }
+        }()
+        let isPublic = channel.channelPrivate == 0
         let avatar: String = context.currentUser?.avatarURL?.absoluteString ?? ""
 
         Task { @MainActor in

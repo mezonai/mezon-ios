@@ -84,11 +84,15 @@ final class PostboxTransaction {
     }
 
     func deleteMessage(id: String) {
+        let channelId = messageTable.channelIdForMessage(id: id)
         messageTable.deleteMessage(id: id)
+        if let channelId { updatedMessageChannelIds.insert(channelId) }
     }
 
     func markMessageFailed(id: String) {
+        let channelId = messageTable.channelIdForMessage(id: id)
         messageTable.markMessageFailed(id: id)
+        if let channelId { updatedMessageChannelIds.insert(channelId) }
     }
 
     func replaceMessage(pendingId: String, with record: MessageRecord) {
@@ -122,13 +126,9 @@ final class PostboxTransaction {
     func setSetting(key: String, value: Data?)                   { settingsTable.set(key: key, value: value) }
     func setSetting<T: PostboxCoding>(key: String, value: T?)    { settingsTable.set(key: key, value: value) }
 
-    // MARK: - Channel Meta
-
     func getChannelMeta(channelId: Int64) -> ChannelRecord? {
         channelTable.getChannelMeta(channelId: channelId)
     }
-
-    // MARK: - Notification Settings
 
     func getNotificationSetting(entityId: Int64) -> NotificationSettingRecord? {
         notificationSettingTable.get(entityId: entityId)

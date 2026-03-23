@@ -70,6 +70,8 @@ struct ChatMessageDisplay: Identifiable {
     let replyRef: Mezon_Api_MessageRef?
     let isDeletedReply: Bool
     let isWelcome: Bool
+    let sendingState: SendingState
+    var isFailed: Bool { sendingState == .failed }
     var id: String { message.id }
 
     var checkOneLinkImage: Bool {
@@ -482,6 +484,9 @@ final class ChatViewController: ViewController {
                         channelId: channelIdStr
                     )
                 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.scrollToBottomIfNeeded()
+                }
             } catch {
                 self.setErrorMessage(error.localizedDescription)
             }
@@ -599,6 +604,7 @@ final class ChatViewController: ViewController {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
             var lastIds = self.messages.map { $0.id }
+            var lastSendingStates = self.messages.map { $0.sendingState }
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
             var lastLoadingNewer = self.isLoadingNewer
@@ -616,7 +622,9 @@ final class ChatViewController: ViewController {
                 |> deliverOnMainQueue
             ).start(next: { newState in
                 let newIds = newState.messages.map { $0.id }
+                let newSendingStates = newState.messages.map { $0.sendingState }
                 let changed = newIds != lastIds
+                    || newSendingStates != lastSendingStates
                     || newState.isLoading != lastLoading
                     || newState.isLoadingMore != lastLoadingMore
                     || newState.isLoadingNewer != lastLoadingNewer
@@ -625,6 +633,7 @@ final class ChatViewController: ViewController {
                     || newState.hasMoreNewer != lastHasMoreNewer
                 guard changed else { return }
                 lastIds = newIds
+                lastSendingStates = newSendingStates
                 lastLoading = newState.isLoading
                 lastLoadingMore = newState.isLoadingMore
                 lastLoadingNewer = newState.isLoadingNewer
@@ -667,7 +676,7 @@ final class ChatViewController: ViewController {
             let isWelcome = record.senderId == "0"
                 && parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && record.senderDisplayName.lowercased() == "system"
-            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome)
+            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, sendingState: record.sendingState)
         }
         return Self.applyCombine(to: displays)
     }
@@ -690,7 +699,7 @@ final class ChatViewController: ViewController {
             let prev = i > 0 ? displays[i - 1].message : nil
             let hasReply = d.replyRef != nil || d.isDeletedReply
             let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome)
+            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, sendingState: d.sendingState)
         }
     }
 
@@ -1057,11 +1066,20 @@ final class ChatViewController: ViewController {
         case .editMessage:
             break // TODO: implement edit
         case .deleteMessage:
-            break // TODO: implement delete
+            let msgId = display.message.id
+            context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
         case .pinMessage:
             break // TODO: implement pin
         case .forward:
             break // TODO: implement forward
+        case .resend:
+            let msgId = display.message.id
+            let text = display.parsedContent.text
+            context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sendInputViewController.updateText(text)
+                sendInputViewController.send()
+            }
         }
     }
 }

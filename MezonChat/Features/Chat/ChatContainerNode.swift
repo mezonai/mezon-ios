@@ -258,7 +258,7 @@ final class ChatContainerNode: ASDisplayNode {
             completion: { _ in }
         )
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
             guard let idx = self.state.messages.firstIndex(where: { $0.id == id }) else { return }
             let itemIndex = self.state.messages.count - 1 - idx
@@ -330,7 +330,14 @@ final class ChatContainerNode: ASDisplayNode {
         let oldIds = committedMessageIds
         let newIds: [String] = new.messages.reversed().map { $0.id }
 
-        guard oldIds != newIds else { return }
+        if oldIds == newIds {
+            let oldStates = old.messages.map { $0.sendingState }
+            let newStates = new.messages.map { $0.sendingState }
+            if oldStates != newStates {
+                reloadAllItems()
+            }
+            return
+        }
 
         if oldIds.isEmpty {
             reloadAllItems()
