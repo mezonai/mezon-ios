@@ -6,6 +6,9 @@ final class MessageTextContentNode: ASDisplayNode {
     private var textNode: ASTextNode2?
     private var emojiLabelNode: ASDisplayNode?
 
+    private var segmentNodes: [(node: ASDisplayNode, size: CGSize)] = []
+    private var useSegments = false
+
     var onMentionTapped: ((String) -> Void)?
     var onHashtagTapped: ((String) -> Void)?
     var onLinkTapped: ((URL) -> Void)?
@@ -46,11 +49,54 @@ final class MessageTextContentNode: ASDisplayNode {
     func configure(parsedContent: ParsedContent) {
         currentParsedContent = parsedContent
 
+        let hasCodeBlock = parsedContent.tokens.contains {
+            if case .codeBlock = $0.kind { return true }
+            return false
+        }
+
         let containsEmoji = parsedContent.tokens.contains {
             if case .emoji = $0.kind { return true }
             return false
         }
         hasEmoji = containsEmoji
+
+        textNode?.removeFromSupernode()
+        emojiLabelNode?.removeFromSupernode()
+        segmentNodes.forEach { $0.node.removeFromSupernode() }
+        segmentNodes = []
+        textNode = nil
+        emojiLabelNode = nil
+
+        if hasCodeBlock {
+            useSegments = true
+            let segments = RichTextBuilder.buildSegments(from: parsedContent)
+            for segment in segments {
+                switch segment {
+                case .text(let attrText):
+                    guard attrText.length > 0 else { continue }
+                    let tn = ASTextNode2()
+                    tn.isUserInteractionEnabled = true
+                    tn.delegate = self
+                    tn.maximumNumberOfLines = 0
+                    tn.linkAttributeNames = [
+                        NSAttributedString.Key.mezonLink.rawValue,
+                        NSAttributedString.Key.mezonMention.rawValue,
+                        NSAttributedString.Key.mezonHashtag.rawValue,
+                    ]
+                    tn.attributedText = attrText
+                    addSubnode(tn)
+                    segmentNodes.append((tn, .zero))
+
+                case .codeBlock(let code):
+                    let container = CodeBlockContainerNode(code: code)
+                    addSubnode(container)
+                    segmentNodes.append((container, .zero))
+                }
+            }
+            return
+        }
+
+        useSegments = false
 
         let attrText: NSAttributedString
         if parsedContent.isPlainText {
@@ -67,11 +113,7 @@ final class MessageTextContentNode: ASDisplayNode {
         }
         currentAttrText = attrText
 
-        textNode?.removeFromSupernode()
-        emojiLabelNode?.removeFromSupernode()
-
         if containsEmoji {
-            textNode = nil
             let node = ASDisplayNode { [weak self] () -> UIView in
                 let view = EmojiTextView()
                 view.attributedText = self?.currentAttrText ?? attrText
@@ -80,7 +122,6 @@ final class MessageTextContentNode: ASDisplayNode {
             emojiLabelNode = node
             addSubnode(node)
         } else {
-            emojiLabelNode = nil
             let tn = ASTextNode2()
             tn.isUserInteractionEnabled = true
             tn.delegate = self
@@ -97,6 +138,27 @@ final class MessageTextContentNode: ASDisplayNode {
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
+        if useSegments {
+            var totalH: CGFloat = 0
+            let spacing: CGFloat = 4.sh
+            for i in 0..<segmentNodes.count {
+                let node = segmentNodes[i].node
+                let size: CGSize
+                if let codeNode = node as? CodeBlockContainerNode {
+                    size = codeNode.measureSize(maxWidth: maxWidth)
+                } else if let textNode = node as? ASTextNode2 {
+                    size = textNode.measure(CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
+                } else {
+                    size = .zero
+                }
+                segmentNodes[i].size = size
+                if totalH > 0 { totalH += spacing }
+                totalH += size.height
+            }
+            cachedTextSize = CGSize(width: maxWidth, height: totalH)
+            return cachedTextSize
+        }
+
         if let emojiLabelNode, let attrText = currentAttrText {
             var safeMaxW = maxWidth
             if safeMaxW > 10000 || safeMaxW == .infinity {
@@ -118,6 +180,17 @@ final class MessageTextContentNode: ASDisplayNode {
     override func layout() {
         super.layout()
         let size = bounds.size
+
+        if useSegments {
+            var y: CGFloat = 0
+            let spacing: CGFloat = 4.sh
+            for (node, segSize) in segmentNodes {
+                node.frame = CGRect(x: 0, y: y, width: size.width, height: segSize.height)
+                y += segSize.height + spacing
+            }
+            return
+        }
+
         if let emojiLabelNode {
             emojiLabelNode.frame = CGRect(origin: .zero, size: CGSize(width: size.width, height: cachedTextSize.height))
         }
@@ -192,6 +265,56 @@ extension MessageTextContentNode: ASTextNodeDelegate {
                   let channelId = value as? String {
             onHashtagTapped?(channelId)
         }
+    }
+}
+
+final class CodeBlockContainerNode: ASDisplayNode {
+
+    private let backgroundNode = ASDisplayNode()
+    private let codeTextNode = ASTextNode2()
+    private var cachedSize: CGSize = .zero
+
+    private static let padding: CGFloat = 10
+    private static let cornerRadius: CGFloat = 6
+
+    init(code: String) {
+        super.init()
+
+        let t = UIColor.theme
+        backgroundNode.backgroundColor = t.tertiary
+        backgroundNode.cornerRadius = Self.cornerRadius
+        backgroundNode.clipsToBounds = true
+
+        let codeFont = UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular)
+        codeTextNode.attributedText = NSAttributedString(
+            string: code,
+            attributes: [
+                .font: codeFont,
+                .foregroundColor: t.textStrong,
+            ]
+        )
+        codeTextNode.maximumNumberOfLines = 0
+
+        addSubnode(backgroundNode)
+        backgroundNode.addSubnode(codeTextNode)
+    }
+
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        let pad = Self.padding
+        let textMaxW = maxWidth - pad * 2
+        let textSize = codeTextNode.measure(CGSize(width: textMaxW, height: .greatestFiniteMagnitude))
+        let totalH = textSize.height + pad * 2
+        cachedSize = CGSize(width: maxWidth, height: totalH)
+        return cachedSize
+    }
+
+    override func layout() {
+        super.layout()
+        let pad = Self.padding
+        backgroundNode.frame = bounds
+        let textW = bounds.width - pad * 2
+        let textH = bounds.height - pad * 2
+        codeTextNode.frame = CGRect(x: pad, y: pad, width: textW, height: textH)
     }
 }
 

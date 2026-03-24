@@ -7,6 +7,7 @@ enum MessageAction: CaseIterable {
     case deleteMessage
     case pinMessage
     case forward
+    case resend
 
     var title: String {
         switch self {
@@ -16,6 +17,7 @@ enum MessageAction: CaseIterable {
         case .deleteMessage: return L(L10n.MessageAction.deleteMessage)
         case .pinMessage:    return L(L10n.MessageAction.pinMessage)
         case .forward:       return L(L10n.MessageAction.forward)
+        case .resend:        return "Resend"
         }
     }
 
@@ -27,6 +29,7 @@ enum MessageAction: CaseIterable {
         case .deleteMessage: return "trash"
         case .pinMessage:    return "pin"
         case .forward:       return "arrowshape.turn.up.right"
+        case .resend:        return "arrow.clockwise"
         }
     }
 
@@ -145,6 +148,10 @@ final class MessageActionSheet: UIViewController {
     }
 
     private func availableActions() -> [MessageAction] {
+        if display.isFailed {
+            return [.resend, .deleteMessage]
+        }
+
         var actions: [MessageAction] = []
 
         actions.append(.reply)

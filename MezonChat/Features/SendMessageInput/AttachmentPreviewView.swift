@@ -45,6 +45,10 @@ final class AttachmentPreviewView: UIView {
         collectionView.reloadData()
     }
 
+    func forceReload() {
+        collectionView.reloadData()
+    }
+
     func addImage(_ image: UIImage) {
         images.append(image)
         collectionView.reloadData()

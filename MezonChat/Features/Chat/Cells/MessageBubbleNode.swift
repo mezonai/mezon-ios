@@ -12,15 +12,20 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private var replyNode: MessageReplyNode?
     private var deletedReplyNode: MessageDeletedReplyNode?
+    private var callLogNode: MessageCallLogNode?
+    private var topicNode: MessageTopicNode?
     private var textContentNode: MessageTextContentNode?
     private var mediaContentNode: MessageMediaContentNode?
     private var fileAttachmentNode: MessageFileAttachmentNode?
     private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
+    private var errorTextNode: ASTextNode2?
 
     let display: ChatMessageDisplay
     private let interaction: ChatInteraction
     private let isCombine: Bool
+    private let hasCallLog: Bool
+    private let hasTopic: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
     private let hasFiles: Bool
@@ -28,6 +33,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private let hasReactions: Bool
     private let hasReply: Bool
     private let hasDeletedReply: Bool
+    private var isFailed: Bool = false
 
     private static let avatarSize: CGFloat = 40
     private static let contentLeading: CGFloat = 40 + 12.sw
@@ -35,11 +41,14 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedNameSize: CGSize = .zero
     private var cachedTimeSize: CGSize = .zero
     private var cachedReplySize: CGSize = .zero
+    private var cachedCallLogSize: CGSize = .zero
+    private var cachedTopicSize: CGSize = .zero
     private var cachedTextSize: CGSize = .zero
     private var cachedMediaSize: CGSize = .zero
     private var cachedFileSize: CGSize = .zero
     private var cachedEmbedSize: CGSize = .zero
     private var cachedReactionsSize: CGSize = .zero
+    private var cachedErrorSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
 
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
@@ -48,19 +57,28 @@ final class MessageBubbleNode: ASDisplayNode {
         self.isCombine = display.isCombine
         self.hasReply = display.replyRef != nil
         self.hasDeletedReply = display.isDeletedReply
+        self.hasCallLog = display.isCallLog
+        self.hasTopic = display.isTopic
 
         let parsed = display.parsedContent
-        if display.checkOneLinkImage {
-            self.hasContent = false
-        } else {
-            self.hasContent = !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-
         let mediaAttachments = display.attachments.filter { $0.isMedia }
         let fileAttachments = display.attachments.filter { !$0.isMedia && !$0.url.isEmpty }
-        self.hasMedia = !mediaAttachments.isEmpty
-        self.hasFiles = !fileAttachments.isEmpty
-        self.hasEmbeds = !parsed.embeds.isEmpty
+
+        if display.isCallLog {
+            self.hasContent = false
+            self.hasMedia = false
+            self.hasFiles = false
+            self.hasEmbeds = false
+        } else {
+            if display.checkOneLinkImage {
+                self.hasContent = false
+            } else {
+                self.hasContent = !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            self.hasMedia = !mediaAttachments.isEmpty
+            self.hasFiles = !fileAttachments.isEmpty
+            self.hasEmbeds = !parsed.embeds.isEmpty
+        }
         self.hasReactions = !display.reactions.isEmpty
 
         super.init()
@@ -120,6 +138,21 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(drn)
         }
 
+        if let callLog = display.callLog {
+            let cln = MessageCallLogNode()
+            cln.configure(callLog: callLog, isMe: display.isMe, senderName: display.senderDisplayName, contentText: parsed.text)
+            callLogNode = cln
+            addSubnode(cln)
+        }
+
+        if let topic = display.topicData {
+            let tn = MessageTopicNode()
+            tn.configure(topicData: topic)
+            tn.onTapped = { interaction.onTopicTapped(topic) }
+            topicNode = tn
+            addSubnode(tn)
+        }
+
         if hasContent {
             let tcn = MessageTextContentNode()
             tcn.configure(parsedContent: parsed)
@@ -164,6 +197,22 @@ final class MessageBubbleNode: ASDisplayNode {
             reactionsNode = rn
             addSubnode(rn)
         }
+
+        if display.isFailed {
+            let etn = ASTextNode2()
+            etn.attributedText = NSAttributedString(
+                string: "Unable to send message",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                    .foregroundColor: UIColor.systemRed,
+                ]
+            )
+            etn.maximumNumberOfLines = 1
+            errorTextNode = etn
+            addSubnode(etn)
+        }
+
+        self.isFailed = display.isFailed
     }
 
     private func loadAvatar() {
@@ -245,6 +294,7 @@ final class MessageBubbleNode: ASDisplayNode {
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began:
+            guard !hasCallLog else { return }
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             showHighlight(true)
@@ -268,15 +318,16 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     func flashHighlight() {
-        showHighlight(true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        highlightNode.frame = bounds
+        highlightNode.alpha = 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.showHighlight(false)
         }
     }
 
 
     func measureSize(width: CGFloat) -> CGSize {
-        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 6.sw
+        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let trailingInset: CGFloat = 12.sw
         let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
         let vertSpacing: CGFloat = 4.sh
@@ -284,9 +335,9 @@ final class MessageBubbleNode: ASDisplayNode {
         var totalH: CGFloat = 0
 
         if isCombine {
-            totalH += 2.sh
+            totalH += 1.sh
         } else {
-            totalH += 10.sh
+            totalH += 6.sh
         }
 
         if let replyNode {
@@ -304,6 +355,13 @@ final class MessageBubbleNode: ASDisplayNode {
             let nameMaxW = contentWidth - cachedTimeSize.width - 4.sw
             cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: 30))
             totalH += max(cachedNameSize.height, cachedTimeSize.height) + vertSpacing
+        }
+
+        if let callLogNode {
+            cachedCallLogSize = callLogNode.measureSize(maxWidth: contentWidth)
+            totalH += cachedCallLogSize.height + vertSpacing
+        } else {
+            cachedCallLogSize = .zero
         }
 
         if let textContentNode {
@@ -341,7 +399,21 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedReactionsSize = .zero
         }
 
-        totalH += 12.sh
+        if let topicNode {
+            cachedTopicSize = topicNode.measureSize(maxWidth: contentWidth)
+            totalH += 8.sh + cachedTopicSize.height + vertSpacing
+        } else {
+            cachedTopicSize = .zero
+        }
+
+        if let errorTextNode {
+            cachedErrorSize = errorTextNode.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
+            totalH += cachedErrorSize.height + vertSpacing
+        } else {
+            cachedErrorSize = .zero
+        }
+
+        totalH += 4.sh
 
         cachedTotalSize = CGSize(width: width, height: totalH)
         return cachedTotalSize
@@ -350,14 +422,14 @@ final class MessageBubbleNode: ASDisplayNode {
     override func layout() {
         super.layout()
         let width = bounds.width
-        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 6.sw
+        let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let combineLeading: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let trailingInset: CGFloat = 12.sw
         let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
         let vertSpacing: CGFloat = 4.sh
 
         let contentX = isCombine ? combineLeading : contentLeadingTotal
-        var y: CGFloat = isCombine ? 2.sh : 10.sh
+        var y: CGFloat = isCombine ? 1.sh : 6.sh
 
         if let replyNode {
             replyNode.frame = CGRect(x: 6.sw, y: y, width: width - 6.sw - 12.sw, height: cachedReplySize.height)
@@ -386,6 +458,11 @@ final class MessageBubbleNode: ASDisplayNode {
             y += nameRowH + vertSpacing
         }
 
+        if let callLogNode {
+            callLogNode.frame = CGRect(x: contentX, y: y, width: contentWidth, height: cachedCallLogSize.height)
+            y += cachedCallLogSize.height + vertSpacing
+        }
+
         if let textContentNode {
             textContentNode.frame = CGRect(x: contentX, y: y, width: contentWidth, height: cachedTextSize.height)
             y += cachedTextSize.height + vertSpacing
@@ -411,7 +488,26 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedReactionsSize.height + vertSpacing
         }
 
+        if let topicNode {
+            y += 8.sh
+            topicNode.frame = CGRect(x: contentX, y: y, width: cachedTopicSize.width, height: cachedTopicSize.height)
+            y += cachedTopicSize.height + vertSpacing
+        }
+
+        if let errorTextNode {
+            errorTextNode.frame = CGRect(x: contentX, y: y, width: cachedErrorSize.width, height: cachedErrorSize.height)
+            y += cachedErrorSize.height + vertSpacing
+        }
+
         highlightNode.frame = bounds
+
+        let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
+        callLogNode?.alpha = contentAlpha
+        topicNode?.alpha = contentAlpha
+        textContentNode?.alpha = contentAlpha
+        mediaContentNode?.alpha = contentAlpha
+        fileAttachmentNode?.alpha = contentAlpha
+        embedNode?.alpha = contentAlpha
     }
 
     private static let timeFormatter: DateFormatter = {

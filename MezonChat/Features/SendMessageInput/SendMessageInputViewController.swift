@@ -8,6 +8,7 @@ final class SendMessageInputViewController: UIViewController {
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
     private let clanId: Int64
+    var topicId: Int64 = 0
     private var disposables = DisposableSet()
 
     private let textPipe = ValuePipe<String>()
@@ -56,19 +57,37 @@ final class SendMessageInputViewController: UIViewController {
         return btn
     }()
 
-    private lazy var textField: UITextField = {
-        let tf = UITextField()
-        tf.borderStyle = .none
-        tf.returnKeyType = .send
-        tf.layer.cornerRadius = 20.swh
-        tf.translatesAutoresizingMaskIntoConstraints = false
-        tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 16.sw, height: 1))
-        tf.leftViewMode = .always
-        tf.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 40.sw, height: 1))
-        tf.rightViewMode = .always
-        tf.delegate = self
-        return tf
+    private lazy var textView: PastableTextView = {
+        let tv = PastableTextView()
+        tv.isScrollEnabled = false
+        tv.textContainerInset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 36)
+        tv.textContainer.lineFragmentPadding = 0
+        tv.layer.cornerRadius = 20.swh
+        tv.clipsToBounds = true
+        tv.translatesAutoresizingMaskIntoConstraints = false
+        tv.delegate = self
+        tv.returnKeyType = .send
+        tv.enablesReturnKeyAutomatically = true
+        tv.onImagesPasted = { [weak self] images in
+            self?.handlePastedImages(images)
+        }
+        tv.onGIFPasted = { [weak self] data in
+            self?.handlePastedGIF(data)
+        }
+        return tv
     }()
+
+    private lazy var placeholderLabel: UILabel = {
+        let lbl = UILabel()
+        lbl.translatesAutoresizingMaskIntoConstraints = false
+        lbl.isUserInteractionEnabled = false
+        return lbl
+    }()
+
+    private var textViewHeightConstraint: NSLayoutConstraint?
+    private var inputBarHeightConstraint: NSLayoutConstraint?
+    private static let textViewMinHeight: CGFloat = 40
+    private static let inputBarPadding: CGFloat = 16 // top 8 + bottom 8
 
     private lazy var emojiButton: UIButton = {
         let btn = UIButton(type: .system)
@@ -89,15 +108,20 @@ final class SendMessageInputViewController: UIViewController {
         return btn
     }()
 
-    private static let inputBarOnlyHeight: CGFloat = 56
     private static let previewHeight: CGFloat = AttachmentPreviewView.previewHeight
+
+    private var inputBarCurrentHeight: CGFloat {
+        return currentTextViewHeight + Self.inputBarPadding
+    }
 
     var totalHeight: CGFloat {
         if pickedImages.isEmpty {
-            return Self.inputBarOnlyHeight
+            return inputBarCurrentHeight
         }
-        return Self.inputBarOnlyHeight + Self.previewHeight
+        return inputBarCurrentHeight + Self.previewHeight
     }
+
+    private var currentTextViewHeight: CGFloat = textViewMinHeight
 
     init(placeholder: String = "", channel: Mezon_Api_ChannelDescription, clanId: Int64, context: AccountContext) {
         self.placeholder = placeholder
@@ -150,16 +174,52 @@ final class SendMessageInputViewController: UIViewController {
         updatePreviewVisibility()
     }
 
+    private func handlePastedImages(_ images: [UIImage]) {
+        let tempDir = FileManager.default.temporaryDirectory
+        for image in images {
+            let filename = "pasted-\(UUID().uuidString).png"
+            let fileURL = tempDir.appendingPathComponent(filename)
+            guard let data = image.pngData() else { continue }
+            do {
+                try data.write(to: fileURL)
+            } catch {
+                continue
+            }
+            let index = pickedImages.count
+            pickedImages.append(image)
+            attachmentPreviewView.addImage(image)
+            pickedFileURLs[index] = fileURL
+        }
+        saveToCache()
+        updatePreviewVisibility()
+    }
+
+    private func handlePastedGIF(_ data: Data) {
+        let tempDir = FileManager.default.temporaryDirectory
+        let filename = "pasted-\(UUID().uuidString).gif"
+        let fileURL = tempDir.appendingPathComponent(filename)
+        do {
+            try data.write(to: fileURL)
+        } catch {
+            return
+        }
+        guard let image = UIImage(data: data) else { return }
+        let index = pickedImages.count
+        pickedImages.append(image)
+        attachmentPreviewView.addImage(image)
+        pickedFileURLs[index] = fileURL
+        saveToCache()
+        updatePreviewVisibility()
+    }
+
     private func removePickedImage(at index: Int) {
         guard index >= 0, index < pickedImages.count else { return }
         pickedImages.remove(at: index)
         attachmentPreviewView.removeImage(at: index)
 
-        // Clean up temp file
         if let fileURL = pickedFileURLs[index] {
             try? FileManager.default.removeItem(at: fileURL)
         }
-        // Re-index file URLs after removal
         var newFileURLs: [Int: URL] = [:]
         for (key, url) in pickedFileURLs where key != index {
             newFileURLs[key > index ? key - 1 : key] = url
@@ -199,19 +259,24 @@ final class SendMessageInputViewController: UIViewController {
     private func updatePreviewVisibility() {
         let shouldShow = !pickedImages.isEmpty
         let targetH = shouldShow ? Self.previewHeight : 0
-        guard previewHeightConstraint?.constant != targetH else { return }
-        previewHeightConstraint?.constant = targetH
-        onHeightChanged?(totalHeight)
-        UIView.animate(withDuration: 0.25) {
-            self.view.superview?.layoutIfNeeded()
+        let heightChanged = previewHeightConstraint?.constant != targetH
+        if heightChanged {
+            previewHeightConstraint?.constant = targetH
+            onHeightChanged?(totalHeight)
         }
+        UIView.animate(withDuration: 0.25, animations: {
+            self.view.superview?.layoutIfNeeded()
+        }, completion: { _ in
+            self.attachmentPreviewView.forceReload()
+        })
     }
 
     private func setupUI() {
         view.addSubview(attachmentPreviewView)
         view.addSubview(inputBarView)
         inputBarView.addSubview(attachButton)
-        inputBarView.addSubview(textField)
+        inputBarView.addSubview(textView)
+        inputBarView.addSubview(placeholderLabel)
         inputBarView.addSubview(emojiButton)
         inputBarView.addSubview(sendButton)
 
@@ -219,6 +284,12 @@ final class SendMessageInputViewController: UIViewController {
         inputBarBottomConstraint = bottomConstraint
 
         let btnSize: CGFloat = 40.swh
+
+        let tvHeight = textView.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight)
+        textViewHeightConstraint = tvHeight
+
+        let barHeight = inputBarView.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding)
+        inputBarHeightConstraint = barHeight
 
         NSLayoutConstraint.activate([
             attachmentPreviewView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -228,26 +299,29 @@ final class SendMessageInputViewController: UIViewController {
             inputBarView.topAnchor.constraint(equalTo: attachmentPreviewView.bottomAnchor),
             inputBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            inputBarView.heightAnchor.constraint(equalToConstant: Self.inputBarOnlyHeight),
+            barHeight,
             bottomConstraint,
 
             attachButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 4.sw),
-            attachButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
+            attachButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             attachButton.widthAnchor.constraint(equalToConstant: btnSize),
             attachButton.heightAnchor.constraint(equalToConstant: btnSize),
 
-            textField.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
-            textField.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
-            textField.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6.sw),
-            textField.heightAnchor.constraint(equalToConstant: 40.sh),
+            textView.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
+            textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6.sw),
+            textView.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
+            tvHeight,
 
-            emojiButton.trailingAnchor.constraint(equalTo: textField.trailingAnchor, constant: -8.sw),
-            emojiButton.centerYAnchor.constraint(equalTo: textField.centerYAnchor),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 13),
+            placeholderLabel.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
+
+            emojiButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -8.sw),
+            emojiButton.bottomAnchor.constraint(equalTo: textView.bottomAnchor, constant: -6),
             emojiButton.widthAnchor.constraint(equalToConstant: 28.swh),
             emojiButton.heightAnchor.constraint(equalToConstant: 28.swh),
 
             sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
-            sendButton.centerYAnchor.constraint(equalTo: inputBarView.centerYAnchor),
+            sendButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             sendButton.widthAnchor.constraint(equalToConstant: btnSize),
             sendButton.heightAnchor.constraint(equalToConstant: btnSize),
         ])
@@ -258,12 +332,15 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func setupBindings() {
-        textField.placeholder = placeholder
+        placeholderLabel.text = placeholder
 
         disposables.add(
             (textPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] text in
-                guard self?.textField.text != text else { return }
-                self?.textField.text = text
+                guard let self else { return }
+                guard self.textView.text != text else { return }
+                self.textView.text = text
+                self.placeholderLabel.isHidden = !text.isEmpty
+                self.updateTextViewHeight()
             })
         )
     }
@@ -277,10 +354,11 @@ final class SendMessageInputViewController: UIViewController {
     private func applyTheme() {
         let t = UIColor.theme
         inputBarView.backgroundColor = t.secondary
-        textField.backgroundColor = t.tertiary
-        textField.textColor = t.textStrong
-        textField.font = .systemFont(ofSize: 15.sf)
-        textField.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: t.textDisabled])
+        textView.backgroundColor = t.tertiary
+        textView.textColor = t.textStrong
+        textView.font = .systemFont(ofSize: 15.sf)
+        placeholderLabel.font = .systemFont(ofSize: 15.sf)
+        placeholderLabel.textColor = t.textDisabled
         attachButton.backgroundColor = t.tertiary
         attachButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
@@ -330,7 +408,6 @@ final class SendMessageInputViewController: UIViewController {
             )
 
             let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-            print("✅ CDN [\(index)] \(filetype): \(cdnURL)")
 
             if !filetype.hasPrefix("video/") {
                 ImageCache.shared.setImage(image, data: fileData, forKey: cdnURL)
@@ -372,7 +449,7 @@ final class SendMessageInputViewController: UIViewController {
             return
         }
         let localId = "pending-\(UUID().uuidString)"
-        let channelIdStr = "\(channel.channelID)"
+        let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
 
         let imagesToUpload = images
         let fileURLsToUpload = pickedFileURLs
@@ -399,8 +476,21 @@ final class SendMessageInputViewController: UIViewController {
             contentStr = "{}"
         }
 
-        let mode: Int32 = clanId == 0 ? (channel.type == MezonConstants.ChannelType.dm.rawValue ? 4 : 3) : 2
-        let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
+        let mode: Int32 = {
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                return MezonConstants.ChannelStreamMode.thread.rawValue // 6
+            case MezonConstants.ChannelType.dm.rawValue:
+                return MezonConstants.ChannelStreamMode.dm.rawValue // 4
+            case MezonConstants.ChannelType.group.rawValue:
+                return MezonConstants.ChannelStreamMode.group.rawValue // 3
+            default:
+                return clanId == 0
+                    ? MezonConstants.ChannelStreamMode.group.rawValue // 3
+                    : MezonConstants.ChannelStreamMode.channel.rawValue // 2
+            }
+        }()
+        let isPublic = channel.channelPrivate == 0
         let avatar: String = context.currentUser?.avatarURL?.absoluteString ?? ""
 
         Task { @MainActor in
@@ -408,10 +498,6 @@ final class SendMessageInputViewController: UIViewController {
                 var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
                 if !imagesToUpload.isEmpty {
                     uploadedAttachments = try await self.uploadAttachments(imagesToUpload, fileURLs: fileURLsToUpload, token: token)
-                    print("📎 Uploaded \(uploadedAttachments.count) attachments")
-                    for att in uploadedAttachments {
-                        print("   → \(att.url)")
-                    }
                 }
 
                 _ = try await self.context.account.network.sendChannelMessage(
@@ -426,7 +512,7 @@ final class SendMessageInputViewController: UIViewController {
                     anonymous: false,
                     mentionEveryone: false,
                     avatar: avatar,
-                    topicId: 0,
+                    topicId: self.topicId,
                     token: token
                 )
                 self.context.account.postbox.write { tx in tx.deleteMessage(id: localId) }
@@ -440,14 +526,43 @@ final class SendMessageInputViewController: UIViewController {
     }
 }
 
-extension SendMessageInputViewController: UITextFieldDelegate {
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        send()
+extension SendMessageInputViewController: UITextViewDelegate {
+    func textViewDidChange(_ textView: UITextView) {
+        updateText(textView.text ?? "")
+        placeholderLabel.isHidden = !textView.text.isEmpty
+        updateTextViewHeight()
+    }
+
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        if text == "\n" {
+            send()
+            return false
+        }
         return true
     }
 
-    func textFieldDidChangeSelection(_ textField: UITextField) {
-        updateText(textField.text ?? "")
+    private func updateTextViewHeight() {
+        let font = textView.font ?? .systemFont(ofSize: 15.sf)
+        let lineHeight = font.lineHeight
+        let maxLines: CGFloat = 3
+        let verticalInsets = textView.textContainerInset.top + textView.textContainerInset.bottom
+        let maxHeight = lineHeight * maxLines + verticalInsets
+        let minHeight = Self.textViewMinHeight
+
+        let fittingSize = CGSize(width: textView.frame.width - textView.textContainerInset.left - textView.textContainerInset.right, height: .greatestFiniteMagnitude)
+        let textHeight = textView.sizeThatFits(fittingSize).height
+        let newHeight = min(max(textHeight, minHeight), maxHeight)
+
+        textView.isScrollEnabled = textHeight > maxHeight
+
+        guard abs(newHeight - currentTextViewHeight) > 0.5 else { return }
+        currentTextViewHeight = newHeight
+        textViewHeightConstraint?.constant = newHeight
+        inputBarHeightConstraint?.constant = newHeight + Self.inputBarPadding
+        onHeightChanged?(totalHeight)
+        UIView.animate(withDuration: 0.2) {
+            self.view.superview?.layoutIfNeeded()
+        }
     }
 }
 
@@ -511,5 +626,48 @@ extension SendMessageInputViewController: PHPickerViewControllerDelegate {
         let time = CMTime(seconds: 0.5, preferredTimescale: 600)
         guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
         return UIImage(cgImage: cgImage)
+    }
+}
+
+final class PastableTextView: UITextView {
+
+    var onImagesPasted: (([UIImage]) -> Void)?
+    var onGIFPasted: ((Data) -> Void)?
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(paste(_:)) {
+            let pb = UIPasteboard.general
+            if pb.hasImages || pb.contains(pasteboardTypes: ["com.compuserve.gif"]) {
+                return true
+            }
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    override func paste(_ sender: Any?) {
+        let pb = UIPasteboard.general
+
+        if let gifData = pb.data(forPasteboardType: "com.compuserve.gif") {
+            onGIFPasted?(gifData)
+            if let text = pb.string, !text.isEmpty {
+                super.paste(sender)
+            }
+            return
+        }
+
+        if let images = pb.images, !images.isEmpty {
+            onImagesPasted?(images)
+            if let text = pb.string, !text.isEmpty {
+                insertText(text)
+            }
+            return
+        }
+
+        if pb.hasImages, let image = pb.image {
+            onImagesPasted?([image])
+            return
+        }
+
+        super.paste(sender)
     }
 }
