@@ -35,6 +35,7 @@ final class MessageTable: Table {
         addColumnIfNeeded("messages", column: "reactions_json", definition: "BLOB")
         addColumnIfNeeded("messages", column: "references_data", definition: "BLOB")
         addColumnIfNeeded("messages", column: "mentions_json", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "code", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
@@ -44,7 +45,7 @@ final class MessageTable: Table {
             """
             SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
                    is_deleted, sender_display_name, sender_avatar_url, sending_state,
-                   attachments_json, reactions_json, references_data, mentions_json
+                   attachments_json, reactions_json, references_data, mentions_json, code
             FROM messages
             WHERE channel_id = ? AND is_deleted = 0
             ORDER BY created_at ASC
@@ -96,10 +97,13 @@ final class MessageTable: Table {
                 mentionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 14)))
             } else { mentionsJSON = Data() }
 
+            let code = sqlite3_column_int(stmt, 15)
+
             return MessageRecord(
                 id: id, channelId: chId, clanId: clanId, senderId: senderId,
                 content: content, createdAt: createdAt, editedAt: editedAt,
-                isDeleted: isDeleted, senderDisplayName: displayName,
+                isDeleted: isDeleted, code: code,
+                senderDisplayName: displayName,
                 senderAvatarURL: avatarURL, sendingState: sendingState,
                 attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON,
                 referencesData: referencesData, mentionsJSON: mentionsJSON
@@ -165,7 +169,8 @@ final class MessageTable: Table {
                     id: old.id, channelId: old.channelId, clanId: old.clanId,
                     senderId: old.senderId, content: old.content,
                     createdAt: old.createdAt, editedAt: old.editedAt,
-                    isDeleted: old.isDeleted, senderDisplayName: old.senderDisplayName,
+                    isDeleted: old.isDeleted, code: old.code,
+                    senderDisplayName: old.senderDisplayName,
                     senderAvatarURL: old.senderAvatarURL, sendingState: .failed,
                     attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON,
                     referencesData: old.referencesData, mentionsJSON: old.mentionsJSON
@@ -207,8 +212,8 @@ final class MessageTable: Table {
                         id, channel_id, clan_id, sender_id, content,
                         created_at, edited_at, is_deleted,
                         sender_display_name, sender_avatar_url, sending_state,
-                        attachments_json, reactions_json, references_data, mentions_json
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        attachments_json, reactions_json, references_data, mentions_json, code
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in
                     sqlite3_bind_text(s, 1, record.id,        -1, nil)
                     sqlite3_bind_text(s, 2, record.channelId, -1, nil)
@@ -246,6 +251,7 @@ final class MessageTable: Table {
                             sqlite3_bind_blob(s, 15, buf.baseAddress, Int32(buf.count), nil)
                         }
                     } else { sqlite3_bind_null(s, 15) }
+                    sqlite3_bind_int(s, 16, record.code)
                 }
             }
         }

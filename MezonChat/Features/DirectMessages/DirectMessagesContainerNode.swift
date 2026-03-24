@@ -16,7 +16,6 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let searchButton = UIButton(type: .system)
     private let tableView: UITableView
 
-    private let emptyLabel = UILabel()
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0.5, y: 0)
@@ -47,7 +46,6 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 } else {
                     self.needsReloadOnLayout = true
                 }
-                self.emptyLabel.isHidden = !(newState.isEmpty && !newState.isLoading)
             })
         )
     }
@@ -94,17 +92,11 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         searchButton.configuration = searchCfg
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
-        emptyLabel.font = .systemFont(ofSize: 15.sf)
-        emptyLabel.textColor = .mezonTextSecondary
-        emptyLabel.textAlignment = .center
-        emptyLabel.text = L(L10n.ChannelMessages.emptyMessages)
-        emptyLabel.isHidden = true
 
         view.addSubview(headerView)
         view.addSubview(addFriendButton)
         view.addSubview(searchButton)
         view.addSubview(tableView)
-        view.addSubview(emptyLabel)
 
         headerView.addSubview(titleLabel)
 
@@ -146,7 +138,6 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: size.width, height: tvHeight))
 
-        transition.updateFrame(view: emptyLabel, frame: CGRect(x: 0, y: (size.height - 44.sh) / 2, width: size.width, height: 44.sh))
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -158,7 +149,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         titleLabel.textColor = .mezonTextPrimary
-        emptyLabel.textColor = .mezonTextSecondary
+
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }

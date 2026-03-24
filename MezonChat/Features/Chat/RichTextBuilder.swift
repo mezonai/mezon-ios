@@ -6,6 +6,11 @@ extension NSAttributedString.Key {
     static let mezonHashtag = NSAttributedString.Key("mezon.hashtag")
 }
 
+enum RichTextSegment {
+    case text(NSAttributedString)
+    case codeBlock(String)
+}
+
 enum RichTextBuilder {
 
     struct Style {
@@ -158,6 +163,77 @@ enum RichTextBuilder {
         }
 
         return result
+    }
+
+    static func buildSegments(from content: ParsedContent, style: Style? = nil) -> [RichTextSegment] {
+        let s = style ?? .fromTheme()
+        let text = content.text
+
+        guard !text.isEmpty else { return [] }
+
+        let codeBlockTokens = content.tokens
+            .filter { if case .codeBlock = $0.kind { return true }; return false }
+            .sorted { $0.start < $1.start }
+
+        guard !codeBlockTokens.isEmpty else {
+            return [.text(build(from: content, style: s))]
+        }
+
+        var segments: [RichTextSegment] = []
+        var lastIndex = 0
+
+        for token in codeBlockTokens {
+            if token.start > lastIndex {
+                let beforeContent = sliceContent(content, from: lastIndex, to: token.start)
+                let attrText = build(from: beforeContent, style: s)
+                if attrText.length > 0 {
+                    segments.append(.text(attrText))
+                }
+            }
+
+            var codeText = String(text[
+                text.index(text.startIndex, offsetBy: token.start)..<text.index(text.startIndex, offsetBy: min(token.end, text.count))
+            ])
+            if codeText.hasPrefix("```") && codeText.hasSuffix("```") {
+                codeText = String(codeText.dropFirst(3).dropLast(3))
+            }
+            if let firstNewline = codeText.firstIndex(of: "\n") {
+                let firstLine = codeText[codeText.startIndex..<firstNewline]
+                let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty && !trimmed.contains(" ") && trimmed.count < 20 {
+                    codeText = String(codeText[firstNewline...])
+                }
+            }
+            codeText = codeText.trimmingCharacters(in: .newlines)
+            segments.append(.codeBlock(codeText))
+
+            lastIndex = token.end
+        }
+
+        if lastIndex < text.count {
+            let afterContent = sliceContent(content, from: lastIndex, to: text.count)
+            let attrText = build(from: afterContent, style: s)
+            if attrText.length > 0 {
+                segments.append(.text(attrText))
+            }
+        }
+
+        return segments
+    }
+
+    private static func sliceContent(_ content: ParsedContent, from: Int, to: Int) -> ParsedContent {
+        let text = content.text
+        let start = text.index(text.startIndex, offsetBy: from)
+        let end = text.index(text.startIndex, offsetBy: min(to, text.count))
+        let slicedText = String(text[start..<end])
+
+        let slicedTokens = content.tokens.compactMap { token -> ContentToken? in
+            if case .codeBlock = token.kind { return nil }
+            guard token.start >= from && token.end <= to else { return nil }
+            return ContentToken(start: token.start - from, end: token.end - from, kind: token.kind)
+        }
+
+        return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [])
     }
 
     private static func bodyAttributes(_ s: Style) -> [NSAttributedString.Key: Any] {

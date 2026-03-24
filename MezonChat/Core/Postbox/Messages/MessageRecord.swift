@@ -18,6 +18,7 @@ struct MessageRecord: PostboxCoding, Equatable {
     let createdAt: Date
     let editedAt: Date?
     let isDeleted: Bool
+    let code: Int32
 
     let senderDisplayName: String
     let senderAvatarURL: String?
@@ -38,6 +39,7 @@ struct MessageRecord: PostboxCoding, Equatable {
         createdAt: Date,
         editedAt: Date? = nil,
         isDeleted: Bool = false,
+        code: Int32 = 0,
         senderDisplayName: String = "",
         senderAvatarURL: String? = nil,
         sendingState: SendingState = .sent,
@@ -54,6 +56,7 @@ struct MessageRecord: PostboxCoding, Equatable {
         self.createdAt         = createdAt
         self.editedAt          = editedAt
         self.isDeleted         = isDeleted
+        self.code              = code
         self.senderDisplayName = senderDisplayName
         self.senderAvatarURL   = senderAvatarURL
         self.sendingState      = sendingState
@@ -80,13 +83,15 @@ extension MessageRecord {
             if !api.avatar.isEmpty     { return api.avatar }
             return nil
         }()
+        let channelId = api.topicID != 0 ? "topic-\(api.topicID)" : "\(api.channelID)"
         self.init(
             id:                "\(api.messageID)",
-            channelId:         "\(api.channelID)",
+            channelId:         channelId,
             clanId:            "\(api.clanID)",
             senderId:          "\(api.senderID)",
             content:           contentData,
             createdAt:         createdAt,
+            code:              api.code,
             senderDisplayName: displayName,
             senderAvatarURL:   avatarURL,
             sendingState:      .sent,

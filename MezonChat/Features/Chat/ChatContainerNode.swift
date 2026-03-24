@@ -15,6 +15,7 @@ struct ChatInteraction {
     let onHashtagTapped: (String) -> Void
     let onMessageLongPressed: (ChatMessageDisplay) -> Void
     let onReplyTapped: (String) -> Void
+    let onTopicTapped: (TopicData) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -28,7 +29,6 @@ final class ChatContainerNode: ASDisplayNode {
     private let loadingNewerNode = ASDisplayNode()
     private let jumpToPresentNode = ASButtonNode()
 
-    private let emptyNode = ASTextNode2()
 
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
@@ -39,7 +39,7 @@ final class ChatContainerNode: ASDisplayNode {
 
     private(set) var state: ChatState = .empty
     private var committedItems: [ListViewItem] = []
-    private var committedMessageIds: [String] = []
+    private(set) var committedMessageIds: [String] = []
     private let interaction: ChatInteraction
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
@@ -73,7 +73,6 @@ final class ChatContainerNode: ASDisplayNode {
         addSubnode(skeletonNode)
         addSubnode(loadingOlderNode)
         addSubnode(loadingNewerNode)
-        addSubnode(emptyNode)
         addSubnode(jumpToPresentNode)
 
         listView.rotated = true
@@ -119,7 +118,6 @@ final class ChatContainerNode: ASDisplayNode {
                 if let msg = newState.errorMessage { Toast.error(msg) }
 
                 let isEmpty = newState.messages.isEmpty
-                self.emptyNode.isHidden = !(!newState.isLoading && isEmpty)
 
                 if self.listView.bounds.width > 0 {
                     self.applyTransition(old: oldState, new: newState)
@@ -184,13 +182,7 @@ final class ChatContainerNode: ASDisplayNode {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         headerNode.applyTheme()
-        emptyNode.attributedText = NSAttributedString(
-            string: L(L10n.ChannelMessages.emptyMessages),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 15.sf),
-                .foregroundColor: t.textDisabled,
-            ]
-        )
+
         reloadAllItems()
     }
 
@@ -246,8 +238,7 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     func scrollToMessage(id: String) {
-        guard let messageIndex = state.messages.firstIndex(where: { $0.id == id }) else { return }
-        let row = state.messages.count - 1 - messageIndex
+        guard let row = committedMessageIds.firstIndex(of: id) else { return }
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -260,8 +251,7 @@ final class ChatContainerNode: ASDisplayNode {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
             guard let self else { return }
-            guard let idx = self.state.messages.firstIndex(where: { $0.id == id }) else { return }
-            let itemIndex = self.state.messages.count - 1 - idx
+            guard let itemIndex = self.committedMessageIds.firstIndex(of: id) else { return }
             self.listView.forEachItemNode { node in
                 if let node = node as? ChatMessageItemNode, node.index == itemIndex {
                     if let bubble = self.findBubble(in: node) {
@@ -279,9 +269,30 @@ final class ChatContainerNode: ASDisplayNode {
         return nil
     }
 
+    static let unreadLineId = "__unread_line__"
+
+    private func buildIds(from state: ChatState) -> [String] {
+        let messages = state.messages
+        let lastSeenId = state.lastSeenMessageId
+        let lastMessageId = messages.last?.id
+        var ids: [String] = []
+        for display in messages.reversed() {
+            ids.append(display.id)
+            if let seenId = lastSeenId,
+               display.id == seenId,
+               display.id != lastMessageId,
+               messages.count > 2 {
+                ids.append(Self.unreadLineId)
+            }
+        }
+        return ids
+    }
+
     private func buildItems(from state: ChatState) -> [ListViewItem] {
         let messages = state.messages
         var items: [ListViewItem] = []
+        let lastSeenId = state.lastSeenMessageId
+        let lastMessageId = messages.last?.id
         for display in messages.reversed() {
             if display.isWelcome {
                 items.append(ChatWelcomeItem(
@@ -293,13 +304,19 @@ final class ChatContainerNode: ASDisplayNode {
             } else {
                 items.append(ChatMessageItem(display: display, interaction: interaction))
             }
+            if let seenId = lastSeenId,
+               display.id == seenId,
+               display.id != lastMessageId,
+               messages.count > 2 {
+                items.append(ChatNewMessageLineItem())
+            }
         }
         return items
     }
 
     private func reloadAllItems() {
         let items = buildItems(from: state)
-        let newIds = state.messages.reversed().map { $0.id }
+        let newIds = buildIds(from: state)
 
         var deleteItems: [ListViewDeleteItem] = []
         for i in (0..<committedMessageIds.count).reversed() {
@@ -328,7 +345,7 @@ final class ChatContainerNode: ASDisplayNode {
     private func applyTransition(old: ChatState, new: ChatState) {
         didAutoScrollForNewMessages = false
         let oldIds = committedMessageIds
-        let newIds: [String] = new.messages.reversed().map { $0.id }
+        let newIds = buildIds(from: new)
 
         if oldIds == newIds {
             let oldStates = old.messages.map { $0.sendingState }
@@ -364,7 +381,6 @@ final class ChatContainerNode: ASDisplayNode {
         deleteItems.sort { $0.index > $1.index }
 
         let hasNewAtBottom = !addedIds.isEmpty && newIds.first.map({ addedIds.contains($0) }) ?? false
-        let hasOlderAtTop = !addedIds.isEmpty && newIds.last.map({ addedIds.contains($0) }) ?? false
 
         var insertItems: [ListViewInsertItem] = []
         for (newIdx, id) in newIds.enumerated() {
@@ -387,20 +403,13 @@ final class ChatContainerNode: ASDisplayNode {
         committedItems = newItems
         committedMessageIds = Array(newIds)
 
-        var scrollToItem: ListViewScrollToItem?
         let isLoadMoreResult = old.isLoadingMore || old.isLoadingNewer
             || new.isLoadingMore || new.isLoadingNewer
-        let isBatchInsert = addedIds.count > 1
-        if isNearBottom && hasNewAtBottom && !isLoadMoreResult && !isBatchInsert {
-            didAutoScrollForNewMessages = true
-            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Default(duration: nil), directionHint: .Up)
-        }
 
-        let stationaryRange: (Int, Int)?
-        if scrollToItem == nil && !addedIds.isEmpty {
-            stationaryRange = (0, Int.max)
-        } else {
-            stationaryRange = nil
+        var scrollToItem: ListViewScrollToItem?
+        if isNearBottom && hasNewAtBottom && !isLoadMoreResult {
+            didAutoScrollForNewMessages = true
+            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
         }
 
         listView.transaction(
@@ -409,7 +418,7 @@ final class ChatContainerNode: ASDisplayNode {
             updateIndicesAndItems: [],
             options: [.Synchronous, .LowLatency],
             scrollToItem: scrollToItem,
-            stationaryItemRange: stationaryRange,
+            stationaryItemRange: scrollToItem == nil ? (0, Int.max) : nil,
             updateOpaqueState: nil,
             completion: { [weak self] _ in
                 DispatchQueue.main.async {
@@ -439,13 +448,19 @@ final class ChatContainerNode: ASDisplayNode {
         transition.updateFrame(node: listView, frame: tvFrame)
 
         let listInsets = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
+        let animDuration: Double
+        if case let .animated(duration, _) = transition {
+            animDuration = duration
+        } else {
+            animDuration = 0
+        }
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
             updateIndicesAndItems: [],
             options: [.Synchronous],
             scrollToItem: nil,
-            updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: tvFrame.size, insets: listInsets, duration: 0, curve: .Default(duration: nil)),
+            updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: tvFrame.size, insets: listInsets, duration: animDuration, curve: .Default(duration: nil)),
             updateOpaqueState: nil,
             completion: { _ in }
         )
@@ -465,14 +480,6 @@ final class ChatContainerNode: ASDisplayNode {
             width: liS,
             height: liS
         ))
-        let tableY = tvFrame.minY
-        let tableH = tvFrame.height
-        transition.updateFrame(node: emptyNode, frame: CGRect(
-                x: 0,
-                y: tableY + (tableH - 44) / 2,
-                width: fullWidth,
-                height: 44
-            ))
 
         let btnS: CGFloat = 40
         transition.updateFrame(node: jumpToPresentNode, frame: CGRect(
