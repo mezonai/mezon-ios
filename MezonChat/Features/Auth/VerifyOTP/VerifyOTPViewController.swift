@@ -61,18 +61,18 @@ final class VerifyOTPViewController: BaseViewController {
         digitFields = fields
         let sv = UIStackView(arrangedSubviews: fields)
         sv.axis = .horizontal
-        sv.spacing = 10.sw
-        sv.distribution = .fillEqually
+        sv.distribution = .equalSpacing
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
 
-    private lazy var actionButton: UIButton = {
-        let btn = UIButton(type: .system)
+    private lazy var actionButton: GradientButton = {
+        let btn = GradientButton(type: .custom)
         btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         btn.setTitleColor(.white, for: .normal)
-        btn.setTitleColor(UIColor.white.withAlphaComponent(0.5), for: .disabled)
-        btn.layer.cornerRadius = 12.sw
+        btn.setTitleColor(UIColor.white.withAlphaComponent(0.8), for: .disabled)
+        btn.layer.cornerRadius = 8.sw
+        btn.layer.masksToBounds = true
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
     }()
@@ -80,7 +80,7 @@ final class VerifyOTPViewController: BaseViewController {
     private lazy var alternativeSection: UIStackView = {
         let sv = UIStackView()
         sv.axis = .vertical
-        sv.spacing = 6.sh
+        sv.spacing = 0
         sv.alignment = .center
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
@@ -129,11 +129,11 @@ final class VerifyOTPViewController: BaseViewController {
 
         let contentStack = UIStackView(arrangedSubviews: [titleLabel, instructionStack, otpStack, actionButton, alternativeSection])
         contentStack.axis = .vertical
-        contentStack.spacing = 0
-        contentStack.setCustomSpacing(12.sh, after: titleLabel)
-        contentStack.setCustomSpacing(28.sh, after: instructionStack)
+        contentStack.spacing = 12.sh
+        contentStack.setCustomSpacing(18.sh, after: titleLabel)
+        contentStack.setCustomSpacing(32.sh, after: instructionStack)
         contentStack.setCustomSpacing(28.sh, after: otpStack)
-        contentStack.setCustomSpacing(16.sh, after: actionButton)
+        contentStack.setCustomSpacing(24.sh, after: actionButton)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
         let scroll = UIScrollView()
@@ -148,13 +148,16 @@ final class VerifyOTPViewController: BaseViewController {
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-            contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 60.sh),
-            contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 24.sw),
-            contentStack.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -24.sw),
+            contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 40.sh),
+            contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 40.sw),
+            contentStack.trailingAnchor.constraint(
+                equalTo: scroll.trailingAnchor, constant: 40.sw),
             contentStack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -40.sh),
-            contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -48.sw),
-            otpStack.heightAnchor.constraint(equalToConstant: 56.sh),
-            actionButton.heightAnchor.constraint(equalToConstant: 52.sh),
+            contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -80.sw),
+
+            otpStack.heightAnchor.constraint(equalToConstant: 48.sh),
+
+            actionButton.heightAnchor.constraint(equalToConstant: 50.sh),
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
@@ -167,21 +170,21 @@ final class VerifyOTPViewController: BaseViewController {
 
     override func setupBindings() {
         disposables.add(actionButton.tapSignal().start(next: { [weak self] in
-            guard let self else { return }
+                guard let self else { return }
             if self.resendCooldown == 0 { self.triggerResend() }
             else { self.triggerSubmit() }
-        }))
+            }))
         disposables.add((isSubmitEnabledPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in self?.updateActionButton() }))
         disposables.add((resendCooldownPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in self?.updateActionButton() }))
         disposables.add((isLoadingPipe.signal() |> deliverOnMainQueue).start(next: { [weak self] loading in
             if loading { self?.loadingIndicator.startAnimating() } else { self?.loadingIndicator.stopAnimating() }
-            self?.actionButton.isUserInteractionEnabled = !loading
-        }))
+                self?.actionButton.isUserInteractionEnabled = !loading
+            }))
         disposables.add((errorMessagePipe.signal() |> deliverOnMainQueue).start(next: { [weak self] msg in
-            guard let msg else { return }
-            Toast.error(msg)
-            self?.shakeOTPFields()
-        }))
+                guard let msg else { return }
+                Toast.error(msg)
+                self?.shakeOTPFields()
+            }))
         for field in digitFields { field.addTarget(self, action: #selector(digitFieldChanged(_:)), for: .editingChanged) }
     }
 
@@ -191,7 +194,16 @@ final class VerifyOTPViewController: BaseViewController {
         titleLabel.textColor = attrs.loginTitleColor
         instructionLabel.textColor = attrs.loginSubtitleColor
         targetLabel.textColor = attrs.loginTitleColor
-        actionButton.backgroundColor = (resendCooldown == 0 || isSubmitEnabled) ? attrs.loginButtonBg : attrs.loginButtonBgDisabled
+
+        let isEnabled = (resendCooldown == 0 || isSubmitEnabled)
+        if isEnabled {
+            actionButton.backgroundColor = .clear
+            actionButton.setGradientHidden(false)
+        } else {
+            actionButton.backgroundColor = attrs.loginButtonBgDisabled
+            actionButton.setGradientHidden(true)
+        }
+
         digitFields.forEach { tf in
             tf.backgroundColor = attrs.loginInputBg
             tf.layer.borderColor = attrs.loginInputBorder.cgColor
@@ -210,7 +222,14 @@ final class VerifyOTPViewController: BaseViewController {
     func triggerResend() { resendPipe.putNext(()) }
 
     private func bindValidation() {
-        disposables.add((otpCodePipe.signal() |> map { $0.count == 6 } |> deliverOnMainQueue).start(next: { [weak self] enabled in self?.setSubmitEnabled(enabled) }))
+        disposables.add(
+            (otpCodePipe.signal() |> map { $0.count == 6 } |> deliverOnMainQueue).start(next: {
+                [weak self] enabled in
+                self?.setSubmitEnabled(enabled)
+                if enabled {
+                    self?.triggerSubmit()
+                }
+            }))
     }
 
     private func bindSubmit() {
@@ -269,7 +288,7 @@ final class VerifyOTPViewController: BaseViewController {
             guard let self else { t.invalidate(); return }
             if self.resendCooldown > 0 { self.setResendCooldown(self.resendCooldown - 1) }
             else { t.invalidate() }
-        }, queue: mainQueue)
+            }, queue: mainQueue)
         cooldownTimer = timer
         timer.start()
     }
@@ -289,7 +308,7 @@ final class VerifyOTPViewController: BaseViewController {
         let hintLabel = UILabel()
         hintLabel.text = L(L10n.OTPVerify.didNotReceive)
         hintLabel.font = .systemFont(ofSize: 14.sf)
-        hintLabel.textColor = .loginAlternativeText
+        hintLabel.textColor = UIColor(hex: 0x2e22ff)
         hintLabel.translatesAutoresizingMaskIntoConstraints = false
         alternativeSection.addArrangedSubview(hintLabel)
 
@@ -297,8 +316,11 @@ final class VerifyOTPViewController: BaseViewController {
         let changeTitle = otpContext.type == .email ? L(L10n.OTPVerify.changeEmail) : L(L10n.OTPVerify.changePhone)
         changeLink.setTitle(changeTitle, for: .normal)
         changeLink.titleLabel?.font = .systemFont(ofSize: 14.sf)
-        changeLink.setTitleColor(.mezonLink, for: .normal)
-        changeLink.addAction(UIAction { [weak self] _ in self?.navigationController?.popToRootViewController(animated: true) }, for: .touchUpInside)
+        changeLink.setTitleColor(UIColor(hex: 0x2e22ff), for: .normal)
+        changeLink.addAction(
+            UIAction { [weak self] _ in
+                self?.navigationController?.popToRootViewController(animated: true)
+            }, for: .touchUpInside)
         alternativeSection.addArrangedSubview(changeLink)
     }
 
@@ -312,7 +334,13 @@ final class VerifyOTPViewController: BaseViewController {
                 actionButton.setTitle(L(L10n.OTPVerify.resendOTP), for: .normal)
                 actionButton.isEnabled = true
             }
-            actionButton.backgroundColor = actionButton.isEnabled ? ThemeManager.shared.attributes.loginButtonBg : ThemeManager.shared.attributes.loginButtonBgDisabled
+            if actionButton.isEnabled {
+                actionButton.backgroundColor = .clear
+                actionButton.setGradientHidden(false)
+            } else {
+                actionButton.backgroundColor = ThemeManager.shared.attributes.loginButtonBgDisabled
+                actionButton.setGradientHidden(true)
+            }
             actionButton.layoutIfNeeded()
         }
     }
@@ -348,11 +376,12 @@ final class VerifyOTPViewController: BaseViewController {
         let tf = OTPDigitTextField()
         tf.keyboardType = .numberPad
         tf.textAlignment = .center
-        tf.font = .systemFont(ofSize: 22.sf, weight: .semibold)
-        tf.layer.cornerRadius = 12.sw
+        tf.font = .systemFont(ofSize: 20.sf, weight: .semibold)
+        tf.layer.cornerRadius = 8.sw
         tf.layer.borderWidth = 1
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.delegate = self
+        tf.widthAnchor.constraint(equalToConstant: 44.sw).isActive = true
         return tf
     }
 
@@ -383,5 +412,32 @@ private final class OTPDigitTextField: UITextField {
     override func deleteBackward() {
         super.deleteBackward()
         sendActions(for: .editingChanged)
+    }
+}
+
+private final class GradientButton: UIButton {
+    private let gradientLayer: CAGradientLayer = {
+        let layer = CAGradientLayer()
+        layer.colors = [UIColor(hex: 0x501794).cgColor, UIColor(hex: 0x3E70A1).cgColor]
+        layer.startPoint = CGPoint(x: 0, y: 0)
+        layer.endPoint = CGPoint(x: 1, y: 0)
+        return layer
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.insertSublayer(gradientLayer, at: 0)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = bounds
+        gradientLayer.cornerRadius = layer.cornerRadius
+    }
+
+    func setGradientHidden(_ hidden: Bool) {
+        gradientLayer.isHidden = hidden
     }
 }

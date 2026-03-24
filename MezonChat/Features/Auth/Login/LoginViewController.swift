@@ -23,8 +23,9 @@ struct LoginState {
     var otpCooldown: Int
     var isLoading: Bool
     var errorMessage: String?
+    var isPasswordVisible: Bool
 
-    static let empty = LoginState(mode: .sms, email: "", phone: "", countryPrefix: "+84", password: "", isSubmitEnabled: false, otpCooldown: 0, isLoading: false, errorMessage: nil)
+    static let empty = LoginState(mode: .sms, email: "", phone: "", countryPrefix: "+84", password: "", isSubmitEnabled: false, otpCooldown: 0, isLoading: false, errorMessage: nil, isPasswordVisible: false)
 }
 
 final class LoginViewController: ViewController {
@@ -41,6 +42,7 @@ final class LoginViewController: ViewController {
     private let otpCooldownPipe = ValuePipe<Int>()
     private let isLoadingPipe = ValuePipe<Bool>()
     private let errorMessagePipe = ValuePipe<String?>()
+    private let isPasswordVisiblePipe = ValuePipe<Bool>()
     private let submitPipe = ValuePipe<Void>()
     private let needsReloadPipe = ValuePipe<Void>()
 
@@ -56,6 +58,7 @@ final class LoginViewController: ViewController {
     private(set) var otpCooldown: Int = 0
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
+    private(set) var isPasswordVisible: Bool = false
 
     private var loginNode: LoginContainerNode { displayNode as! LoginContainerNode }
 
@@ -73,6 +76,7 @@ final class LoginViewController: ViewController {
         otpCooldownPipe.putNext(otpCooldown)
         isLoadingPipe.putNext(isLoading)
         errorMessagePipe.putNext(errorMessage)
+        isPasswordVisiblePipe.putNext(isPasswordVisible)
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -84,7 +88,10 @@ final class LoginViewController: ViewController {
             onPasswordChanged: { [weak self] text in self?.setPassword(text) },
             onSubmitTapped: { [weak self] in self?.triggerSubmit() },
             onCountryPrefixTapped: { [weak self] in self?.showCountryPicker() },
-            onShowPasswordToggled: {},
+            onShowPasswordToggled: { [weak self] in
+                guard let self else { return }
+                self.setPasswordVisible(!self.isPasswordVisible)
+            },
             onModeSelected: { [weak self] mode in self?.setMode(mode) }
         )
         displayNode = LoginContainerNode(signal: stateSignal(), interaction: interaction)
@@ -113,6 +120,7 @@ final class LoginViewController: ViewController {
     private func setOtpCooldown(_ v: Int) { otpCooldown = v; otpCooldownPipe.putNext(v); needsReloadPipe.putNext(()) }
     func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setPasswordVisible(_ v: Bool) { isPasswordVisible = v; isPasswordVisiblePipe.putNext(v); needsReloadPipe.putNext(()) }
 
     func triggerSubmit() { submitPipe.putNext(()) }
 
@@ -234,7 +242,7 @@ final class LoginViewController: ViewController {
     }
 
     var currentState: LoginState {
-        LoginState(mode: mode, email: email, phone: phone, countryPrefix: countryPrefix, password: password, isSubmitEnabled: isSubmitEnabled, otpCooldown: otpCooldown, isLoading: isLoading, errorMessage: errorMessage)
+        LoginState(mode: mode, email: email, phone: phone, countryPrefix: countryPrefix, password: password, isSubmitEnabled: isSubmitEnabled, otpCooldown: otpCooldown, isLoading: isLoading, errorMessage: errorMessage, isPasswordVisible: isPasswordVisible)
     }
 
     func stateSignal() -> Signal<LoginState, NoError> {

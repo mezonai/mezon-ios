@@ -89,10 +89,10 @@ final class TextFieldComponent: Component {
                 let iv = UIImageView(image: UIImage(systemName: iconName))
                 iv.tintColor = component.placeholderColor
                 iv.contentMode = .scaleAspectFit
-                iv.frame = CGRect(x: 0, y: 0, width: 44, height: 24)
-                let wrapper = UIView(frame: CGRect(x: 0, y: 0, width: 44, height: 24))
+                iv.frame = CGRect(x: 0, y: 0, width: 24, height: 24)
+                let wrapper = UIView(frame: CGRect(x: 0, y: 0, width: 44, height: component.height))
                 wrapper.addSubview(iv)
-                iv.center = CGPoint(x: 22, y: 12)
+                iv.center = CGPoint(x: 24, y: component.height / 2)
                 textField.leftView = wrapper
                 textField.leftViewMode = .always
                 leftOffset = 0
