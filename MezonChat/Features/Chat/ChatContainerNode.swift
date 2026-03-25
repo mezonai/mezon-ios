@@ -16,6 +16,7 @@ struct ChatInteraction {
     let onMessageLongPressed: (ChatMessageDisplay) -> Void
     let onReplyTapped: (String) -> Void
     let onTopicTapped: (TopicData) -> Void
+    let onReactionTapped: (ParsedReaction, ChatMessageDisplay) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -350,8 +351,58 @@ final class ChatContainerNode: ASDisplayNode {
         if oldIds == newIds {
             let oldStates = old.messages.map { $0.sendingState }
             let newStates = new.messages.map { $0.sendingState }
-            if oldStates != newStates {
-                reloadAllItems()
+            let oldReactions = old.messages.map { $0.reactions }
+            let newReactions = new.messages.map { $0.reactions }
+            if oldStates != newStates || oldReactions != newReactions {
+                // Build new items and find only the changed indices
+                let newItems = buildItems(from: new)
+                var updateItems: [ListViewUpdateItem] = []
+
+                // Messages are reversed in buildItems, so index in items
+                // corresponds to reversed message index.
+                let reversedOldMessages = old.messages.reversed() as [ChatMessageDisplay]
+                let reversedNewMessages = new.messages.reversed() as [ChatMessageDisplay]
+                var itemIdx = 0
+                for (msgIdx, newMsg) in reversedNewMessages.enumerated() {
+                    // Skip non-message items (welcome, unread line) that may be interleaved
+                    // Find the item index that corresponds to this message
+                    while itemIdx < newItems.count, !(newItems[itemIdx] is ChatMessageItem) {
+                        itemIdx += 1
+                    }
+                    guard itemIdx < newItems.count else { break }
+
+                    let changed: Bool
+                    if msgIdx < reversedOldMessages.count {
+                        let oldMsg = reversedOldMessages[msgIdx]
+                        changed = oldMsg.reactions != newMsg.reactions || oldMsg.sendingState != newMsg.sendingState
+                    } else {
+                        changed = true
+                    }
+
+                    if changed {
+                        updateItems.append(ListViewUpdateItem(
+                            index: itemIdx,
+                            previousIndex: itemIdx,
+                            item: newItems[itemIdx],
+                            directionHint: nil
+                        ))
+                    }
+                    itemIdx += 1
+                }
+
+                committedItems = newItems
+
+                if !updateItems.isEmpty {
+                    listView.transaction(
+                        deleteIndices: [],
+                        insertIndicesAndItems: [],
+                        updateIndicesAndItems: updateItems,
+                        options: [.Synchronous, .LowLatency],
+                        scrollToItem: nil,
+                        updateOpaqueState: nil,
+                        completion: { _ in }
+                    )
+                }
             }
             return
         }

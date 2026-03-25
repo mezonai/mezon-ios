@@ -487,6 +487,43 @@ final class MezonHTTPClient {
         return response.channelApps
     }
 
+    func writeMessageReaction(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        messageId: Int64,
+        emojiId: Int64,
+        emoji: String,
+        count: Int32,
+        messageSenderId: Int64,
+        actionDelete: Bool,
+        topicId: Int64 = 0,
+        emojiRecentId: Int64 = 0,
+        senderName: String = "",
+        token: String
+    ) async throws -> Mezon_Api_MessageReaction {
+        var req = Mezon_Api_MessageReaction()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.mode = mode
+        req.isPublic = isPublic
+        req.messageID = messageId
+        req.emojiID = emojiId
+        req.emoji = emoji
+        req.count = count
+        req.messageSenderID = messageSenderId
+        req.action = actionDelete
+        req.topicID = topicId
+        req.emojiRecentID = emojiRecentId
+        req.senderName = senderName
+        return try await postProto(
+            path: "/mezon.api.Mezon/ReactChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
         return try await execute(req)

@@ -267,7 +267,12 @@ final class EmojiTextAttachment: NSTextAttachment {
         guard let url = MezonConfig.emojiImageURL(emojiId: emojiId) else { return }
         let key = url.absoluteString
 
-        if ImageCache.shared.image(forKey: key) != nil {
+        if let cached = ImageCache.shared.image(forKey: key) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.image = self.resized(cached)
+                NotificationCenter.default.post(name: EmojiTextAttachment.imageDidLoad, object: self)
+            }
             return
         }
 
@@ -275,8 +280,10 @@ final class EmojiTextAttachment: NSTextAttachment {
             guard let self, let data, !data.isEmpty else { return }
             guard let img = UIImage.decodeImage(from: data) else { return }
             ImageCache.shared.setImage(img, data: data, forKey: key)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: EmojiTextAttachment.imageDidLoad, object: nil)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.image = self.resized(img)
+                NotificationCenter.default.post(name: EmojiTextAttachment.imageDidLoad, object: self)
             }
         }.resume()
     }

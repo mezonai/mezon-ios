@@ -4,6 +4,13 @@ import AsyncDisplayKit
 final class MessageReactionsNode: ASDisplayNode {
 
     private var pillNodes: [ReactionPillNode] = []
+    private var currentReactions: [ParsedReaction] = []
+    var onReactionTapped: ((ParsedReaction) -> Void)?
+
+    private static let maxVisiblePills = 20
+
+    private var overflowNode: ASTextNode2?
+    private var totalReactionCount: Int = 0
 
     private struct LayoutRow {
         var frames: [(index: Int, frame: CGRect)]
@@ -16,10 +23,101 @@ final class MessageReactionsNode: ASDisplayNode {
         super.init()
     }
 
+    override func didLoad() {
+        super.didLoad()
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let location = gesture.location(in: view)
+        for (i, pill) in pillNodes.enumerated() {
+            if pill.frame.contains(location), i < currentReactions.count {
+                onReactionTapped?(currentReactions[i])
+                return
+            }
+        }
+    }
+
     func configure(reactions: [ParsedReaction]) {
         pillNodes.forEach { $0.removeFromSupernode() }
-        pillNodes = reactions.map { ReactionPillNode(reaction: $0) }
+        overflowNode?.removeFromSupernode()
+        overflowNode = nil
+
+        totalReactionCount = reactions.count
+        let visible = Array(reactions.prefix(Self.maxVisiblePills))
+        currentReactions = visible
+
+        pillNodes = visible.map { reaction in
+            let pill = ReactionPillNode(reaction: reaction)
+            return pill
+        }
         pillNodes.forEach { addSubnode($0) }
+
+        if reactions.count > Self.maxVisiblePills {
+            let node = ASTextNode2()
+            let remaining = reactions.count - Self.maxVisiblePills
+            node.attributedText = NSAttributedString(
+                string: "+\(remaining)",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                    .foregroundColor: UIColor.theme.textDisabled,
+                ]
+            )
+            overflowNode = node
+            addSubnode(node)
+        }
+    }
+
+    func updateReactions(_ newReactions: [ParsedReaction]) {
+        totalReactionCount = newReactions.count
+        let visible = Array(newReactions.prefix(Self.maxVisiblePills))
+
+        let oldMap = Dictionary(uniqueKeysWithValues: currentReactions.enumerated().map { ($1.emojiId, (index: $0, reaction: $1)) })
+
+        let oldKeys = Set(oldMap.keys)
+        let newKeys = Set(visible.map { $0.emojiId })
+
+        let removedKeys = oldKeys.subtracting(newKeys)
+        for key in removedKeys {
+            if let entry = oldMap[key] {
+                pillNodes[entry.index].removeFromSupernode()
+            }
+        }
+
+        var newPillNodes: [ReactionPillNode] = []
+        for reaction in visible {
+            if let oldEntry = oldMap[reaction.emojiId] {
+                let oldNode = pillNodes[oldEntry.index]
+                if oldEntry.reaction.count != reaction.count || oldEntry.reaction.isMe != reaction.isMe {
+                    oldNode.update(reaction: reaction)
+                }
+                newPillNodes.append(oldNode)
+            } else {
+                let newNode = ReactionPillNode(reaction: reaction)
+                addSubnode(newNode)
+                newPillNodes.append(newNode)
+            }
+        }
+
+        pillNodes = newPillNodes
+        currentReactions = visible
+
+        overflowNode?.removeFromSupernode()
+        overflowNode = nil
+        if newReactions.count > Self.maxVisiblePills {
+            let node = ASTextNode2()
+            let remaining = newReactions.count - Self.maxVisiblePills
+            node.attributedText = NSAttributedString(
+                string: "+\(remaining)",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                    .foregroundColor: UIColor.theme.textDisabled,
+                ]
+            )
+            overflowNode = node
+            addSubnode(node)
+        }
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
@@ -54,6 +152,22 @@ final class MessageReactionsNode: ASDisplayNode {
             currentRowMaxH = max(currentRowMaxH, pillSize.height)
         }
 
+        if let overflowNode {
+            let overflowSize = overflowNode.measure(CGSize(width: maxWidth, height: 28.sh))
+            let neededWidth = currentRowFrames.isEmpty ? overflowSize.width : overflowSize.width + spacing
+            if currentX + neededWidth > maxWidth && !currentRowFrames.isEmpty {
+                rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
+                totalY += currentRowMaxH + spacing
+                currentRowFrames = []
+                currentX = 0
+                currentRowMaxH = 0
+            }
+            let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
+            currentRowFrames.append((index: pillNodes.count, frame: CGRect(x: x, y: totalY, width: overflowSize.width, height: overflowSize.height)))
+            currentX = x + overflowSize.width
+            currentRowMaxH = max(currentRowMaxH, overflowSize.height)
+        }
+
         if !currentRowFrames.isEmpty {
             rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
             totalY += currentRowMaxH
@@ -66,16 +180,18 @@ final class MessageReactionsNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
+        let overflowIndex = pillNodes.count
         for row in cachedRows {
             for entry in row.frames {
-                guard entry.index < pillNodes.count else { continue }
-                pillNodes[entry.index].frame = entry.frame
+                if entry.index < pillNodes.count {
+                    pillNodes[entry.index].frame = entry.frame
+                } else if entry.index == overflowIndex {
+                    overflowNode?.frame = entry.frame
+                }
             }
         }
     }
 }
-
-// MARK: - Reaction Pill Node
 
 final class ReactionPillNode: ASDisplayNode {
 
@@ -88,8 +204,10 @@ final class ReactionPillNode: ASDisplayNode {
     private static let pillHeight: CGFloat = 28
 
     private var cachedCountSize: CGSize = .zero
+    private(set) var emojiId: String
 
     init(reaction: ParsedReaction) {
+        self.emojiId = reaction.emojiId
         super.init()
 
         let t = UIColor.theme
@@ -137,6 +255,26 @@ final class ReactionPillNode: ASDisplayNode {
 
     deinit {
         imageTask?.cancel()
+    }
+
+    func update(reaction: ParsedReaction) {
+        let t = UIColor.theme
+        countNode.attributedText = NSAttributedString(
+            string: "\(reaction.count)",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
+            ]
+        )
+        if reaction.isMe {
+            backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.2)
+            borderWidth = 1
+            borderColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.6).cgColor
+        } else {
+            backgroundColor = t.secondary
+            borderWidth = 0
+            borderColor = nil
+        }
     }
 
     func calculatedSize(maxWidth: CGFloat) -> CGSize {

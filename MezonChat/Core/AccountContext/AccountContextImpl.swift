@@ -231,11 +231,19 @@ final class AccountContextImpl: AccountContext {
             }
             account.socket.onConnected = { [weak self] in self?.rejoinCurrentChannel() }
             account.socket.onMessageReceived = { [weak self] apiMessage in
+                let channelId = Int64(apiMessage.channelID) ?? 0
+                let clanId = Int64(apiMessage.clanID) ?? 0
+                if apiMessage.code == 2 {
+                    let messageId = "\(apiMessage.messageID)"
+                    self?.account.postbox.write { tx in
+                        tx.deleteMessage(id: messageId)
+                    }
+                    return
+                }
+
                 self?.account.postbox.write { tx in
                     tx.addMessages([MessageRecord(from: apiMessage)])
                 }
-                let channelId = Int64(apiMessage.channelID) ?? 0
-                let clanId = Int64(apiMessage.clanID) ?? 0
                 AppLogger.app.info("[Badge] onMessageReceived channelId=\(channelId) clanId=\(clanId) senderId=\(apiMessage.senderID) mode=\(apiMessage.mode)")
                 NotificationCenter.default.post(
                     name: Notification.Name("MezonNewMessageReceived"),
@@ -248,6 +256,19 @@ final class AccountContextImpl: AccountContext {
                         "timestampSeconds": apiMessage.createTimeSeconds
                     ]
                 )
+            }
+            account.socket.onReaction = { [weak self] reaction in
+                let messageId = "\(reaction.messageID)"
+
+                self?.account.postbox.write { tx in
+                    tx.updateMessageReactions(messageId: messageId, reaction: reaction)
+                }
+            }
+            account.socket.onMessageRemoved = { [weak self] removed in
+                let messageId = "\(removed.messageID)"
+                self?.account.postbox.write { tx in
+                    tx.deleteMessage(id: messageId)
+                }
             }
             account.socket.onLastSeen = { event in
                 NotificationCenter.default.post(

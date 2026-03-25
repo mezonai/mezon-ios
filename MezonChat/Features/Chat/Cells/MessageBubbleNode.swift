@@ -21,7 +21,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var reactionsNode: MessageReactionsNode?
     private var errorTextNode: ASTextNode2?
 
-    let display: ChatMessageDisplay
+    private(set) var display: ChatMessageDisplay
     private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasCallLog: Bool
@@ -194,6 +194,10 @@ final class MessageBubbleNode: ASDisplayNode {
         if hasReactions {
             let rn = MessageReactionsNode()
             rn.configure(reactions: display.reactions)
+            rn.onReactionTapped = { [weak self] reaction in
+                guard let self else { return }
+                interaction.onReactionTapped(reaction, self.display)
+            }
             reactionsNode = rn
             addSubnode(rn)
         }
@@ -213,6 +217,29 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         self.isFailed = display.isFailed
+    }
+
+    func updateReactions(newDisplay: ChatMessageDisplay) {
+        self.display = newDisplay
+
+        if newDisplay.reactions.isEmpty {
+            reactionsNode?.removeFromSupernode()
+            reactionsNode = nil
+        } else if let existing = reactionsNode {
+            existing.updateReactions(newDisplay.reactions)
+        } else {
+            let rn = MessageReactionsNode()
+            rn.configure(reactions: newDisplay.reactions)
+            rn.onReactionTapped = { [weak self] reaction in
+                guard let self else { return }
+                self.interaction.onReactionTapped(reaction, self.display)
+            }
+            reactionsNode = rn
+            addSubnode(rn)
+        }
+
+        let _ = measureSize(width: cachedTotalSize.width)
+        setNeedsLayout()
     }
 
     private func loadAvatar() {

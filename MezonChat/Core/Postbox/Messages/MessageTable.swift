@@ -161,6 +161,80 @@ final class MessageTable: Table {
         }
     }
 
+    func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {
+        for channelId in cache.keys {
+            guard let idx = cache[channelId]?.firstIndex(where: { $0.id == messageId }) else { continue }
+            let old = cache[channelId]![idx]
+
+            var reactionsArray: [[String: Any]] = []
+            if !old.reactionsJSON.isEmpty,
+               let json = try? JSONSerialization.jsonObject(with: old.reactionsJSON) {
+                if let arr = json as? [[String: Any]] {
+                    reactionsArray = arr
+                } else if let dict = json as? [String: Any], let arr = dict["reactions"] as? [[String: Any]] {
+                    reactionsArray = arr
+                }
+            }
+            if reactionsArray.isEmpty && !old.reactionsJSON.isEmpty {
+                if let list = try? Mezon_Api_MessageReactionList(serializedBytes: old.reactionsJSON) {
+                    for r in list.reactions {
+                        reactionsArray.append([
+                            "emoji_id": "\(r.emojiID)",
+                            "emoji": r.emoji,
+                            "sender_id": "\(r.senderID)",
+                            "action": !r.action,
+                            "count": Int(r.count)
+                        ])
+                    }
+                }
+            }
+
+            let newEmojiId = "\(reaction.emojiID)"
+            let isAdding = !reaction.action
+            for i in 0..<reactionsArray.count {
+                let entryEmojiId: String = {
+                    if let s = reactionsArray[i]["emoji_id"] as? String { return s }
+                    if let n = reactionsArray[i]["emoji_id"] as? Int { return "\(n)" }
+                    return ""
+                }()
+                if entryEmojiId == newEmojiId {
+                    let oldCount: Int = {
+                        if let n = reactionsArray[i]["count"] as? Int { return n }
+                        if let n = reactionsArray[i]["count"] as? Int32 { return Int(n) }
+                        if let n = reactionsArray[i]["count"] as? Int64 { return Int(n) }
+                        return 0
+                    }()
+                    reactionsArray[i]["count"] = isAdding ? oldCount + 1 : max(oldCount - 1, 0)
+                }
+            }
+
+            let newEntry: [String: Any] = [
+                "emoji_id": newEmojiId,
+                "emoji": reaction.emoji,
+                "sender_id": "\(reaction.senderID)",
+                "sender_name": reaction.senderName,
+                "action": isAdding,
+                "count": 0
+            ]
+            reactionsArray.append(newEntry)
+
+            guard let newData = try? JSONSerialization.data(withJSONObject: reactionsArray) else { continue }
+
+            cache[channelId]![idx] = MessageRecord(
+                id: old.id, channelId: old.channelId, clanId: old.clanId,
+                senderId: old.senderId, content: old.content,
+                createdAt: old.createdAt, editedAt: old.editedAt,
+                isDeleted: old.isDeleted, code: old.code,
+                senderDisplayName: old.senderDisplayName,
+                senderAvatarURL: old.senderAvatarURL, sendingState: old.sendingState,
+                attachmentsJSON: old.attachmentsJSON, reactionsJSON: newData,
+                referencesData: old.referencesData, mentionsJSON: old.mentionsJSON
+            )
+            pendingWrites.insert(channelId)
+            return
+        }
+    }
+
     func markMessageFailed(id: String) {
         for channelId in cache.keys {
             if let idx = cache[channelId]?.firstIndex(where: { $0.id == id }) {

@@ -73,7 +73,15 @@ final class ChatMessageItemNode: ListViewItemNode {
             let width = params.width
             let bubble: MessageBubbleNode
             if let existing = currentBubble, existing.display.id == item.display.id {
-                bubble = existing
+                if existing.display.reactions == item.display.reactions
+                    && existing.display.sendingState == item.display.sendingState {
+                    bubble = existing
+                } else if existing.display.sendingState == item.display.sendingState {
+                    existing.updateReactions(newDisplay: item.display)
+                    bubble = existing
+                } else {
+                    bubble = MessageBubbleNode(display: item.display, interaction: item.interaction)
+                }
             } else {
                 bubble = MessageBubbleNode(display: item.display, interaction: item.interaction)
             }
