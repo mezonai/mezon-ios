@@ -159,6 +159,7 @@ final class ChannelListViewController: ViewController {
     private(set) var errorMessage: String?
     private(set) var clanId: Int64 = 0
     private(set) var clanName: String = ""
+    private(set) var clanLogoURL: String = ""
 
     private var channelListNode: ChannelListContainerNode { displayNode as! ChannelListContainerNode }
 
@@ -173,7 +174,8 @@ final class ChannelListViewController: ViewController {
         let interaction = ChannelListInteraction(
             onSelectChannel: { [weak self] ch in self?.select(channel: ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
-            onRefresh: { [weak self] in self?.fetchChannels() }
+            onRefresh: { [weak self] in self?.fetchChannels() },
+            onPresentSettings: { [weak self] in self?.presentSettings() }
         )
         displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
     }
@@ -192,19 +194,30 @@ final class ChannelListViewController: ViewController {
         channelListNode.updateLayout(layout: layout, transition: transition)
     }
 
-    func configure(clanId: Int64, clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+    func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, onlineCount: Int = 0, isCommunity: Bool = false) {
+        self.clanLogoURL = logoURL ?? ""
         guard clanId != self.clanId else {
-            channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+            channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
             return
         }
         channelListNode.markClanSwitching()
-        channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
         restoreCachedChannelApps(clanId: clanId)
         load(clanId: clanId, clanName: clanName)
     }
 
     func updateMemberCount(_ count: Int) {
         channelListNode.updateMemberCount(count)
+    }
+
+    private func presentSettings() {
+        let vc = ClanSettingsViewController(
+            context: context,
+            clanId: clanId,
+            clanName: clanName,
+            avatarURL: clanLogoURL
+        )
+        self.navigationController?.pushViewController(vc, animated: true)
     }
 
     func refresh() { fetchChannels() }

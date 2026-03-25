@@ -40,21 +40,21 @@ enum MessageAction: CaseIterable {
 
     var iconImageName: String? {
         switch self {
-        case .giveACoffee:      return "IconGift"
-        case .reply:            return "IconArrowLeftUp"
-        case .forwardMessage:   return "IconArrowRightUp"
+        case .giveACoffee:      return "Chat/IconGift"
+        case .reply:            return "Chat/IconArrowLeftUp"
+        case .forwardMessage:   return "Chat/IconArrowRightUp"
         case .createThread:     return nil
-        case .copyText:         return "IconCopy"
-        case .markUnread:       return "IconMarkUnread"
+        case .copyText:         return "Chat/IconCopy"
+        case .markUnread:       return "Chat/IconMarkUnread"
         case .topicDiscussion:  return nil
-        case .pinMessage:       return "IconPin"
-        case .markMessage:      return "IconStar"
+        case .pinMessage:       return "Chat/IconPin"
+        case .markMessage:      return "Chat/IconStar"
         case .quickMenu:        return nil
         case .editMessage:      return nil
-        case .deleteMessage:    return "IconTrash"
+        case .deleteMessage:    return "Chat/IconTrash"
         case .report:           return nil
         case .resend:           return nil
-        case .forward:          return "IconArrowRightUp"
+        case .forward:          return "Chat/IconArrowRightUp"
         }
     }
 

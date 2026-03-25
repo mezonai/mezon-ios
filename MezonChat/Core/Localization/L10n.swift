@@ -145,6 +145,34 @@ enum L10n {
         static let settings       = "clan.settings"
     }
 
+    enum ClanAction {
+        static let invite               = "clan.action.invite"
+        static let markAsRead           = "clan.action.markAsRead"
+        static let createEvent          = "clan.action.createEvent"
+        static let createCategory       = "clan.action.createCategory"
+        static let editClanProfile      = "clan.action.editClanProfile"
+        static let auditLog             = "clan.action.auditLog"
+        static let leaveClan            = "clan.action.leaveClan"
+        static let deleteClan           = "clan.action.deleteClan"
+        static let showEmptyCategories  = "clan.action.showEmptyCategories"
+        static let onlineCount          = "clan.action.onlineCount"
+        static let memberCount          = "clan.action.memberCount"
+        static let community            = "clan.action.community"
+    }
+
+    enum ClanSetting {
+        static let overview             = "clan.setting.overview"
+        static let auditLog             = "clan.setting.auditLog"
+        static let integrations         = "clan.setting.integrations"
+        static let emoji                = "clan.setting.emoji"
+        static let sticker              = "clan.setting.sticker"
+        static let soundEffect          = "clan.setting.soundEffect"
+        static let enableCommunity      = "clan.setting.enableCommunity"
+        static let userManagement       = "clan.setting.userManagement"
+        static let roles                = "clan.setting.roles"
+        static let invites              = "clan.setting.invites"
+    }
+
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
@@ -310,6 +338,30 @@ extension L10n {
         "clan.members":     "Members",
         "clan.settings":    "Clan Settings",
 
+        "clan.action.invite":               "Invite",
+        "clan.action.markAsRead":           "Mark as Read",
+        "clan.action.createEvent":          "Create Event",
+        "clan.action.createCategory":       "Create Category",
+        "clan.action.editClanProfile":      "Edit Clan Profile",
+        "clan.action.auditLog" :            "Audit log",
+        "clan.action.leaveClan":            "Leave Clan",
+        "clan.action.deleteClan":           "Delete Clan",
+        "clan.action.showEmptyCategories":  "Show Empty Categories",
+        "clan.action.onlineCount":          "%d Online",
+        "clan.action.memberCount":          "%d Members",
+        "clan.action.community":            "Community",
+
+        "clan.setting.overview":            "Overview",
+        "clan.setting.auditLog":            "Audit Log",
+        "clan.setting.integrations":        "Integrations",
+        "clan.setting.emoji":               "Emoji",
+        "clan.setting.sticker":             "Sticker",
+        "clan.setting.soundEffect":         "Sound Effect",
+        "clan.setting.enableCommunity":     "Enable Community",
+        "clan.setting.userManagement":      "User Management",
+        "clan.setting.roles":               "Roles",
+        "clan.setting.invites":             "Invites",
+
         "channel.label":  "channel",
         "channel.thread": "Threads",
 
@@ -469,6 +521,30 @@ extension L10n {
         "clan.createClan":  "Tạo Clan",
         "clan.members":     "Thành viên",
         "clan.settings":    "Cài đặt Clan",
+
+        "clan.action.invite":               "Mời",
+        "clan.action.markAsRead":           "Đánh dấu đã đọc",
+        "clan.action.createEvent":          "Tạo sự kiện",
+        "clan.action.createCategory":       "Tạo danh mục",
+        "clan.action.editClanProfile":      "Chỉnh sửa hồ sơ Clan",
+        "clan.action.auditLog" :            "Nhật kí kiểm tra",
+        "clan.action.leaveClan":            "Rời Clan",
+        "clan.action.deleteClan":           "Xóa Clan",
+        "clan.action.showEmptyCategories":  "Hiển thị danh mục trống",
+        "clan.action.onlineCount":          "%d Đang trực tuyến",
+        "clan.action.memberCount":          "%d Thành viên",
+        "clan.action.community":            "Cộng đồng",
+
+        "clan.setting.overview":            "Tổng quan",
+        "clan.setting.auditLog":            "Nhật ký hoạt động",
+        "clan.setting.integrations":        "Tích hợp",
+        "clan.setting.emoji":               "Biểu cảm",
+        "clan.setting.sticker":             "Nhãn dán",
+        "clan.setting.soundEffect":         "Hiệu ứng âm thanh",
+        "clan.setting.enableCommunity":     "Bật cộng đồng",
+        "clan.setting.userManagement":      "Quản lý người dùng",
+        "clan.setting.roles":               "Vai trò",
+        "clan.setting.invites":             "Lời mời",
 
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",
