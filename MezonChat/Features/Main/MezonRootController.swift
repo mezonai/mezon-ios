@@ -80,11 +80,13 @@ final class MezonRootController: NavigationController {
         pushViewController(tabBarController, animated: false)
     }
 
-    static func makeNavTheme() -> NavigationControllerTheme {
-        NavigationControllerTheme(
-            statusBar: .black,
+    static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
+        let actualTheme = theme ?? ThemeManager.shared.current
+        let isDark = actualTheme == .dark || (actualTheme == .system && UITraitCollection.current.userInterfaceStyle == .dark)
+        return NavigationControllerTheme(
+            statusBar: isDark ? .white : .black,
             navigationBar: NavigationBarTheme(
-                overallDarkAppearance: false,
+                overallDarkAppearance: isDark,
                 buttonColor: UIColor.theme.textStrong,
                 disabledButtonColor: UIColor.theme.textDisabled,
                 primaryTextColor: UIColor.theme.textStrong,

@@ -1,5 +1,5 @@
-import UIKit
 import AsyncDisplayKit
+import UIKit
 
 struct LoginInteraction {
     let onPhoneChanged: (String) -> Void
@@ -9,6 +9,76 @@ struct LoginInteraction {
     let onCountryPrefixTapped: () -> Void
     let onShowPasswordToggled: () -> Void
     let onModeSelected: (LoginMode) -> Void
+}
+
+final class CheckboxComponent: Component {
+    let title: String
+    let isChecked: Bool
+    let action: () -> Void
+
+    init(title: String, isChecked: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.isChecked = isChecked
+        self.action = action
+    }
+
+    static func == (lhs: CheckboxComponent, rhs: CheckboxComponent) -> Bool {
+        return lhs.title == rhs.title && lhs.isChecked == rhs.isChecked
+    }
+
+    final class View: UIControl {
+        private let iconView = UIImageView()
+        private let titleLabel = UILabel()
+        private var action: (() -> Void)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            iconView.contentMode = .scaleAspectFit
+            iconView.tintColor = .mezonTextMuted
+            addSubview(iconView)
+
+            titleLabel.font = .systemFont(ofSize: 14)
+            titleLabel.textColor = .mezonTextStrong
+            addSubview(titleLabel)
+
+            addTarget(self, action: #selector(tapped), for: .touchUpInside)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        func update(component: CheckboxComponent, availableSize: CGSize) -> CGSize {
+            let attrs = AppTheme.light.attributes
+            titleLabel.text = component.title
+            titleLabel.textColor = attrs.textStrong
+            titleLabel.sizeToFit()
+
+            let iconName = component.isChecked ? "checkmark.square.fill" : "square"
+            iconView.image = UIImage(systemName: iconName)
+            iconView.tintColor = component.isChecked ? UIColor(hex: 0x2e22ff) : attrs.textDisabled
+
+            let iconSize: CGFloat = 24
+            let spacing: CGFloat = 8
+
+            iconView.frame = CGRect(x: 0, y: 0, width: iconSize, height: iconSize)
+            titleLabel.frame = CGRect(
+                x: iconSize + spacing, y: (iconSize - titleLabel.bounds.height) / 2,
+                width: titleLabel.bounds.width, height: titleLabel.bounds.height)
+
+            action = component.action
+            let w = min(availableSize.width, iconSize + spacing + titleLabel.bounds.width)
+            return CGSize(width: w, height: max(iconSize, titleLabel.bounds.height))
+        }
+
+        @objc private func tapped() { action?() }
+    }
+
+    func makeView() -> View { View(frame: .zero) }
+    func update(
+        view: View, availableSize: CGSize, state: EmptyComponentState,
+        environment: Environment<Empty>, transition: ComponentTransition
+    ) -> CGSize {
+        view.update(component: self, availableSize: availableSize)
+    }
 }
 
 final class LoginFormComponent: CombinedComponent {
@@ -30,6 +100,7 @@ final class LoginFormComponent: CombinedComponent {
             && lhs.state.otpCooldown == rhs.state.otpCooldown
             && lhs.state.isLoading == rhs.state.isLoading
             && lhs.state.errorMessage == rhs.state.errorMessage
+            && lhs.state.isPasswordVisible == rhs.state.isPasswordVisible
     }
 
     static var body: Body {
@@ -38,6 +109,7 @@ final class LoginFormComponent: CombinedComponent {
         let phoneField = Child(PhoneInputComponent.self)
         let emailField = Child(TextFieldComponent.self)
         let passwordField = Child(TextFieldComponent.self)
+        let showPasswordCb = Child(CheckboxComponent.self)
         let submitButton = Child(SubmitButtonComponent.self)
         let cooldownText = Child(Text.self)
         let alternativeLinks = Child(VStack<Empty>.self)
@@ -48,7 +120,7 @@ final class LoginFormComponent: CombinedComponent {
             let interaction = component.interaction
             let sideInset: CGFloat = 0
             let contentWidth = context.availableSize.width - sideInset * 2
-            var nextY: CGFloat = 0
+            var nextY: CGFloat = 10
 
             let titleStr: String
             switch st.mode {
@@ -56,57 +128,113 @@ final class LoginFormComponent: CombinedComponent {
             case .emailOTP, .password: titleStr = L(L10n.Login.enterEmail)
             }
 
+            let attrs = AppTheme.light.attributes
             let titleChild = title.update(
-                component: Text(text: titleStr, font: .systemFont(ofSize: 24, weight: .bold), color: .loginTitleColor),
+                component: Text(
+                    text: titleStr, font: .systemFont(ofSize: 24, weight: .bold),
+                    color: attrs.loginTitleColor),
                 availableSize: CGSize(width: contentWidth, height: 100),
                 transition: context.transition
             )
-            context.add(titleChild.position(CGPoint(x: contentWidth / 2, y: nextY + titleChild.size.height / 2)))
+            context.add(
+                titleChild.position(
+                    CGPoint(x: contentWidth / 2, y: nextY + titleChild.size.height / 2)))
             nextY += titleChild.size.height + 10
 
             let subtitleChild = subtitle.update(
-                component: Text(text: L(L10n.Login.chooseAnotherOption), font: .systemFont(ofSize: 14), color: .loginSubtitleColor),
+                component: Text(
+                    text: L(L10n.Login.chooseAnotherOption), font: .systemFont(ofSize: 14),
+                    color: attrs.loginSubtitleColor),
                 availableSize: CGSize(width: contentWidth, height: 100),
                 transition: context.transition
             )
-            context.add(subtitleChild.position(CGPoint(x: contentWidth / 2, y: nextY + subtitleChild.size.height / 2)))
+            context.add(
+                subtitleChild.position(
+                    CGPoint(x: contentWidth / 2, y: nextY + subtitleChild.size.height / 2)))
             nextY += subtitleChild.size.height + 40
 
             switch st.mode {
             case .sms:
                 let phoneChild = phoneField.update(
-                    component: PhoneInputComponent(prefix: st.countryPrefix, phone: st.phone, onPrefixTapped: interaction.onCountryPrefixTapped, onPhoneChanged: interaction.onPhoneChanged),
+                    component: PhoneInputComponent(
+                        prefix: st.countryPrefix, phone: st.phone,
+                        onPrefixTapped: interaction.onCountryPrefixTapped,
+                        onPhoneChanged: interaction.onPhoneChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
                 )
-                context.add(phoneChild.position(CGPoint(x: contentWidth / 2, y: nextY + phoneChild.size.height / 2)))
-                nextY += phoneChild.size.height
+                context.add(
+                    phoneChild.position(
+                        CGPoint(x: contentWidth / 2, y: nextY + phoneChild.size.height / 2)))
+                nextY += phoneChild.size.height + 10
 
             case .emailOTP:
                 let emailChild = emailField.update(
-                    component: TextFieldComponent(placeholder: L(L10n.Login.emailAddress), text: st.email, keyboardType: .emailAddress, leftIcon: "envelope", onTextChanged: interaction.onEmailChanged),
+                    component: TextFieldComponent(
+                        placeholder: L(L10n.Login.emailAddress), text: st.email,
+                        textColor: attrs.loginInputTextColor,
+                        placeholderColor: attrs.loginPlaceholder,
+                        backgroundColor: attrs.loginInputBg,
+                        borderColor: attrs.loginInputBorder,
+                        keyboardType: .emailAddress, leftIcon: "envelope",
+                        onTextChanged: interaction.onEmailChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
                 )
-                context.add(emailChild.position(CGPoint(x: contentWidth / 2, y: nextY + emailChild.size.height / 2)))
-                nextY += emailChild.size.height
+                context.add(
+                    emailChild.position(
+                        CGPoint(x: contentWidth / 2, y: nextY + emailChild.size.height / 2)))
+                nextY += emailChild.size.height + 10
 
             case .password:
                 let emailChild = emailField.update(
-                    component: TextFieldComponent(placeholder: L(L10n.Login.emailAddress), text: st.email, keyboardType: .emailAddress, leftIcon: "envelope", onTextChanged: interaction.onEmailChanged),
+                    component: TextFieldComponent(
+                        placeholder: L(L10n.Login.emailAddress), text: st.email,
+                        textColor: attrs.loginInputTextColor,
+                        placeholderColor: attrs.loginPlaceholder,
+                        backgroundColor: attrs.loginInputBg,
+                        borderColor: attrs.loginInputBorder,
+                        keyboardType: .emailAddress, leftIcon: "envelope",
+                        onTextChanged: interaction.onEmailChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
                 )
-                context.add(emailChild.position(CGPoint(x: contentWidth / 2, y: nextY + emailChild.size.height / 2)))
-                nextY += emailChild.size.height + 12
+                context.add(
+                    emailChild.position(
+                        CGPoint(x: contentWidth / 2, y: nextY + emailChild.size.height / 2)))
+                nextY += emailChild.size.height + 24
 
                 let pwChild = passwordField.update(
-                    component: TextFieldComponent(placeholder: L(L10n.Login.password), text: st.password, isSecureTextEntry: true, leftIcon: "lock.fill", onTextChanged: interaction.onPasswordChanged),
+                    component: TextFieldComponent(
+                        placeholder: L(L10n.Login.password), text: st.password,
+                        textColor: attrs.loginInputTextColor,
+                        placeholderColor: attrs.loginPlaceholder,
+                        backgroundColor: attrs.loginInputBg,
+                        borderColor: attrs.loginInputBorder,
+                        isSecureTextEntry: !st.isPasswordVisible, leftIcon: "lock.fill",
+                        onTextChanged: interaction.onPasswordChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
                 )
-                context.add(pwChild.position(CGPoint(x: contentWidth / 2, y: nextY + pwChild.size.height / 2)))
-                nextY += pwChild.size.height
+                context.add(
+                    pwChild.position(
+                        CGPoint(x: contentWidth / 2, y: nextY + pwChild.size.height / 2)))
+                nextY += pwChild.size.height + 12
+
+                let cbChild = showPasswordCb.update(
+                    component: CheckboxComponent(
+                        title: L(L10n.Login.showPassword),
+                        isChecked: st.isPasswordVisible,
+                        action: interaction.onShowPasswordToggled),
+                    availableSize: CGSize(width: contentWidth, height: 100),
+                    transition: context.transition
+                )
+                context.add(
+                    cbChild.position(
+                        CGPoint(
+                            x: contentWidth / 2 - (contentWidth - cbChild.size.width) / 2,
+                            y: nextY + cbChild.size.height / 2)))
+                nextY += cbChild.size.height
             }
 
             nextY += 24
@@ -138,7 +266,9 @@ final class LoginFormComponent: CombinedComponent {
 
             if st.otpCooldown > 0 {
                 let cdChild = cooldownText.update(
-                    component: Text(text: String(format: L(L10n.Login.resendInSeconds), st.otpCooldown), font: .systemFont(ofSize: 13), color: .loginAlternativeText),
+                    component: Text(
+                        text: String(format: L(L10n.Login.resendInSeconds), st.otpCooldown),
+                        font: .systemFont(ofSize: 13), color: attrs.loginAlternativeText),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
                 )
@@ -167,11 +297,22 @@ private func buildAlternativeItems(mode: LoginMode, interaction: LoginInteractio
         links = [(L(L10n.Login.loginWithEmailOTP), .emailOTP), (L(L10n.Login.loginWithSMS), .sms)]
     }
 
+    let attrs = AppTheme.light.attributes
     var items: [AnyComponentWithIdentity<Empty>] = []
-    items.append(AnyComponentWithIdentity(id: "hint", component: AnyComponent(Text(text: hint, font: .systemFont(ofSize: 14), color: .loginAlternativeText))))
+    items.append(
+        AnyComponentWithIdentity(
+            id: "hint",
+            component: AnyComponent(
+                Text(text: hint, font: .systemFont(ofSize: 14), color: attrs.loginAlternativeText)))
+    )
     for (title, targetMode) in links {
-        let btn = Button(content: AnyComponent(Text(text: title, font: .systemFont(ofSize: 14), color: .mezonLink)), action: { interaction.onModeSelected(targetMode) })
-        items.append(AnyComponentWithIdentity(id: "link_\(targetMode.rawValue)", component: AnyComponent(btn)))
+        let btn = Button(
+            content: AnyComponent(
+                Text(text: title, font: .systemFont(ofSize: 14), color: attrs.loginButtonBg)),
+            action: { interaction.onModeSelected(targetMode) })
+        items.append(
+            AnyComponentWithIdentity(
+                id: "link_\(targetMode.rawValue)", component: AnyComponent(btn)))
     }
     return items
 }
@@ -231,18 +372,24 @@ final class PhoneInputComponent: Component {
             let size = CGSize(width: availableSize.width, height: 50)
             container.frame = CGRect(origin: .zero, size: size)
 
-            let attrs = ThemeManager.shared.attributes
+            let attrs = AppTheme.light.attributes
             container.backgroundColor = attrs.loginInputBg
             container.layer.borderColor = attrs.loginInputBorder.cgColor
             textField.textColor = attrs.loginInputTextColor
-            textField.attributedPlaceholder = NSAttributedString(string: L(L10n.Login.phone), attributes: [.foregroundColor: attrs.loginPlaceholder])
+            textField.attributedPlaceholder = NSAttributedString(
+                string: L(L10n.Login.phone), attributes: [.foregroundColor: attrs.loginPlaceholder])
 
-            prefixButton.configuration?.title = "\(component.prefix)  ▾"
-            prefixButton.frame = CGRect(x: 0, y: 0, width: 64, height: size.height)
-            separator.frame = CGRect(x: 64, y: 8, width: 1, height: size.height - 16)
-
+            let prefixTitle =
+                component.prefix == "+84"
+                ? "🇻🇳 +84"
+                : (component.prefix == "+81"
+                    ? "🇯🇵 +81" : (component.prefix == "+1" ? "🇺🇸 +1" : component.prefix))
+            prefixButton.configuration?.title = "\(prefixTitle)   "
+            prefixButton.titleLabel?.textColor = attrs.loginInputTextColor
+            prefixButton.frame = CGRect(x: 0, y: 0, width: 100, height: size.height)
+            separator.frame = CGRect(x: 84, y: 8, width: 1, height: size.height - 16)
             if textField.text != component.phone { textField.text = component.phone }
-            textField.frame = CGRect(x: 72, y: 0, width: size.width - 88, height: size.height)
+            textField.frame = CGRect(x: 102, y: 0, width: size.width - 108, height: size.height)
 
             onPrefixTapped = component.onPrefixTapped
             onPhoneChanged = component.onPhoneChanged
@@ -278,16 +425,29 @@ final class SubmitButtonComponent: Component {
     }
 
     final class View: UIView {
-        private let button = UIButton(type: .system)
+        private let button = UIButton(type: .custom)
         private let spinner = UIActivityIndicatorView(style: .medium)
         private var action: (() -> Void)?
 
+        private let gradientLayer: CAGradientLayer = {
+            let layer = CAGradientLayer()
+            layer.colors = [UIColor(hex: 0x501794).cgColor, UIColor(hex: 0x3E70A1).cgColor]
+            layer.startPoint = CGPoint(x: 0, y: 0)
+            layer.endPoint = CGPoint(x: 1, y: 0)
+            layer.cornerRadius = 8
+            return layer
+        }()
+
         override init(frame: CGRect) {
             super.init(frame: frame)
+
+            button.layer.insertSublayer(gradientLayer, at: 0)
+
             button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
             button.setTitleColor(.white, for: .normal)
-            button.setTitleColor(UIColor.white.withAlphaComponent(0.6), for: .disabled)
-            button.layer.cornerRadius = 12
+            button.setTitleColor(UIColor.white.withAlphaComponent(0.8), for: .disabled)
+            button.layer.cornerRadius = 8
+            button.layer.masksToBounds = true
             button.addTarget(self, action: #selector(tapped), for: .touchUpInside)
             addSubview(button)
             spinner.hidesWhenStopped = true
@@ -300,9 +460,19 @@ final class SubmitButtonComponent: Component {
         func update(component: SubmitButtonComponent, availableSize: CGSize) -> CGSize {
             let size = CGSize(width: availableSize.width, height: 50)
             button.frame = CGRect(origin: .zero, size: size)
+            gradientLayer.frame = button.bounds
+
             button.setTitle(component.title, for: .normal)
             button.isEnabled = component.isEnabled
-            button.backgroundColor = component.isEnabled ? .loginButtonBg : .loginButtonBgDisabled
+
+            if component.isEnabled {
+                button.backgroundColor = .clear
+                gradientLayer.isHidden = false
+            } else {
+                button.backgroundColor = AppTheme.light.attributes.loginButtonBgDisabled
+                gradientLayer.isHidden = true
+            }
+
             button.isUserInteractionEnabled = !component.isLoading
 
             if component.isLoading { spinner.startAnimating() } else { spinner.stopAnimating() }
@@ -382,7 +552,7 @@ final class LoginContainerNode: ASDisplayNode {
     }
 
     private func applyTheme() {
-        let attrs = ThemeManager.shared.attributes
+        let attrs = AppTheme.light.attributes
         gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
     }
 
