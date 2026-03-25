@@ -237,6 +237,9 @@ final class ChatViewController: ViewController {
             onTopicTapped: { [weak self] topicData in
                 self?.openTopicDiscussion(topicData: topicData)
             },
+            onReactionTapped: { [weak self] reaction, display in
+                self?.handleEmojiReaction(emojiId: reaction.emojiId, shortname: reaction.emoji, display: display)
+            },
             onMessagesReloaded: nil
         )
         interaction.onMessagesReloaded = { [weak self] in
@@ -305,7 +308,10 @@ final class ChatViewController: ViewController {
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
+        let oldCount = messages.count
+        let oldReactionsCount = messages.reduce(0) { $0 + $1.reactions.count }
         messages = v
+        let newReactionsCount = v.reduce(0) { $0 + $1.reactions.count }
         let newFirstId = v.first(where: { !$0.isWelcome })?.id
         let newLastId = v.last?.id
         if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
@@ -675,6 +681,7 @@ final class ChatViewController: ViewController {
             guard let self else { return EmptyDisposable }
             var lastIds = self.messages.map { $0.id }
             var lastSendingStates = self.messages.map { $0.sendingState }
+            var lastReactions = self.messages.map { $0.reactions }
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
             var lastLoadingNewer = self.isLoadingNewer
@@ -694,8 +701,10 @@ final class ChatViewController: ViewController {
             ).start(next: { newState in
                 let newIds = newState.messages.map { $0.id }
                 let newSendingStates = newState.messages.map { $0.sendingState }
+                let newReactions = newState.messages.map { $0.reactions }
                 let changed = newIds != lastIds
                     || newSendingStates != lastSendingStates
+                    || newReactions != lastReactions
                     || newState.isLoading != lastLoading
                     || newState.isLoadingMore != lastLoadingMore
                     || newState.isLoadingNewer != lastLoadingNewer
@@ -706,6 +715,7 @@ final class ChatViewController: ViewController {
                 guard changed else { return }
                 lastIds = newIds
                 lastSendingStates = newSendingStates
+                lastReactions = newReactions
                 lastLoading = newState.isLoading
                 lastLoadingMore = newState.isLoadingMore
                 lastLoadingNewer = newState.isLoadingNewer
@@ -910,9 +920,9 @@ final class ChatViewController: ViewController {
         return result
     }
 
-    private static func parseReactionsFromJSON(_ json: [[String: Any]], currentUserId: String?) -> [ParsedReaction] {
-        var grouped: [String: (emoji: String, senderIds: [String])] = [:]
-        for item in json {
+    private static func parseReactionsFromJSON(_ items: [[String: Any]], currentUserId: String?) -> [ParsedReaction] {
+        var grouped: [String: (emoji: String, senderIds: [String], countFromApi: Int)] = [:]
+        for item in items {
             let emojiId: String = {
                 if let s = item["emoji_id"] as? String { return s }
                 if let n = item["emoji_id"] as? Int { return "\(n)" }
@@ -929,11 +939,20 @@ final class ChatViewController: ViewController {
                 return ""
             }()
             let action = item["action"] as? Bool ?? true
+            let countFromApi: Int = {
+                if let n = item["count"] as? Int { return n }
+                if let n = item["count"] as? Int32 { return Int(n) }
+                if let n = item["count"] as? Int64 { return Int(n) }
+                return 0
+            }()
             let key = emojiId.isEmpty ? emoji : emojiId
             guard !key.isEmpty else { continue }
 
             if grouped[key] == nil {
-                grouped[key] = (emoji: emoji, senderIds: [])
+                grouped[key] = (emoji: emoji, senderIds: [], countFromApi: 0)
+            }
+            if countFromApi > grouped[key]!.countFromApi {
+                grouped[key]!.countFromApi = countFromApi
             }
             if action {
                 if !grouped[key]!.senderIds.contains(senderId) {
@@ -944,15 +963,17 @@ final class ChatViewController: ViewController {
             }
         }
         return grouped.compactMap { key, value in
-            guard !value.senderIds.isEmpty else { return nil }
+            let count = max(value.senderIds.count, value.countFromApi)
+            guard count > 0 else { return nil }
+            let isMe = currentUserId.map { value.senderIds.contains($0) } ?? false
             return ParsedReaction(
                 emojiId: key,
                 emoji: value.emoji,
-                count: value.senderIds.count,
+                count: count,
                 senderIds: value.senderIds,
-                isMe: currentUserId.map { value.senderIds.contains($0) } ?? false
+                isMe: isMe
             )
-        }
+        }.sorted { $0.emojiId < $1.emojiId }
     }
 
     private static func parseReactionsFromProtobuf(_ reactions: [Mezon_Api_MessageReaction], currentUserId: String?) -> [ParsedReaction] {
@@ -964,7 +985,8 @@ final class ChatViewController: ViewController {
             if grouped[emojiKey] == nil {
                 grouped[emojiKey] = (emoji: r.emoji, senderIds: [], countFromApi: r.count)
             }
-            if r.action {
+            if !r.action {
+                // API protobuf: action=false means active reaction
                 if !grouped[emojiKey]!.senderIds.contains(senderId) {
                     grouped[emojiKey]!.senderIds.append(senderId)
                 }
@@ -975,14 +997,15 @@ final class ChatViewController: ViewController {
         return grouped.compactMap { key, value in
             let count = value.countFromApi > 0 ? Int(value.countFromApi) : value.senderIds.count
             guard count > 0 else { return nil }
+            let isMe = currentUserId.map { value.senderIds.contains($0) } ?? false
             return ParsedReaction(
                 emojiId: key,
                 emoji: value.emoji,
                 count: count,
                 senderIds: value.senderIds,
-                isMe: currentUserId.map { value.senderIds.contains($0) } ?? false
+                isMe: isMe
             )
-        }
+        }.sorted { $0.emojiId < $1.emojiId }
     }
 
     private func joinChat() {
@@ -1031,7 +1054,6 @@ final class ChatViewController: ViewController {
             return
         }
 
-        // Message not in current list — fetch around it
         guard let token = context.session?.token,
               let msgId = Int64(messageId) else {
             isJumping = false
@@ -1040,7 +1062,6 @@ final class ChatViewController: ViewController {
 
         readyToLoadMore = false
         messagesNode.pendingJumpMessageId = messageId
-        // Reset dedup guards since we're replacing all messages
         lastFetchedOlderMessageId = nil
         lastFetchedNewerMessageId = nil
 
@@ -1133,16 +1154,24 @@ final class ChatViewController: ViewController {
         navigationController?.pushViewController(topicVC, animated: true)
     }
 
+    private weak var activeActionSheet: MessageActionSheetController?
+
     private func showMessageActions(_ display: ChatMessageDisplay) {
         view.endEditing(true)
         let isOwnMessage = display.message.senderId == context.currentUser?.id
-        let sheet = MessageActionSheet(display: display, isOwnMessage: isOwnMessage) { [weak self] action in
+        let controller = MessageActionSheetController(display: display, isOwnMessage: isOwnMessage) { [weak self] action in
             self?.handleMessageAction(action, display: display)
         }
-        sheet.onDismiss = { [weak self] in
+        controller.onDismiss = { [weak self] in
+            self?.activeActionSheet = nil
             self?.dismissMessageHighlight(for: display.id)
         }
-        present(sheet, animated: false)
+        controller.onEmojiReaction = { [weak self] emojiId, shortname in
+            self?.handleEmojiReaction(emojiId: emojiId, shortname: shortname, display: display)
+        }
+        activeActionSheet = controller
+        self.presentInGlobalOverlay(controller)
+        controller.animateIn()
     }
 
     private func dismissMessageHighlight(for messageId: String) {
@@ -1153,6 +1182,45 @@ final class ChatViewController: ViewController {
                         bubble.dismissHighlight()
                     }
                 }
+            }
+        }
+    }
+
+    private func handleEmojiReaction(emojiId: String, shortname: String, display: ChatMessageDisplay) {
+        guard let token = context.session?.token else { return }
+        guard let msgId = Int64(display.message.id) else { return }
+        guard let emojiIdInt = Int64(emojiId) else { return }
+        let senderId = Int64(display.message.senderId) ?? 0
+
+        let mode: Int32
+        if clanId != 0 {
+            mode = MezonConstants.ChannelStreamMode.channel.rawValue
+        } else if channel.type == MezonConstants.ChannelType.dm.rawValue {
+            mode = MezonConstants.ChannelStreamMode.dm.rawValue
+        } else {
+            mode = MezonConstants.ChannelStreamMode.group.rawValue
+        }
+
+        let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+
+        Task { @MainActor in
+            do {
+                let _ = try await self.context.account.network.writeMessageReaction(
+                    clanId: self.clanId,
+                    channelId: self.channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    messageId: msgId,
+                    emojiId: emojiIdInt,
+                    emoji: shortname,
+                    count: 1,
+                    messageSenderId: senderId,
+                    actionDelete: false,
+                    topicId: self.topicId,
+                    token: token
+                )
+            } catch {
+                AppLogger.network.warning("[Chat] writeMessageReaction failed: \(error)")
             }
         }
     }
@@ -1168,10 +1236,29 @@ final class ChatViewController: ViewController {
             break // TODO: implement edit
         case .deleteMessage:
             let msgId = display.message.id
+            if let msgIdInt = Int64(msgId) {
+                let mode: Int32
+                if clanId != 0 {
+                    mode = MezonConstants.ChannelStreamMode.channel.rawValue
+                } else if channel.type == MezonConstants.ChannelType.dm.rawValue {
+                    mode = MezonConstants.ChannelStreamMode.dm.rawValue
+                } else {
+                    mode = MezonConstants.ChannelStreamMode.group.rawValue
+                }
+                let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+                context.account.socket.removeChannelMessage(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    mode: mode,
+                    messageId: msgIdInt,
+                    isPublic: isPublic,
+                    topicId: topicId
+                )
+            }
             context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
         case .pinMessage:
             break // TODO: implement pin
-        case .forward:
+        case .forward, .forwardMessage:
             break // TODO: implement forward
         case .resend:
             let msgId = display.message.id
@@ -1181,6 +1268,20 @@ final class ChatViewController: ViewController {
                 sendInputViewController.updateText(text)
                 sendInputViewController.send()
             }
+        case .giveACoffee:
+            break // TODO: implement give coffee
+        case .createThread:
+            break // TODO: implement create thread
+        case .markUnread:
+            break // TODO: implement mark unread
+        case .topicDiscussion:
+            break // TODO: implement topic discussion
+        case .markMessage:
+            break // TODO: implement mark message
+        case .quickMenu:
+            break // TODO: implement quick menu
+        case .report:
+            break // TODO: implement report
         }
     }
 }

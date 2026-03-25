@@ -16,6 +16,7 @@ final class MezonSocket: NSObject {
     var onLastSeen:           ((Mezon_Realtime_LastSeenMessageEvent)       -> Void)?
     var onLastPin:            ((Mezon_Realtime_LastPinMessageEvent)        -> Void)?
     var onUnpinMessage:       ((Mezon_Realtime_UnpinMessageEvent)          -> Void)?
+    var onMessageRemoved:     ((Mezon_Realtime_ChannelMessageRemove)       -> Void)?
     var onMessageButton:      ((Mezon_Realtime_MessageButtonClicked)       -> Void)?
 
     var onChannelCreated:     ((Mezon_Realtime_ChannelCreatedEvent)        -> Void)?
@@ -182,6 +183,20 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
+    func removeChannelMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, isPublic: Bool, topicId: Int64 = 0) {
+        var remove = Mezon_Realtime_ChannelMessageRemove()
+        remove.clanID = clanId
+        remove.channelID = channelId
+        remove.messageID = messageId
+        remove.mode = mode
+        remove.isPublic = isPublic
+        remove.topicID = topicId
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.channelMessageRemove = remove
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] removeChannelMessage channelId=\(channelId) messageId=\(messageId)")
+    }
+
     func writeLastSeenMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, timestampSeconds: UInt32, badgeCount: Int32) {
         var event = Mezon_Realtime_LastSeenMessageEvent()
         event.clanID = clanId
@@ -242,6 +257,9 @@ final class MezonSocket: NSObject {
         case .channelMessage(let m):
             AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID)")
             onMessageReceived?(m)
+        case .channelMessageRemove(let m):
+            onMessageRemoved?(m)
+            AppLogger.app.debug("[MezonSocket] channelMessageRemove channelId=\(m.channelID) messageId=\(m.messageID)")
         case .messageTypingEvent(let m):
             onTyping?(m)
         case .messageReactionEvent(let m):

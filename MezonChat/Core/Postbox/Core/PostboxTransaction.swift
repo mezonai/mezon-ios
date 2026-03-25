@@ -89,6 +89,13 @@ final class PostboxTransaction {
         if let channelId { updatedMessageChannelIds.insert(channelId) }
     }
 
+    func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {
+        let channelId = messageTable.channelIdForMessage(id: messageId)
+
+        messageTable.updateMessageReactions(messageId: messageId, reaction: reaction)
+        if let channelId { updatedMessageChannelIds.insert(channelId) }
+    }
+
     func markMessageFailed(id: String) {
         let channelId = messageTable.channelIdForMessage(id: id)
         messageTable.markMessageFailed(id: id)

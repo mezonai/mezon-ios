@@ -244,28 +244,28 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
             return EmptyDisposable
         }
 
-        let disposed = Atomic<Bool>(value: false)
-        Queue.concurrentDefaultQueue().async {
-            guard !disposed.with({ $0 }) else { return }
+        let asset = AVURLAsset(url: videoURL, options: [
+            AVURLAssetPreferPreciseDurationAndTimingKey: false
+        ])
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 600, height: 600)
 
-            let asset = AVURLAsset(url: videoURL)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 600, height: 600)
+        let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let timeValue = NSValue(time: time)
 
-            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
-            if let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) {
+        generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, _ in
+            if let cgImage {
                 let image = UIImage(cgImage: cgImage)
-                let pngData = image.jpegData(compressionQuality: 0.7)
-                cache.setImage(image, data: pngData, forKey: cacheKey)
-
+                let jpegData = image.jpegData(compressionQuality: 0.7)
+                cache.setImage(image, data: jpegData, forKey: cacheKey)
                 subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
             }
             subscriber.putCompletion()
         }
 
         return ActionDisposable {
-            disposed.modify { _ in true }
+            generator.cancelAllCGImageGeneration()
         }
     }
 }

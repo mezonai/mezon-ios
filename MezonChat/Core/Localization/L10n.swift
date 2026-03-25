@@ -163,13 +163,21 @@ enum L10n {
     }
 
     enum MessageAction {
-        static let reply         = "messageAction.reply"
-        static let copyText      = "messageAction.copyText"
-        static let editMessage   = "messageAction.editMessage"
-        static let deleteMessage = "messageAction.deleteMessage"
-        static let pinMessage    = "messageAction.pinMessage"
-        static let forward       = "messageAction.forward"
-        static let copied        = "messageAction.copied"
+        static let reply            = "messageAction.reply"
+        static let copyText         = "messageAction.copyText"
+        static let editMessage      = "messageAction.editMessage"
+        static let deleteMessage    = "messageAction.deleteMessage"
+        static let pinMessage       = "messageAction.pinMessage"
+        static let forward          = "messageAction.forward"
+        static let copied           = "messageAction.copied"
+        static let giveACoffee      = "messageAction.giveACoffee"
+        static let forwardMessage   = "messageAction.forwardMessage"
+        static let createThread     = "messageAction.createThread"
+        static let markUnread       = "messageAction.markUnread"
+        static let topicDiscussion  = "messageAction.topicDiscussion"
+        static let markMessage      = "messageAction.markMessage"
+        static let quickMenu        = "messageAction.quickMenu"
+        static let report           = "messageAction.report"
     }
 
     enum Error {
@@ -320,6 +328,14 @@ extension L10n {
         "messageAction.pinMessage": "Pin Message",
         "messageAction.forward": "Forward",
         "messageAction.copied": "Copied to clipboard",
+        "messageAction.giveACoffee": "Give A Coffee",
+        "messageAction.forwardMessage": "Forward Message",
+        "messageAction.createThread": "Create Thread",
+        "messageAction.markUnread": "Mark Unread",
+        "messageAction.topicDiscussion": "Topic Discussion",
+        "messageAction.markMessage": "Mark Message",
+        "messageAction.quickMenu": "Quick Menu",
+        "messageAction.report": "Report",
 
         "profile.addStatus": "Add Status",
         "profile.editProfile": "Edit Profile",
@@ -472,6 +488,14 @@ extension L10n {
         "messageAction.pinMessage": "Ghim tin nhắn",
         "messageAction.forward": "Chuyển tiếp",
         "messageAction.copied": "Đã sao chép",
+        "messageAction.giveACoffee": "Tặng cà phê",
+        "messageAction.forwardMessage": "Chuyển tiếp tin nhắn",
+        "messageAction.createThread": "Tạo chủ đề",
+        "messageAction.markUnread": "Đánh dấu chưa đọc",
+        "messageAction.topicDiscussion": "Thảo luận chủ đề",
+        "messageAction.markMessage": "Đánh dấu tin nhắn",
+        "messageAction.quickMenu": "Menu nhanh",
+        "messageAction.report": "Báo cáo",
 
         "profile.addStatus": "Thêm trạng thái",
         "profile.editProfile": "Chỉnh sửa hồ sơ",
