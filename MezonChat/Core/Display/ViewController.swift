@@ -5,6 +5,9 @@ import AsyncDisplayKit
 public protocol StandalonePresentableController: ViewController {
 }
 
+public protocol AuthScreenStatusBarStyle: AnyObject {
+}
+
 private func findCurrentResponder(_ view: UIView) -> UIResponder? {
     if view.isFirstResponder {
         return view

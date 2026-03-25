@@ -1,6 +1,6 @@
 import UIKit
 
-final class VerifyOTPViewController: BaseViewController {
+final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyle {
 
     private let otpContext: OTPContext
     private let context: AccountContext
@@ -99,6 +99,7 @@ final class VerifyOTPViewController: BaseViewController {
         self.context = context
         self.currentReqId = otpContext.reqId
         super.init(navigationBarPresentationData: nil)
+        self.setStatusBarStyle(.Black, animated: false)
         bindValidation()
         bindSubmit()
         bindResend()
@@ -106,6 +107,11 @@ final class VerifyOTPViewController: BaseViewController {
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        self.setStatusBarStyle(.Black, animated: false)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -189,7 +195,7 @@ final class VerifyOTPViewController: BaseViewController {
     }
 
     override func applyTheme() {
-        let attrs = ThemeManager.shared.attributes
+        let attrs = AppTheme.light.attributes
         gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
         titleLabel.textColor = attrs.loginTitleColor
         instructionLabel.textColor = attrs.loginSubtitleColor
@@ -210,7 +216,7 @@ final class VerifyOTPViewController: BaseViewController {
             tf.textColor = attrs.loginInputTextColor
         }
         if let hintLabel = alternativeSection.arrangedSubviews.first as? UILabel { hintLabel.textColor = attrs.loginAlternativeText }
-        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton { changeBtn.setTitleColor(attrs.textLink, for: .normal) }
+        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton { changeBtn.setTitleColor(UIColor(hex: 0x2e22ff), for: .normal) }
     }
 
     func setOtpCode(_ v: String) { otpCode = v; otpCodePipe.putNext(v) }
@@ -338,7 +344,7 @@ final class VerifyOTPViewController: BaseViewController {
                 actionButton.backgroundColor = .clear
                 actionButton.setGradientHidden(false)
             } else {
-                actionButton.backgroundColor = ThemeManager.shared.attributes.loginButtonBgDisabled
+                actionButton.backgroundColor = AppTheme.light.attributes.loginButtonBgDisabled
                 actionButton.setGradientHidden(true)
             }
             actionButton.layoutIfNeeded()

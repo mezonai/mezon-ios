@@ -28,7 +28,7 @@ struct LoginState {
     static let empty = LoginState(mode: .sms, email: "", phone: "", countryPrefix: "+84", password: "", isSubmitEnabled: false, otpCooldown: 0, isLoading: false, errorMessage: nil, isPasswordVisible: false)
 }
 
-final class LoginViewController: ViewController {
+final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
 
     private let context: AccountContext
     private let disposables = DisposableSet()
@@ -65,6 +65,7 @@ final class LoginViewController: ViewController {
     init(context: AccountContext) {
         self.context = context
         super.init(navigationBarPresentationData: nil)
+        self.setStatusBarStyle(.Black, animated: false)
         bindValidation()
         bindSubmit()
         modePipe.putNext(mode)
@@ -95,6 +96,11 @@ final class LoginViewController: ViewController {
             onModeSelected: { [weak self] mode in self?.setMode(mode) }
         )
         displayNode = LoginContainerNode(signal: stateSignal(), interaction: interaction)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        self.setStatusBarStyle(.Black, animated: false)
     }
 
     override func viewDidLoad() {

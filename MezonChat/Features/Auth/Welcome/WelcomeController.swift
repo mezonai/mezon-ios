@@ -1,13 +1,14 @@
 import AsyncDisplayKit
 import UIKit
 
-final class WelcomeController: ViewController {
+final class WelcomeController: ViewController, AuthScreenStatusBarStyle {
     private let context: AccountContext
     private var welcomeNode: WelcomeContainerNode { displayNode as! WelcomeContainerNode }
 
     init(context: AccountContext) {
         self.context = context
         super.init(navigationBarPresentationData: nil)
+        self.setStatusBarStyle(.Black, animated: false)
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -20,6 +21,11 @@ final class WelcomeController: ViewController {
                 self.navigationController?.pushViewController(loginVC, animated: true)
             }
         )
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        self.setStatusBarStyle(.Black, animated: false)
     }
 
     override func viewDidLoad() {
@@ -74,7 +80,7 @@ final class WelcomeContainerNode: ASDisplayNode {
 
         // Insert gradient behind everything
         gradientLayer.locations = [0, 0.5, 1]
-        let attrs = ThemeManager.shared.attributes
+        let attrs = AppTheme.light.attributes
         gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
         gradientLayer.frame = bounds
         view.layer.insertSublayer(gradientLayer, at: 0)
@@ -144,14 +150,15 @@ final class WelcomeContainerNode: ASDisplayNode {
 
     func refreshLocalizedStrings() {
         let paragraphStyle = NSMutableParagraphStyle()
+        let attrs = AppTheme.light.attributes
         paragraphStyle.alignment = .center
         paragraphStyle.lineSpacing = 4
 
         titleNode.attributedText = NSAttributedString(
             string: L(L10n.Welcome.title),
             attributes: [
-                .font: UIFont.systemFont(ofSize: 24, weight: .bold),
-                .foregroundColor: UIColor.loginTitleColor,
+            .font: UIFont.systemFont(ofSize: 24, weight: .bold),
+            .foregroundColor: attrs.loginTitleColor,
                 .paragraphStyle: paragraphStyle,
             ]
         )
@@ -160,7 +167,7 @@ final class WelcomeContainerNode: ASDisplayNode {
             string: L(L10n.Welcome.subtitle),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                .foregroundColor: UIColor.loginSubtitleColor,
+                .foregroundColor: attrs.loginSubtitleColor,
                 .paragraphStyle: paragraphStyle,
             ]
         )
@@ -170,7 +177,7 @@ final class WelcomeContainerNode: ASDisplayNode {
                 string: L(L10n.Welcome.startNow),
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 16, weight: .semibold),
-                    .foregroundColor: UIColor.white,
+                    .foregroundColor: attrs.black,
                 ]
             ),
             for: .normal
