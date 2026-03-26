@@ -5,6 +5,7 @@ struct ChannelListInteraction {
     let onSelectChannel: (Mezon_Api_ChannelDescription) -> Void
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
+    let onSearchTapped: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -313,6 +314,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
+        headerUIView.onSearchTapped = interaction.onSearchTapped
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
     }
@@ -656,6 +658,8 @@ private final class CategorySectionHeaderView: UIView {
 
 final class ChannelListHeaderView: UIView {
 
+    var onSearchTapped: (() -> Void)?
+
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 16, weight: .medium)
@@ -763,6 +767,8 @@ final class ChannelListHeaderView: UIView {
 
         searchBar.addSubview(searchIcon)
         searchBar.addSubview(searchLabel)
+        let searchTap = UITapGestureRecognizer(target: self, action: #selector(searchBarTapped))
+        searchBar.addGestureRecognizer(searchTap)
 
         let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
         actionRow.axis = .horizontal
@@ -810,6 +816,10 @@ final class ChannelListHeaderView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func searchBarTapped() {
+        onSearchTapped?()
+    }
 
     func configure(title: String, memberCount: Int = 0, isCommunity: Bool = false) {
         titleLabel.text = title

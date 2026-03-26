@@ -187,6 +187,8 @@ final class ChatViewController: ViewController {
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
+    var pendingJumpToMessageId: String?
+
     init(clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext) {
         self.clanId = clanId
         self.channel = channel
@@ -203,7 +205,19 @@ final class ChatViewController: ViewController {
     override func loadDisplayNode() {
         var interaction = ChatInteraction(
             onBackTapped: { [weak self] in self?.navigationController?.popViewController(animated: true) },
-            onSearchTapped: { },
+            onSearchTapped: { [weak self] in
+                guard let self else { return }
+                let isPrivateOrThread = self.channel.channelPrivate != 0 || self.channel.parentID != 0
+                let searchVC = SearchViewController(
+                    clanId: self.clanId,
+                    context: self.context,
+                    channelId: self.channel.channelID,
+                    channelLabel: self.channel.channelLabel,
+                    channelType: self.channel.type != 0 ? self.channel.type : MezonConstants.ChannelType.channel.rawValue,
+                    needsChannelMemberFilter: isPrivateOrThread
+                )
+                self.navigationController?.pushViewController(searchVC, animated: true)
+            },
             onHistoryTapped: { },
             onMenuTapped: { },
             onScrolledNearTop: { [weak self] in
@@ -222,11 +236,14 @@ final class ChatViewController: ViewController {
                 }
             },
             onJumpToPresent: { [weak self] in self?.jumpToPresent() },
-            onMentionTapped: { mentionId in
-                AppLogger.network.info("[Chat] Mention tapped: \(mentionId)")
+            onMentionTapped: { [weak self] mentionId in
+                self?.showMemberProfileById(mentionId)
             },
-            onHashtagTapped: { channelId in
+            onHashtagTapped: { [weak self] channelId in
+                guard let self, !channelId.isEmpty else { return }
                 AppLogger.network.info("[Chat] Hashtag tapped: \(channelId)")
+                guard channelId != "\(self.channel.channelID)" else { return }
+                AppDelegate.navigateToChannel(channelId: channelId, clanId: "\(self.clanId)")
             },
             onMessageLongPressed: { [weak self] display in
                 self?.showMessageActions(display)
@@ -239,6 +256,9 @@ final class ChatViewController: ViewController {
             },
             onReactionTapped: { [weak self] reaction, display in
                 self?.handleEmojiReaction(emojiId: reaction.emojiId, shortname: reaction.emoji, display: display)
+            },
+            onAvatarTapped: { [weak self] display in
+                self?.showMemberProfile(display)
             },
             onMessagesReloaded: nil
         )
@@ -319,7 +339,12 @@ final class ChatViewController: ViewController {
         needsReloadPipe.putNext(())
         markChannelAsRead()
 
-        if pendingScrollToBottom && !v.isEmpty {
+        if let jumpId = pendingJumpToMessageId, !v.isEmpty {
+            pendingJumpToMessageId = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.jumpToMessage(id: jumpId)
+            }
+        } else if pendingScrollToBottom && !v.isEmpty {
             pendingScrollToBottom = false
             DispatchQueue.main.async { [weak self] in
                 self?.forceScrollToBottom()
@@ -604,8 +629,8 @@ final class ChatViewController: ViewController {
         guard let token = context.session?.token else { return }
         let channelId = channel.channelID
         let channelType: Int32 = clanId == 0
-            ? MezonConstants.ChannelType.group.rawValue
-            : MezonConstants.ChannelType.channel.rawValue
+            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
+            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
 
         Task { @MainActor in
             do {
@@ -1152,6 +1177,67 @@ final class ChatViewController: ViewController {
         let topicVC = ChatViewController(clanId: clanId, channel: topicChannel, context: context)
         topicVC.topicId = topicIdInt
         navigationController?.pushViewController(topicVC, animated: true)
+    }
+
+    private func showMemberProfile(_ display: ChatMessageDisplay) {
+        let senderId = display.message.senderId
+        guard senderId != context.currentUser?.id else { return }
+        guard let senderIdInt = Int64(senderId) else { return }
+
+        var user = Mezon_Api_User()
+        user.id = senderIdInt
+        user.displayName = display.senderDisplayName
+        if let urlStr = display.avatarURL {
+            user.avatarURL = urlStr
+        }
+
+        view.endEditing(true)
+
+        let sheet = MemberProfileSheetController(
+            user: user,
+            context: context,
+            onSendMessage: { [weak self] dmChannel in
+                guard let self else { return }
+                self.context.currentClanId = 0
+                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                self.navigationController?.pushViewController(chatVC, animated: true)
+            }
+        )
+        presentInGlobalOverlay(sheet)
+        sheet.animateIn()
+    }
+
+    private func showMemberProfileById(_ userId: String) {
+        guard userId != context.currentUser?.id else { return }
+        guard let userIdInt = Int64(userId) else { return }
+
+        var user = Mezon_Api_User()
+        user.id = userIdInt
+        if let clanUsers = context.engine.clanData.getClanUsers(clanId: context.currentClanId) {
+            if let found = clanUsers.clanUsers.first(where: { $0.user.id == userIdInt }) {
+                user = found.user
+            }
+        }
+        if user.displayName.isEmpty, let allUsers = context.engine.clanData.getAllUserClans() {
+            if let found = allUsers.users.first(where: { $0.id == userIdInt }) {
+                user = found
+            }
+        }
+
+        view.endEditing(true)
+
+        let sheet = MemberProfileSheetController(
+            user: user,
+            context: context,
+            onSendMessage: { [weak self] dmChannel in
+                guard let self else { return }
+                self.context.currentClanId = 0
+                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                self.navigationController?.pushViewController(chatVC, animated: true)
+            }
+        )
+        presentInGlobalOverlay(sheet)
+        sheet.animateIn()
     }
 
     private weak var activeActionSheet: MessageActionSheetController?

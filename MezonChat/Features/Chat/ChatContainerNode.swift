@@ -17,6 +17,7 @@ struct ChatInteraction {
     let onReplyTapped: (String) -> Void
     let onTopicTapped: (TopicData) -> Void
     let onReactionTapped: (ParsedReaction, ChatMessageDisplay) -> Void
+    let onAvatarTapped: (ChatMessageDisplay) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -69,6 +70,8 @@ final class ChatContainerNode: ASDisplayNode {
         loadingNewerNode.isHidden = true
 
         super.init()
+        headerNode.onBackTapped = { interaction.onBackTapped() }
+        headerNode.onSearchTapped = { interaction.onSearchTapped() }
         addSubnode(headerNode)
         addSubnode(listView)
         addSubnode(skeletonNode)

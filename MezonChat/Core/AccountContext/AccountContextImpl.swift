@@ -33,6 +33,20 @@ final class AccountContextImpl: AccountContext {
 
     func getToken() async -> String? {
         await waitForSessionReady()
+        if let session, session.isExpired {
+            for attempt in 1...2 {
+                do {
+                    try await refreshSession()
+                    AppLogger.network.info("[Auth] token was expired, refreshed on attempt \(attempt)")
+                    break
+                } catch {
+                    AppLogger.network.warning("[Auth] getToken refresh attempt \(attempt) failed: \(error)")
+                    if attempt < 2 {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                }
+            }
+        }
         return session?.token
     }
 
@@ -143,29 +157,60 @@ final class AccountContextImpl: AccountContext {
     }
 
     private var lastRecoverTime: Date?
-    private let recoverThrottle: TimeInterval = 20
+    private let recoverThrottle: TimeInterval = 5
+    private let maxForegroundRecoverRetries = 3
 
     func recoverFromForeground() {
         guard hasCompletedInitialSetup, session != nil, isLoggedIn else { return }
         let now = Date()
         if let last = lastRecoverTime, now.timeIntervalSince(last) < recoverThrottle { return }
         lastRecoverTime = now
+
         Task { @MainActor in
-            do {
-                try await refreshSession()
-                if let token = session?.token {
-                    account.socket.connect(token: token, wsHostOverride: nil)
-                }
-            } catch let error as MezonError {
-                if case .httpError(let code, _) = error, (code == 401 || code == 403) {
-                    SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
-                } else {
-                    account.socket.reconnectFromForeground()
-                }
-            } catch {
-                account.socket.reconnectFromForeground()
+            let needsRefresh = session?.isExpired ?? true
+
+            if needsRefresh {
+                AppLogger.network.info("[Auth] recoverFromForeground: token expired, refreshing...")
+                let refreshed = await self.refreshSessionWithRetry()
+                if !refreshed { return }
+            } else {
+                AppLogger.network.info("[Auth] recoverFromForeground: token still valid, reconnecting socket only")
+            }
+
+            if let token = session?.token {
+                account.socket.connect(token: token, wsHostOverride: nil)
             }
         }
+    }
+
+    /// Retry refresh session up to maxForegroundRecoverRetries times.
+    /// Returns true if refreshed successfully, false if session expired (modal shown).
+    private func refreshSessionWithRetry() async -> Bool {
+        for attempt in 1...maxForegroundRecoverRetries {
+            do {
+                try await refreshSession()
+                AppLogger.network.info("[Auth] refreshSession succeeded on attempt \(attempt)")
+                return true
+            } catch let error as MezonError {
+                if case .httpError(let code, _) = error, (code == 401 || code == 403) {
+                    AppLogger.network.warning("[Auth] refreshSession got \(code), session expired")
+                    SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
+                    return false
+                }
+                AppLogger.network.warning("[Auth] refreshSession attempt \(attempt) failed: \(error)")
+            } catch {
+                AppLogger.network.warning("[Auth] refreshSession attempt \(attempt) failed: \(error)")
+            }
+
+            if attempt < maxForegroundRecoverRetries {
+                let delay = UInt64(attempt) * 2_000_000_000
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        }
+
+        AppLogger.network.warning("[Auth] refreshSession all \(self.maxForegroundRecoverRetries) attempts failed, trying socket reconnect")
+        account.socket.reconnectFromForeground()
+        return false
     }
 
     @objc private func handleSessionExpired() {
@@ -309,6 +354,26 @@ final class AccountContextImpl: AccountContext {
                 currentUser = mapAccountToUser(apiAccount)
             } catch {
                 AppLogger.network.warning("[Auth] getAccount failed: \(error)")
+            }
+            self.fetchAllUserClansAndChannels(token: session.token)
+        }
+    }
+
+    private func fetchAllUserClansAndChannels(token: String) {
+        Task { @MainActor in
+            do {
+                async let usersResult = account.network.listUserClansByUserId(token: token)
+                async let channelsResult = account.network.listChannelByUserId(token: token)
+                let (users, channels) = try await (usersResult, channelsResult)
+                if let data = try? users.serializedData() {
+                    account.postbox.setPreferenceData(key: PreferencesKeys.allUserClans, value: data)
+                }
+                if let data = try? channels.serializedData() {
+                    account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+                }
+                AppLogger.network.info("[Auth] fetched allUserClans(\(users.users.count)) allChannelsByUser(\(channels.channeldesc.count))")
+            } catch {
+                AppLogger.network.warning("[Auth] fetchAllUserClansAndChannels failed: \(error)")
             }
         }
     }
