@@ -310,6 +310,26 @@ final class AccountContextImpl: AccountContext {
             } catch {
                 AppLogger.network.warning("[Auth] getAccount failed: \(error)")
             }
+            self.fetchAllUserClansAndChannels(token: session.token)
+        }
+    }
+
+    private func fetchAllUserClansAndChannels(token: String) {
+        Task { @MainActor in
+            do {
+                async let usersResult = account.network.listUserClansByUserId(token: token)
+                async let channelsResult = account.network.listChannelByUserId(token: token)
+                let (users, channels) = try await (usersResult, channelsResult)
+                if let data = try? users.serializedData() {
+                    account.postbox.setPreferenceData(key: PreferencesKeys.allUserClans, value: data)
+                }
+                if let data = try? channels.serializedData() {
+                    account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+                }
+                AppLogger.network.info("[Auth] fetched allUserClans(\(users.users.count)) allChannelsByUser(\(channels.channeldesc.count))")
+            } catch {
+                AppLogger.network.warning("[Auth] fetchAllUserClansAndChannels failed: \(error)")
+            }
         }
     }
 

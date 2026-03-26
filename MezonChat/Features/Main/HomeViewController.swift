@@ -25,6 +25,7 @@ final class HomeViewController: BaseViewController {
         embedChildren()
         bindClanSelection()
         bindChannelSelection()
+        bindSearchTapped()
         bindLogoTap()
         applyInitialClanSelection()
 
@@ -131,6 +132,21 @@ final class HomeViewController: BaseViewController {
                     guard let channel, let self else { return }
                     let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context)
                     self.navigationController?.pushViewController(chatVC, animated: true)
+                })
+        )
+    }
+
+    private func bindSearchTapped() {
+        disposables.add(
+            (channelListVC.searchTappedSignal |> deliverOnMainQueue)
+                .start(next: { [weak self] in
+                    guard let self else { return }
+                    let searchVC = SearchViewController(
+                        clanId: self.channelListVC.clanId,
+                        context: self.context,
+                        channels: self.channelListVC.allChannels
+                    )
+                    self.navigationController?.pushViewController(searchVC, animated: true)
                 })
         )
     }

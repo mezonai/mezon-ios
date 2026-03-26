@@ -6,8 +6,10 @@ final class ChatHeaderNode: ASDisplayNode {
     private let backButtonNode = ASButtonNode()
     private let channelIconNode = ASImageNode()
     private let titleNode = ASTextNode2()
+    private let searchButtonNode = ASButtonNode()
 
     var onBackTapped: (() -> Void)?
+    var onSearchTapped: (() -> Void)?
 
     override init() {
         super.init()
@@ -18,6 +20,12 @@ final class ChatHeaderNode: ASDisplayNode {
             for: .normal
         )
         backButtonNode.addTarget(self, action: #selector(backPressed), forControlEvents: .touchUpInside)
+
+        searchButtonNode.setImage(
+            UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate),
+            for: .normal
+        )
+        searchButtonNode.addTarget(self, action: #selector(searchPressed), forControlEvents: .touchUpInside)
 
         channelIconNode.contentMode = .scaleAspectFit
 
@@ -59,6 +67,7 @@ final class ChatHeaderNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         backButtonNode.tintColor = t.textStrong
+        searchButtonNode.tintColor = t.textStrong
         channelIconNode.tintColor = t.textStrong
         if let current = titleNode.attributedText {
             let text = current.string
@@ -76,17 +85,23 @@ final class ChatHeaderNode: ASDisplayNode {
         onBackTapped?()
     }
 
+    @objc private func searchPressed() {
+        onSearchTapped?()
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         backButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         channelIconNode.style.preferredSize = CGSize(width: 16.swh, height: 16.swh)
+        searchButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         titleNode.style.flexShrink = 1
+        titleNode.style.flexGrow = 1
 
         let row = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 4.sw,
             justifyContent: .start,
             alignItems: .center,
-            children: [backButtonNode, channelIconNode, titleNode]
+            children: [backButtonNode, channelIconNode, titleNode, searchButtonNode]
         )
 
         let insets = UIEdgeInsets(top: 0, left: 12.sw, bottom: 0, right: 4.sw)

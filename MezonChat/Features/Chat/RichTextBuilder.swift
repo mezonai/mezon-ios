@@ -101,6 +101,7 @@ enum RichTextBuilder {
 
             case .hashtag(let channelId, _, let channelLabel):
                 var attrs = bodyAttributes(s)
+                attrs[.font] = s.mentionFont
                 attrs[.foregroundColor] = s.mentionColor
                 attrs[.backgroundColor] = s.mentionBgColor
                 attrs[.mezonHashtag] = (channelId ?? "") as NSString

@@ -27,22 +27,32 @@ final class MessageTextContentNode: ASDisplayNode {
         super.didLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(handleEmojiLoaded), name: EmojiTextAttachment.imageDidLoad, object: nil)
 
-        if hasEmoji, let emojiLabelNode {
-            let tap = UITapGestureRecognizer(target: self, action: #selector(handleLabelTap(_:)))
-            emojiLabelNode.view.addGestureRecognizer(tap)
-        }
+        isUserInteractionEnabled = true
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: EmojiTextAttachment.imageDidLoad, object: nil)
     }
 
+    private var emojiReloadScheduled = false
+
     @objc private func handleEmojiLoaded() {
-        guard hasEmoji, let content = currentParsedContent, !content.isPlainText else { return }
-        let attrText = RichTextBuilder.build(from: content)
-        currentAttrText = attrText
-        if let emojiView = emojiLabelNode?.view as? EmojiTextView {
-            emojiView.attributedText = attrText
+        guard hasEmoji, !emojiReloadScheduled else { return }
+        emojiReloadScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.hasEmoji, let content = self.currentParsedContent, !content.isPlainText else {
+                self?.emojiReloadScheduled = false
+                return
+            }
+            let attrText = RichTextBuilder.build(from: content)
+            self.currentAttrText = attrText
+            if let emojiView = self.emojiLabelNode?.view as? EmojiTextView {
+                emojiView.attributedText = attrText
+            }
+            self.emojiReloadScheduled = false
         }
     }
 
@@ -75,14 +85,8 @@ final class MessageTextContentNode: ASDisplayNode {
                 case .text(let attrText):
                     guard attrText.length > 0 else { continue }
                     let tn = ASTextNode2()
-                    tn.isUserInteractionEnabled = true
-                    tn.delegate = self
+                    tn.isUserInteractionEnabled = false
                     tn.maximumNumberOfLines = 0
-                    tn.linkAttributeNames = [
-                        NSAttributedString.Key.mezonLink.rawValue,
-                        NSAttributedString.Key.mezonMention.rawValue,
-                        NSAttributedString.Key.mezonHashtag.rawValue,
-                    ]
                     tn.attributedText = attrText
                     addSubnode(tn)
                     segmentNodes.append((tn, .zero))
@@ -119,18 +123,13 @@ final class MessageTextContentNode: ASDisplayNode {
                 view.attributedText = self?.currentAttrText ?? attrText
                 return view
             }
+            node.isUserInteractionEnabled = false
             emojiLabelNode = node
             addSubnode(node)
         } else {
             let tn = ASTextNode2()
-            tn.isUserInteractionEnabled = true
-            tn.delegate = self
+            tn.isUserInteractionEnabled = false
             tn.maximumNumberOfLines = 0
-            tn.linkAttributeNames = [
-                NSAttributedString.Key.mezonLink.rawValue,
-                NSAttributedString.Key.mezonMention.rawValue,
-                NSAttributedString.Key.mezonHashtag.rawValue,
-            ]
             tn.attributedText = attrText
             textNode = tn
             addSubnode(tn)
@@ -211,41 +210,93 @@ final class MessageTextContentNode: ASDisplayNode {
         return CGSize(width: min(ceil(rect.width), maxWidth), height: ceil(rect.height))
     }
 
-    @objc private func handleLabelTap(_ gesture: UITapGestureRecognizer) {
-        guard let emojiView = gesture.view as? EmojiTextView,
-              let attrText = emojiView.attributedText else { return }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+        (supernode as? MessageBubbleNode)?.showHighlight(true)
+    }
 
-        let label = emojiView.label
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            (self?.supernode as? MessageBubbleNode)?.showHighlight(false)
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>?, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+        (supernode as? MessageBubbleNode)?.showHighlight(false)
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: view)
+
+        if let emojiLabelNode, let emojiView = emojiLabelNode.view as? EmojiTextView,
+           let attrText = emojiView.attributedText {
+            let localPoint = view.convert(point, to: emojiView.label)
+            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: emojiView.label.bounds.size) {
+                dispatchLinkAction(result)
+                return
+            }
+        }
+
+        if let textNode, let attrText = textNode.attributedText, attrText.length > 0 {
+            let localPoint = view.convert(point, to: textNode.view)
+            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: textNode.bounds.size) {
+                dispatchLinkAction(result)
+                return
+            }
+        }
+
+        for (seg, _) in segmentNodes {
+            guard let tn = seg as? ASTextNode2, let attrText = tn.attributedText, attrText.length > 0 else { continue }
+            let localPoint = view.convert(point, to: tn.view)
+            guard tn.bounds.contains(localPoint) else { continue }
+            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: tn.bounds.size) {
+                dispatchLinkAction(result)
+                return
+            }
+        }
+    }
+
+    private func linkAttribute(in attrText: NSAttributedString, at point: CGPoint, containerSize: CGSize) -> (key: NSAttributedString.Key, value: Any)? {
         let layoutManager = NSLayoutManager()
-        let textContainer = NSTextContainer(size: label.bounds.size)
+        let textContainer = NSTextContainer(size: containerSize)
         let textStorage = NSTextStorage(attributedString: attrText)
-
+        textContainer.lineFragmentPadding = 0
         layoutManager.addTextContainer(textContainer)
         textStorage.addLayoutManager(layoutManager)
 
-        textContainer.lineFragmentPadding = 0
-        textContainer.maximumNumberOfLines = label.numberOfLines
-        textContainer.lineBreakMode = label.lineBreakMode
-
-        let tapLocation = gesture.location(in: label)
         let charIndex = layoutManager.characterIndex(
-            for: tapLocation, in: textContainer,
+            for: point, in: textContainer,
             fractionOfDistanceBetweenInsertionPoints: nil
         )
-        guard charIndex < attrText.length else { return }
-
+        guard charIndex < attrText.length else { return nil }
         let attrs = attrText.attributes(at: charIndex, effectiveRange: nil)
 
-        if let urlString = attrs[.mezonLink] as? String,
-           let url = URL(string: urlString) {
-            onLinkTapped?(url)
-        } else if let mentionId = attrs[.mezonMention] as? String {
-            onMentionTapped?(mentionId)
-        } else if let channelId = attrs[.mezonHashtag] as? String {
-            onHashtagTapped?(channelId)
+        if let val = attrs[.mezonMention] { return (.mezonMention, val) }
+        if let val = attrs[.mezonLink] { return (.mezonLink, val) }
+        if let val = attrs[.mezonHashtag] { return (.mezonHashtag, val) }
+        return nil
+    }
+
+    private func dispatchLinkAction(_ result: (key: NSAttributedString.Key, value: Any)) {
+        let stringValue = "\(result.value)"
+        switch result.key {
+        case .mezonMention:
+            onMentionTapped?(stringValue)
+        case .mezonLink:
+            if let url = URL(string: stringValue) {
+                onLinkTapped?(url)
+            }
+        case .mezonHashtag:
+            onHashtagTapped?(stringValue)
+        default:
+            break
         }
     }
+
 }
+
 
 extension MessageTextContentNode: ASTextNodeDelegate {
 
@@ -254,16 +305,14 @@ extension MessageTextContentNode: ASTextNodeDelegate {
     }
 
     func textNode(_ textNode: ASTextNode, tappedLinkAttribute attribute: String, value: Any, at point: CGPoint, textRange: NSRange) {
+        let stringValue = "\(value)"
         if attribute == NSAttributedString.Key.mezonLink.rawValue,
-           let urlString = value as? String,
-           let url = URL(string: urlString) {
+           let url = URL(string: stringValue) {
             onLinkTapped?(url)
-        } else if attribute == NSAttributedString.Key.mezonMention.rawValue,
-                  let mentionId = value as? String {
-            onMentionTapped?(mentionId)
-        } else if attribute == NSAttributedString.Key.mezonHashtag.rawValue,
-                  let channelId = value as? String {
-            onHashtagTapped?(channelId)
+        } else if attribute == NSAttributedString.Key.mezonMention.rawValue {
+            onMentionTapped?(stringValue)
+        } else if attribute == NSAttributedString.Key.mezonHashtag.rawValue {
+            onHashtagTapped?(stringValue)
         }
     }
 }
