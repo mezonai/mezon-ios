@@ -4,7 +4,7 @@ import Network
 final class NetworkMonitor {
     static let shared = NetworkMonitor()
 
-    private let monitor = NWPathMonitor()
+    private var monitor: NWPathMonitor?
     private let queue = DispatchQueue(label: "com.mezon.networkMonitor")
 
     private(set) var isConnected: Bool = true
@@ -14,11 +14,15 @@ final class NetworkMonitor {
     private init() {}
 
     func start() {
-        monitor.pathUpdateHandler = { [weak self] path in
+        monitor?.cancel()
+        let newMonitor = NWPathMonitor()
+        monitor = newMonitor
+        newMonitor.pathUpdateHandler = { [weak self] path in
             let connected = path.status == .satisfied
             DispatchQueue.main.async {
-                guard self?.isConnected != connected else { return }
-                self?.isConnected = connected
+                guard let self else { return }
+                guard self.isConnected != connected else { return }
+                self.isConnected = connected
                 NotificationCenter.default.post(
                     name: NetworkMonitor.statusDidChangeNotification,
                     object: nil,
@@ -26,10 +30,11 @@ final class NetworkMonitor {
                 )
             }
         }
-        monitor.start(queue: queue)
+        newMonitor.start(queue: queue)
     }
 
     func stop() {
-        monitor.cancel()
+        monitor?.cancel()
+        monitor = nil
     }
 }

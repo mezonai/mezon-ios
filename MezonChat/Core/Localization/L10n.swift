@@ -113,6 +113,12 @@ enum L10n {
         static let selectCountry      = "login.selectCountry"
     }
     
+    enum Welcome {
+        static let title          = "welcome.title"
+        static let subtitle       = "welcome.subtitle"
+        static let startNow       = "welcome.startNow"
+    }
+
     enum Notifications {
         static let title = "notifications.title"
         static let mentions = "notifications.mentions"
@@ -337,6 +343,10 @@ extension L10n {
         "login.resendInSeconds": "Resend in %ds",
         "login.selectCountry":  "Select country code",
         
+        "welcome.title":        "Welcome to Mezon",
+        "welcome.subtitle":     "The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.",
+        "welcome.startNow":     "Get started",
+
         "notifications.title": "Notifications",
         "notifications.mentions": "Mentions",
         "notifications.messages": "Messages",
@@ -542,6 +552,10 @@ extension L10n {
         "login.resendInSeconds": "Gửi lại sau %ds",
         "login.selectCountry":  "Chọn mã vùng",
         
+        "welcome.title":        "Chào mừng đến với Mezon",
+        "welcome.subtitle":     "Nền tảng Kết nối, Làm việc,\nvà Giải trí",
+        "welcome.startNow":     "Bắt đầu nào",
+
         "notifications.title": "Thông báo",
         "notifications.mentions": "Nhắc đến",
         "notifications.messages": "Tin nhắn",

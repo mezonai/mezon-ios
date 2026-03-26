@@ -75,8 +75,8 @@ final class SharedAccountContextImpl: SharedAccountContext {
     }
 
     func makeLoginController(context: AccountContext) -> NavigationController {
-        let nav = NavigationController(mode: .single, theme: MezonRootController.makeNavTheme())
-        nav.setViewControllers([LoginViewController(context: context)], animated: false)
+        let nav = NavigationController(mode: .single, theme: MezonRootController.makeNavTheme(theme: .light))
+        nav.setViewControllers([WelcomeController(context: context)], animated: false)
         return nav
     }
 }

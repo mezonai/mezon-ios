@@ -46,15 +46,40 @@ final class ThemeManager {
         for scene in scenes {
             for window in scene.windows {
                 if let rootVC = window.rootViewController {
+                    let finalStyle = isAuthFlow(rootVC) ? .darkContent : style
+                    (rootVC as? StatusBarStyleUpdatable)?.updatePreferredStatusBarStyle(finalStyle)
                     rootVC.setNeedsStatusBarAppearanceUpdate()
                 }
             }
         }
-        if let scene = scenes.first,
-           let window = scene.windows.first,
-           let rootVC = window.rootViewController as? UIViewController {
-            (rootVC as? StatusBarStyleUpdatable)?.updatePreferredStatusBarStyle(style)
+    }
+
+    private func isAuthFlow(_ controller: UIViewController) -> Bool {
+        if controller is AuthScreenStatusBarStyle {
+            return true
         }
+
+        if let window = controller.view.window as? WindowHost {
+            var found = false
+            window.forEachController { c in
+                if c is AuthScreenStatusBarStyle {
+                    found = true
+                }
+            }
+            if found { return true }
+        }
+
+        if let nav = controller as? UINavigationController {
+            if let top = nav.topViewController, isAuthFlow(top) {
+                return true
+            }
+        }
+        for child in controller.children {
+            if isAuthFlow(child) {
+                return true
+            }
+        }
+        return false
     }
 }
 

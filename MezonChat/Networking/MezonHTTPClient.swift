@@ -157,6 +157,19 @@ final class MezonHTTPClient {
         return response.channeldesc
     }
 
+    func createDirectMessage(userId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_CreateChannelDescRequest()
+        req.clanID = 0
+        req.type = MezonConstants.ChannelType.dm.rawValue
+        req.channelPrivate = 1
+        req.userIds = [userId]
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listClanDescs(token: String) async throws -> [Mezon_Api_ClanDesc] {
         var req = Mezon_Api_ListClanDescRequest()
         req.limit = 100
@@ -548,6 +561,43 @@ final class MezonHTTPClient {
         req.senderName = senderName
         return try await postProto(
             path: "/mezon.api.Mezon/ReactChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listUserClansByUserId(token: String) async throws -> Mezon_Api_AllUserClans {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListUserClansByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelByUserId(token: String) async throws -> Mezon_Api_ChannelDescList {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func searchMessage(
+        filters: [Mezon_Api_FilterParam] = [],
+        from: Int32 = 1,
+        size: Int32 = 25,
+        sorts: [Mezon_Api_SortParam] = [],
+        token: String
+    ) async throws -> Mezon_Api_SearchMessageResponse {
+        var req = Mezon_Api_SearchMessageRequest()
+        req.filters = filters
+        req.from = from
+        req.size = size
+        req.sorts = sorts
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchMessage",
             message: req,
             auth: .bearer(token)
         )

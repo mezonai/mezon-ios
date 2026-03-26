@@ -210,5 +210,15 @@ extension MezonEngine {
                   data.count >= 4 else { return 0 }
             return data.withUnsafeBytes { $0.load(as: Int32.self).littleEndian }
         }
+
+        func getAllUserClans() -> Mezon_Api_AllUserClans? {
+            guard let data = postbox.getPreferenceData(key: PreferencesKeys.allUserClans) else { return nil }
+            return try? Mezon_Api_AllUserClans(serializedBytes: data)
+        }
+
+        func getAllChannelsByUser() -> Mezon_Api_ChannelDescList? {
+            guard let data = postbox.getPreferenceData(key: PreferencesKeys.allChannelsByUser) else { return nil }
+            return try? Mezon_Api_ChannelDescList(serializedBytes: data)
+        }
     }
 }

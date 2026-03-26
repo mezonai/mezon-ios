@@ -299,6 +299,20 @@ final class MessageBubbleNode: ASDisplayNode {
         highlightNode.alpha = 0
         highlightNode.isUserInteractionEnabled = false
         addSubnode(highlightNode)
+
+        if !isCombine {
+            avatarContainerNode.view.addGestureRecognizer(
+                UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
+            )
+            nameNode.view.addGestureRecognizer(
+                UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
+            )
+            nameNode.isUserInteractionEnabled = true
+        }
+    }
+
+    @objc private func avatarTapped() {
+        interaction.onAvatarTapped(display)
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -324,7 +338,6 @@ final class MessageBubbleNode: ASDisplayNode {
             guard !hasCallLog else { return }
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
-            showHighlight(true)
             interaction.onMessageLongPressed(display)
         case .ended, .cancelled, .failed:
             break

@@ -91,4 +91,6 @@ enum PreferencesKeys {
     static func channelApps(clanId: Int64) -> String { "channelApps_\(clanId)" }
     static func channelList(clanId: Int64) -> String { "channelList_\(clanId)" }
     static let dmChannelList = "dmChannelList"
+    static let allUserClans = "allUserClans"
+    static let allChannelsByUser = "allChannelsByUser"
 }

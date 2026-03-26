@@ -158,6 +158,9 @@ final class ChannelListViewController: ViewController {
 
     var selectedChannelSignal: Signal<Mezon_Api_ChannelDescription?, NoError> { selectedChannelPipe.signal() }
 
+    private let searchTappedPipe = ValuePipe<Void>()
+    var searchTappedSignal: Signal<Void, NoError> { searchTappedPipe.signal() }
+
     private(set) var categories: [ChannelCategory] = []
     private(set) var selectedChannelId: Int64?
     private(set) var selectedChannel: Mezon_Api_ChannelDescription?
@@ -182,7 +185,8 @@ final class ChannelListViewController: ViewController {
             onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
-            onPresentSettings: { [weak self] in self?.presentSettings() }
+            onPresentSettings: { [weak self] in self?.presentSettings() },
+            onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) }
         )
         displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
     }

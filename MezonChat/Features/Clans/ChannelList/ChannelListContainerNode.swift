@@ -7,6 +7,7 @@ struct ChannelListInteraction {
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
+    let onSearchTapped: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -320,6 +321,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
+        headerUIView.onSearchTapped = interaction.onSearchTapped
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
         headerUIView.onTap = { [weak self] in
@@ -709,6 +711,7 @@ final class ChannelListHeaderView: UIView {
     var title: String {
         return titleLabel.text ?? ""
     }
+    var onSearchTapped: (() -> Void)?
 
     private let titleLabel: UILabel = {
         let l = UILabel()
@@ -817,6 +820,8 @@ final class ChannelListHeaderView: UIView {
 
         searchBar.addSubview(searchIcon)
         searchBar.addSubview(searchLabel)
+        let searchTap = UITapGestureRecognizer(target: self, action: #selector(searchBarTapped))
+        searchBar.addGestureRecognizer(searchTap)
 
         let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
         actionRow.axis = .horizontal
@@ -868,6 +873,10 @@ final class ChannelListHeaderView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func searchBarTapped() {
+        onSearchTapped?()
+    }
 
     func configure(title: String, memberCount: Int = 0, isCommunity: Bool = false) {
         titleLabel.text = title
