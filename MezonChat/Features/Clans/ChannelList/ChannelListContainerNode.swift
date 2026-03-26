@@ -3,6 +3,7 @@ import AsyncDisplayKit
 
 struct ChannelListInteraction {
     let onSelectChannel: (Mezon_Api_ChannelDescription) -> Void
+    let onLongPressChannel: (Mezon_Api_ChannelDescription) -> Void
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
@@ -563,9 +564,21 @@ extension ChannelListContainerNode: ASTableDataSource {
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
         switch row {
         case .channel(let ch):
-            return { ChannelItemCellNode(channel: ch, isSelected: isSelected) }
+            return {
+                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected)
+                node.onLongPress = { [weak self] in
+                    self?.interaction.onLongPressChannel(ch)
+                }
+                return node
+            }
         case .thread(let ch, let isLast):
-            return { ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast) }
+            return {
+                let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
+                node.onLongPress = { [weak self] in
+                    self?.interaction.onLongPressChannel(ch)
+                }
+                return node
+            }
         }
     }
 

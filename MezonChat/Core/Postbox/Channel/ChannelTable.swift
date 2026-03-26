@@ -51,6 +51,27 @@ final class ChannelTable: Table {
         pendingWrites.insert(clanId)
     }
 
+    func updateSingleChannelRecord(_ record: ChannelRecord) {
+        if var channels = cachedRows[record.clanId] {
+            if let index = channels.firstIndex(where: { $0.id == record.id }) {
+                channels[index] = record
+                cachedRows[record.clanId] = channels
+            }
+        }
+        
+        guard let data = record.postboxEncode() else { return }
+        db.run("UPDATE channels SET data = ? WHERE id = ? AND clan_id = ?") { s in
+            data.withUnsafeBytes { buf in
+                sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), nil)
+            }
+            sqlite3_bind_int64(s, 2, record.id)
+            sqlite3_bind_int64(s, 3, record.clanId)
+        }
+        cachedRows.removeValue(forKey: record.clanId)
+        
+        metaCache[record.id] = record
+    }
+
     func deleteChannels(clanId: Int64) {
         cachedRows[clanId] = []
         pendingWrites.insert(clanId)

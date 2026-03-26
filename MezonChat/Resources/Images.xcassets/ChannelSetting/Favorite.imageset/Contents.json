@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "Favorite.pdf",
+      "idiom" : "universal"
+    }
+  ],
+  "properties" : {
+    "preserves-vector-representation" : true,
+    "template-rendering-intent" : "template"
+  }
+}

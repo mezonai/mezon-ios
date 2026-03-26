@@ -139,6 +139,12 @@ final class ChannelListViewController: ViewController {
 
     private let context: AccountContext
     private let fetchDisposable = MetaDisposable()
+    private let dataDisposable = MetaDisposable()
+
+    deinit {
+        fetchDisposable.dispose()
+        dataDisposable.dispose()
+    }
 
     private let categoriesPipe = ValuePipe<[ChannelCategory]>()
     private let selectedChannelIdPipe = ValuePipe<Int64?>()
@@ -173,6 +179,7 @@ final class ChannelListViewController: ViewController {
     override func loadDisplayNode() {
         let interaction = ChannelListInteraction(
             onSelectChannel: { [weak self] ch in self?.select(channel: ch) },
+            onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() }
@@ -216,6 +223,41 @@ final class ChannelListViewController: ViewController {
             clanId: clanId,
             clanName: clanName,
             avatarURL: clanLogoURL
+        )
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
+        let actionSheet = ChannelActionSheetController(
+            channelName: channel.channelLabel,
+            clanName: clanName,
+            clanAvatarURL: clanLogoURL,
+            onAction: { [weak self] action in
+                guard let self else { return }
+                switch action {
+                case .editChannel:
+                    self.presentChannelSettings(channel)
+                case .deleteChannel:
+                    print("Delete channel: \(channel.channelID)")
+                default:
+                    print("Handle action: \(action)")
+                }
+            }
+        )
+        if let window = self.view.window as? WindowHost {
+            window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
+            actionSheet.animateIn()
+        }
+    }
+
+    private func presentChannelSettings(_ channel: Mezon_Api_ChannelDescription) {
+        let vc = ChannelSettingsViewController(
+            context: context,
+            clanId: channel.clanID,
+            channelId: channel.channelID,
+            categoryId: channel.categoryID,
+            channelName: channel.channelLabel,
+            channelTopic: channel.topic
         )
         self.navigationController?.pushViewController(vc, animated: true)
     }
@@ -349,13 +391,13 @@ final class ChannelListViewController: ViewController {
                 self.isLoading = false
                 switch result {
                 case .success(let channels):
-                    self.allChannels = channels
+                self.allChannels = channels
                     let cats = buildChannelCategories(channels)
                     self.categories = cats
-                    self.channelsLoadedPromise.set(true)
-                    self.persistSelectedChannel()
+                self.channelsLoadedPromise.set(true)
+                self.persistSelectedChannel()
                     self.categoriesPipe.putNext(cats)
-                    self.fetchChannelApps()
+                self.fetchChannelApps()
                     self.context.account.postbox.setPreferenceData(
                         key: PreferencesKeys.channelList(clanId: clanId),
                         value: self.encodeChannelList(channels)
@@ -363,7 +405,7 @@ final class ChannelListViewController: ViewController {
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
-                }
+    }
                 self.channelListNode.endRefreshing()
                 self.isLoadingPipe.putNext(false)
                 self.needsReloadPipe.putNext(())

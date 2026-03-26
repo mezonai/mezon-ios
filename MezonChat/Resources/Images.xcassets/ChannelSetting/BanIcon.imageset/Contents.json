@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "BanIcon.pdf",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
