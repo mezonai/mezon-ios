@@ -7,6 +7,7 @@ final class ThreadItemCellNode: ASCellNode {
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
     private let selectionNode = ASDisplayNode()
+    var onLongPress: (() -> Void)?
     private let isLast: Bool
 
     init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool) {
@@ -69,6 +70,20 @@ final class ThreadItemCellNode: ASCellNode {
             selectionNode.cornerRadius = 16.swh
         }
         selectionNode.isHidden = !isSelected
+
+        isUserInteractionEnabled = true
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        view.addGestureRecognizer(lp)
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began {
+            onLongPress?()
+        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

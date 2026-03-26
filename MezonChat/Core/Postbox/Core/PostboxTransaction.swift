@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProtobuf
 
 final class PostboxTransaction {
 
@@ -159,6 +160,16 @@ final class PostboxTransaction {
     func updateBanStatus(isBanned: Bool, expiredBanTime: Int32, channelId: Int64) {
         channelTable.updateBanStatus(isBanned: isBanned, expiredBanTime: expiredBanTime, channelId: channelId)
         updatedChannelMetaIds.insert(channelId)
+    }
+
+    func updateChannelDescription(clanId: Int64, channelId: Int64, name: String?, topic: String?) {
+        let channels = channelTable.getChannels(clanId: clanId)
+        if let index = channels.firstIndex(where: { $0.id == channelId }) {
+            let existing = channels[index]
+            let updated = existing.updating(label: name, topic: topic)
+            channelTable.updateSingleChannelRecord(updated)
+            updatedChannelClanIds.insert(clanId)
+        }
     }
 
     var isEmpty: Bool {

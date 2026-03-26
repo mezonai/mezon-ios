@@ -139,6 +139,12 @@ final class ChannelListViewController: ViewController {
 
     private let context: AccountContext
     private let fetchDisposable = MetaDisposable()
+    private let dataDisposable = MetaDisposable()
+
+    deinit {
+        fetchDisposable.dispose()
+        dataDisposable.dispose()
+    }
 
     private let categoriesPipe = ValuePipe<[ChannelCategory]>()
     private let selectedChannelIdPipe = ValuePipe<Int64?>()
@@ -162,6 +168,7 @@ final class ChannelListViewController: ViewController {
     private(set) var errorMessage: String?
     private(set) var clanId: Int64 = 0
     private(set) var clanName: String = ""
+    private(set) var clanLogoURL: String = ""
 
     private var channelListNode: ChannelListContainerNode { displayNode as! ChannelListContainerNode }
 
@@ -175,8 +182,10 @@ final class ChannelListViewController: ViewController {
     override func loadDisplayNode() {
         let interaction = ChannelListInteraction(
             onSelectChannel: { [weak self] ch in self?.select(channel: ch) },
+            onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
+            onPresentSettings: { [weak self] in self?.presentSettings() },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) }
         )
         displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
@@ -196,19 +205,65 @@ final class ChannelListViewController: ViewController {
         channelListNode.updateLayout(layout: layout, transition: transition)
     }
 
-    func configure(clanId: Int64, clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+    func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, onlineCount: Int = 0, isCommunity: Bool = false) {
+        self.clanLogoURL = logoURL ?? ""
         guard clanId != self.clanId else {
-            channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+            channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
             return
         }
         channelListNode.markClanSwitching()
-        channelListNode.configure(clanName: clanName, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
         restoreCachedChannelApps(clanId: clanId)
         load(clanId: clanId, clanName: clanName)
     }
 
     func updateMemberCount(_ count: Int) {
         channelListNode.updateMemberCount(count)
+    }
+
+    private func presentSettings() {
+        let vc = ClanSettingsViewController(
+            context: context,
+            clanId: clanId,
+            clanName: clanName,
+            avatarURL: clanLogoURL
+        )
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
+        let actionSheet = ChannelActionSheetController(
+            channelName: channel.channelLabel,
+            clanName: clanName,
+            clanAvatarURL: clanLogoURL,
+            onAction: { [weak self] action in
+                guard let self else { return }
+                switch action {
+                case .editChannel:
+                    self.presentChannelSettings(channel)
+                case .deleteChannel:
+                    print("Delete channel: \(channel.channelID)")
+                default:
+                    print("Handle action: \(action)")
+                }
+            }
+        )
+        if let window = self.view.window as? WindowHost {
+            window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
+            actionSheet.animateIn()
+        }
+    }
+
+    private func presentChannelSettings(_ channel: Mezon_Api_ChannelDescription) {
+        let vc = ChannelSettingsViewController(
+            context: context,
+            clanId: channel.clanID,
+            channelId: channel.channelID,
+            categoryId: channel.categoryID,
+            channelName: channel.channelLabel,
+            channelTopic: channel.topic
+        )
+        self.navigationController?.pushViewController(vc, animated: true)
     }
 
     func refresh() { fetchChannels() }
@@ -340,13 +395,13 @@ final class ChannelListViewController: ViewController {
                 self.isLoading = false
                 switch result {
                 case .success(let channels):
-                    self.allChannels = channels
+                self.allChannels = channels
                     let cats = buildChannelCategories(channels)
                     self.categories = cats
-                    self.channelsLoadedPromise.set(true)
-                    self.persistSelectedChannel()
+                self.channelsLoadedPromise.set(true)
+                self.persistSelectedChannel()
                     self.categoriesPipe.putNext(cats)
-                    self.fetchChannelApps()
+                self.fetchChannelApps()
                     self.context.account.postbox.setPreferenceData(
                         key: PreferencesKeys.channelList(clanId: clanId),
                         value: self.encodeChannelList(channels)
@@ -354,7 +409,7 @@ final class ChannelListViewController: ViewController {
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
-                }
+    }
                 self.channelListNode.endRefreshing()
                 self.isLoadingPipe.putNext(false)
                 self.needsReloadPipe.putNext(())

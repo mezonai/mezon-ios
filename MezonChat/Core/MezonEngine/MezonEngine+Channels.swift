@@ -22,5 +22,20 @@ extension MezonEngine {
         func channelListView(clanId: Int64) -> Signal<ChannelListView, NoError> {
             postbox.channelListView(clanId: clanId)
         }
+
+        func updateChannelDescription(clanId: Int64, channelId: Int64, name: String?, topic: String?, categoryId: Int64?, token: String) async throws {
+            let result = try await network.updateChannelDesc(
+                clanId: clanId,
+                channelId: channelId,
+                channelLabel: name,
+                topic: topic,
+                categoryId: categoryId,
+                token: token
+            )
+            
+            self.postbox.write { tx in
+                tx.updateChannelDescription(clanId: clanId, channelId: channelId, name: name, topic: topic)
+            }
+        }
     }
 }

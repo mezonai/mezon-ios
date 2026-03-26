@@ -131,7 +131,7 @@ final class MezonHTTPClient {
         req.limit       = 500
         req.state       = 1
         req.page        = 0
-        req.channelType = 0
+        req.channelType = 1
         req.isMobile    = true
         let response: Mezon_Api_ChannelDescList = try await postProto(
             path: "/mezon.api.Mezon/ListChannelDescs",
@@ -283,6 +283,35 @@ final class MezonHTTPClient {
         req.topicID = topicId
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelMessages",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateChannelDesc(
+        clanId: Int64,
+        channelId: Int64,
+        channelLabel: String? = nil,
+        topic: String? = nil,
+        categoryId: Int64? = nil,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_UpdateChannelDescRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        if let channelLabel = channelLabel {
+            var labelValue = SwiftProtobuf.Google_Protobuf_StringValue()
+            labelValue.value = channelLabel
+            req.channelLabel = labelValue
+        }
+        if let topic = topic {
+            req.topic = topic
+        }
+        if let categoryId = categoryId {
+            req.categoryID = categoryId
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateChannelDesc",
             message: req,
             auth: .bearer(token)
         )

@@ -48,3 +48,8 @@ final class LanguageManager {
 func L(_ key: String) -> String {
     LanguageManager.shared.string(for: key)
 }
+
+func L(_ key: String, _ args: CVarArg...) -> String {
+    let format = L(key)
+    return String(format: format, arguments: args)
+}

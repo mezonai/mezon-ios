@@ -3,8 +3,10 @@ import AsyncDisplayKit
 
 struct ChannelListInteraction {
     let onSelectChannel: (Mezon_Api_ChannelDescription) -> Void
+    let onLongPressChannel: (Mezon_Api_ChannelDescription) -> Void
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
+    let onPresentSettings: (() -> Void)?
     let onSearchTapped: (() -> Void)?
 }
 
@@ -40,6 +42,11 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let interaction: ChannelListInteraction
     private let disposables = DisposableSet()
     private var isClanSwitching = false
+
+    private var clanLogoURL: String = ""
+    private var isCommunity: Bool = false
+    private var memberCount: Int = 0
+    private var onlineCount: Int = 0
 
     init(signal: Signal<ChannelListState, NoError>, interaction: ChannelListInteraction) {
         tableNode = ASTableNode(style: .plain)
@@ -317,6 +324,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.onSearchTapped = interaction.onSearchTapped
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
+        headerUIView.onTap = { [weak self] in
+            self?.presentClanActionSheet()
+        }
     }
 
     private func scheduleReload() {
@@ -383,7 +393,11 @@ final class ChannelListContainerNode: ASDisplayNode {
         isClanSwitching = true
     }
 
-    func configure(clanName: String, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+    func configure(clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, onlineCount: Int = 0, isCommunity: Bool = false) {
+        self.clanLogoURL = logoURL ?? ""
+        self.isCommunity = isCommunity
+        self.memberCount = memberCount
+        self.onlineCount = onlineCount
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
         let hadAppsSection = hasChannelAppsSection
         channelApps = []
@@ -435,7 +449,29 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func updateMemberCount(_ count: Int) {
+        self.memberCount = count
         headerUIView.updateMemberCount(count)
+    }
+
+    private func presentClanActionSheet() {
+        guard let window = self.view.window as? WindowHost else { return }
+        let actionSheet = ClanActionSheetController(
+            clanName: headerUIView.title,
+            avatarURL: clanLogoURL,
+            memberCount: memberCount,
+            onlineCount: onlineCount,
+            isCommunity: isCommunity,
+            onAction: { [weak self] action in
+                guard let self else { return }
+                if action == .settings {
+                    self.interaction.onPresentSettings?()
+                } else {
+                    print("Clan action selected: \(action)")
+                }
+            }
+        )
+        window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
+        actionSheet.animateIn()
     }
 
     @objc private func handleRefresh(_ sender: UIRefreshControl) {
@@ -530,9 +566,21 @@ extension ChannelListContainerNode: ASTableDataSource {
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
         switch row {
         case .channel(let ch):
-            return { ChannelItemCellNode(channel: ch, isSelected: isSelected) }
+            return {
+                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected)
+                node.onLongPress = { [weak self] in
+                    self?.interaction.onLongPressChannel(ch)
+                }
+                return node
+            }
         case .thread(let ch, let isLast):
-            return { ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast) }
+            return {
+                let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
+                node.onLongPress = { [weak self] in
+                    self?.interaction.onLongPressChannel(ch)
+                }
+                return node
+            }
         }
     }
 
@@ -658,6 +706,11 @@ private final class CategorySectionHeaderView: UIView {
 
 final class ChannelListHeaderView: UIView {
 
+    var onTap: (() -> Void)?
+
+    var title: String {
+        return titleLabel.text ?? ""
+    }
     var onSearchTapped: (() -> Void)?
 
     private let titleLabel: UILabel = {
@@ -783,6 +836,10 @@ final class ChannelListHeaderView: UIView {
         mainStack.setCustomSpacing(10, after: infoRow)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
+        let mainTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleHeaderTap))
+        mainStack.addGestureRecognizer(mainTapGesture)
+        mainStack.isUserInteractionEnabled = true
+
         addSubview(mainStack)
         addSubview(separator)
 
@@ -859,6 +916,10 @@ final class ChannelListHeaderView: UIView {
         eventButton.backgroundColor = t.tertiary
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         separator.backgroundColor = t.border.withAlphaComponent(0.3)
+    }
+
+    @objc private func handleHeaderTap() {
+        onTap?()
     }
 }
 

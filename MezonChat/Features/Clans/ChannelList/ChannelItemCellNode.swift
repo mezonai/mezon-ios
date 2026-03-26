@@ -9,6 +9,7 @@ final class ChannelItemCellNode: ASCellNode {
     private let badgeNode = ASTextNode2()
     private let unreadDot = ASDisplayNode()
     private let selectionNode = ASDisplayNode()
+    var onLongPress: (() -> Void)?
 
     private let channel: Mezon_Api_ChannelDescription
     private let cellSelected: Bool
@@ -103,6 +104,20 @@ final class ChannelItemCellNode: ASCellNode {
             cellSelected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
         selectionNode.cornerRadius = 16.swh
         backgroundColor = .clear
+
+        isUserInteractionEnabled = true
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        view.addGestureRecognizer(lp)
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began {
+            onLongPress?()
+        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

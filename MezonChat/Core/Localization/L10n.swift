@@ -151,9 +151,62 @@ enum L10n {
         static let settings       = "clan.settings"
     }
 
+    enum ClanAction {
+        static let invite               = "clan.action.invite"
+        static let markAsRead           = "clan.action.markAsRead"
+        static let createEvent          = "clan.action.createEvent"
+        static let createCategory       = "clan.action.createCategory"
+        static let editClanProfile      = "clan.action.editClanProfile"
+        static let auditLog             = "clan.action.auditLog"
+        static let leaveClan            = "clan.action.leaveClan"
+        static let deleteClan           = "clan.action.deleteClan"
+        static let showEmptyCategories  = "clan.action.showEmptyCategories"
+        static let onlineCount          = "clan.action.onlineCount"
+        static let memberCount          = "clan.action.memberCount"
+        static let community            = "clan.action.community"
+    }
+
+    enum ClanSetting {
+        static let overview             = "clan.setting.overview"
+        static let auditLog             = "clan.setting.auditLog"
+        static let integrations         = "clan.setting.integrations"
+        static let emoji                = "clan.setting.emoji"
+        static let sticker              = "clan.setting.sticker"
+        static let soundEffect          = "clan.setting.soundEffect"
+        static let enableCommunity      = "clan.setting.enableCommunity"
+        static let userManagement       = "clan.setting.userManagement"
+        static let roles                = "clan.setting.roles"
+        static let invites              = "clan.setting.invites"
+    }
+
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
+        static let settings       = "channel.settings"
+        static let name           = "channel.name"
+        static let topic          = "channel.topic"
+        static let delete         = "channel.delete"
+        static let deleteConfirm  = "channel.deleteConfirm"
+    }
+
+    enum ChannelAction {
+        static let markAsRead           = "channel.action.markAsRead"
+        static let markFavorite         = "channel.action.markFavorite"
+        static let unmarkFavorite       = "channel.action.unmarkFavorite"
+        static let copyLink             = "channel.action.copyLink"
+        static let mute                 = "channel.action.mute"
+        static let unmute               = "channel.action.unmute"
+        static let notificationSettings = "channel.action.notificationSettings"
+        static let editChannel          = "channel.action.editChannel"
+    }
+
+    enum ChannelSetting {
+        static let changeCategory       = "channel.setting.changeCategory"
+        static let permissions          = "channel.setting.permissions"
+        static let quickAction          = "channel.setting.quickAction"
+        static let banList              = "channel.setting.banList"
+        static let webhook              = "channel.setting.webhook"
+        static let privacyFooter        = "channel.setting.privacyFooter"
     }
 
     enum ChannelMessages {
@@ -320,8 +373,53 @@ extension L10n {
         "clan.members":     "Members",
         "clan.settings":    "Clan Settings",
 
+        "clan.action.invite":               "Invite",
+        "clan.action.markAsRead":           "Mark as Read",
+        "clan.action.createEvent":          "Create Event",
+        "clan.action.createCategory":       "Create Category",
+        "clan.action.editClanProfile":      "Edit Clan Profile",
+        "clan.action.auditLog" :            "Audit log",
+        "clan.action.leaveClan":            "Leave Clan",
+        "clan.action.deleteClan":           "Delete Clan",
+        "clan.action.showEmptyCategories":  "Show Empty Categories",
+        "clan.action.onlineCount":          "%d Online",
+        "clan.action.memberCount":          "%d Members",
+        "clan.action.community":            "Community",
+
+        "clan.setting.overview":            "Overview",
+        "clan.setting.auditLog":            "Audit Log",
+        "clan.setting.integrations":        "Integrations",
+        "clan.setting.emoji":               "Emoji",
+        "clan.setting.sticker":             "Sticker",
+        "clan.setting.soundEffect":         "Sound Effect",
+        "clan.setting.enableCommunity":     "Enable Community",
+        "clan.setting.userManagement":      "User Management",
+        "clan.setting.roles":               "Roles",
+        "clan.setting.invites":             "Invites",
+
         "channel.label":  "channel",
         "channel.thread": "Threads",
+        "channel.settings": "Channel Settings",
+        "channel.name":   "Channel Name",
+        "channel.topic":  "Channel Topic",
+        "channel.delete": "Delete Channel",
+        "channel.deleteConfirm": "Are you sure you want to delete this channel?",
+
+        "channel.action.markAsRead":           "Mark as Read",
+        "channel.action.markFavorite":         "Mark Favorite",
+        "channel.action.unmarkFavorite":       "Unmark Favorite",
+        "channel.action.copyLink":             "Copy Link",
+        "channel.action.mute":                 "Mute Channel",
+        "channel.action.unmute":               "Unmute Channel",
+        "channel.action.notificationSettings": "Notification Settings",
+        "channel.action.editChannel":          "Edit Channel",
+
+        "channel.setting.changeCategory":       "Change Category",
+        "channel.setting.permissions":          "Channel Permissions",
+        "channel.setting.quickAction":          "Quick Action",
+        "channel.setting.banList":              "Ban List",
+        "channel.setting.webhook":              "Webhook",
+        "channel.setting.privacyFooter":        "Change privacy settings and customize how members can interact with this channel.",
 
         "channelMessages.emptyMessages": "No messages yet",
         "channelMessages.todayAt": "Today at %@",
@@ -484,8 +582,53 @@ extension L10n {
         "clan.members":     "Thành viên",
         "clan.settings":    "Cài đặt Clan",
 
+        "clan.action.invite":               "Mời",
+        "clan.action.markAsRead":           "Đánh dấu đã đọc",
+        "clan.action.createEvent":          "Tạo sự kiện",
+        "clan.action.createCategory":       "Tạo danh mục",
+        "clan.action.editClanProfile":      "Chỉnh sửa hồ sơ Clan",
+        "clan.action.auditLog" :            "Nhật kí kiểm tra",
+        "clan.action.leaveClan":            "Rời Clan",
+        "clan.action.deleteClan":           "Xóa Clan",
+        "clan.action.showEmptyCategories":  "Hiển thị danh mục trống",
+        "clan.action.onlineCount":          "%d Đang trực tuyến",
+        "clan.action.memberCount":          "%d Thành viên",
+        "clan.action.community":            "Cộng đồng",
+
+        "clan.setting.overview":            "Tổng quan",
+        "clan.setting.auditLog":            "Nhật ký hoạt động",
+        "clan.setting.integrations":        "Tích hợp",
+        "clan.setting.emoji":               "Biểu cảm",
+        "clan.setting.sticker":             "Nhãn dán",
+        "clan.setting.soundEffect":         "Hiệu ứng âm thanh",
+        "clan.setting.enableCommunity":     "Bật cộng đồng",
+        "clan.setting.userManagement":      "Quản lý người dùng",
+        "clan.setting.roles":               "Vai trò",
+        "clan.setting.invites":             "Lời mời",
+
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",
+        "channel.settings": "Cài đặt kênh",
+        "channel.name":   "Tên kênh",
+        "channel.topic":  "Chủ đề kênh",
+        "channel.delete": "Xóa kênh",
+        "channel.deleteConfirm": "Bạn có chắc chắn muốn xóa kênh này không?",
+
+        "channel.action.markAsRead":           "Đánh dấu đã đọc",
+        "channel.action.markFavorite":         "Yêu thích",
+        "channel.action.unmarkFavorite":       "Bỏ yêu thích",
+        "channel.action.copyLink":             "Sao chép liên kết",
+        "channel.action.mute":                 "Tắt thông báo kênh",
+        "channel.action.unmute":               "Bật thông báo kênh",
+        "channel.action.notificationSettings": "Cài đặt thông báo",
+        "channel.action.editChannel":          "Chỉnh sửa kênh",
+
+        "channel.setting.changeCategory":       "Thay đổi danh mục",
+        "channel.setting.permissions":          "Quyền hạn kênh",
+        "channel.setting.quickAction":          "Hành động nhanh",
+        "channel.setting.banList":              "Danh sách chặn",
+        "channel.setting.webhook":              "Webhook",
+        "channel.setting.privacyFooter":        "Thay đổi cài đặt quyền riêng tư và tùy chỉnh cách các thành viên có thể tương tác với kênh này.",
 
         "channelMessages.emptyMessages": "Chưa có tin nhắn",
         "channelMessages.todayAt": "Hôm nay lúc %@",
