@@ -31,7 +31,12 @@ final class HomeViewController: BaseViewController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleHomeThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonMentionReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: UIApplication.willEnterForegroundNotification, object: nil)
 
+        bindBadgeCountUpdates()
         processPendingNavigation()
     }
 
@@ -278,6 +283,45 @@ final class HomeViewController: BaseViewController {
         if let tabBarVC = rootController.viewControllers.first(where: { $0 is TabBarController }) {
             rootController.popToViewController(tabBarVC, animated: false)
         }
+    }
+
+    private func bindBadgeCountUpdates() {
+        disposables.add(
+            (context.engine.clanData.clanBadgeCountUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] _ in
+                    self?.updateAppBadgeCount()
+                })
+        )
+        disposables.add(
+            (clanListVC.clansSignal |> deliverOnMainQueue)
+                .start(next: { [weak self] _ in
+                    self?.updateAppBadgeCount()
+                })
+        )
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.updateAppBadgeCount()
+        }
+    }
+
+    @objc private func updateAppBadgeCount() {
+        let clanBadgeTotal = clanListVC.clans.reduce(Int(0)) { total, clan in
+            let count = Int(clan.badgeCount)
+            return total + (count > 0 ? count : 0)
+        }
+
+        let dmUnreadTotal = clanListVC.unreadDMs.reduce(Int(0)) { total, dm in
+            total + Int(dm.countMessUnread)
+        }
+
+        let badgeCount = max(0, clanBadgeTotal + dmUnreadTotal)
+
+        DispatchQueue.main.async {
+            UIApplication.shared.applicationIconBadgeNumber = badgeCount
+        }
+
+        let shared = UserDefaults(suiteName: "group.mezon.mobile")
+        shared?.set(badgeCount, forKey: "badgeCount")
     }
 
     deinit { disposables.dispose(); navigationDisposable.dispose() }

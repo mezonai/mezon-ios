@@ -15,6 +15,39 @@ enum SearchTab: Int, CaseIterable {
     }
 }
 
+enum SearchFilterOption {
+    case from   // ">" — from user
+    case mentions // "~" — mention user
+
+    var symbol: String {
+        switch self {
+        case .from:     return ">"
+        case .mentions: return "~"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .from:     return "from:"
+        case .mentions: return "mentions:"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .from:     return "from user"
+        case .mentions: return "mention user"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .from:     return "person"
+        case .mentions: return "at"
+        }
+    }
+}
+
 final class SearchViewController: ViewController {
 
     private let clanId: Int64
@@ -25,6 +58,7 @@ final class SearchViewController: ViewController {
 
     private var allMembers: [Mezon_Api_User] = []
     private var filteredMembers: [Mezon_Api_User] = []
+    private var clanNicks: [Int64: String] = [:]
 
     private var allChannels: [Mezon_Api_ChannelDescription] = []
     private var filteredChannels: [Mezon_Api_ChannelDescription] = []
@@ -39,6 +73,10 @@ final class SearchViewController: ViewController {
     private let pageSize: Int32 = 25
 
     private var searchNode: SearchContainerNode { displayNode as! SearchContainerNode }
+
+    private var activeFilterOption: SearchFilterOption?
+    private var filterUser: Mezon_Api_User?
+    private var isPickingFilterUser = false
 
     private let initialChannels: [Mezon_Api_ChannelDescription]
 
@@ -63,7 +101,7 @@ final class SearchViewController: ViewController {
 
     override func loadDisplayNode() {
         let hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
-        displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel)
+        displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped)
         searchNode.searchBar.textField.delegate = self
         searchNode.tabBar.onTabSelected = { [weak self] tab in
             self?.switchTab(tab)
@@ -72,6 +110,9 @@ final class SearchViewController: ViewController {
         searchNode.tableNode.delegate = self
         searchNode.onBackTapped = { [weak self] in
             self?.navigationController?.popViewController(animated: true)
+        }
+        searchNode.searchBar.onFilterTapped = { [weak self] in
+            self?.showFilterTooltip()
         }
     }
 
@@ -109,6 +150,7 @@ final class SearchViewController: ViewController {
         if isChannelScoped {
             if let clanUsers = clanUsersCache {
                 allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+                Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks)
             }
         } else {
             if let allUsers = allUsersCache {
@@ -153,6 +195,7 @@ final class SearchViewController: ViewController {
                     if isChannelScoped {
                         let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
                         allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+                        Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks)
                     } else {
                         let users = try await context.account.network.listUserClansByUserId(token: token)
                         allMembers = Self.uniqueUsers(users.users)
@@ -181,6 +224,7 @@ final class SearchViewController: ViewController {
                 if allMembers.isEmpty {
                     let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
                     allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+                    Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks)
                 }
 
                 let response = try await context.account.network.listChannelUsers(
@@ -214,6 +258,20 @@ final class SearchViewController: ViewController {
         }
     }
 
+    private static func buildClanNicks(from clanUsers: [Mezon_Api_ClanUserList.ClanUser], into map: inout [Int64: String]) {
+        for cu in clanUsers {
+            if !cu.clanNick.isEmpty {
+                map[cu.user.id] = cu.clanNick
+            }
+        }
+    }
+
+    private func displayName(for user: Mezon_Api_User) -> String {
+        if let nick = clanNicks[user.id], !nick.isEmpty { return nick }
+        if !user.displayName.isEmpty { return user.displayName }
+        return user.username
+    }
+
     private static func uniqueUsers(_ users: [Mezon_Api_User]) -> [Mezon_Api_User] {
         var seen = Set<Int64>()
         return users.filter { seen.insert($0.id).inserted }
@@ -233,9 +291,10 @@ final class SearchViewController: ViewController {
             filteredMembers = baseMemberList
         } else {
             filteredMembers = baseMemberList.filter { user in
+                let nick = (clanNicks[user.id] ?? "").lowercased()
                 let displayName = user.displayName.lowercased()
                 let username = user.username.lowercased()
-                return displayName.contains(query) || username.contains(query)
+                return nick.contains(query) || displayName.contains(query) || username.contains(query)
             }.sorted { a, b in
                 scoreMember(a, query: query) > scoreMember(b, query: query)
             }
@@ -249,7 +308,7 @@ final class SearchViewController: ViewController {
             }
         }
 
-        if !query.isEmpty {
+        if !query.isEmpty || filterUser != nil {
             messageCurrentPage = 0
             searchMessages = []
             fetchMessages()
@@ -264,12 +323,16 @@ final class SearchViewController: ViewController {
     }
 
     private func scoreMember(_ user: Mezon_Api_User, query: String) -> Int {
+        let nick = (clanNicks[user.id] ?? "").lowercased()
         let displayName = user.displayName.lowercased()
         let username = user.username.lowercased()
         var score = 0
-        if displayName == query { score = 1000 }
-        else if displayName.hasPrefix(query) { score = 900 }
-        else if displayName.contains(query) { score = 500 }
+        if nick == query { score = 1050 }
+        else if nick.hasPrefix(query) { score = 950 }
+        else if nick.contains(query) { score = 550 }
+        if displayName == query { score = max(score, 1000) }
+        else if displayName.hasPrefix(query) { score = max(score, 900) }
+        else if displayName.contains(query) { score = max(score, 500) }
         if username == query { score = max(score, 950) }
         else if username.hasPrefix(query) { score = max(score, 850) }
         else if username.contains(query) { score = max(score, 450) }
@@ -293,7 +356,7 @@ final class SearchViewController: ViewController {
         isLoadingMessages = true
 
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
+        guard !query.isEmpty || filterUser != nil else {
             isLoadingMessages = false
             return
         }
@@ -317,10 +380,19 @@ final class SearchViewController: ViewController {
                 clanFilter.fieldValue = "\(clanId)"
                 filters.append(clanFilter)
 
-                var contentFilter = Mezon_Api_FilterParam()
-                contentFilter.fieldName = "content"
-                contentFilter.fieldValue = query
-                filters.append(contentFilter)
+                if !query.isEmpty {
+                    var contentFilter = Mezon_Api_FilterParam()
+                    contentFilter.fieldName = "content"
+                    contentFilter.fieldValue = query
+                    filters.append(contentFilter)
+                }
+
+                if let filterUser = filterUser, let option = activeFilterOption {
+                    var userFilter = Mezon_Api_FilterParam()
+                    userFilter.fieldName = option == .from ? "username" : "mention"
+                    userFilter.fieldValue = option == .from ? displayName(for: filterUser) : "\(filterUser.id)"
+                    filters.append(userFilter)
+                }
 
                 let response = try await context.account.network.searchMessage(
                     filters: filters,
@@ -372,6 +444,56 @@ final class SearchViewController: ViewController {
             channels: filteredChannels.count,
             messages: query.isEmpty ? nil : Int(messageTotalCount)
         )
+    }
+
+    private func showFilterTooltip() {
+        let tooltip = SearchFilterTooltipView(options: [.from, .mentions]) { [weak self] option in
+            self?.selectFilterOption(option)
+        }
+        tooltip.showBelow(anchorView: searchNode.searchBar.view, in: view)
+    }
+
+    private func selectFilterOption(_ option: SearchFilterOption) {
+        activeFilterOption = option
+        filterUser = nil
+        isPickingFilterUser = true
+
+        switchTab(.members)
+        searchNode.tabBar.isHidden = true
+        searchNode.setNeedsLayout()
+
+        searchNode.searchBar.setFilterBadge("\(option.label)")
+        searchNode.searchBar.textField.text = ""
+        searchQuery = ""
+        performSearch()
+        searchNode.searchBar.textField.becomeFirstResponder()
+    }
+
+    private func selectFilterUser(_ user: Mezon_Api_User) {
+        filterUser = user
+        isPickingFilterUser = false
+        searchNode.setNeedsLayout()
+
+        let badgeText = "\(activeFilterOption?.label ?? "") \(displayName(for: user))"
+        searchNode.searchBar.setFilterBadge(badgeText)
+
+        activeTab = .messages
+        searchNode.searchBar.textField.text = " "
+        searchQuery = ""
+        messageCurrentPage = 0
+        searchMessages = []
+        fetchMessages()
+        searchNode.tableNode.reloadData()
+        searchNode.searchBar.textField.becomeFirstResponder()
+    }
+
+    private func clearFilter() {
+        activeFilterOption = nil
+        filterUser = nil
+        isPickingFilterUser = false
+        searchNode.tabBar.isHidden = false
+        searchNode.searchBar.clearFilterBadge()
+        searchNode.setNeedsLayout()
     }
 
     private func navigateToMember(_ user: Mezon_Api_User) {
@@ -427,6 +549,18 @@ extension SearchViewController: UITextFieldDelegate {
     func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
         let current = (textField.text ?? "") as NSString
         let newText = current.replacingCharacters(in: range, with: string)
+
+        if activeFilterOption != nil && string.isEmpty && newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            clearFilter()
+            if let label = scopedChannelLabel {
+                searchNode.searchBar.setChannelBadge(label)
+            }
+            textField.text = ""
+            searchQuery = ""
+            performSearch()
+            return false
+        }
+
         searchQuery = newText
 
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
@@ -498,10 +632,11 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
                 return { SearchEmptyCellNode(text: "No members found") }
             }
             let user = filteredMembers[row]
+            let nick = clanNicks[user.id]
             let count = filteredMembers.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { MemberSearchCellNode(user: user, isFirst: isFirst, isLast: isLast) }
+            return { MemberSearchCellNode(user: user, clanNick: nick, isFirst: isFirst, isLast: isLast) }
 
         case .channels:
             if filteredChannels.isEmpty {
@@ -540,6 +675,10 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
         switch activeTab {
         case .members:
             guard indexPath.row < filteredMembers.count else { return }
+            if isPickingFilterUser {
+                selectFilterUser(filteredMembers[indexPath.row])
+                return
+            }
             navigateToMember(filteredMembers[indexPath.row])
 
         case .channels:
@@ -567,7 +706,7 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
 final class SearchContainerNode: ASDisplayNode {
 
-    let searchBar = SearchInputNode()
+    let searchBar: SearchInputNode
     let tabBar: SearchTabBarNode
     let tableNode = ASTableNode(style: .grouped)
     private let backButtonNode = ASButtonNode()
@@ -575,7 +714,8 @@ final class SearchContainerNode: ASDisplayNode {
     private let separatorNode = ASDisplayNode()
     var onBackTapped: (() -> Void)?
 
-    init(hiddenTabs: Set<SearchTab> = [], channelBadge: String? = nil) {
+    init(hiddenTabs: Set<SearchTab> = [], channelBadge: String? = nil, showFilterButton: Bool = false) {
+        self.searchBar = SearchInputNode(showFilterButton: showFilterButton)
         self.tabBar = SearchTabBarNode(hiddenTabs: hiddenTabs)
         super.init()
         automaticallyManagesSubnodes = false
@@ -634,7 +774,8 @@ final class SearchContainerNode: ASDisplayNode {
 
         let backSize: CGFloat = 32
         let searchH: CGFloat = 36
-        let tabH: CGFloat = 40
+        let tabH: CGFloat = tabBar.isHidden ? 0 : 40
+        let tabSpacing: CGFloat = tabBar.isHidden ? 4 : 12
         let headerTop = safeTop + 8
         let separatorH: CGFloat = 0.5
 
@@ -646,7 +787,7 @@ final class SearchContainerNode: ASDisplayNode {
             height: searchH
         )
         tabBar.frame = CGRect(
-            x: 0, y: searchBar.frame.maxY + 12,
+            x: 0, y: searchBar.frame.maxY + tabSpacing,
             width: bounds.width, height: tabH
         )
 
@@ -663,8 +804,12 @@ final class SearchInputNode: ASDisplayNode {
     private let iconNode = ASImageNode()
     private var badgeLabel: UILabel?
     private var badgeWidth: CGFloat = 0
+    private var filterButton: UIButton?
+    private let showFilterButton: Bool
+    var onFilterTapped: (() -> Void)?
 
-    override init() {
+    init(showFilterButton: Bool = false) {
+        self.showFilterButton = showFilterButton
         super.init()
 
         iconNode.image = UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate)
@@ -686,9 +831,24 @@ final class SearchInputNode: ASDisplayNode {
         if let badge = badgeLabel {
             view.addSubview(badge)
         }
+
+        if showFilterButton {
+            let btn = UIButton(type: .system)
+            let img = UIImage(systemName: "line.3.horizontal.decrease")?.withRenderingMode(.alwaysTemplate)
+            btn.setImage(img, for: .normal)
+            btn.tintColor = t.textStrong
+            btn.addTarget(self, action: #selector(filterTapped), for: .touchUpInside)
+            view.addSubview(btn)
+            filterButton = btn
+        }
+    }
+
+    @objc private func filterTapped() {
+        onFilterTapped?()
     }
 
     func setChannelBadge(_ channelName: String) {
+        badgeLabel?.removeFromSuperview()
         let label = UILabel()
         label.text = "in: \(channelName)"
         label.font = .systemFont(ofSize: 12, weight: .medium)
@@ -700,6 +860,32 @@ final class SearchInputNode: ASDisplayNode {
         let size = label.sizeThatFits(CGSize(width: 200, height: 20))
         badgeWidth = size.width + 16
         badgeLabel = label
+        if isNodeLoaded { view.addSubview(label) }
+        setNeedsLayout()
+    }
+
+    func setFilterBadge(_ text: String) {
+        badgeLabel?.removeFromSuperview()
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .white
+        label.backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 1)
+        label.textAlignment = .center
+        label.layer.cornerRadius = 10
+        label.clipsToBounds = true
+        let size = label.sizeThatFits(CGSize(width: 200, height: 20))
+        badgeWidth = size.width + 16
+        badgeLabel = label
+        if isNodeLoaded { view.addSubview(label) }
+        setNeedsLayout()
+    }
+
+    func clearFilterBadge() {
+        badgeLabel?.removeFromSuperview()
+        badgeLabel = nil
+        badgeWidth = 0
+        setNeedsLayout()
     }
 
     func applyTheme() {
@@ -713,20 +899,28 @@ final class SearchInputNode: ASDisplayNode {
             string: "Search",
             attributes: [.foregroundColor: t.textDisabled]
         )
+        filterButton?.tintColor = t.textStrong
     }
 
     override func layout() {
         super.layout()
         let h = bounds.height
+        let filterW: CGFloat = showFilterButton ? 32 : 0
         iconNode.frame = CGRect(x: 12, y: (h - 18) / 2, width: 18, height: 18)
+
+        if let btn = filterButton {
+            btn.frame = CGRect(x: bounds.width - filterW - 4, y: 0, width: filterW, height: h)
+        }
+
+        let rightPad: CGFloat = showFilterButton ? filterW + 8 : 12
 
         if let badge = badgeLabel {
             let badgeH: CGFloat = 20
             let badgeX: CGFloat = 36
             badge.frame = CGRect(x: badgeX, y: (h - badgeH) / 2, width: badgeWidth, height: badgeH)
-            textField.frame = CGRect(x: badgeX + badgeWidth + 6, y: 0, width: bounds.width - badgeX - badgeWidth - 18, height: h)
+            textField.frame = CGRect(x: badgeX + badgeWidth + 6, y: 0, width: bounds.width - badgeX - badgeWidth - 6 - rightPad, height: h)
         } else {
-            textField.frame = CGRect(x: 36, y: 0, width: bounds.width - 48, height: h)
+            textField.frame = CGRect(x: 36, y: 0, width: bounds.width - 36 - rightPad, height: h)
         }
     }
 }
@@ -797,6 +991,7 @@ final class SearchTabBarNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
+        guard bounds.height > 3 else { return }
         let tabW = bounds.width / CGFloat(tabNodes.count)
         for (i, (_, node)) in tabNodes.enumerated() {
             node.frame = CGRect(x: tabW * CGFloat(i), y: 0, width: tabW, height: bounds.height - 3)
@@ -922,7 +1117,7 @@ final class MemberSearchCellNode: ASCellNode {
     private static let cellHeight: CGFloat = 60.sh
     private static let radius: CGFloat = 10.sf
 
-    init(user: Mezon_Api_User, isFirst: Bool = false, isLast: Bool = false) {
+    init(user: Mezon_Api_User, clanNick: String? = nil, isFirst: Bool = false, isLast: Bool = false) {
         self.isFirst = isFirst
         self.isLast = isLast
         self.hasUsername = !user.username.isEmpty
@@ -949,7 +1144,15 @@ final class MemberSearchCellNode: ASCellNode {
         statusDotNode.borderWidth = 2.sf
         statusDotNode.borderColor = t.secondary.cgColor
 
-        let displayName = user.displayName.isEmpty ? user.username : user.displayName
+        // Priority: clanNick > displayName > username
+        let displayName: String
+        if let nick = clanNick, !nick.isEmpty {
+            displayName = nick
+        } else if !user.displayName.isEmpty {
+            displayName = user.displayName
+        } else {
+            displayName = user.username
+        }
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
         nameNode.attributedText = NSAttributedString(
@@ -1246,5 +1449,127 @@ final class MessageSearchCellNode: ASCellNode {
         let contentY = 10.sh + senderSize.height + 3
         let contentSize = contentNode.calculatedSize.width > 0 ? contentNode.calculatedSize : contentNode.measure(CGSize(width: textW, height: .greatestFiniteMagnitude))
         contentNode.frame = CGRect(x: textX, y: contentY, width: textW, height: contentSize.height)
+    }
+}
+
+final class SearchFilterTooltipView: UIView {
+
+    private let onSelect: (SearchFilterOption) -> Void
+    private var backgroundOverlay: UIView?
+
+    init(options: [SearchFilterOption], onSelect: @escaping (SearchFilterOption) -> Void) {
+        self.onSelect = onSelect
+        super.init(frame: .zero)
+        setupUI(options: options)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupUI(options: [SearchFilterOption]) {
+        let t = UIColor.theme
+        backgroundColor = t.secondary
+        layer.cornerRadius = 10
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.25
+        layer.shadowRadius = 8
+        layer.shadowOffset = CGSize(width: 0, height: 4)
+        clipsToBounds = false
+
+        let header = UILabel()
+        header.text = "Filter results"
+        header.font = .systemFont(ofSize: 14, weight: .bold)
+        header.textColor = t.textStrong
+        header.frame = CGRect(x: 14, y: 10, width: 200, height: 20)
+        addSubview(header)
+
+        let separator = UIView()
+        separator.backgroundColor = t.border.withAlphaComponent(0.3)
+        separator.frame = CGRect(x: 0, y: 36, width: 220, height: 0.5)
+        addSubview(separator)
+
+        var y: CGFloat = 36.5
+        for option in options {
+            let row = createOptionRow(option: option, y: y)
+            addSubview(row)
+            y += 48
+
+            if option != options.last {
+                let div = UIView()
+                div.backgroundColor = t.border.withAlphaComponent(0.2)
+                div.frame = CGRect(x: 10, y: y, width: 200, height: 0.5)
+                addSubview(div)
+                y += 0.5
+            }
+        }
+
+        frame.size = CGSize(width: 220, height: y + 6)
+    }
+
+    private func createOptionRow(option: SearchFilterOption, y: CGFloat) -> UIView {
+        let t = UIColor.theme
+        let container = UIView(frame: CGRect(x: 0, y: y, width: 220, height: 48))
+
+        let icon = UIImageView(image: UIImage(systemName: option.iconName)?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = t.textDisabled
+        icon.contentMode = .scaleAspectFit
+        icon.frame = CGRect(x: 190, y: 14, width: 20, height: 20)
+        container.addSubview(icon)
+
+        let titleLabel = UILabel()
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.textColor = t.textStrong
+        titleLabel.text = option.label
+        titleLabel.frame = CGRect(x: 14, y: 8, width: 80, height: 18)
+        container.addSubview(titleLabel)
+
+        let descLabel = UILabel()
+        descLabel.font = .systemFont(ofSize: 13)
+        descLabel.textColor = t.textDisabled
+        descLabel.text = option.description
+        descLabel.frame = CGRect(x: 14, y: 26, width: 170, height: 16)
+        container.addSubview(descLabel)
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(optionTapped(_:)))
+        container.addGestureRecognizer(tap)
+        container.tag = option == .from ? 0 : 1
+        container.isUserInteractionEnabled = true
+
+        return container
+    }
+
+    @objc private func optionTapped(_ gesture: UITapGestureRecognizer) {
+        guard let tag = gesture.view?.tag else { return }
+        let option: SearchFilterOption = tag == 0 ? .from : .mentions
+        dismiss()
+        onSelect(option)
+    }
+
+    func showBelow(anchorView: UIView, in parentView: UIView) {
+        let overlay = UIView(frame: parentView.bounds)
+        overlay.backgroundColor = .clear
+        let tapDismiss = UITapGestureRecognizer(target: self, action: #selector(dismissTapped))
+        overlay.addGestureRecognizer(tapDismiss)
+        parentView.addSubview(overlay)
+        backgroundOverlay = overlay
+
+        let anchorFrame = anchorView.convert(anchorView.bounds, to: parentView)
+        let tooltipX = anchorFrame.maxX - frame.width
+        let tooltipY = anchorFrame.maxY + 6
+        frame.origin = CGPoint(x: max(12, tooltipX), y: tooltipY)
+
+        alpha = 0
+        parentView.addSubview(self)
+        UIView.animate(withDuration: 0.2) { self.alpha = 1 }
+    }
+
+    @objc private func dismissTapped() {
+        dismiss()
+    }
+
+    private func dismiss() {
+        UIView.animate(withDuration: 0.15, animations: { self.alpha = 0 }) { _ in
+            self.backgroundOverlay?.removeFromSuperview()
+            self.removeFromSuperview()
+        }
     }
 }

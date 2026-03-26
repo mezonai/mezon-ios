@@ -67,6 +67,14 @@ final class NetworkBannerView: UIView {
         }
     }
 
+    private func syncWithNetworkState() {
+        if NetworkMonitor.shared.isConnected {
+            hide()
+        } else {
+            show()
+        }
+    }
+
     @discardableResult
     static func install(on window: UIWindow) -> NetworkBannerView {
         let banner = NetworkBannerView()
@@ -82,13 +90,21 @@ final class NetworkBannerView: UIView {
             forName: NetworkMonitor.statusDidChangeNotification,
             object: nil,
             queue: .main
-        ) { notification in
+        ) { [weak banner] notification in
             let connected = notification.userInfo?["isConnected"] as? Bool ?? true
             if connected {
-                banner.hide()
+                banner?.hide()
             } else {
-                banner.show()
+                banner?.show()
             }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak banner] _ in
+            banner?.syncWithNetworkState()
         }
 
         if !NetworkMonitor.shared.isConnected {

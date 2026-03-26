@@ -75,7 +75,7 @@ final class MezonSocket: NSObject {
     private var isConnected = false
     private var reconnectAttempts = 0
     private var hasTriedRefreshSinceConnect = false
-    private let maxReconnectAttempts = 2
+    private let maxReconnectAttempts = 5
 
     var tokenProvider: (() async throws -> String)?
 
