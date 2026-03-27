@@ -22,6 +22,7 @@ struct ThemeAttributes {
     let jet: UIColor
     let channelUnread: UIColor
     let channelNormal: UIColor
+    let midnightBlue: UIColor
     let textLink: UIColor
     let reactionBg: UIColor
     let reactionBorder: UIColor
@@ -61,15 +62,19 @@ enum AppTheme: String, CaseIterable {
     case redDark
     case purpleHaze
     case abyssDark
+    case sunset
+    case system = "system"
 
-    var displayName: String {
+    var localizedDisplayName: String {
         switch self {
-        case .dark:       return "Dark"
-        case .light:      return "Light"
-        case .sunrise:    return "Sunrise"
-        case .redDark:    return "Red Dark"
-        case .purpleHaze: return "Purple Haze"
-        case .abyssDark:  return "Abyss Dark"
+        case .dark:       return L(L10n.Theme.dark)
+        case .light:      return L(L10n.Theme.light)
+        case .sunrise:    return L(L10n.Theme.sunrise)
+        case .redDark:    return L(L10n.Theme.redDark)
+        case .purpleHaze: return L(L10n.Theme.purpleHaze)
+        case .abyssDark:  return L(L10n.Theme.abyssDark)
+        case .sunset:     return L(L10n.Theme.sunset)
+        case .system:     return L(L10n.Theme.system)
         }
     }
 
@@ -81,6 +86,12 @@ enum AppTheme: String, CaseIterable {
         case .redDark:    return .redDark
         case .purpleHaze: return .purpleHaze
         case .abyssDark:  return .abyssDark
+        case .sunset:     return .sunset
+        case .system:
+            if #available(iOS 13.0, *), UIScreen.main.traitCollection.userInterfaceStyle == .dark {
+                return .dark
+            }
+            return .light
         }
     }
 }
@@ -88,13 +99,13 @@ enum AppTheme: String, CaseIterable {
 private extension ThemeAttributes {
 
     static let dark = ThemeAttributes(
-        primary:          hex("#1c1d22"),
-        primaryGradient:  hex("#1c1d22"),
-        secondary:        hex("#242427"),
+        primary:          hex("#121218"),
+        primaryGradient:  hex("#121218"),
+        secondary:        hex("#1c1d23"),
         secondaryWeight:  hex("#212122"),
-        secondaryLight:   hex("#2A2D31"),
-        tertiary:         hex("#141319"),
-        border:           hex("#2e2f34"),
+        secondaryLight:   hex("#26272f"),
+        tertiary:         hex("#383a43"),
+        border:           hex("#2a2d31"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#dadada"),
@@ -109,6 +120,7 @@ private extension ThemeAttributes {
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
+        midnightBlue:     hex("#3b426e"),
         textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
@@ -140,13 +152,13 @@ private extension ThemeAttributes {
     )
 
     static let light = ThemeAttributes(
-        primary:          hex("#f2f3f5"),
-        primaryGradient:  hex("#f2f3f5"),
+        primary:          hex("#f4f4f8"),
+        primaryGradient:  hex("#f4f4f8"),
         secondary:        hex("#ffffff"),
         secondaryWeight:  hex("#F0F0F0"),
-        secondaryLight:   hex("#ffffff"),
-        tertiary:         hex("#e1e1e1"),
-        border:           hex("#9e9eaa"),
+        secondaryLight:   hex("#fefdfe"),
+        tertiary:         hex("#f2f3f6"),
+        border:           hex("#ededf1"),
         borderDim:        hex("#dfdfdf"),
         borderHighlight:  hex("#e0e1e3"),
         borderRadio:      hex("#4d4d54"),
@@ -161,6 +173,7 @@ private extension ThemeAttributes {
         jet:              hex("#ecedef"),
         channelUnread:    hex("#000000"),
         channelNormal:    hex("#6c7077"),
+        midnightBlue:     hex("#d1e0ff"),
         textLink:         hex("#3297ff"),
         reactionBg:       rgba(229, 231, 235, 0.6),
         reactionBorder:   hex("#2563eb"),
@@ -213,6 +226,7 @@ private extension ThemeAttributes {
         jet:              hex("#ecedef"),
         channelUnread:    hex("#000000"),
         channelNormal:    hex("#6c7077"),
+        midnightBlue:     hex("#d1e0ff"),
         textLink:         hex("#3297ff"),
         reactionBg:       rgba(229, 231, 235, 0.6),
         reactionBorder:   hex("#2563eb"),
@@ -265,6 +279,7 @@ private extension ThemeAttributes {
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
+        midnightBlue:     hex("#3b426e"),
         textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
@@ -296,27 +311,28 @@ private extension ThemeAttributes {
     )
 
     static let purpleHaze = ThemeAttributes(
-        primary:          hex("#2f2147"),
-        primaryGradient:  hex("#42294e"),
-        secondary:        hex("#543e9f"),
+        primary:          hex("#0e032c"),
+        primaryGradient:  hex("#111a35"),
+        secondary:        hex("#23052f"),
         secondaryWeight:  hex("#1E1133"),
-        secondaryLight:   hex("#48256e"),
-        tertiary:         hex("#141319"),
-        border:           hex("#2e2f34"),
+        secondaryLight:   hex("#1e143a"),
+        tertiary:         hex("#0e032c"),
+        border:           hex("#23193d"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#cacad2"),
         text:             hex("#CCCCCC"),
         textStrong:       hex("#dfe0e4"),
-        textDisabled:     hex("#7b7b83"),
-        textNormal:       hex("#898993"),
+        textDisabled:     hex("#7d7582"),
+        textNormal:       hex("#858593"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
         bgInputPrimary:   hex("#2a2e31"),
-        charcoal:         hex("#2b2b2e"),
+        charcoal:         hex("#3b3b48"),
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
-        channelNormal:    hex("#aeaeae"),
+        channelNormal:    hex("#a9acb7"),
+        midnightBlue:     hex("#3b426e"),
         textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
@@ -369,6 +385,7 @@ private extension ThemeAttributes {
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
+        midnightBlue:     hex("#3b426e"),
         textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
@@ -388,6 +405,59 @@ private extension ThemeAttributes {
         descInfor:        hex("#93c5fd", alpha: 0.80),
         textSuccess:      hex("#00d4aa"),
         loginGradientColors: [hex("#110B33"), hex("#21165c"), hex("#19153C")],
+        loginInputBg:     hex("#2a2e31"),
+        loginInputBorder: hex("#3e4045"),
+        loginPlaceholder: hex("#7b7b83"),
+        loginButtonBg:    hex("#2563eb"),
+        loginButtonBgDisabled: hex("#4a4d51"),
+        loginAlternativeText: hex("#7b7b83"),
+        loginTitleColor:  hex("#ffffff"),
+        loginSubtitleColor: hex("#b0b0b0"),
+        loginInputTextColor: hex("#ffffff")
+    )
+
+    static let sunset = ThemeAttributes(
+        primary:          hex("#372013"),
+        primaryGradient:  hex("#57321e"),
+        secondary:        hex("#563928"),
+        secondaryWeight:  hex("#2C1910"),
+        secondaryLight:   hex("#4C2C1B"),
+        tertiary:         hex("#141319"),
+        border:           hex("#2e2f34"),
+        borderDim:        hex("#2f2f37"),
+        borderHighlight:  hex("#27272f"),
+        borderRadio:      hex("#cacad2"),
+        text:             hex("#CCCCCC"),
+        textStrong:       hex("#dfe0e4"),
+        textDisabled:     hex("#7b7b83"),
+        textNormal:       hex("#898993"),
+        white:            hex("#FFFFFF"),
+        black:            hex("#000000"),
+        bgInputPrimary:   hex("#2a2e31"),
+        charcoal:         hex("#2b2b2e"),
+        jet:              hex("#29292b"),
+        channelUnread:    hex("#ffffff"),
+        channelNormal:    hex("#aeaeae"),
+        midnightBlue:     hex("#3b426e"),
+        textLink:         hex("#3297ff"),
+        reactionBg:       rgba(55, 58, 84, 0.5),
+        reactionBorder:   hex("#2563eb"),
+        selectedOverlay:  hex("#00000096"),
+        bgViolet:         hex("#5a62f4"),
+        colorAvatarDefault: hex("#334155"),
+        colorActiveClan:  hex("#141c2a"),
+        textRoleLink:     hex("#009c67"),
+        darkMossGreen:    hex("#3c4c43"),
+        badgeHighlight:   hex("#2e2f34"),
+        textWarning:      hex("#FEF08A"),
+        borderWarning:    hex("#EAB308"),
+        darkJade:         hex("#174033"),
+        bgInfor:          hex("#3b82f6", alpha: 0.10),
+        borderInfor:      hex("#3b82f6", alpha: 0.50),
+        headerInfor:      hex("#60a5fa"),
+        descInfor:        hex("#93c5fd", alpha: 0.80),
+        textSuccess:      hex("#00d4aa"),
+        loginGradientColors: [hex("#372013"), hex("#57321e"), hex("#563928")],
         loginInputBg:     hex("#2a2e31"),
         loginInputBorder: hex("#3e4045"),
         loginPlaceholder: hex("#7b7b83"),

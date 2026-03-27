@@ -1,0 +1,340 @@
+import AsyncDisplayKit
+import UIKit
+
+final class ClanSettingsContainerNode: ASDisplayNode {
+
+    var onClose: (() -> Void)?
+
+    private let context: AccountContext
+    private let clanId: Int64
+    private let clanName: String
+    private let avatarURL: String
+
+    private let scrollView = UIScrollView()
+    private let stackView = UIStackView()
+
+    private let headerH: CGFloat = 64.sh
+    private let padH: CGFloat = 12.sw
+
+    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String) {
+        self.context = context
+        self.clanId = clanId
+        self.clanName = clanName
+        self.avatarURL = avatarURL
+        super.init()
+        backgroundColor = .mezonSecondary
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        setupUI()
+    }
+
+    private func setupUI() {
+        scrollView.backgroundColor = .clear
+        scrollView.showsVerticalScrollIndicator = false
+        view.addSubview(scrollView)
+
+        stackView.axis = .vertical
+        stackView.spacing = 24.sh
+        stackView.alignment = .fill
+        scrollView.addSubview(stackView)
+
+        buildContent()
+    }
+
+    func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        let size = layout.size
+        let safeTop = layout.safeInsets.top
+
+        scrollView.frame = CGRect(
+            x: 0, y: safeTop, width: size.width, height: size.height - safeTop)
+
+        let stackW = size.width
+        let stackH = stackView.systemLayoutSizeFitting(
+            CGSize(width: stackW, height: .greatestFiniteMagnitude),
+            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel
+        ).height
+        stackView.frame = CGRect(x: 0, y: 0, width: stackW, height: stackH)
+        scrollView.contentSize = stackView.frame.size
+    }
+
+    private func buildContent() {
+        // 1. Header
+        let header = createHeader()
+        stackView.addArrangedSubview(header)
+
+        // 2. Clan Identity (Avatar & Name)
+        let identity = createIdentityView()
+        stackView.addArrangedSubview(identity)
+
+        // 3. Settings Group
+        let settingsHeader = createSectionHeader(title: L(L10n.Common.settings))
+        stackView.addArrangedSubview(settingsHeader)
+
+        let settingsActions: [SettingAction] = [
+            .init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview"),
+            .init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/AuditLog"),
+            .init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/Intergration"),
+            .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji"),
+            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/Stickers"),
+            .init(title: L(L10n.ClanSetting.soundEffect), icon: "Channel/channelVoice"),
+            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/CommunityIcon"),
+        ]
+        let settingsGroup = createGroup(actions: settingsActions)
+        stackView.addArrangedSubview(settingsGroup)
+
+        // 4. User Management Group
+        let userMgmtHeader = createSectionHeader(title: L(L10n.ClanSetting.userManagement))
+        stackView.addArrangedSubview(userMgmtHeader)
+
+        let userActions: [SettingAction] = [
+            .init(title: L(L10n.Clan.members), icon: "ClanSetting/Members"),
+            .init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/Roles"),
+            .init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite"),
+        ]
+        let userGroup = createGroup(actions: userActions)
+        stackView.addArrangedSubview(userGroup)
+
+        let footerSpacer = UIView()
+        footerSpacer.heightAnchor.constraint(equalToConstant: 40.sh).isActive = true
+        stackView.addArrangedSubview(footerSpacer)
+    }
+
+    private func createHeader() -> UIView {
+        let v = UIView()
+        v.heightAnchor.constraint(equalToConstant: headerH).isActive = true
+
+        let closeBtn = UIButton(type: .system)
+        closeBtn.setImage(
+            UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeBtn.tintColor = UIColor.theme.textStrong
+        closeBtn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        v.addSubview(closeBtn)
+
+        let titleLabel = UILabel()
+        titleLabel.text = L(L10n.Clan.settings)
+        titleLabel.font = .systemFont(ofSize: 17.sf, weight: .bold)
+        titleLabel.textColor = UIColor.theme.textStrong
+        titleLabel.textAlignment = .center
+        v.addSubview(titleLabel)
+
+        closeBtn.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            closeBtn.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: padH),
+            closeBtn.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            closeBtn.widthAnchor.constraint(equalToConstant: 44.sw),
+            closeBtn.heightAnchor.constraint(equalToConstant: 44.sh),
+
+            titleLabel.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+        ])
+        return v
+    }
+
+    private func createIdentityView() -> UIView {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+
+        let avatarSize: CGFloat = 56.swh
+        let avatarContainer = UIView()
+        avatarContainer.backgroundColor = colorFor(name: clanName)
+        avatarContainer.layer.cornerRadius = 16.swh
+        avatarContainer.clipsToBounds = true
+        v.addSubview(avatarContainer)
+
+        let initialsLabel = UILabel()
+        initialsLabel.text = initials(for: clanName)
+        initialsLabel.font = .systemFont(ofSize: 14.sf, weight: .bold)
+        initialsLabel.textColor = .mezonTextPrimary
+        initialsLabel.textAlignment = .center
+        avatarContainer.addSubview(initialsLabel)
+
+        let avatarImageView = UIImageView()
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.clipsToBounds = true
+        avatarContainer.addSubview(avatarImageView)
+
+        if !avatarURL.isEmpty {
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL)) {
+                [weak avatarImageView, weak initialsLabel] image in
+                if let image = image {
+                    avatarImageView?.image = image
+                    initialsLabel?.isHidden = true
+                }
+            }
+        }
+
+        let nameLabel = UILabel()
+        nameLabel.text = clanName
+        nameLabel.font = .systemFont(ofSize: 18.sf, weight: .medium)
+        nameLabel.textColor = .mezonTextMuted
+        nameLabel.textAlignment = .center
+        v.addSubview(nameLabel)
+
+        avatarContainer.translatesAutoresizingMaskIntoConstraints = false
+        initialsLabel.translatesAutoresizingMaskIntoConstraints = false
+        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            avatarContainer.topAnchor.constraint(equalTo: v.topAnchor, constant: 16.sh),
+            avatarContainer.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            avatarContainer.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarContainer.heightAnchor.constraint(equalToConstant: avatarSize),
+
+            initialsLabel.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            initialsLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            initialsLabel.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            initialsLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+
+            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+
+            nameLabel.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 16.sh),
+            nameLabel.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            nameLabel.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8.sh),
+        ])
+        return v
+    }
+
+    private func createSectionHeader(title: String) -> UIView {
+        let v = UIView()
+        let l = UILabel()
+        l.text = title
+        l.font = .systemFont(ofSize: 14.sf, weight: .bold)
+        l.textColor = UIColor.theme.textDisabled
+        v.addSubview(l)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            l.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: padH),
+            l.topAnchor.constraint(equalTo: v.topAnchor),
+            l.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+        ])
+        return v
+    }
+
+    private func createGroup(actions: [SettingAction]) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .mezonBorder
+        container.layer.cornerRadius = 12.swh
+        container.clipsToBounds = true
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.spacing = 0
+        container.addSubview(stack)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+
+        for (i, action) in actions.enumerated() {
+            let row = createRow(action: action)
+            stack.addArrangedSubview(row)
+            if i < actions.count - 1 {
+                let sep = UIView()
+                sep.backgroundColor = UIColor.theme.tertiary
+                sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+                stack.addArrangedSubview(sep)
+            }
+        }
+
+        let wrapper = UIView()
+        wrapper.addSubview(container)
+        container.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            container.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+            container.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: padH),
+            container.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -padH),
+        ])
+        return wrapper
+    }
+
+    private func createRow(action: SettingAction) -> UIView {
+        let v = UIView()
+        v.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
+
+        let icon = UIImageView(
+            image: UIImage(named: action.icon)?.withRenderingMode(.alwaysOriginal))
+        icon.tintColor = .mezonTextPrimary
+        icon.contentMode = .scaleAspectFit
+        v.addSubview(icon)
+
+        let title = UILabel()
+        title.text = action.title
+        title.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        title.textColor = .mezonTextPrimary
+        v.addSubview(title)
+
+        let chevron = UIImageView(
+            image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        chevron.tintColor = UIColor.theme.textDisabled
+        chevron.contentMode = .scaleAspectFit
+        v.addSubview(chevron)
+
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        title.translatesAutoresizingMaskIntoConstraints = false
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16.sw),
+            icon.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 24.swh),
+            icon.heightAnchor.constraint(equalToConstant: 24.swh),
+
+            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12.sw),
+            title.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+
+            chevron.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16.sw),
+            chevron.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 12.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 12.swh),
+        ])
+
+        let btn = UIButton(type: .custom)
+        v.addSubview(btn)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            btn.topAnchor.constraint(equalTo: v.topAnchor),
+            btn.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+            btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+        ])
+        btn.addAction(
+            UIAction { _ in print("Setting tapped: \(action.title)") }, for: .touchUpInside)
+
+        return v
+    }
+
+    private func initials(for name: String) -> String {
+        let words = name.split(separator: " ").prefix(2)
+        return words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
+    }
+
+    private func colorFor(name: String) -> UIColor {
+        let colors: [UIColor] = [
+            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
+            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
+            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
+            UIColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),
+            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
+            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
+        ]
+        let hash = abs(name.hashValue)
+        return colors[hash % colors.count]
+    }
+}
+
+private struct SettingAction {
+    let title: String
+    let icon: String  // SF Symbol name
+}

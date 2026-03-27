@@ -86,7 +86,7 @@ private final class WindowRootViewControllerView: UIView {
     }
 }
 
-private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate {
+private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate, StatusBarStyleUpdatable {
     private var voiceOverStatusObserver: AnyObject?
     private var registeredForPreviewing = false
     
@@ -157,6 +157,11 @@ private final class WindowRootViewController: UIViewController, UIWindowSceneDel
             }
         }
     }
+
+    func updatePreferredStatusBarStyle(_ style: UIStatusBarStyle) {
+        self.statusBarStyle = style
+        self.setNeedsStatusBarAppearanceUpdate()
+    }
     
     override var preferredStatusBarStyle: UIStatusBarStyle {
         return self.statusBarStyle
@@ -176,7 +181,11 @@ private final class WindowRootViewController: UIViewController, UIWindowSceneDel
     
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         if #available(iOS 12.0, *) {
-            self._systemUserInterfaceStyle.set(WindowUserInterfaceStyle(style: self.traitCollection.userInterfaceStyle))
+            let newStyle = self.traitCollection.userInterfaceStyle
+            if previousTraitCollection?.userInterfaceStyle != newStyle {
+                self._systemUserInterfaceStyle.set(WindowUserInterfaceStyle(style: newStyle))
+                NotificationCenter.default.post(name: Notification.Name("SystemAppearanceDidChange"), object: nil)
+            }
         }
     }
     

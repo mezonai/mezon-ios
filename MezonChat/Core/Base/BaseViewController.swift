@@ -28,6 +28,12 @@ class BaseViewController: ViewController {
             name: ThemeManager.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleThemeChange),
+            name: LanguageManager.didChangeNotification,
+            object: nil
+        )
     }
 
     override func loadDisplayNode() {

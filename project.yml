@@ -1,5 +1,17 @@
 name: MezonChat
 
+schemes:
+  MezonChat:
+    build:
+      targets:
+        MezonChat: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
+
 packages:
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf
@@ -29,9 +41,18 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "15.0"
+    attributes:
+      SystemCapabilities:
+        com.apple.ApplicationGroups.iOS:
+          enabled: 1
+        com.apple.Push:
+          enabled: 1
+        com.apple.BackgroundModes:
+          enabled: 1
     dependencies:
       - package: SwiftProtobuf
         product: SwiftProtobuf
+      - target: NotificationService
     sources:
       - path: MezonChat
         excludes:
@@ -44,11 +65,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.86"
+        MARKETING_VERSION: "1.2.89"
         CURRENT_PROJECT_VERSION: "86"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MezonChat/MezonChat.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_OBJC_BRIDGING_HEADER: "MezonChat/MezonChat-Bridging-Header.h"
@@ -65,6 +87,8 @@ targets:
       path: MezonChat/Resources/Info.plist
       properties:
         CFBundleDisplayName: Mezon
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
           UIColorName: LaunchBackground
           ImageName: SplashScreen
@@ -73,7 +97,7 @@ targets:
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
-                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).AppDelegate
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
@@ -91,3 +115,29 @@ targets:
         NSPasteboardUsageDescription: "Mezon needs access to the clipboard to paste content/images from other apps"
         NSPhotoLibraryAddUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
         NSPhotoLibraryUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
+        UIBackgroundModes:
+          - voip
+          - remote-notification
+          - audio
+          - fetch
+
+  NotificationService:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: NotificationService
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.NotificationService
+        PRODUCT_NAME: NotificationService
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: NotificationService/NotificationService.entitlements
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: $(PRODUCT_NAME)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService

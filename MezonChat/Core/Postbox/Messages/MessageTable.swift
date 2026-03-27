@@ -28,11 +28,14 @@ final class MessageTable: Table {
             "CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at DESC)"
         )
 
-        db.rawExecute("ALTER TABLE messages ADD COLUMN sender_display_name TEXT NOT NULL DEFAULT ''")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN sender_avatar_url TEXT")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN sending_state INTEGER NOT NULL DEFAULT 1")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN attachments_json BLOB")
-        db.rawExecute("ALTER TABLE messages ADD COLUMN reactions_json BLOB")
+        addColumnIfNeeded("messages", column: "sender_display_name", definition: "TEXT NOT NULL DEFAULT ''")
+        addColumnIfNeeded("messages", column: "sender_avatar_url", definition: "TEXT")
+        addColumnIfNeeded("messages", column: "sending_state", definition: "INTEGER NOT NULL DEFAULT 1")
+        addColumnIfNeeded("messages", column: "attachments_json", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "reactions_json", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "references_data", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "mentions_json", definition: "BLOB")
+        addColumnIfNeeded("messages", column: "code", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
@@ -42,7 +45,7 @@ final class MessageTable: Table {
             """
             SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
                    is_deleted, sender_display_name, sender_avatar_url, sending_state,
-                   attachments_json, reactions_json
+                   attachments_json, reactions_json, references_data, mentions_json, code
             FROM messages
             WHERE channel_id = ? AND is_deleted = 0
             ORDER BY created_at ASC
@@ -84,12 +87,26 @@ final class MessageTable: Table {
                 reactionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 12)))
             } else { reactionsJSON = Data() }
 
+            let referencesData: Data
+            if sqlite3_column_type(stmt, 13) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 13) {
+                referencesData = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 13)))
+            } else { referencesData = Data() }
+
+            let mentionsJSON: Data
+            if sqlite3_column_type(stmt, 14) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 14) {
+                mentionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 14)))
+            } else { mentionsJSON = Data() }
+
+            let code = sqlite3_column_int(stmt, 15)
+
             return MessageRecord(
                 id: id, channelId: chId, clanId: clanId, senderId: senderId,
                 content: content, createdAt: createdAt, editedAt: editedAt,
-                isDeleted: isDeleted, senderDisplayName: displayName,
+                isDeleted: isDeleted, code: code,
+                senderDisplayName: displayName,
                 senderAvatarURL: avatarURL, sendingState: sendingState,
-                attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON
+                attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON,
+                referencesData: referencesData, mentionsJSON: mentionsJSON
             )
         }
 
@@ -101,6 +118,16 @@ final class MessageTable: Table {
     func addMessages(_ messages: [MessageRecord]) {
         for msg in messages {
             var current = cache[msg.channelId] ?? []
+
+
+            if !msg.id.hasPrefix("pending-") {
+                let pendingIds = current.filter { $0.id.hasPrefix("pending-") && $0.senderId == msg.senderId }.map(\.id)
+                for pid in pendingIds {
+                    current.removeAll { $0.id == pid }
+                    pendingDeletes.insert(pid)
+                }
+            }
+
             if let idx = current.firstIndex(where: { $0.id == msg.id }) {
                 current[idx] = msg
             } else {
@@ -112,10 +139,99 @@ final class MessageTable: Table {
         }
     }
 
+    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
+        cache[channelId] = messages.sorted { $0.createdAt < $1.createdAt }
+        pendingWrites.insert(channelId)
+        db.run("DELETE FROM messages WHERE channel_id = ?") {
+            sqlite3_bind_text($0, 1, channelId, -1, nil)
+        }
+    }
+
+    func channelIdForMessage(id: String) -> String? {
+        for (channelId, msgs) in cache {
+            if msgs.contains(where: { $0.id == id }) { return channelId }
+        }
+        return nil
+    }
+
     func deleteMessage(id: String) {
         pendingDeletes.insert(id)
         for key in cache.keys {
             cache[key]?.removeAll { $0.id == id }
+        }
+    }
+
+    func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {
+        for channelId in cache.keys {
+            guard let idx = cache[channelId]?.firstIndex(where: { $0.id == messageId }) else { continue }
+            let old = cache[channelId]![idx]
+
+            var reactionsArray: [[String: Any]] = []
+            if !old.reactionsJSON.isEmpty,
+               let json = try? JSONSerialization.jsonObject(with: old.reactionsJSON) {
+                if let arr = json as? [[String: Any]] {
+                    reactionsArray = arr
+                } else if let dict = json as? [String: Any], let arr = dict["reactions"] as? [[String: Any]] {
+                    reactionsArray = arr
+                }
+            }
+            if reactionsArray.isEmpty && !old.reactionsJSON.isEmpty {
+                if let list = try? Mezon_Api_MessageReactionList(serializedBytes: old.reactionsJSON) {
+                    for r in list.reactions {
+                        reactionsArray.append([
+                            "emoji_id": "\(r.emojiID)",
+                            "emoji": r.emoji,
+                            "sender_id": "\(r.senderID)",
+                            "action": !r.action,
+                            "count": Int(r.count)
+                        ])
+                    }
+                }
+            }
+
+            let newEmojiId = "\(reaction.emojiID)"
+            let isAdding = !reaction.action
+            for i in 0..<reactionsArray.count {
+                let entryEmojiId: String = {
+                    if let s = reactionsArray[i]["emoji_id"] as? String { return s }
+                    if let n = reactionsArray[i]["emoji_id"] as? Int { return "\(n)" }
+                    return ""
+                }()
+                if entryEmojiId == newEmojiId {
+                    let oldCount: Int = {
+                        if let n = reactionsArray[i]["count"] as? Int { return n }
+                        if let n = reactionsArray[i]["count"] as? Int32 { return Int(n) }
+                        if let n = reactionsArray[i]["count"] as? Int64 { return Int(n) }
+                        return 0
+                    }()
+                    reactionsArray[i]["count"] = isAdding ? oldCount + 1 : max(oldCount - 1, 0)
+                }
+            }
+
+            let newEntry: [String: Any] = [
+                "emoji_id": newEmojiId,
+                "emoji": reaction.emoji,
+                "sender_id": "\(reaction.senderID)",
+                "sender_name": reaction.senderName,
+                "action": isAdding,
+                "count": 0
+            ]
+            reactionsArray.append(newEntry)
+
+            guard let newData = try? JSONSerialization.data(withJSONObject: reactionsArray) else { continue }
+
+            cache[channelId]![idx] = MessageRecord(
+                id: old.id, channelId: old.channelId, clanId: old.clanId,
+                senderId: old.senderId, content: old.content,
+                createdAt: old.createdAt, editedAt: old.editedAt,
+                isDeleted: old.isDeleted, code: old.code,
+                senderDisplayName: old.senderDisplayName,
+                senderAvatarURL: old.senderAvatarURL, sendingState: old.sendingState,
+                attachmentsJSON: old.attachmentsJSON, reactionsJSON: newData,
+                referencesData: old.referencesData, mentionsJSON: old.mentionsJSON
+            )
+            pendingWrites.insert(channelId)
+            return
         }
     }
 
@@ -127,9 +243,11 @@ final class MessageTable: Table {
                     id: old.id, channelId: old.channelId, clanId: old.clanId,
                     senderId: old.senderId, content: old.content,
                     createdAt: old.createdAt, editedAt: old.editedAt,
-                    isDeleted: old.isDeleted, senderDisplayName: old.senderDisplayName,
+                    isDeleted: old.isDeleted, code: old.code,
+                    senderDisplayName: old.senderDisplayName,
                     senderAvatarURL: old.senderAvatarURL, sendingState: .failed,
-                    attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON
+                    attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON,
+                    referencesData: old.referencesData, mentionsJSON: old.mentionsJSON
                 )
                 pendingWrites.insert(channelId)
                 db.run("UPDATE messages SET sending_state = 2 WHERE id = ?") {
@@ -168,8 +286,8 @@ final class MessageTable: Table {
                         id, channel_id, clan_id, sender_id, content,
                         created_at, edited_at, is_deleted,
                         sender_display_name, sender_avatar_url, sending_state,
-                        attachments_json, reactions_json
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        attachments_json, reactions_json, references_data, mentions_json, code
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in
                     sqlite3_bind_text(s, 1, record.id,        -1, nil)
                     sqlite3_bind_text(s, 2, record.channelId, -1, nil)
@@ -197,6 +315,17 @@ final class MessageTable: Table {
                             sqlite3_bind_blob(s, 13, buf.baseAddress, Int32(buf.count), nil)
                         }
                     } else { sqlite3_bind_null(s, 13) }
+                    if !record.referencesData.isEmpty {
+                        record.referencesData.withUnsafeBytes { buf in
+                            sqlite3_bind_blob(s, 14, buf.baseAddress, Int32(buf.count), nil)
+                        }
+                    } else { sqlite3_bind_null(s, 14) }
+                    if !record.mentionsJSON.isEmpty {
+                        record.mentionsJSON.withUnsafeBytes { buf in
+                            sqlite3_bind_blob(s, 15, buf.baseAddress, Int32(buf.count), nil)
+                        }
+                    } else { sqlite3_bind_null(s, 15) }
+                    sqlite3_bind_int(s, 16, record.code)
                 }
             }
         }

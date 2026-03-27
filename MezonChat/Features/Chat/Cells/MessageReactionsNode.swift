@@ -1,0 +1,349 @@
+import UIKit
+import AsyncDisplayKit
+
+final class MessageReactionsNode: ASDisplayNode {
+
+    private var pillNodes: [ReactionPillNode] = []
+    private var currentReactions: [ParsedReaction] = []
+    var onReactionTapped: ((ParsedReaction) -> Void)?
+
+    private static let maxVisiblePills = 20
+
+    private var overflowNode: ASTextNode2?
+    private var totalReactionCount: Int = 0
+
+    private struct LayoutRow {
+        var frames: [(index: Int, frame: CGRect)]
+        var height: CGFloat
+    }
+    private var cachedRows: [LayoutRow] = []
+    private var cachedTotalSize: CGSize = .zero
+
+    override init() {
+        super.init()
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let location = gesture.location(in: view)
+        for (i, pill) in pillNodes.enumerated() {
+            if pill.frame.contains(location), i < currentReactions.count {
+                onReactionTapped?(currentReactions[i])
+                return
+            }
+        }
+    }
+
+    func configure(reactions: [ParsedReaction]) {
+        pillNodes.forEach { $0.removeFromSupernode() }
+        overflowNode?.removeFromSupernode()
+        overflowNode = nil
+
+        totalReactionCount = reactions.count
+        let visible = Array(reactions.prefix(Self.maxVisiblePills))
+        currentReactions = visible
+
+        pillNodes = visible.map { reaction in
+            let pill = ReactionPillNode(reaction: reaction)
+            return pill
+        }
+        pillNodes.forEach { addSubnode($0) }
+
+        if reactions.count > Self.maxVisiblePills {
+            let node = ASTextNode2()
+            let remaining = reactions.count - Self.maxVisiblePills
+            node.attributedText = NSAttributedString(
+                string: "+\(remaining)",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                    .foregroundColor: UIColor.theme.textDisabled,
+                ]
+            )
+            overflowNode = node
+            addSubnode(node)
+        }
+    }
+
+    func updateReactions(_ newReactions: [ParsedReaction]) {
+        totalReactionCount = newReactions.count
+        let visible = Array(newReactions.prefix(Self.maxVisiblePills))
+
+        let oldMap = Dictionary(uniqueKeysWithValues: currentReactions.enumerated().map { ($1.emojiId, (index: $0, reaction: $1)) })
+
+        let oldKeys = Set(oldMap.keys)
+        let newKeys = Set(visible.map { $0.emojiId })
+
+        let removedKeys = oldKeys.subtracting(newKeys)
+        for key in removedKeys {
+            if let entry = oldMap[key] {
+                pillNodes[entry.index].removeFromSupernode()
+            }
+        }
+
+        var newPillNodes: [ReactionPillNode] = []
+        for reaction in visible {
+            if let oldEntry = oldMap[reaction.emojiId] {
+                let oldNode = pillNodes[oldEntry.index]
+                if oldEntry.reaction.count != reaction.count || oldEntry.reaction.isMe != reaction.isMe {
+                    oldNode.update(reaction: reaction)
+                }
+                newPillNodes.append(oldNode)
+            } else {
+                let newNode = ReactionPillNode(reaction: reaction)
+                addSubnode(newNode)
+                newPillNodes.append(newNode)
+            }
+        }
+
+        pillNodes = newPillNodes
+        currentReactions = visible
+
+        overflowNode?.removeFromSupernode()
+        overflowNode = nil
+        if newReactions.count > Self.maxVisiblePills {
+            let node = ASTextNode2()
+            let remaining = newReactions.count - Self.maxVisiblePills
+            node.attributedText = NSAttributedString(
+                string: "+\(remaining)",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                    .foregroundColor: UIColor.theme.textDisabled,
+                ]
+            )
+            overflowNode = node
+            addSubnode(node)
+        }
+    }
+
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        guard !pillNodes.isEmpty else {
+            cachedTotalSize = .zero
+            cachedRows = []
+            return .zero
+        }
+
+        let spacing: CGFloat = 6.sw
+        var rows: [LayoutRow] = []
+        var currentRowFrames: [(index: Int, frame: CGRect)] = []
+        var currentX: CGFloat = 0
+        var currentRowMaxH: CGFloat = 0
+        var totalY: CGFloat = 0
+
+        for (i, pill) in pillNodes.enumerated() {
+            let pillSize = pill.calculatedSize(maxWidth: maxWidth)
+            let neededWidth = currentRowFrames.isEmpty ? pillSize.width : pillSize.width + spacing
+
+            if currentX + neededWidth > maxWidth && !currentRowFrames.isEmpty {
+                rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
+                totalY += currentRowMaxH + spacing
+                currentRowFrames = []
+                currentX = 0
+                currentRowMaxH = 0
+            }
+
+            let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
+            currentRowFrames.append((index: i, frame: CGRect(x: x, y: totalY, width: pillSize.width, height: pillSize.height)))
+            currentX = x + pillSize.width
+            currentRowMaxH = max(currentRowMaxH, pillSize.height)
+        }
+
+        if let overflowNode {
+            let overflowSize = overflowNode.measure(CGSize(width: maxWidth, height: 28.sh))
+            let neededWidth = currentRowFrames.isEmpty ? overflowSize.width : overflowSize.width + spacing
+            if currentX + neededWidth > maxWidth && !currentRowFrames.isEmpty {
+                rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
+                totalY += currentRowMaxH + spacing
+                currentRowFrames = []
+                currentX = 0
+                currentRowMaxH = 0
+            }
+            let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
+            currentRowFrames.append((index: pillNodes.count, frame: CGRect(x: x, y: totalY, width: overflowSize.width, height: overflowSize.height)))
+            currentX = x + overflowSize.width
+            currentRowMaxH = max(currentRowMaxH, overflowSize.height)
+        }
+
+        if !currentRowFrames.isEmpty {
+            rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
+            totalY += currentRowMaxH
+        }
+
+        cachedRows = rows
+        cachedTotalSize = CGSize(width: maxWidth, height: totalY)
+        return cachedTotalSize
+    }
+
+    override func layout() {
+        super.layout()
+        let overflowIndex = pillNodes.count
+        for row in cachedRows {
+            for entry in row.frames {
+                if entry.index < pillNodes.count {
+                    pillNodes[entry.index].frame = entry.frame
+                } else if entry.index == overflowIndex {
+                    overflowNode?.frame = entry.frame
+                }
+            }
+        }
+    }
+}
+
+final class ReactionPillNode: ASDisplayNode {
+
+    private let emojiImageNode: ASDisplayNode = {
+        let node = ASDisplayNode { UIImageView() }
+        node.clipsToBounds = true
+        return node
+    }()
+    private let emojiFallbackNode = ASTextNode2()
+    private let countNode = ASTextNode2()
+
+    private var pendingImage: UIImage?
+    private var imageTask: URLSessionDataTask?
+    private static let emojiSize: CGFloat = 20
+    private static let pillHeight: CGFloat = 28
+
+    private var cachedCountSize: CGSize = .zero
+    private(set) var emojiId: String
+
+    init(reaction: ParsedReaction) {
+        self.emojiId = reaction.emojiId
+        super.init()
+
+        let t = UIColor.theme
+
+        if reaction.isMe {
+            backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.2)
+            borderWidth = 1
+            borderColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.6).cgColor
+        } else {
+            backgroundColor = t.secondary
+        }
+        cornerRadius = 5.swh
+        clipsToBounds = true
+
+        emojiImageNode.contentMode = .scaleAspectFit
+        emojiImageNode.clipsToBounds = true
+        addSubnode(emojiImageNode)
+
+        let fallbackText = !reaction.emoji.isEmpty ? reaction.emoji : "?"
+        emojiFallbackNode.attributedText = NSAttributedString(
+            string: fallbackText,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 16.sf),
+            ]
+        )
+        addSubnode(emojiFallbackNode)
+
+        countNode.attributedText = NSAttributedString(
+            string: "\(reaction.count)",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
+            ]
+        )
+        addSubnode(countNode)
+
+        let url = MezonConfig.emojiImageURL(emojiId: reaction.emojiId)
+        if let url = url {
+            emojiFallbackNode.isHidden = true
+            loadEmojiImage(url: url)
+        } else {
+            emojiImageNode.isHidden = true
+        }
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        if let pendingImage {
+            (emojiImageNode.view as? UIImageView)?.image = pendingImage
+        }
+    }
+
+    deinit {
+        imageTask?.cancel()
+    }
+
+    private func applyImage(_ image: UIImage) {
+        pendingImage = image
+        if emojiImageNode.isNodeLoaded {
+            (emojiImageNode.view as? UIImageView)?.image = image
+        }
+    }
+
+    func update(reaction: ParsedReaction) {
+        let t = UIColor.theme
+        countNode.attributedText = NSAttributedString(
+            string: "\(reaction.count)",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
+            ]
+        )
+        if reaction.isMe {
+            backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.2)
+            borderWidth = 1
+            borderColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.6).cgColor
+        } else {
+            backgroundColor = t.secondary
+            borderWidth = 0
+            borderColor = nil
+        }
+    }
+
+    func calculatedSize(maxWidth: CGFloat) -> CGSize {
+        cachedCountSize = countNode.measure(CGSize(width: maxWidth, height: Self.pillHeight))
+        let width = 6.sw + Self.emojiSize + 4.sw + ceil(cachedCountSize.width) + 6.sw
+        return CGSize(width: width, height: Self.pillHeight.sh)
+    }
+
+    private func loadEmojiImage(url: URL) {
+        let key = url.absoluteString
+
+        if let diskData = ImageCache.shared.cachedData(forKey: key) {
+            let image = UIImage.animatedImage(from: diskData) ?? UIImage.decodeImage(from: diskData)
+            if let image {
+                ImageCache.shared.setImage(image, data: nil, forKey: key)
+                applyImage(image)
+                return
+            }
+        }
+
+        if let cached = ImageCache.shared.image(forKey: key) {
+            applyImage(cached)
+            return
+        }
+
+        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data else { return }
+            let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+            guard let image else { return }
+            ImageCache.shared.setImage(image, data: data, forKey: key)
+            DispatchQueue.main.async {
+                self?.applyImage(image)
+                self?.emojiFallbackNode.isHidden = true
+            }
+        }
+        imageTask?.resume()
+    }
+
+    override func layout() {
+        super.layout()
+        let emojiSz = Self.emojiSize
+        let insetH: CGFloat = 6.sw
+        let spacing: CGFloat = 4.sw
+        let centerY = bounds.height / 2
+
+        let emojiX = insetH
+        emojiImageNode.frame = CGRect(x: emojiX, y: centerY - emojiSz / 2, width: emojiSz, height: emojiSz)
+        emojiFallbackNode.frame = CGRect(x: emojiX, y: centerY - emojiSz / 2, width: emojiSz, height: emojiSz)
+
+        let countX = emojiX + emojiSz + spacing
+        countNode.frame = CGRect(x: countX, y: centerY - cachedCountSize.height / 2, width: cachedCountSize.width, height: cachedCountSize.height)
+    }
+}

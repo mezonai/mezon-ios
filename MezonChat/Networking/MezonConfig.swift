@@ -14,6 +14,12 @@ enum MezonConfig {
     static var baseImgURL: String    { env.baseImgURL }
     static var profileImgURL: String { env.profileImgURL }
 
+    static func emojiImageURL(emojiId: String) -> URL? {
+        guard !emojiId.isEmpty else { return nil }
+        let path = "\(env.baseImgURL)/emojis/\(emojiId).webp"
+        return URL(string: path)
+    }
+
     static func wsURL(token: String, wsHostOverride: String? = nil) -> URL {
         if let override = wsHostOverride, !override.isEmpty {
             let host: String

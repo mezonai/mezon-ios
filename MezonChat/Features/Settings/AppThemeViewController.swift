@@ -4,6 +4,21 @@ final class AppThemeViewController: BaseViewController {
 
     private var selectedTheme: AppTheme = ThemeManager.shared.current
 
+    private let headerView = UIView()
+    private let backButton: UIButton = {
+        let btn = UIButton(type: .system)
+        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        btn.setImage(img, for: .normal)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
     private lazy var scrollView: UIScrollView = {
         let sv = UIScrollView()
         sv.showsVerticalScrollIndicator = false
@@ -40,7 +55,7 @@ final class AppThemeViewController: BaseViewController {
     private lazy var swatchStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .horizontal
-        sv.spacing = 12.sw
+        sv.spacing = 10.sw
         sv.alignment = .center
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
@@ -48,7 +63,7 @@ final class AppThemeViewController: BaseViewController {
 
     private lazy var footerLabel: UILabel = {
         let l = UILabel()
-        l.text = "You can always change this later!"
+        l.text = L(L10n.Theme.canChangeLater)
         l.font = .systemFont(ofSize: 13.sf)
         l.textColor = .secondaryLabel
         l.textAlignment = .center
@@ -57,17 +72,39 @@ final class AppThemeViewController: BaseViewController {
 
     private var swatchButtons: [ThemeSwatchButton] = []
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-    }
-
     override func setupUI() {
-        title = "App Theme"
-        view.backgroundColor = .systemBackground
-        navigationItem.largeTitleDisplayMode = .never
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerView)
+        headerView.addSubview(backButton)
+        headerView.addSubview(titleLabel)
+
+        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
         view.addSubview(scrollView)
         scrollView.addSubview(contentStack)
+
+        let headerHeight: CGFloat = 96
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: headerHeight),
+
+            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16.sw),
+            backButton.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -8.sh),
+            backButton.widthAnchor.constraint(equalToConstant: 44),
+            backButton.heightAnchor.constraint(equalToConstant: 44),
+
+            titleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4),
+            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -16.sw),
+
+            scrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+        ])
 
         previewCard.translatesAutoresizingMaskIntoConstraints = false
         swatchScroll.translatesAutoresizingMaskIntoConstraints = false
@@ -93,30 +130,49 @@ final class AppThemeViewController: BaseViewController {
         contentStack.setCustomSpacing(32.sh, after: swatchScroll)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-
             contentStack.topAnchor.constraint(equalTo: scrollView.topAnchor, constant: 32.sh),
             contentStack.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
             contentStack.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
             contentStack.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -32.sh),
             contentStack.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
 
-            previewCard.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor, constant: 20.sw),
-            previewCard.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: -20.sw),
+            previewCard.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor, constant: 32.sw),
+            previewCard.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor, constant: -32.sw),
+            previewCard.heightAnchor.constraint(equalToConstant: 400.sh),
 
             swatchScroll.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             swatchScroll.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-            swatchScroll.heightAnchor.constraint(equalToConstant: 80.sh),
+            swatchScroll.heightAnchor.constraint(equalToConstant: 88.sh),
         ])
 
         refresh(theme: selectedTheme, animated: false)
     }
 
+    override func applyTheme() {
+        titleLabel.text = L(L10n.Theme.title)
+        titleLabel.textColor = .mezonTextStrong
+        backButton.tintColor = .mezonTextStrong
+        headerView.backgroundColor = .mezonPrimary
+        view.backgroundColor = .mezonPrimary
+        scrollView.backgroundColor = .mezonPrimary
+        themeNameLabel.textColor = .mezonTextStrong
+        footerLabel.textColor = .mezonTextPrimary
+        footerLabel.text = L(L10n.Theme.canChangeLater)
+        selectedTheme = ThemeManager.shared.current
+        refresh(theme: selectedTheme, animated: false)
+    }
+
+    @objc private func backTapped() {
+        navigationController?.popViewController(animated: true)
+    }
+
     private func buildSwatches() {
-        swatchButtons = AppTheme.allCases.map { theme in
+        var themes = AppTheme.allCases
+        if let systemIndex = themes.firstIndex(of: .system) {
+            let systemTheme = themes.remove(at: systemIndex)
+            themes.insert(systemTheme, at: 0)
+        }
+        swatchButtons = themes.map { theme in
             let btn = ThemeSwatchButton(theme: theme)
             btn.addTarget(self, action: #selector(swatchTapped(_:)), for: .touchUpInside)
             swatchStack.addArrangedSubview(btn)
@@ -133,7 +189,7 @@ final class AppThemeViewController: BaseViewController {
 
     private func refresh(theme: AppTheme, animated: Bool) {
         let block = {
-            self.themeNameLabel.text = theme.displayName
+            self.themeNameLabel.text = theme.localizedDisplayName
             self.previewCard.apply(theme: theme)
             self.swatchButtons.forEach { $0.setSelected($0.theme == theme) }
         }
@@ -147,10 +203,17 @@ final class AppThemeViewController: BaseViewController {
 
 private final class ConversationPreviewCard: UIView {
 
+    private let gradientLayer: CAGradientLayer = {
+        let gl = CAGradientLayer()
+        gl.startPoint = CGPoint(x: 1, y: 0)
+        gl.endPoint = CGPoint(x: 0, y: 0)
+        return gl
+    }()
+
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.text = "Conversation"
-        l.font = .systemFont(ofSize: 20.sf, weight: .bold)
+        l.text = L(L10n.Theme.conversation)
+        l.font = .systemFont(ofSize: 18.sf, weight: .bold)
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
@@ -158,7 +221,7 @@ private final class ConversationPreviewCard: UIView {
     private lazy var rowStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .vertical
-        sv.spacing = 0
+        sv.spacing = 6.sh
         sv.translatesAutoresizingMaskIntoConstraints = false
         return sv
     }()
@@ -179,15 +242,19 @@ private final class ConversationPreviewCard: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        layer.cornerRadius = 16.sw
-        layer.shadowColor  = UIColor.black.cgColor
-        layer.shadowOpacity = 0.08
-        layer.shadowOffset  = CGSize(width: 0, height: 4.sh)
-        layer.shadowRadius  = 12.sw
+        layer.borderWidth = 1
         clipsToBounds = false
 
-        addSubview(titleLabel)
-        addSubview(rowStack)
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOffset = CGSize(width: 0, height: 3.sh)
+        layer.shadowOpacity = 0.27
+        layer.shadowRadius = 4.65
+
+        let gradientContainer = UIView()
+        gradientContainer.clipsToBounds = true
+        gradientContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(gradientContainer)
+        gradientContainer.layer.insertSublayer(gradientLayer, at: 0)
 
         for (i, row) in mockRows.enumerated() {
             let rowView = MockConversationRow(
@@ -200,24 +267,44 @@ private final class ConversationPreviewCard: UIView {
             rowStack.addArrangedSubview(rowView)
         }
 
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 20.sh),
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16.sw),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
+        let innerStack = UIStackView(arrangedSubviews: [titleLabel, rowStack])
+        innerStack.axis = .vertical
+        innerStack.spacing = 8.sh
+        innerStack.translatesAutoresizingMaskIntoConstraints = false
+        gradientContainer.addSubview(innerStack)
 
-            rowStack.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12.sh),
-            rowStack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            rowStack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            rowStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8.sh),
+        NSLayoutConstraint.activate([
+            gradientContainer.topAnchor.constraint(equalTo: topAnchor),
+            gradientContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gradientContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            gradientContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            innerStack.centerYAnchor.constraint(equalTo: gradientContainer.centerYAnchor),
+            innerStack.leadingAnchor.constraint(equalTo: gradientContainer.leadingAnchor),
+            innerStack.trailingAnchor.constraint(equalTo: gradientContainer.trailingAnchor),
+
+            titleLabel.leadingAnchor.constraint(equalTo: innerStack.leadingAnchor, constant: 20.sw),
+            titleLabel.trailingAnchor.constraint(equalTo: innerStack.trailingAnchor, constant: -20.sw),
         ])
+
+        self.gradientContainerView = gradientContainer
     }
+
+    private weak var gradientContainerView: UIView?
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = gradientContainerView?.bounds ?? bounds
+    }
+
     func apply(theme: AppTheme) {
         let attrs = theme.attributes
-        backgroundColor = attrs.secondary
-        titleLabel.textColor = attrs.textStrong
+        gradientLayer.colors = [attrs.primary.cgColor, attrs.primaryGradient.cgColor]
+        layer.borderColor = attrs.secondary.cgColor
+        titleLabel.text = L(L10n.Theme.conversation)
+        titleLabel.textColor = attrs.text
         rowStack.arrangedSubviews.forEach { ($0 as? MockConversationRow)?.apply(attrs: attrs) }
     }
 }
@@ -225,14 +312,14 @@ private final class ConversationPreviewCard: UIView {
 private final class MockConversationRow: UIView {
     private let avatarView: UIView = {
         let v = UIView()
-        v.layer.cornerRadius = 22.swh
+        v.layer.cornerRadius = 24.swh
         v.clipsToBounds = true
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
     private let initialsLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13.sf, weight: .semibold)
+        l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         l.textColor = .white
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -241,7 +328,7 @@ private final class MockConversationRow: UIView {
     private let onlineDot: UIView = {
         let v = UIView()
         v.backgroundColor = UIColor(red: 0.16, green: 0.73, blue: 0.47, alpha: 1)
-        v.layer.cornerRadius = 6.swh
+        v.layer.cornerRadius = 7.swh
         v.layer.borderWidth = 2
         v.layer.borderColor = UIColor.white.cgColor
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -249,19 +336,19 @@ private final class MockConversationRow: UIView {
     }()
     private let nameLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 15.sf, weight: .semibold)
+        l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
     private let timeLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 12.sf)
+        l.font = .systemFont(ofSize: 10.sf, weight: .medium)
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
     private let messageLabel: UILabel = {
         let l = UILabel()
-        l.font = .systemFont(ofSize: 13.sf)
+        l.font = .systemFont(ofSize: 12.sf)
         l.numberOfLines = 2
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
@@ -283,38 +370,39 @@ private final class MockConversationRow: UIView {
         addSubview(messageLabel)
 
         NSLayoutConstraint.activate([
-            avatarView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16.sw),
+            avatarView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20.sw),
             avatarView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: 44.swh),
-            avatarView.heightAnchor.constraint(equalToConstant: 44.swh),
-            avatarView.topAnchor.constraint(equalTo: topAnchor, constant: 10.sh),
-            avatarView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10.sh),
+            avatarView.widthAnchor.constraint(equalToConstant: 48.swh),
+            avatarView.heightAnchor.constraint(equalToConstant: 48.swh),
+            avatarView.topAnchor.constraint(equalTo: topAnchor, constant: 12.sh),
+            avatarView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12.sh),
 
             initialsLabel.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             initialsLabel.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
 
             onlineDot.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 2.sw),
             onlineDot.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 2.sh),
-            onlineDot.widthAnchor.constraint(equalToConstant: 12.swh),
-            onlineDot.heightAnchor.constraint(equalToConstant: 12.swh),
+            onlineDot.widthAnchor.constraint(equalToConstant: 14.swh),
+            onlineDot.heightAnchor.constraint(equalToConstant: 14.swh),
 
-            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12.sw),
+            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 16.sw),
             nameLabel.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -8.sw),
 
-            timeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
+            timeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20.sw),
             timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
 
             messageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
-            messageLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2.sh),
+            messageLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20.sw),
+            messageLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4.sh),
         ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     func apply(attrs: ThemeAttributes) {
-        nameLabel.textColor    = attrs.textStrong
-        messageLabel.textColor = attrs.textNormal.withAlphaComponent(0.75)
+        nameLabel.textColor    = attrs.text
+        messageLabel.textColor = attrs.textDisabled
         timeLabel.textColor    = attrs.textDisabled
         onlineDot.layer.borderColor = attrs.secondary.cgColor
     }
@@ -326,7 +414,7 @@ private final class ThemeSwatchButton: UIButton {
 
     private let selectionRing: UIView = {
         let v = UIView()
-        v.layer.cornerRadius = 18.swh
+        v.layer.cornerRadius = 12.swh
         v.layer.borderWidth  = 2
         v.layer.borderColor  = UIColor.systemBlue.cgColor
         v.isHidden = true
@@ -336,9 +424,16 @@ private final class ThemeSwatchButton: UIButton {
 
     private let colorSwatch: UIView = {
         let v = UIView()
-        v.layer.cornerRadius = 14.swh
+        v.layer.cornerRadius = 8.swh
         v.clipsToBounds = true
         v.isUserInteractionEnabled = false
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
+    private let iconView: UIImageView = {
+        let v = UIImageView()
+        v.contentMode = .scaleAspectFit
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
@@ -349,23 +444,37 @@ private final class ThemeSwatchButton: UIButton {
         translatesAutoresizingMaskIntoConstraints = false
 
         colorSwatch.backgroundColor = theme.attributes.primary
+        colorSwatch.layer.borderWidth = 1
+        colorSwatch.layer.borderColor = theme.attributes.border.cgColor
+
+        if theme == .system {
+            iconView.image = UIImage(named: "Setting/systemSync")?.withRenderingMode(
+                .alwaysTemplate)
+            iconView.tintColor = theme.attributes.text
+        }
 
         addSubview(selectionRing)
         addSubview(colorSwatch)
+        addSubview(iconView)
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 60.swh),
-            heightAnchor.constraint(equalToConstant: 60.swh),
+            heightAnchor.constraint(equalToConstant: 72.swh),
 
             selectionRing.centerXAnchor.constraint(equalTo: centerXAnchor),
             selectionRing.centerYAnchor.constraint(equalTo: centerYAnchor),
             selectionRing.widthAnchor.constraint(equalToConstant: 56.swh),
-            selectionRing.heightAnchor.constraint(equalToConstant: 56.swh),
+            selectionRing.heightAnchor.constraint(equalToConstant: 68.swh),
 
             colorSwatch.centerXAnchor.constraint(equalTo: centerXAnchor),
             colorSwatch.centerYAnchor.constraint(equalTo: centerYAnchor),
             colorSwatch.widthAnchor.constraint(equalToConstant: 48.swh),
-            colorSwatch.heightAnchor.constraint(equalToConstant: 48.swh),
+            colorSwatch.heightAnchor.constraint(equalToConstant: 58.swh),
+
+            iconView.centerXAnchor.constraint(equalTo: colorSwatch.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: colorSwatch.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 24.swh),
+            iconView.heightAnchor.constraint(equalToConstant: 24.swh),
         ])
     }
 
@@ -374,7 +483,7 @@ private final class ThemeSwatchButton: UIButton {
     func setSelected(_ selected: Bool) {
         selectionRing.isHidden = !selected
         UIView.animate(withDuration: 0.2) {
-            self.colorSwatch.layer.cornerRadius = selected ? 10.swh : 14.swh
+            self.colorSwatch.layer.cornerRadius = 8.swh
         }
     }
 }

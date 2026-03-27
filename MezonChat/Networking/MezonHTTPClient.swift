@@ -120,7 +120,7 @@ final class MezonHTTPClient {
         let _: EmptyResponse = try await post(
             path: "/v2/session/logout",
             body: Body(token: session.token, refresh_token: session.refreshToken,
-                       device_id: deviceId, platform: platform),
+                device_id: deviceId, platform: platform),
             auth: .bearer(session.token)
         )
     }
@@ -131,7 +131,7 @@ final class MezonHTTPClient {
         req.limit       = 500
         req.state       = 1
         req.page        = 0
-        req.channelType = 0
+        req.channelType = 1
         req.isMobile    = true
         let response: Mezon_Api_ChannelDescList = try await postProto(
             path: "/mezon.api.Mezon/ListChannelDescs",
@@ -157,6 +157,19 @@ final class MezonHTTPClient {
         return response.channeldesc
     }
 
+    func createDirectMessage(userId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_CreateChannelDescRequest()
+        req.clanID = 0
+        req.type = MezonConstants.ChannelType.dm.rawValue
+        req.channelPrivate = 1
+        req.userIds = [userId]
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listClanDescs(token: String) async throws -> [Mezon_Api_ClanDesc] {
         var req = Mezon_Api_ListClanDescRequest()
         req.limit = 100
@@ -166,6 +179,45 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.clandesc
+    }
+
+    func listNotifications(clanID: Int64, category: Int32, token: String, notificationID: Int64) async throws
+        -> [Mezon_Api_Notification]
+    {
+        var req = Mezon_Api_ListNotificationsRequest()
+        req.limit = 50
+        req.clanID = clanID
+        req.notificationID = notificationID | 0
+        req.category = category
+        let response: Mezon_Api_NotificationList = try await postProto(
+            path: "/mezon.api.Mezon/ListNotifications",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.notifications
+    }
+
+    func listSdTopics(clanID: Int64, token: String) async throws -> [Mezon_Api_SdTopic] {
+        var req = Mezon_Api_ListSdTopicRequest()
+        req.clanID = clanID
+        req.limit = 50
+        let response: Mezon_Api_SdTopicList = try await postProto(
+            path: "/mezon.api.Mezon/ListSdTopic",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.topics
+    }
+
+    func getTopicDetail(topicId: Int64, token: String) async throws -> Mezon_Api_SdTopic {
+        var req = Mezon_Api_SdTopicDetailRequest()
+        req.topicID = topicId
+        let response: Mezon_Api_SdTopic = try await postProto(
+            path: "/mezon.api.Mezon/GetTopicDetail",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response
     }
 
     func getUserProfileOnClan(clanId: Int64, token: String) async throws -> Mezon_Api_ClanProfile {
@@ -231,6 +283,321 @@ final class MezonHTTPClient {
         req.topicID = topicId
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelMessages",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateChannelDesc(
+        clanId: Int64,
+        channelId: Int64,
+        channelLabel: String? = nil,
+        topic: String? = nil,
+        categoryId: Int64? = nil,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_UpdateChannelDescRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        if let channelLabel = channelLabel {
+            var labelValue = SwiftProtobuf.Google_Protobuf_StringValue()
+            labelValue.value = channelLabel
+            req.channelLabel = labelValue
+        }
+        if let topic = topic {
+            req.topic = topic
+        }
+        if let categoryId = categoryId {
+            req.categoryID = categoryId
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getNotificationChannel(channelId: Int64, token: String) async throws -> Mezon_Api_NotificationUserChannel {
+        var req = Mezon_Api_NotificationChannel()
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetNotificationChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listUserPermissionInChannel(clanId: Int64, channelId: Int64, token: String) async throws -> Mezon_Api_UserPermissionInChannelListResponse {
+        var req = Mezon_Api_UserPermissionInChannelListRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListUserPermissionInChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelUsers(clanId: Int64, channelId: Int64, channelType: Int32, limit: Int32 = 2000, state: Int32 = 1, token: String) async throws -> Mezon_Api_ChannelUserList {
+        var req = Mezon_Api_ListChannelUsersRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.channelType = channelType
+        req.limit = limit
+        req.state = state
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func isBanned(channelId: Int64, token: String) async throws -> Mezon_Api_IsBannedResponse {
+        var req = Mezon_Api_IsBannedRequest()
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/IsBanned",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listClanUsers(clanId: Int64, token: String) async throws -> Mezon_Api_ClanUserList {
+        var req = Mezon_Api_ListClanUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listRoles(clanId: Int64, limit: Int32 = 500, state: Int32 = 1, token: String) async throws -> Mezon_Api_RoleListEventResponse {
+        var req = Mezon_Api_RoleListEventRequest()
+        req.clanID = clanId
+        req.limit = limit
+        req.state = state
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListRoles",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listEvents(clanId: Int64, token: String) async throws -> Mezon_Api_EventList {
+        var req = Mezon_Api_ListEventsRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListEvents",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getRoleOfUserInTheClan(clanId: Int64, token: String) async throws -> Mezon_Api_RoleList {
+        var req = Mezon_Api_ListPermissionOfUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetRoleOfUserInTheClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getListPermission(token: String) async throws -> Mezon_Api_PermissionList {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetListPermission",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+        var req = Mezon_Api_ListClanUsersRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelVoiceUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
+        var req = Mezon_Api_ListChannelUsersRequest()
+        req.clanID = clanId
+        req.channelType = MezonConstants.ChannelType.streaming.rawValue
+        req.limit = 100
+        req.state = 1
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListStreamingChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listClanBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
+        var req = Mezon_Api_ListClanBadgeCountRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanBadgeCount",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getNotificationClan(clanId: Int64, token: String) async throws -> Mezon_Api_NotificationUserChannel {
+        var req = Mezon_Api_DefaultNotificationClan()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetNotificationClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getChannelCategoryNotiSettingsList(clanId: Int64, token: String) async throws -> Mezon_Api_NotificationChannelCategorySettingList {
+        var req = Mezon_Api_DefaultNotificationClan()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetChannelCategoryNotiSettingsList",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func registFcmDeviceToken(fcmToken: String, deviceId: String, platform: String = "ios", authToken: String) async throws -> Mezon_Api_RegistFcmDeviceTokenResponse {
+        var req = Mezon_Api_RegistFcmDeviceTokenRequest()
+        req.token = fcmToken
+        req.deviceID = deviceId
+        req.platform = platform
+        return try await postProto(
+            path: "/mezon.api.Mezon/RegistFCMDeviceToken",
+            message: req,
+            auth: .bearer(authToken)
+        )
+    }
+
+    func uploadAttachmentFile(
+        filename: String,
+        filetype: String,
+        size: Int,
+        width: Int = 0,
+        height: Int = 0,
+        token: String
+    ) async throws -> Mezon_Api_UploadAttachment {
+        var req = Mezon_Api_UploadAttachmentRequest()
+        req.filename = filename
+        req.filetype = filetype
+        req.size = Int32(size)
+        req.width = Int32(width)
+        req.height = Int32(height)
+        return try await postProto(
+            path: "/mezon.api.Mezon/UploadAttachmentFile",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func uploadToMinIO(url: String, data: Data, contentType: String) async throws {
+        guard let uploadURL = URL(string: url) else {
+            throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
+        }
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
+        request.httpBody = data
+
+        AppLogger.network.debug("→ PUT (minio) \(url)")
+        let (_, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        AppLogger.network.debug("← \(http.statusCode) (minio)")
+        guard (200..<300).contains(http.statusCode) else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")
+        }
+    }
+
+    func listChannelApps(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelAppResponse] {
+        var req = Mezon_Api_ListChannelAppsRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListChannelAppsResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelApps",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channelApps
+    }
+
+    func writeMessageReaction(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        messageId: Int64,
+        emojiId: Int64,
+        emoji: String,
+        count: Int32,
+        messageSenderId: Int64,
+        actionDelete: Bool,
+        topicId: Int64 = 0,
+        emojiRecentId: Int64 = 0,
+        senderName: String = "",
+        token: String
+    ) async throws -> Mezon_Api_MessageReaction {
+        var req = Mezon_Api_MessageReaction()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.mode = mode
+        req.isPublic = isPublic
+        req.messageID = messageId
+        req.emojiID = emojiId
+        req.emoji = emoji
+        req.count = count
+        req.messageSenderID = messageSenderId
+        req.action = actionDelete
+        req.topicID = topicId
+        req.emojiRecentID = emojiRecentId
+        req.senderName = senderName
+        return try await postProto(
+            path: "/mezon.api.Mezon/ReactChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listUserClansByUserId(token: String) async throws -> Mezon_Api_AllUserClans {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListUserClansByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelByUserId(token: String) async throws -> Mezon_Api_ChannelDescList {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func searchMessage(
+        filters: [Mezon_Api_FilterParam] = [],
+        from: Int32 = 1,
+        size: Int32 = 25,
+        sorts: [Mezon_Api_SortParam] = [],
+        token: String
+    ) async throws -> Mezon_Api_SearchMessageResponse {
+        var req = Mezon_Api_SearchMessageRequest()
+        req.filters = filters
+        req.from = from
+        req.size = size
+        req.sorts = sorts
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchMessage",
             message: req,
             auth: .bearer(token)
         )

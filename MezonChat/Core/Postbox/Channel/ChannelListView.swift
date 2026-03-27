@@ -30,3 +30,29 @@ final class MutableChannelListView: MutablePostboxView {
         ChannelListView(clanId: clanId, channels: channels)
     }
 }
+
+struct ChannelMetaView: PostboxView {
+    let channelId: Int64
+    let record: ChannelRecord?
+}
+
+final class MutableChannelMetaView: MutablePostboxView {
+
+    let channelId: Int64
+    private(set) var record: ChannelRecord?
+
+    init(channelId: Int64, initial: ChannelRecord?) {
+        self.channelId = channelId
+        self.record = initial
+    }
+
+    func replay(transaction: PostboxTransaction) -> Bool {
+        guard transaction.updatedChannelMetaIds.contains(channelId) else { return false }
+        record = transaction.channelTable.getChannelMeta(channelId: channelId)
+        return true
+    }
+
+    func immutableView() -> ChannelMetaView {
+        ChannelMetaView(channelId: channelId, record: record)
+    }
+}

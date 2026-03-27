@@ -3,6 +3,7 @@ import AsyncDisplayKit
 
 struct ClanListInteraction {
     let onSelectClan: (Mezon_Api_ClanDesc) -> Void
+    let onSelectDM: (Mezon_Api_ChannelDescription) -> Void
     let onLogoTapped: () -> Void
 }
 
@@ -12,6 +13,12 @@ final class ClanListContainerNode: ASDisplayNode {
 
     private let collectionView: UICollectionView
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private lazy var gradientLayer: CAGradientLayer = {
+        let gl = CAGradientLayer()
+        gl.startPoint = CGPoint(x: 0.5, y: 0)
+        gl.endPoint   = CGPoint(x: 0.5, y: 1)
+        return gl
+    }()
 
     private var state: ClanListState = .empty
     private let interaction: ClanListInteraction
@@ -31,6 +38,7 @@ final class ClanListContainerNode: ASDisplayNode {
                 guard let self else { return }
                 let prevClanId = self.state.selectedClanId
                 let wasLoading = self.state.isLoading
+                let prevDMCount = self.state.unreadDMs.count
                 self.state = newState
 
                 if newState.isLoading != wasLoading {
@@ -38,18 +46,18 @@ final class ClanListContainerNode: ASDisplayNode {
                     else { self.loadingIndicator.stopAnimating() }
                 }
 
-                let hasClanSection = self.collectionView.numberOfSections > 1
-                let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
+                let hasClanSection = self.collectionView.numberOfSections > 2
+                let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 2) : 0
 
-                if newState.clans.count != oldCount {
+                if newState.clans.count != oldCount || newState.unreadDMs.count != prevDMCount {
                     self.collectionView.reloadData()
                 } else if prevClanId != newState.selectedClanId {
                     var paths: [IndexPath] = []
                     if let prev = prevClanId, let idx = newState.clans.firstIndex(where: { $0.clanID == prev }) {
-                        paths.append(IndexPath(item: idx, section: 1))
+                        paths.append(IndexPath(item: idx, section: 2))
                     }
                     if let curr = newState.selectedClanId, let idx = newState.clans.firstIndex(where: { $0.clanID == curr }) {
-                        paths.append(IndexPath(item: idx, section: 1))
+                        paths.append(IndexPath(item: idx, section: 2))
                     }
                     if !paths.isEmpty {
                         UIView.performWithoutAnimation { self.collectionView.reloadItems(at: paths) }
@@ -64,11 +72,14 @@ final class ClanListContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
+        layer.addSublayer(gradientLayer)
+
         collectionView.backgroundColor = .clear
         collectionView.showsVerticalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.register(ClanCell.self, forCellWithReuseIdentifier: ClanCell.reuseID)
         collectionView.register(LogoCell.self, forCellWithReuseIdentifier: LogoCell.reuseID)
+        collectionView.register(UnreadDMBadgeCell.self, forCellWithReuseIdentifier: UnreadDMBadgeCell.reuseID)
         collectionView.register(UICollectionReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter, withReuseIdentifier: "separator")
         collectionView.dataSource = self
         collectionView.delegate = self
@@ -84,6 +95,11 @@ final class ClanListContainerNode: ASDisplayNode {
         let topY = layout.safeInsets.top + 6.sh
         let centerX = layout.size.width / 2
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        CATransaction.commit()
+
         transition.updateFrame(view: collectionView, frame: CGRect(
             x: 0, y: topY, width: layout.size.width, height: layout.size.height - topY - layout.intrinsicInsets.bottom
         ))
@@ -96,7 +112,8 @@ final class ClanListContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.primary
+        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        backgroundColor = .clear
         loadingIndicator.color = t.textDisabled
         collectionView.reloadData()
     }
@@ -106,16 +123,27 @@ final class ClanListContainerNode: ASDisplayNode {
 
 extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
 
-    func numberOfSections(in collectionView: UICollectionView) -> Int { 2 }
+    func numberOfSections(in collectionView: UICollectionView) -> Int { 3 }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        section == 0 ? 1 : state.clans.count
+        switch section {
+        case 0: return 1
+        case 1: return state.unreadDMs.count
+        case 2: return state.clans.count
+        default: return 0
+        }
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if indexPath.section == 0 {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LogoCell.reuseID, for: indexPath) as! LogoCell
             cell.onTap = { [weak self] in self?.interaction.onLogoTapped() }
+            return cell
+        }
+        if indexPath.section == 1 {
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: UnreadDMBadgeCell.reuseID, for: indexPath) as! UnreadDMBadgeCell
+            let dm = state.unreadDMs[indexPath.item]
+            cell.configure(with: dm)
             return cell
         }
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanCell.reuseID, for: indexPath) as! ClanCell
@@ -127,6 +155,8 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         if indexPath.section == 0 {
             interaction.onLogoTapped()
+        } else if indexPath.section == 1 {
+            interaction.onSelectDM(state.unreadDMs[indexPath.item])
         } else {
             interaction.onSelectClan(state.clans[indexPath.item])
         }
@@ -141,6 +171,11 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         if section == 0 {
             return UIEdgeInsets(top: 6.sh, left: sideInset, bottom: 0, right: sideInset)
         }
+        if section == 1 {
+            return state.unreadDMs.isEmpty
+                ? .zero
+                : UIEdgeInsets(top: 4.sh, left: sideInset, bottom: 0, right: sideInset)
+        }
         return UIEdgeInsets(top: 0, left: sideInset, bottom: 80.sh, right: sideInset)
     }
 
@@ -149,14 +184,14 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForFooterInSection section: Int) -> CGSize {
-        if section == 0 {
+        if section == 0 || (section == 1 && !state.unreadDMs.isEmpty) {
             return CGSize(width: collectionView.bounds.width, height: 16.sh)
         }
         return .zero
     }
 
     func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
-        if kind == UICollectionView.elementKindSectionFooter && indexPath.section == 0 {
+        if kind == UICollectionView.elementKindSectionFooter && (indexPath.section == 0 || (indexPath.section == 1 && !state.unreadDMs.isEmpty)) {
             let footer = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: "separator", for: indexPath)
             if footer.subviews.count <= 1 {
                 let line = UIView()
@@ -185,7 +220,8 @@ private final class LogoCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.layer.cornerRadius = 8.swh
+        iv.backgroundColor = .clear
+        iv.layer.cornerRadius = 12.swh
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
@@ -200,7 +236,7 @@ private final class LogoCell: UICollectionViewCell {
             logoImageView.widthAnchor.constraint(equalToConstant: sz),
             logoImageView.heightAnchor.constraint(equalToConstant: sz),
         ])
-        logoImageView.image = UIImage(named: "mezon_logo")
+        logoImageView.image = UIImage(named: "MezonLogo")
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -351,11 +387,14 @@ private final class ClanCell: UICollectionViewCell {
     }
 
     private func loadImage(url: URL) {
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage.decodeImage(from: data) else { return }
-            DispatchQueue.main.async { self?.avatarImageView.image = image }
+        let urlString = ImgproxyURL.create(from: url.absoluteString)
+        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            avatarImageView.image = cached
+            return
         }
-        imageTask?.resume()
+        imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
+            self?.avatarImageView.image = image
+        }
     }
 
     private func initials(for name: String) -> String {
@@ -374,5 +413,140 @@ private final class ClanCell: UICollectionViewCell {
         ]
         let hash = abs(name.hashValue)
         return colors[hash % colors.count]
+    }
+}
+
+private final class UnreadDMBadgeCell: UICollectionViewCell {
+
+    static let reuseID = "UnreadDMBadgeCell"
+
+    private let avatarImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    private let initialsLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
+        l.textColor = .white
+        l.textAlignment = .center
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private let avatarContainer: UIView = {
+        let v = UIView()
+        v.clipsToBounds = true
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
+    private let badgeLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 9.sf, weight: .bold)
+        l.textColor = .white
+        l.textAlignment = .center
+        l.backgroundColor = .systemRed
+        l.clipsToBounds = true
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.isHidden = true
+        return l
+    }()
+
+    private var imageTask: URLSessionDataTask?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        let sz = ClanListContainerNode.iconSize
+        let radius = sz / 2
+
+        contentView.addSubview(avatarContainer)
+        avatarContainer.addSubview(avatarImageView)
+        avatarContainer.addSubview(initialsLabel)
+        contentView.addSubview(badgeLabel)
+
+        avatarContainer.layer.cornerRadius = radius
+        badgeLabel.layer.cornerRadius = 10.swh
+
+        NSLayoutConstraint.activate([
+            avatarContainer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            avatarContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            avatarContainer.widthAnchor.constraint(equalToConstant: sz),
+            avatarContainer.heightAnchor.constraint(equalToConstant: sz),
+
+            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+
+            initialsLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
+            initialsLabel.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
+
+            badgeLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 5.swh),
+            badgeLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 5.swh),
+            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20.swh),
+            badgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageTask?.cancel()
+        avatarImageView.image = nil
+        initialsLabel.text = nil
+        badgeLabel.isHidden = true
+    }
+
+    func configure(with dm: Mezon_Api_ChannelDescription) {
+        let name = dm.channelLabel.isEmpty ? "DM" : dm.channelLabel
+        let colors: [UIColor] = [
+            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
+            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
+            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
+            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
+            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
+        ]
+        avatarContainer.backgroundColor = colors[abs(name.hashValue) % colors.count]
+
+        let isDM = dm.type == MezonConstants.ChannelType.dm.rawValue
+        let avatarURL: String
+        if isDM {
+            avatarURL = dm.avatars.first(where: { !$0.isEmpty }) ?? ""
+        } else {
+            let groupAvatar = dm.channelAvatar
+            avatarURL = (!groupAvatar.isEmpty && !groupAvatar.contains("avatar-group")) ? groupAvatar : ""
+        }
+
+        if !avatarURL.isEmpty {
+            let proxyURL = ImgproxyURL.create(from: avatarURL)
+            avatarImageView.isHidden = false
+            initialsLabel.isHidden = true
+            if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
+                avatarImageView.image = cached
+            } else {
+                imageTask = ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
+                    self?.avatarImageView.image = image
+                }
+            }
+        } else {
+            avatarImageView.isHidden = true
+            initialsLabel.isHidden = false
+            initialsLabel.text = String(name.prefix(1)).uppercased()
+        }
+
+        let count = dm.countMessUnread
+        if count > 0 {
+            badgeLabel.text = count > 99 ? "99+" : "\(count)"
+            badgeLabel.isHidden = false
+            badgeLabel.layer.borderWidth = 2
+            badgeLabel.layer.borderColor = UIColor.theme.secondary.cgColor
+        } else {
+            badgeLabel.isHidden = true
+        }
     }
 }

@@ -9,6 +9,7 @@ final class Postbox {
     private let clansDb: SqliteDatabase
     private let profileDb: SqliteDatabase
     private let settingsDb: SqliteDatabase
+    private let notificationsDb: SqliteDatabase
 
     private let queue = Queue(name: "mezon.postbox", qos: .userInitiated)
 
@@ -18,6 +19,9 @@ final class Postbox {
     let clanTable: ClanTable
     let profileTable: ProfileTable
     let settingsTable: SettingsTable
+    let notificationSettingTable: NotificationSettingTable
+    let notificationTable: NotificationTable
+    let topicTable: TopicTable
 
     private let viewTracker = ViewTracker()
 
@@ -40,6 +44,7 @@ final class Postbox {
         clansDb    = SqliteDatabase(path: dbPath("clans.db"))
         profileDb  = SqliteDatabase(path: dbPath("profile.db"))
         settingsDb = SqliteDatabase(path: dbPath("settings.db"))
+        notificationsDb = SqliteDatabase(path: dbPath("notifications.db"))
 
         authTable     = AuthTable(db: authDb)
         messageTable  = MessageTable(db: messagesDb)
@@ -47,6 +52,9 @@ final class Postbox {
         clanTable     = ClanTable(db: clansDb)
         profileTable  = ProfileTable(db: profileDb)
         settingsTable = SettingsTable(db: settingsDb)
+        notificationSettingTable = NotificationSettingTable(db: clansDb)
+        notificationTable = NotificationTable(db: notificationsDb)
+        topicTable = TopicTable(db: notificationsDb)
     }
 
     func write(_ block: @escaping (PostboxTransaction) -> Void) {
@@ -58,7 +66,10 @@ final class Postbox {
                 messageTable: messageTable,
                 authTable: authTable,
                 profileTable: profileTable,
-                settingsTable: settingsTable
+                settingsTable: settingsTable,
+                notificationSettingTable: notificationSettingTable,
+                notificationTable: notificationTable,
+                topicTable: topicTable
             )
             block(tx)
             channelTable.beforeCommit()
@@ -67,6 +78,8 @@ final class Postbox {
             authTable.beforeCommit()
             profileTable.beforeCommit()
             settingsTable.beforeCommit()
+            notificationSettingTable.beforeCommit()
+            notificationTable.beforeCommit()
             viewTracker.replay(transaction: tx)
         }
     }
@@ -81,7 +94,10 @@ final class Postbox {
                 messageTable: messageTable,
                 authTable: authTable,
                 profileTable: profileTable,
-                settingsTable: settingsTable
+                settingsTable: settingsTable,
+                notificationSettingTable: notificationSettingTable,
+                notificationTable: notificationTable,
+                topicTable: topicTable
             )
             result = block(tx)
         }
@@ -155,6 +171,98 @@ final class Postbox {
         }
     }
 
+    func channelMetaView(channelId: Int64) -> Signal<ChannelMetaView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableChannelMetaView, ValuePipe<ChannelMetaView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.channelTable.getChannelMeta(channelId: channelId)
+                subscriber.putNext(ChannelMetaView(channelId: channelId, record: initial))
+                let (index, signal) = self.viewTracker.addChannelMetaView(
+                    channelId: channelId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeChannelMetaView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+    func notificationListView(clanId: Int64, category: Int32) -> Signal<NotificationListView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableNotificationListView, ValuePipe<NotificationListView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.notificationTable.getNotificationRecord(clanId: clanId, category: category)
+                subscriber.putNext(NotificationListView(clanId: clanId, category: category, notifications: initial))
+                let (index, signal) = self.viewTracker.addNotificationListView(
+                    clanId: clanId, category: category, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeNotificationListView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+    func topicListView(clanId: Int64) -> Signal<TopicListView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableTopicListView, ValuePipe<TopicListView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.topicTable.getTopics(clanId: clanId)
+                subscriber.putNext(TopicListView(clanId: clanId, topics: initial))
+                let (index, signal) = self.viewTracker.addTopicListView(
+                    clanId: clanId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeTopicListView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+    func notificationSettingView(entityId: Int64) -> Signal<NotificationSettingView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableNotificationSettingView, ValuePipe<NotificationSettingView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.notificationSettingTable.get(entityId: entityId)
+                subscriber.putNext(NotificationSettingView(entityId: entityId, record: initial))
+                let (index, signal) = self.viewTracker.addNotificationSettingView(
+                    entityId: entityId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeNotificationSettingView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
     func combinedView(keys: [PostboxViewKey]) -> Signal<CombinedView, NoError> {
         let signals: [Signal<(PostboxViewKey, PostboxView), NoError>] = keys.map { key in
             switch key {
@@ -166,6 +274,10 @@ final class Postbox {
                 return messageHistoryView(channelId: channelId) |> map { (key, $0 as PostboxView) }
             case .preferences(let prefKey):
                 return preferencesView(key: prefKey) |> map { (key, $0 as PostboxView) }
+            case .notificationList(let clanId, let category):
+                return notificationListView(clanId: clanId, category: category) |> map { (key, $0 as PostboxView) }
+            case .topicList(let clanId):
+                return topicListView(clanId: clanId) |> map { (key, $0 as PostboxView) }
             }
         }
         guard !signals.isEmpty else {
@@ -229,20 +341,65 @@ final class Postbox {
         return result
     }
 
+    func getChannelDescription(channelId: Int64) -> (clanId: Int64, channel: Mezon_Api_ChannelDescription)? {
+        let clanRecords = read { tx in tx.getClans() }
+        let clanIds = clanRecords.map(\.id)
+
+        for clanId in clanIds {
+            guard let data = getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) else { continue }
+            let channels = decodeChannelList(data)
+            if let ch = channels.first(where: { $0.channelID == channelId }) {
+                return (clanId, ch)
+            }
+        }
+        return nil
+    }
+
+    func getDMChannelDescription(channelId: Int64) -> Mezon_Api_ChannelDescription? {
+        guard let data = getPreferenceData(key: PreferencesKeys.dmChannelList) else { return nil }
+        let channels = decodeChannelList(data)
+        return channels.first(where: { $0.channelID == channelId })
+    }
+
+    private func decodeChannelList(_ data: Data) -> [Mezon_Api_ChannelDescription] {
+        guard data.count >= 4 else { return [] }
+        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result: [Mezon_Api_ChannelDescription] = []
+        var offset = 4
+        for _ in 0..<count {
+            guard offset + 4 <= data.count else { break }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            offset += 4
+            guard offset + Int(len) <= data.count else { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+                result.append(m)
+            }
+            offset += Int(len)
+        }
+        return result
+    }
+
     func clearAll() {
         queue.async { [self] in
             authDb.rawExecute("DELETE FROM auth_sessions")
             messagesDb.rawExecute("DELETE FROM messages")
             clansDb.rawExecute("DELETE FROM channels")
             clansDb.rawExecute("DELETE FROM clans")
+            clansDb.rawExecute("DELETE FROM channel_meta")
+            clansDb.rawExecute("DELETE FROM notification_settings")
             profileDb.rawExecute("DELETE FROM profile")
             settingsDb.rawExecute("DELETE FROM settings")
+            notificationsDb.rawExecute("DELETE FROM notifications")
+            notificationsDb.rawExecute("DELETE FROM topics")
             authTable.clearMemoryCache()
             messageTable.clearMemoryCache()
             channelTable.clearMemoryCache()
             clanTable.clearMemoryCache()
             profileTable.clearMemoryCache()
             settingsTable.clearMemoryCache()
+            notificationSettingTable.clearMemoryCache()
+            notificationTable.clearMemoryCache()
+            topicTable.clearMemoryCache()
         }
     }
 }

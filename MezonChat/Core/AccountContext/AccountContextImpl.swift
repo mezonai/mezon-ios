@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseMessaging
 import SwiftProtobuf
 
 @MainActor
@@ -16,7 +17,72 @@ final class AccountContextImpl: AccountContext {
     private(set) var session: MezonSession?
     private(set) var currentUser: User?
     private(set) var isLoggedIn: Bool = false
+    private var hasCompletedInitialSetup = false
     private(set) var isSessionReady: Bool = false
+    private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
+    private var activeRefreshTask: Task<Bool, Never>?
+    func waitForSessionReady() async {
+        if isSessionReady { return }
+        await withCheckedContinuation { continuation in
+            if isSessionReady {
+                continuation.resume()
+            } else {
+                sessionReadyContinuations.append(continuation)
+            }
+        }
+    }
+
+    func getToken() async -> String? {
+        await waitForSessionReady()
+
+        if let inflight = activeRefreshTask {
+            _ = await inflight.value
+        }
+
+        if let session, session.isExpired {
+            let refreshed = await ensureRefreshed()
+            if !refreshed {
+                AppLogger.network.warning("[Auth] getToken: token still expired after refresh attempts")
+                return nil
+            }
+        }
+        if let session, session.isExpired {
+            return nil
+        }
+        return session?.token
+    }
+
+    private func ensureRefreshed() async -> Bool {
+        if let inflight = activeRefreshTask {
+            return await inflight.value
+        }
+        let task = Task<Bool, Never> { @MainActor in
+            defer { self.activeRefreshTask = nil }
+            for attempt in 1...2 {
+                do {
+                    try await self.refreshSession()
+                    AppLogger.network.info("[Auth] token was expired, refreshed on attempt \(attempt)")
+                    return true
+                } catch {
+                    AppLogger.network.warning("[Auth] getToken refresh attempt \(attempt) failed: \(error)")
+                    if attempt < 2 {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                }
+            }
+            return false
+        }
+        activeRefreshTask = task
+        return await task.value
+    }
+
+    private func markSessionReady() {
+        guard !isSessionReady else { return }
+        isSessionReady = true
+        let continuations = sessionReadyContinuations
+        sessionReadyContinuations.removeAll()
+        for c in continuations { c.resume() }
+    }
 
     var currentClanId: Int64 = 0
     var currentChannel: Mezon_Api_ChannelDescription?
@@ -43,7 +109,7 @@ final class AccountContextImpl: AccountContext {
         if let session {
             restoreAndRefreshSession(saved: session, onReady: onReady)
         } else {
-            isSessionReady = true
+            markSessionReady()
             onReady(self)
         }
 
@@ -56,8 +122,23 @@ final class AccountContextImpl: AccountContext {
     }
 
     func login(user: User, session: MezonSession) {
-        applySession(session, user: user)
+        applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
+        hasCompletedInitialSetup = true
+        lastRecoverTime = Date()
+        markSessionReady()
+
+        Task { @MainActor in
+            do {
+                try await refreshSession()
+            } catch {
+                AppLogger.network.warning("[Auth] cold launch refresh failed: \(error)")
+            }
+            if let freshSession = self.session {
+                applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
+            }
+            self.registerFCMTokenIfNeeded()
+        }
     }
 
     func logout() {
@@ -72,7 +153,27 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.socket.disconnect()
         account.postbox.clearAll()
+        UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         setLoggedIn(false)
+    }
+
+    private func registerFCMTokenIfNeeded() {
+        guard let fcmToken = Messaging.messaging().fcmToken else {
+            AppLogger.network.info("[FCM] No FCM token available yet")
+            return
+        }
+        let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+        Task {
+            guard let authToken = await self.getToken() else { return }
+            do {
+                _ = try await account.network.registFcmDeviceToken(
+                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: authToken
+                )
+                AppLogger.network.info("[FCM] Token registered on login")
+            } catch {
+                AppLogger.network.error("[FCM] Token registration on login failed: \(error)")
+            }
+        }
     }
 
     func refreshSession() async throws {
@@ -82,29 +183,64 @@ final class AccountContextImpl: AccountContext {
     }
 
     private var lastRecoverTime: Date?
-    private let recoverThrottle: TimeInterval = 20
+    private let recoverThrottle: TimeInterval = 5
+    private let maxForegroundRecoverRetries = 3
 
     func recoverFromForeground() {
-        guard session != nil, isLoggedIn else { return }
+        guard hasCompletedInitialSetup, session != nil, isLoggedIn else { return }
         let now = Date()
         if let last = lastRecoverTime, now.timeIntervalSince(last) < recoverThrottle { return }
         lastRecoverTime = now
-        Task { @MainActor in
-            do {
-                try await refreshSession()
-                if let token = session?.token {
-                    account.socket.connect(token: token, wsHostOverride: nil)
+
+        let needsRefresh = session?.isExpired ?? true
+
+        if needsRefresh {
+            AppLogger.network.info("[Auth] recoverFromForeground: token expired, refreshing...")
+            let task = Task<Bool, Never> { @MainActor in
+                defer { self.activeRefreshTask = nil }
+                let refreshed = await self.refreshSessionWithRetry()
+                if refreshed, let token = self.session?.token {
+                    self.account.socket.connect(token: token, wsHostOverride: nil)
                 }
-            } catch let error as MezonError {
-                if case .httpError(let code, _) = error, (code == 401 || code == 403) {
-                    SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
-                } else {
-                    account.socket.reconnectFromForeground()
-                }
-            } catch {
-                account.socket.reconnectFromForeground()
+                return refreshed
+            }
+            activeRefreshTask = task
+        } else {
+            AppLogger.network.info("[Auth] recoverFromForeground: token still valid, reconnecting socket only")
+            if let token = session?.token {
+                account.socket.connect(token: token, wsHostOverride: nil)
             }
         }
+    }
+
+    /// Retry refresh session up to maxForegroundRecoverRetries times.
+    /// Returns true if refreshed successfully, false if session expired (modal shown).
+    private func refreshSessionWithRetry() async -> Bool {
+        for attempt in 1...maxForegroundRecoverRetries {
+            do {
+                try await refreshSession()
+                AppLogger.network.info("[Auth] refreshSession succeeded on attempt \(attempt)")
+                return true
+            } catch let error as MezonError {
+                if case .httpError(let code, _) = error, (code == 401 || code == 403) {
+                    AppLogger.network.warning("[Auth] refreshSession got \(code), session expired")
+                    SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
+                    return false
+                }
+                AppLogger.network.warning("[Auth] refreshSession attempt \(attempt) failed: \(error)")
+            } catch {
+                AppLogger.network.warning("[Auth] refreshSession attempt \(attempt) failed: \(error)")
+            }
+
+            if attempt < maxForegroundRecoverRetries {
+                let delay = UInt64(attempt) * 2_000_000_000
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        }
+
+        AppLogger.network.warning("[Auth] refreshSession all \(self.maxForegroundRecoverRetries) attempts failed, trying socket reconnect")
+        account.socket.reconnectFromForeground()
+        return false
     }
 
     @objc private func handleSessionExpired() {
@@ -135,13 +271,17 @@ final class AccountContextImpl: AccountContext {
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 self.applySession(newSession, user: self.currentUser, connectSocket: true)
+                self.registerFCMTokenIfNeeded()
+                self.markSessionReady()
             },
             onExpired: { [weak self] in
+                self?.markSessionReady()
                 SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
             },
             onReady: { [weak self] in
                 guard let self else { return }
-                self.isSessionReady = true
+                // Fallback: mark ready on timeout even if refresh hasn't completed
+                self.markSessionReady()
                 onReady(self)
             }
         )
@@ -166,9 +306,69 @@ final class AccountContextImpl: AccountContext {
             }
             account.socket.onConnected = { [weak self] in self?.rejoinCurrentChannel() }
             account.socket.onMessageReceived = { [weak self] apiMessage in
+                let channelId = Int64(apiMessage.channelID) ?? 0
+                let clanId = Int64(apiMessage.clanID) ?? 0
+                if apiMessage.code == 2 {
+                    let messageId = "\(apiMessage.messageID)"
+                    self?.account.postbox.write { tx in
+                        tx.deleteMessage(id: messageId)
+                    }
+                    return
+                }
+
                 self?.account.postbox.write { tx in
                     tx.addMessages([MessageRecord(from: apiMessage)])
                 }
+                AppLogger.app.info("[Badge] onMessageReceived channelId=\(channelId) clanId=\(clanId) senderId=\(apiMessage.senderID) mode=\(apiMessage.mode)")
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonNewMessageReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": channelId,
+                        "clanId": clanId,
+                        "senderId": apiMessage.senderID,
+                        "mode": apiMessage.mode,
+                        "timestampSeconds": apiMessage.createTimeSeconds
+                    ]
+                )
+            }
+            account.socket.onReaction = { [weak self] reaction in
+                let messageId = "\(reaction.messageID)"
+
+                self?.account.postbox.write { tx in
+                    tx.updateMessageReactions(messageId: messageId, reaction: reaction)
+                }
+            }
+            account.socket.onMessageRemoved = { [weak self] removed in
+                let messageId = "\(removed.messageID)"
+                self?.account.postbox.write { tx in
+                    tx.deleteMessage(id: messageId)
+                }
+            }
+            account.socket.onLastSeen = { event in
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonChannelMarkedAsRead"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": event.channelID,
+                        "clanId": event.clanID
+                    ]
+                )
+            }
+            account.socket.onNotification = { [weak self] noti in
+                guard noti.channelID != 0 else { return }
+                AppLogger.app.info("[Badge] onNotification channelId=\(noti.channelID) clanId=\(noti.clanID)")
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonMentionReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": noti.channelID,
+                        "clanId": noti.clanID,
+                        "senderId": String(noti.senderID),
+                        "mode": noti.channelType,
+                        "timestampSeconds": noti.createTimeSeconds
+                    ]
+                )
             }
             account.socket.connect(token: session.token, wsHostOverride: nil)
         }
@@ -184,6 +384,26 @@ final class AccountContextImpl: AccountContext {
                 currentUser = mapAccountToUser(apiAccount)
             } catch {
                 AppLogger.network.warning("[Auth] getAccount failed: \(error)")
+            }
+            self.fetchAllUserClansAndChannels(token: session.token)
+        }
+    }
+
+    private func fetchAllUserClansAndChannels(token: String) {
+        Task { @MainActor in
+            do {
+                async let usersResult = account.network.listUserClansByUserId(token: token)
+                async let channelsResult = account.network.listChannelByUserId(token: token)
+                let (users, channels) = try await (usersResult, channelsResult)
+                if let data = try? users.serializedData() {
+                    account.postbox.setPreferenceData(key: PreferencesKeys.allUserClans, value: data)
+                }
+                if let data = try? channels.serializedData() {
+                    account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+                }
+                AppLogger.network.info("[Auth] fetched allUserClans(\(users.users.count)) allChannelsByUser(\(channels.channeldesc.count))")
+            } catch {
+                AppLogger.network.warning("[Auth] fetchAllUserClansAndChannels failed: \(error)")
             }
         }
     }

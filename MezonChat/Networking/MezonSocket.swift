@@ -16,6 +16,7 @@ final class MezonSocket: NSObject {
     var onLastSeen:           ((Mezon_Realtime_LastSeenMessageEvent)       -> Void)?
     var onLastPin:            ((Mezon_Realtime_LastPinMessageEvent)        -> Void)?
     var onUnpinMessage:       ((Mezon_Realtime_UnpinMessageEvent)          -> Void)?
+    var onMessageRemoved:     ((Mezon_Realtime_ChannelMessageRemove)       -> Void)?
     var onMessageButton:      ((Mezon_Realtime_MessageButtonClicked)       -> Void)?
 
     var onChannelCreated:     ((Mezon_Realtime_ChannelCreatedEvent)        -> Void)?
@@ -74,13 +75,18 @@ final class MezonSocket: NSObject {
     private var isConnected = false
     private var reconnectAttempts = 0
     private var hasTriedRefreshSinceConnect = false
-    private let maxReconnectAttempts = 2
+    private let maxReconnectAttempts = 5
 
     var tokenProvider: (() async throws -> String)?
+
+    private var pendingDataSocketCallbacks: [String: (Mezon_Realtime_ListDataSocket) -> Void] = [:]
+    private var reconnectWorkItem: DispatchWorkItem?
 
     private override init() { super.init() }
 
     func connect(token: String, wsHostOverride: String? = nil) {
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
         if let old = webSocketTask {
             old.cancel(with: .normalClosure, reason: nil)
             webSocketTask = nil
@@ -101,19 +107,25 @@ final class MezonSocket: NSObject {
     }
 
     func disconnect() {
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
         isConnected = false
+        NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
+        pendingDataSocketCallbacks.removeAll()
         onConnected = nil
     }
 
     func reconnectFromForeground() {
         guard token != nil || tokenProvider != nil else { return }
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         AppLogger.app.info("MezonSocket reconnecting from foreground")
@@ -124,6 +136,7 @@ final class MezonSocket: NSObject {
 
     private func cleanupForReconnect() {
         isConnected = false
+        NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -168,6 +181,34 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.messageTypingEvent = typing
         send(envelope)
+    }
+
+    func removeChannelMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, isPublic: Bool, topicId: Int64 = 0) {
+        var remove = Mezon_Realtime_ChannelMessageRemove()
+        remove.clanID = clanId
+        remove.channelID = channelId
+        remove.messageID = messageId
+        remove.mode = mode
+        remove.isPublic = isPublic
+        remove.topicID = topicId
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.channelMessageRemove = remove
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] removeChannelMessage channelId=\(channelId) messageId=\(messageId)")
+    }
+
+    func writeLastSeenMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, timestampSeconds: UInt32, badgeCount: Int32) {
+        var event = Mezon_Realtime_LastSeenMessageEvent()
+        event.clanID = clanId
+        event.channelID = channelId
+        event.mode = mode
+        event.messageID = messageId
+        event.timestampSeconds = timestampSeconds
+        event.badgeCount = badgeCount
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.lastSeenMessageEvent = event
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] writeLastSeenMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
     private func receiveLoop() {
@@ -216,9 +257,11 @@ final class MezonSocket: NSObject {
         case .channelMessage(let m):
             AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID)")
             onMessageReceived?(m)
+        case .channelMessageRemove(let m):
+            onMessageRemoved?(m)
+            AppLogger.app.debug("[MezonSocket] channelMessageRemove channelId=\(m.channelID) messageId=\(m.messageID)")
         case .messageTypingEvent(let m):
             onTyping?(m)
-            AppLogger.app.debug("[MezonSocket] typing clanId=\(m.clanID) channelId=\(m.channelID)")
         case .messageReactionEvent(let m):
             onReaction?(m)
             AppLogger.app.debug("[MezonSocket] reaction messageId=\(m.messageID)")
@@ -359,8 +402,42 @@ final class MezonSocket: NSObject {
             pong.pong = Mezon_Realtime_Pong()
             send(pong)
             AppLogger.app.debug("[MezonSocket] ping → pong")
+        case .listDataSocket(let m):
+            let cid = envelope.cid
+            if let cb = pendingDataSocketCallbacks.removeValue(forKey: cid) {
+                cb(m)
+                AppLogger.app.debug("[MezonSocket] listDataSocket response cid=\(cid) apiName=\(m.apiName)")
+            } else {
+                AppLogger.app.debug("[MezonSocket] listDataSocket no pending callback for cid=\(cid)")
+            }
         default:
             break
+        }
+    }
+
+    func listDataSocket(_ request: Mezon_Realtime_ListDataSocket) async throws -> Mezon_Realtime_ListDataSocket {
+        return try await withCheckedThrowingContinuation { continuation in
+            let id = UUID().uuidString
+            var resumed = false
+            pendingDataSocketCallbacks[id] = { [weak self] response in
+                guard !resumed else { return }
+                resumed = true
+                self?.pendingDataSocketCallbacks.removeValue(forKey: id)
+                continuation.resume(returning: response)
+            }
+            var envelope = Mezon_Realtime_Envelope()
+            envelope.cid = id
+            envelope.listDataSocket = request
+            send(envelope)
+            AppLogger.app.info("[MezonSocket] listDataSocket sent cid=\(id) apiName=\(request.apiName)")
+
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                guard !resumed else { return }
+                resumed = true
+                self?.pendingDataSocketCallbacks.removeValue(forKey: id)
+                continuation.resume(throwing: MezonError.socketError("listDataSocket timeout for \(request.apiName)"))
+            }
         }
     }
 
@@ -377,11 +454,13 @@ final class MezonSocket: NSObject {
         }
         let delay = Double(min(reconnectAttempts * 2, 30))
         AppLogger.app.info("MezonSocket reconnecting in \(delay)s (attempt \(self.reconnectAttempts))")
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor in
                 await self?.performReconnect(useTokenRefresh: useRefresh)
             }
         }
+        reconnectWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func performReconnect(useTokenRefresh: Bool = false) async {
@@ -422,6 +501,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.reconnectAttempts = 0
             self.hasTriedRefreshSinceConnect = false
             AppLogger.app.info("MezonSocket connected")
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
             self.onConnected?()
         }
     }
@@ -434,6 +514,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
     ) {
         Task { @MainActor in
             self.isConnected = false
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
             self.onDisconnect?()
             AppLogger.app.info("MezonSocket disconnected (code: \(closeCode.rawValue))")
 
