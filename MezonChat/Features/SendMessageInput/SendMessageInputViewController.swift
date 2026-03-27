@@ -24,6 +24,10 @@ final class SendMessageInputViewController: UIViewController {
 
     var inputBarBottomConstraint: NSLayoutConstraint?
     private var previewHeightConstraint: NSLayoutConstraint?
+    private var replyBannerHeightConstraint: NSLayoutConstraint?
+
+    private(set) var replyDisplay: ChatMessageDisplay?
+    private static let replyBannerHeight: CGFloat = 40
 
     private static var channelAttachmentCache: [String: [UIImage]] = [:]
 
@@ -31,6 +35,36 @@ final class SendMessageInputViewController: UIViewController {
 
     private(set) var pickedImages: [UIImage] = []
     private var pickedFileURLs: [Int: URL] = [:]
+
+    private var allMentionMembers: [MentionMember] = []
+    private var activeMentions: [(userId: Int64, displayName: String, range: NSRange)] = []
+    private var mentionSuggestionView: MentionSuggestionView?
+    private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
+
+    private lazy var replyBannerView: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.clipsToBounds = true
+        return v
+    }()
+
+    private lazy var replyLabel: UILabel = {
+        let lbl = UILabel()
+        lbl.translatesAutoresizingMaskIntoConstraints = false
+        lbl.font = .systemFont(ofSize: 14)
+        return lbl
+    }()
+
+    private lazy var replyCancelButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+        btn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: config), for: .normal)
+        btn.addAction(UIAction { [weak self] _ in
+            self?.clearReply()
+        }, for: .touchUpInside)
+        return btn
+    }()
 
     private lazy var attachmentPreviewView: AttachmentPreviewView = {
         let v = AttachmentPreviewView()
@@ -115,10 +149,14 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     var totalHeight: CGFloat {
-        if pickedImages.isEmpty {
-            return inputBarCurrentHeight
+        var h = inputBarCurrentHeight
+        if !pickedImages.isEmpty {
+            h += Self.previewHeight
         }
-        return inputBarCurrentHeight + Self.previewHeight
+        if replyDisplay != nil {
+            h += Self.replyBannerHeight
+        }
+        return h
     }
 
     private var currentTextViewHeight: CGFloat = textViewMinHeight
@@ -134,24 +172,54 @@ final class SendMessageInputViewController: UIViewController {
     required init?(coder: NSCoder) { fatalError() }
 
     override func loadView() {
-        view = UIView()
-        view.backgroundColor = .clear
+        let v = OverflowHitTestView()
+        v.backgroundColor = .clear
+        v.overflowTarget = { [weak self] in self?.mentionSuggestionView }
+        view = v
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupMentionSuggestion()
         setupBindings()
         setupThemeObserver()
         applyTheme()
         restoreFromCache()
+        loadClanMembers()
     }
 
     func send() {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let plainText = buildPlainTextFromAttributed()
+        let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasImages = !pickedImages.isEmpty
         guard !trimmed.isEmpty || hasImages else { return }
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
+    }
+
+    func setReply(_ display: ChatMessageDisplay) {
+        replyDisplay = display
+        replyLabel.text = "Replying to \(display.senderDisplayName)"
+        updateReplyBannerVisibility()
+        textView.becomeFirstResponder()
+    }
+
+    func clearReply() {
+        replyDisplay = nil
+        updateReplyBannerVisibility()
+    }
+
+    private func updateReplyBannerVisibility() {
+        let shouldShow = replyDisplay != nil
+        let targetH: CGFloat = shouldShow ? Self.replyBannerHeight : 0
+        let heightChanged = replyBannerHeightConstraint?.constant != targetH
+        if heightChanged {
+            replyBannerHeightConstraint?.constant = targetH
+            onHeightChanged?(totalHeight)
+        }
+        UIView.animate(withDuration: 0.2) {
+            self.view.superview?.layoutIfNeeded()
+        }
     }
 
     func clearText() { text = ""; textPipe.putNext("") }
@@ -272,6 +340,10 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func setupUI() {
+        replyBannerView.addSubview(replyLabel)
+        replyBannerView.addSubview(replyCancelButton)
+        view.addSubview(replyBannerView)
+
         view.addSubview(attachmentPreviewView)
         view.addSubview(inputBarView)
         inputBarView.addSubview(attachButton)
@@ -291,10 +363,28 @@ final class SendMessageInputViewController: UIViewController {
         let barHeight = inputBarView.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding)
         inputBarHeightConstraint = barHeight
 
+        let replyH = replyBannerView.heightAnchor.constraint(equalToConstant: 0)
+        replyBannerHeightConstraint = replyH
+
         NSLayoutConstraint.activate([
+            replyBannerView.topAnchor.constraint(equalTo: view.topAnchor),
+            replyBannerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            replyBannerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            replyH,
+
+            replyCancelButton.leadingAnchor.constraint(equalTo: replyBannerView.leadingAnchor, constant: 12),
+            replyCancelButton.centerYAnchor.constraint(equalTo: replyBannerView.centerYAnchor),
+            replyCancelButton.widthAnchor.constraint(equalToConstant: 24),
+            replyCancelButton.heightAnchor.constraint(equalToConstant: 24),
+
+            replyLabel.leadingAnchor.constraint(equalTo: replyCancelButton.trailingAnchor, constant: 8),
+            replyLabel.trailingAnchor.constraint(equalTo: replyBannerView.trailingAnchor, constant: -12),
+            replyLabel.centerYAnchor.constraint(equalTo: replyBannerView.centerYAnchor),
+
+            // Attachment preview
             attachmentPreviewView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             attachmentPreviewView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            attachmentPreviewView.topAnchor.constraint(equalTo: view.topAnchor),
+            attachmentPreviewView.topAnchor.constraint(equalTo: replyBannerView.bottomAnchor),
 
             inputBarView.topAnchor.constraint(equalTo: attachmentPreviewView.bottomAnchor),
             inputBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -331,6 +421,243 @@ final class SendMessageInputViewController: UIViewController {
         previewHeightConstraint = phc
     }
 
+    private func setupMentionSuggestion() {
+        let sv = MentionSuggestionView()
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        sv.isHidden = true
+        sv.onSelectMember = { [weak self] member in
+            self?.insertMention(member: member)
+        }
+        view.insertSubview(sv, at: 0)
+
+        let hc = sv.heightAnchor.constraint(equalToConstant: 0)
+        mentionSuggestionHeightConstraint = hc
+        NSLayoutConstraint.activate([
+            sv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            sv.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            sv.bottomAnchor.constraint(equalTo: replyBannerView.topAnchor),
+            hc,
+        ])
+        mentionSuggestionView = sv
+    }
+
+    private func loadClanMembers() {
+        guard clanId != 0 else { return }
+        if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
+            buildMentionMembers(from: clanUsers)
+        } else {
+            Task { @MainActor in
+                guard let token = await context.getToken() else { return }
+                do {
+                    let response = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+                    buildMentionMembers(from: response)
+                } catch {
+                    AppLogger.network.warning("[MentionSuggestion] loadClanMembers failed: \(error)")
+                }
+            }
+        }
+    }
+
+    private func buildMentionMembers(from clanUsers: Mezon_Api_ClanUserList) {
+        var nickMap: [Int64: String] = [:]
+        for cu in clanUsers.clanUsers where !cu.clanNick.isEmpty {
+            nickMap[cu.user.id] = cu.clanNick
+        }
+        var seen = Set<Int64>()
+        allMentionMembers = clanUsers.clanUsers.compactMap { cu in
+            let user = cu.user
+            guard seen.insert(user.id).inserted else { return nil }
+            let nick = nickMap[user.id]
+            let display = nick ?? (user.displayName.isEmpty ? user.username : user.displayName)
+            return MentionMember(
+                userId: user.id,
+                displayName: display,
+                username: user.username,
+                avatarURL: cu.clanAvatar.isEmpty ? (user.avatarURL.isEmpty ? nil : user.avatarURL) : cu.clanAvatar
+            )
+        }
+    }
+
+    private func detectMentionKeyword() -> String? {
+        guard let selectedRange = textView.selectedTextRange else { return nil }
+        let cursorOffset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
+        let fullText = textView.text ?? ""
+        guard cursorOffset > 0, cursorOffset <= fullText.count else { return nil }
+
+        let textBefore = String(fullText.prefix(cursorOffset))
+
+        for mention in activeMentions {
+            if cursorOffset > mention.range.location && cursorOffset <= mention.range.location + mention.range.length {
+                return nil
+            }
+        }
+
+        guard let atIdx = textBefore.lastIndex(of: "@") else { return nil }
+        let atIntIdx = textBefore.distance(from: textBefore.startIndex, to: atIdx)
+
+        if atIntIdx > 0 {
+            let charBefore = textBefore[textBefore.index(before: atIdx)]
+            guard charBefore == " " || charBefore == "\n" else { return nil }
+        }
+
+        let keyword = String(textBefore[textBefore.index(after: atIdx)...])
+        return keyword
+    }
+
+    private func updateMentionSuggestions() {
+        guard let keyword = detectMentionKeyword() else {
+            hideMentionSuggestions()
+            return
+        }
+
+        let filtered: [MentionMember]
+        if keyword.isEmpty {
+            filtered = allMentionMembers
+        } else {
+            let lower = keyword.lowercased()
+            filtered = allMentionMembers.filter {
+                $0.displayName.lowercased().contains(lower) ||
+                $0.username.lowercased().contains(lower)
+            }.sorted { a, b in
+                let aStarts = a.displayName.lowercased().hasPrefix(lower) || a.username.lowercased().hasPrefix(lower)
+                let bStarts = b.displayName.lowercased().hasPrefix(lower) || b.username.lowercased().hasPrefix(lower)
+                if aStarts != bStarts { return aStarts }
+                return a.displayName < b.displayName
+            }
+        }
+
+        guard !filtered.isEmpty else {
+            hideMentionSuggestions()
+            return
+        }
+        showMentionSuggestions(members: filtered)
+    }
+
+    private func showMentionSuggestions(members: [MentionMember]) {
+        guard let sv = mentionSuggestionView else { return }
+        sv.update(members: members)
+        sv.applyTheme()
+        let h = sv.preferredHeight
+        mentionSuggestionHeightConstraint?.constant = h
+        sv.isHidden = false
+        UIView.animate(withDuration: 0.15) {
+            self.view.superview?.layoutIfNeeded()
+        }
+    }
+
+    private func hideMentionSuggestions() {
+        guard let sv = mentionSuggestionView, !sv.isHidden else { return }
+        mentionSuggestionHeightConstraint?.constant = 0
+        sv.isHidden = true
+        UIView.animate(withDuration: 0.15) {
+            self.view.superview?.layoutIfNeeded()
+        }
+    }
+
+    private func insertMention(member: MentionMember) {
+        guard let keyword = detectMentionKeyword() else { return }
+        guard let selectedRange = textView.selectedTextRange else { return }
+        let cursorOffset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
+
+        let fullText = textView.text ?? ""
+        let textBefore = String(fullText.prefix(cursorOffset))
+        guard let atIdx = textBefore.lastIndex(of: "@") else { return }
+        let atIntIdx = textBefore.distance(from: textBefore.startIndex, to: atIdx)
+        let replaceRange = NSRange(location: atIntIdx, length: cursorOffset - atIntIdx)
+
+        let mentionText = "@\(member.displayName)"
+        let trailingSpace = " "
+        let insertText = mentionText + trailingSpace
+
+        let t = UIColor.theme
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+        let mentionAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        ]
+
+        let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+        let mentionAttrStr = NSMutableAttributedString(string: mentionText, attributes: mentionAttrs)
+        let spaceAttrStr = NSAttributedString(string: trailingSpace, attributes: normalAttrs)
+        mentionAttrStr.append(spaceAttrStr)
+
+        attrText.replaceCharacters(in: replaceRange, with: mentionAttrStr)
+        textView.attributedText = attrText
+
+        let mentionNSRange = NSRange(location: atIntIdx, length: mentionText.count)
+        let lengthDelta = insertText.count - replaceRange.length
+        activeMentions = activeMentions.map { m in
+            if m.range.location >= replaceRange.location + replaceRange.length {
+                return (m.userId, m.displayName, NSRange(location: m.range.location + lengthDelta, length: m.range.length))
+            }
+            return m
+        }
+        activeMentions.append((userId: member.userId, displayName: member.displayName, range: mentionNSRange))
+
+        let newCursorPos = atIntIdx + insertText.count
+        if let pos = textView.position(from: textView.beginningOfDocument, offset: newCursorPos) {
+            textView.selectedTextRange = textView.textRange(from: pos, to: pos)
+        }
+
+        textView.typingAttributes = normalAttrs
+
+        text = textView.text ?? ""
+        placeholderLabel.isHidden = !text.isEmpty
+        updateTextViewHeight()
+        hideMentionSuggestions()
+    }
+
+    private func handleMentionProtection(range: NSRange, replacementText text: String) -> Bool {
+        for (index, mention) in activeMentions.enumerated() {
+            let mentionEnd = mention.range.location + mention.range.length
+            let editEnd = range.location + range.length
+            if range.location < mentionEnd && editEnd > mention.range.location {
+                let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+                let deleteRange = mention.range
+                let extendedEnd = min(deleteRange.location + deleteRange.length + 1, attrText.length)
+                let extendedRange = NSRange(location: deleteRange.location, length: extendedEnd - deleteRange.location)
+                attrText.deleteCharacters(in: extendedRange)
+
+                let deletedLength = extendedRange.length
+                activeMentions.remove(at: index)
+                activeMentions = activeMentions.map { m in
+                    if m.range.location > deleteRange.location {
+                        return (m.userId, m.displayName, NSRange(location: m.range.location - deletedLength, length: m.range.length))
+                    }
+                    return m
+                }
+
+                textView.attributedText = attrText
+                if let pos = textView.position(from: textView.beginningOfDocument, offset: deleteRange.location) {
+                    textView.selectedTextRange = textView.textRange(from: pos, to: pos)
+                }
+                self.text = textView.text ?? ""
+                placeholderLabel.isHidden = !self.text.isEmpty
+                updateTextViewHeight()
+                updateMentionSuggestions()
+                return false // handled, don't let the default edit happen
+            }
+        }
+        return true // no mention affected, proceed normally
+    }
+
+    private func buildPlainTextFromAttributed() -> String {
+        return textView.text ?? ""
+    }
+
+    private func buildMentionList() -> [Mezon_Api_MessageMention] {
+        return activeMentions.map { m in
+            var mention = Mezon_Api_MessageMention()
+            mention.userID = m.userId
+            mention.s = Int32(m.range.location)
+            mention.e = Int32(m.range.location + m.range.length)
+            return mention
+        }
+    }
+
     private func setupBindings() {
         placeholderLabel.text = placeholder
 
@@ -363,6 +690,10 @@ final class SendMessageInputViewController: UIViewController {
         attachButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
         attachmentPreviewView.applyTheme()
+        replyBannerView.backgroundColor = t.secondary
+        replyLabel.textColor = t.textDisabled
+        replyCancelButton.tintColor = t.textDisabled
+        mentionSuggestionView?.applyTheme()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -443,11 +774,8 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+
     private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription) {
-        guard let token = context.session?.token else {
-            onError?("No session")
-            return
-        }
         let localId = "pending-\(UUID().uuidString)"
         let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
 
@@ -457,14 +785,27 @@ final class SendMessageInputViewController: UIViewController {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
 
+        let replyRef: Mezon_Api_MessageRef? = buildReplyRef()
+
         if let sender = context.currentUser {
             let pendingRecord = MessageRecord.pending(localId: localId, text: text, channelId: channelIdStr, clanId: clanId, sender: sender)
             self.context.account.postbox.write { tx in tx.addMessages([pendingRecord]) }
         }
 
+        let mentionList = buildMentionList()
+
         self.text = ""
-        textPipe.putNext("")
+        self.activeMentions = []
+        textView.attributedText = nil
+        textView.text = ""
+        textView.typingAttributes = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor.theme.textStrong
+        ]
+        placeholderLabel.isHidden = false
         clearPickedImages()
+        clearReply()
+        hideMentionSuggestions()
         onSent?()
 
         let contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": text]
@@ -492,8 +833,15 @@ final class SendMessageInputViewController: UIViewController {
         }()
         let isPublic = channel.channelPrivate == 0
         let avatar: String = context.currentUser?.avatarURL?.absoluteString ?? ""
+        let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
 
         Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+                ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                self.onError?("No session")
+                return
+            }
             do {
                 var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
                 if !imagesToUpload.isEmpty {
@@ -506,9 +854,9 @@ final class SendMessageInputViewController: UIViewController {
                     mode: mode,
                     isPublic: isPublic,
                     content: contentStr,
-                    mentions: [],
+                    mentions: mentionList,
                     attachments: uploadedAttachments,
-                    references: [],
+                    references: references,
                     anonymous: false,
                     mentionEveryone: false,
                     avatar: avatar,
@@ -524,19 +872,70 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
     }
+
+    private func buildReplyRef() -> Mezon_Api_MessageRef? {
+        guard let display = replyDisplay else { return nil }
+        var ref = Mezon_Api_MessageRef()
+        ref.messageID = 0
+        ref.messageRefID = Int64(display.message.id) ?? 0
+        ref.refType = 0 // reply
+        ref.messageSenderID = Int64(display.message.senderId) ?? 0
+        ref.messageSenderUsername = display.senderDisplayName
+        ref.messageSenderDisplayName = display.senderDisplayName
+        ref.mesagesSenderAvatar = display.avatarURL ?? ""
+        ref.hasAttachment_p = !display.attachments.isEmpty
+        let contentJSON: [String: Any] = ["t": display.parsedContent.text]
+        if let jsonData = try? JSONSerialization.data(withJSONObject: contentJSON),
+           let jsonStr = String(data: jsonData, encoding: .utf8) {
+            ref.content = jsonStr
+        }
+        return ref
+    }
 }
 
 extension SendMessageInputViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
-        updateText(textView.text ?? "")
-        placeholderLabel.isHidden = !textView.text.isEmpty
+        text = textView.text ?? ""
+        placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
+        updateMentionSuggestions()
+    }
+
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        updateMentionSuggestions()
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if text == "\n" {
             send()
             return false
+        }
+        if !handleMentionProtection(range: range, replacementText: text) {
+            return false
+        }
+        if !text.isEmpty && range.length == 0 {
+            let insertLen = (text as NSString).length
+            activeMentions = activeMentions.map { m in
+                if m.range.location >= range.location {
+                    return (m.userId, m.displayName, NSRange(location: m.range.location + insertLen, length: m.range.length))
+                }
+                return m
+            }
+        } else if text.isEmpty && range.length > 0 {
+            activeMentions = activeMentions.map { m in
+                if m.range.location >= range.location + range.length {
+                    return (m.userId, m.displayName, NSRange(location: m.range.location - range.length, length: m.range.length))
+                }
+                return m
+            }
+        } else if !text.isEmpty && range.length > 0 {
+            let delta = (text as NSString).length - range.length
+            activeMentions = activeMentions.map { m in
+                if m.range.location >= range.location + range.length {
+                    return (m.userId, m.displayName, NSRange(location: m.range.location + delta, length: m.range.length))
+                }
+                return m
+            }
         }
         return true
     }
@@ -669,5 +1068,19 @@ final class PastableTextView: UITextView {
         }
 
         super.paste(sender)
+    }
+}
+
+private final class OverflowHitTestView: UIView {
+    var overflowTarget: (() -> UIView?)?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let target = overflowTarget?(), !target.isHidden {
+            let converted = convert(point, to: target)
+            if let hit = target.hitTest(converted, with: event) {
+                return hit
+            }
+        }
+        return super.hitTest(point, with: event)
     }
 }

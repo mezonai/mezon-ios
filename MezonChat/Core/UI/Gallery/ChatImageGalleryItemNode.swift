@@ -44,10 +44,10 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
 
         self.imageNode.setSignal(.single({ arguments -> DrawingContext? in
             let context = DrawingContext(size: arguments.drawingSize, clear: true)
-            context?.withFlippedContext { ctx in
-                if let cgImage = image.cgImage {
-                    ctx.draw(cgImage, in: CGRect(origin: .zero, size: arguments.drawingSize))
-                }
+            context?.withContext { ctx in
+                UIGraphicsPushContext(ctx)
+                image.draw(in: CGRect(origin: .zero, size: arguments.drawingSize))
+                UIGraphicsPopContext()
             }
             return context
         }))

@@ -195,10 +195,15 @@ final class MessageReactionsNode: ASDisplayNode {
 
 final class ReactionPillNode: ASDisplayNode {
 
-    private let emojiImageNode = ASImageNode()
+    private let emojiImageNode: ASDisplayNode = {
+        let node = ASDisplayNode { UIImageView() }
+        node.clipsToBounds = true
+        return node
+    }()
     private let emojiFallbackNode = ASTextNode2()
     private let countNode = ASTextNode2()
 
+    private var pendingImage: UIImage?
     private var imageTask: URLSessionDataTask?
     private static let emojiSize: CGFloat = 20
     private static let pillHeight: CGFloat = 28
@@ -253,8 +258,22 @@ final class ReactionPillNode: ASDisplayNode {
         }
     }
 
+    override func didLoad() {
+        super.didLoad()
+        if let pendingImage {
+            (emojiImageNode.view as? UIImageView)?.image = pendingImage
+        }
+    }
+
     deinit {
         imageTask?.cancel()
+    }
+
+    private func applyImage(_ image: UIImage) {
+        pendingImage = image
+        if emojiImageNode.isNodeLoaded {
+            (emojiImageNode.view as? UIImageView)?.image = image
+        }
     }
 
     func update(reaction: ParsedReaction) {
@@ -284,15 +303,29 @@ final class ReactionPillNode: ASDisplayNode {
     }
 
     private func loadEmojiImage(url: URL) {
-        if let cached = ImageCache.shared.image(forKey: url.absoluteString) {
-            emojiImageNode.image = cached
+        let key = url.absoluteString
+
+        if let diskData = ImageCache.shared.cachedData(forKey: key) {
+            let image = UIImage.animatedImage(from: diskData) ?? UIImage.decodeImage(from: diskData)
+            if let image {
+                ImageCache.shared.setImage(image, data: nil, forKey: key)
+                applyImage(image)
+                return
+            }
+        }
+
+        if let cached = ImageCache.shared.image(forKey: key) {
+            applyImage(cached)
             return
         }
+
         imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage.decodeImage(from: data) else { return }
-            ImageCache.shared.setImage(image, data: data, forKey: url.absoluteString)
+            guard let data else { return }
+            let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+            guard let image else { return }
+            ImageCache.shared.setImage(image, data: data, forKey: key)
             DispatchQueue.main.async {
-                self?.emojiImageNode.image = image
+                self?.applyImage(image)
                 self?.emojiFallbackNode.isHidden = true
             }
         }

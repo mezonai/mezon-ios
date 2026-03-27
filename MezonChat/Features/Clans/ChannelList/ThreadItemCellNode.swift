@@ -6,6 +6,7 @@ final class ThreadItemCellNode: ASCellNode {
     private let connectorNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
+    private let badgeBackground = ASDisplayNode()
     private let selectionNode = ASDisplayNode()
     var onLongPress: (() -> Void)?
     private let isLast: Bool
@@ -51,11 +52,12 @@ final class ThreadItemCellNode: ASCellNode {
                     .foregroundColor: UIColor.white,
                     .paragraphStyle: para,
                 ])
-            badgeNode.backgroundColor = .systemRed
-            badgeNode.cornerRadius = 10.swh
-            badgeNode.clipsToBounds = true
+            badgeBackground.backgroundColor = .systemRed
+            badgeBackground.clipsToBounds = true
+            badgeBackground.isHidden = false
             badgeNode.isHidden = false
         } else {
+            badgeBackground.isHidden = true
             badgeNode.isHidden = true
         }
 
@@ -86,11 +88,19 @@ final class ThreadItemCellNode: ASCellNode {
         }
     }
 
+    override func layout() {
+        super.layout()
+        badgeBackground.cornerRadius = badgeBackground.bounds.height / 2
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         connectorNode.style.preferredSize = CGSize(
             width: isLast ? 13.swh : 14.swh, height: isLast ? 18.swh : 34.swh)
-        badgeNode.style.minWidth = ASDimensionMake(20.swh)
-        badgeNode.style.height = ASDimensionMake(20.swh)
+        let badgeInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 2.swh, left: 6.swh, bottom: 2.swh, right: 6.swh),
+            child: badgeNode)
+        let badge = ASBackgroundLayoutSpec(child: badgeInset, background: badgeBackground)
+        badge.style.minSize = CGSize(width: 20.swh, height: 20.swh)
 
         nameNode.style.flexShrink = 1
         let spacer = ASLayoutSpec()
@@ -104,7 +114,7 @@ final class ThreadItemCellNode: ASCellNode {
 
         var contentChildren: [ASLayoutElement] = [nameNode]
         if !badgeNode.isHidden {
-            contentChildren.append(contentsOf: [spacer, badgeNode])
+            contentChildren.append(contentsOf: [spacer, badge])
         }
 
         let contentStack = ASStackLayoutSpec(

@@ -22,13 +22,9 @@ final class NotificationsViewController: ViewController {
 
     private var dataDisposable: Disposable?
 
-    // MARK: - Node accessor
-
     private var notificationsNode: NotificationsContainerNode {
         displayNode as! NotificationsContainerNode
     }
-
-    // MARK: - Init
 
     init(context: AccountContext) {
         self.context = context
@@ -36,8 +32,6 @@ final class NotificationsViewController: ViewController {
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
-
-    // MARK: - Display node
 
     override func loadDisplayNode() {
         let interaction = NotificationsInteraction(
@@ -68,12 +62,9 @@ final class NotificationsViewController: ViewController {
             name: ThemeManager.didChangeNotification, object: nil)
     }
 
-    // MARK: - Lifecycle
-
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        // Fetch the default tab (Mentions = tag 1)
         Task { await fetchNotifications(category: 1) }
     }
 
@@ -94,19 +85,16 @@ final class NotificationsViewController: ViewController {
         }
     }
 
-    // MARK: - Data
-
     func fetchNotifications(category: Int32, isLoadMore: Bool = false) async {
         if isLoadMore {
             guard !isLoadingMore else { return }
         } else {
             guard !isLoading else { return }
         }
-        guard let token = context.session?.token else { return }
+        guard let token = await context.getToken() else { return }
 
         let clanId = context.currentClanId
 
-        // Handle Topic Tab (tag 4)
         if category == 4 {
             dataDisposable?.dispose()  // Dispose previous subscription if any
             asyncDetached { [weak self] in
@@ -140,7 +128,6 @@ final class NotificationsViewController: ViewController {
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
         }
 
-        // Subscribe to real-time engine data changes
         if !isLoadMore {
             dataDisposable?.dispose()
             dataDisposable =
@@ -184,19 +171,19 @@ final class NotificationsViewController: ViewController {
             channel.clanID = record.clanID
             channel.channelID = record.channelID
             channel.type = record.channelType
-            // For notifications, we navigate to the chat.
-            // topicID in record might be used if ChatViewController supported it.
+            context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
+            if record.messageID != 0 {
+                vc.pendingJumpToMessageId = String(record.messageID)
+            }
             self.navigationController?.pushViewController(vc, animated: true)
         case .topic(let record):
             channel.clanID = record.clanID
             channel.channelID = record.channelID
-            // For topics, we also navigate to the chat but specifically for this topic
-            // TODO: Ensure ChatViewController handles topicId from notification/direct select
+            context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
-            // If ChatViewController is updated to take topicId, we would pass record.id here.
             self.navigationController?.pushViewController(vc, animated: true)
         }
     }
@@ -216,8 +203,6 @@ final class NotificationsViewController: ViewController {
     @objc private func handleThemeChange() {
         notificationsNode.applyTheme()
     }
-
-    // MARK: - State Signal
 
     var currentState: NotificationsState {
         return NotificationsState(

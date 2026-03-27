@@ -20,6 +20,7 @@ final class AccountContextImpl: AccountContext {
     private var hasCompletedInitialSetup = false
     private(set) var isSessionReady: Bool = false
     private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
+    private var activeRefreshTask: Task<Bool, Never>?
     func waitForSessionReady() async {
         if isSessionReady { return }
         await withCheckedContinuation { continuation in
@@ -33,12 +34,35 @@ final class AccountContextImpl: AccountContext {
 
     func getToken() async -> String? {
         await waitForSessionReady()
+
+        if let inflight = activeRefreshTask {
+            _ = await inflight.value
+        }
+
         if let session, session.isExpired {
+            let refreshed = await ensureRefreshed()
+            if !refreshed {
+                AppLogger.network.warning("[Auth] getToken: token still expired after refresh attempts")
+                return nil
+            }
+        }
+        if let session, session.isExpired {
+            return nil
+        }
+        return session?.token
+    }
+
+    private func ensureRefreshed() async -> Bool {
+        if let inflight = activeRefreshTask {
+            return await inflight.value
+        }
+        let task = Task<Bool, Never> { @MainActor in
+            defer { self.activeRefreshTask = nil }
             for attempt in 1...2 {
                 do {
-                    try await refreshSession()
+                    try await self.refreshSession()
                     AppLogger.network.info("[Auth] token was expired, refreshed on attempt \(attempt)")
-                    break
+                    return true
                 } catch {
                     AppLogger.network.warning("[Auth] getToken refresh attempt \(attempt) failed: \(error)")
                     if attempt < 2 {
@@ -46,8 +70,10 @@ final class AccountContextImpl: AccountContext {
                     }
                 }
             }
+            return false
         }
-        return session?.token
+        activeRefreshTask = task
+        return await task.value
     }
 
     private func markSessionReady() {
@@ -132,13 +158,13 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func registerFCMTokenIfNeeded() {
-        guard let authToken = session?.token else { return }
         guard let fcmToken = Messaging.messaging().fcmToken else {
             AppLogger.network.info("[FCM] No FCM token available yet")
             return
         }
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
         Task {
+            guard let authToken = await self.getToken() else { return }
             do {
                 _ = try await account.network.registFcmDeviceToken(
                     fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: authToken
@@ -166,17 +192,21 @@ final class AccountContextImpl: AccountContext {
         if let last = lastRecoverTime, now.timeIntervalSince(last) < recoverThrottle { return }
         lastRecoverTime = now
 
-        Task { @MainActor in
-            let needsRefresh = session?.isExpired ?? true
+        let needsRefresh = session?.isExpired ?? true
 
-            if needsRefresh {
-                AppLogger.network.info("[Auth] recoverFromForeground: token expired, refreshing...")
+        if needsRefresh {
+            AppLogger.network.info("[Auth] recoverFromForeground: token expired, refreshing...")
+            let task = Task<Bool, Never> { @MainActor in
+                defer { self.activeRefreshTask = nil }
                 let refreshed = await self.refreshSessionWithRetry()
-                if !refreshed { return }
-            } else {
-                AppLogger.network.info("[Auth] recoverFromForeground: token still valid, reconnecting socket only")
+                if refreshed, let token = self.session?.token {
+                    self.account.socket.connect(token: token, wsHostOverride: nil)
+                }
+                return refreshed
             }
-
+            activeRefreshTask = task
+        } else {
+            AppLogger.network.info("[Auth] recoverFromForeground: token still valid, reconnecting socket only")
             if let token = session?.token {
                 account.socket.connect(token: token, wsHostOverride: nil)
             }

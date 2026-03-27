@@ -109,15 +109,21 @@ final class MessageBubbleNode: ASDisplayNode {
         )
         nameNode.maximumNumberOfLines = 1
 
+        let timeText: String = {
+            var str = Self.formatDate(display.message.createdAt)
+            if display.message.editedAt != nil {
+                str += " (edited)"
+            }
+            return str
+        }()
         timeNode.attributedText = NSAttributedString(
-            string: Self.formatDate(display.message.createdAt),
+            string: timeText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
                 .foregroundColor: t.textDisabled,
             ]
         )
 
-        // Add subnodes
         if !isCombine {
             addSubnode(avatarContainerNode)
             addSubnode(nameNode)
@@ -252,7 +258,8 @@ final class MessageBubbleNode: ASDisplayNode {
                 boundingSize: CGSize(width: size, height: size),
                 intrinsicInsets: .zero
             )
-            avatarImageNode.setSignal(remoteImageSignal(url: urlString, resizeMode: .fill), attemptSynchronously: false)
+            let proxyURL = ImgproxyURL.create(from: urlString, width: Int(size * UIScreen.main.scale), height: Int(size * UIScreen.main.scale))
+            avatarImageNode.setSignal(remoteImageSignal(url: proxyURL, resizeMode: .fill), attemptSynchronously: false)
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()

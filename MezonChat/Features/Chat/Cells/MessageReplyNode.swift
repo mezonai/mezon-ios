@@ -160,11 +160,11 @@ final class MessageReplyNode: ASDisplayNode {
         let textSpacing: CGFloat = 4.sw
         var x = leadingInset
 
-        iconNode.frame = CGRect(x: x, y: 0, width: cachedIconSize.width, height: cachedIconSize.height)
-        x += cachedIconSize.width + spacing
-
         let rowH = bounds.height - bottomInset
         let centerY = rowH / 2
+
+        iconNode.frame = CGRect(x: x, y: centerY - cachedIconSize.height / 2, width: cachedIconSize.width, height: cachedIconSize.height)
+        x += cachedIconSize.width + spacing
 
         if hasAvatar {
             avatarImageNode.frame = CGRect(x: x, y: centerY - avatarSz / 2, width: avatarSz, height: avatarSz)

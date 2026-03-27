@@ -30,17 +30,17 @@ enum RichTextBuilder {
         static func fromTheme() -> Style {
             let t = UIColor.theme
             return Style(
-                bodyFont: .systemFont(ofSize: 15.sf),
+                bodyFont: .systemFont(ofSize: 14.sf),
                 bodyColor: t.textStrong,
-                mentionFont: .systemFont(ofSize: 15.sf, weight: .semibold),
+                mentionFont: .systemFont(ofSize: 14.sf, weight: .semibold),
                 mentionColor: t.textLink,
                 mentionBgColor: t.midnightBlue,
                 roleMentionColor: t.textRoleLink,
                 roleMentionBgColor: t.darkMossGreen,
                 linkColor: t.textLink,
                 codeBgColor: t.tertiary,
-                codeFont: UIFont(name: "Menlo", size: 14.sf) ?? .monospacedSystemFont(ofSize: 14.sf, weight: .regular),
-                boldFont: .systemFont(ofSize: 15.sf, weight: .bold),
+                codeFont: UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular),
+                boldFont: .systemFont(ofSize: 14.sf, weight: .bold),
                 emojiSize: 20.sf
             )
         }

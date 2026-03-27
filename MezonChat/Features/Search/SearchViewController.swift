@@ -1133,7 +1133,7 @@ final class MemberSearchCellNode: ASCellNode {
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = t.tertiary
-        if !user.avatarURL.isEmpty, let url = URL(string: user.avatarURL) {
+        if !user.avatarURL.isEmpty, let url = URL(string: ImgproxyURL.create(from: user.avatarURL)) {
             avatarNode.url = url
         }
 
@@ -1144,7 +1144,6 @@ final class MemberSearchCellNode: ASCellNode {
         statusDotNode.borderWidth = 2.sf
         statusDotNode.borderColor = t.secondary.cgColor
 
-        // Priority: clanNick > displayName > username
         let displayName: String
         if let nick = clanNick, !nick.isEmpty {
             displayName = nick
@@ -1366,7 +1365,7 @@ final class MessageSearchCellNode: ASCellNode {
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = t.tertiary
-        if !document.avatarURL.isEmpty, let url = URL(string: document.avatarURL) {
+        if !document.avatarURL.isEmpty, let url = URL(string: ImgproxyURL.create(from: document.avatarURL)) {
             avatarNode.url = url
         }
 

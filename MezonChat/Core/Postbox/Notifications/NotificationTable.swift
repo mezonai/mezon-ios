@@ -25,12 +25,14 @@ final class NotificationTable: Table {
                 channel_type         INTEGER NOT NULL,
                 avatar_url           TEXT NOT NULL,
                 topic_id             INTEGER NOT NULL,
-                category             INTEGER NOT NULL
+                category             INTEGER NOT NULL,
+                message_id           INTEGER NOT NULL DEFAULT 0
             )
         """)
         db.rawExecute(
             "CREATE INDEX IF NOT EXISTS idx_notifications_clan_category ON notifications(clan_id, category, create_time_seconds DESC)"
         )
+        addColumnIfNeeded("notifications", column: "message_id", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
     func getNotificationRecord(clanId: Int64, category: Int32, limit: Int = 50) -> [NotificationRecord] {
@@ -40,7 +42,7 @@ final class NotificationTable: Table {
         let rows = db.query(
             """
             SELECT id, subject, content, code, sender_id, create_time_seconds, 
-                   persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category
+                   persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category, message_id
             FROM notifications
             WHERE clan_id = ? AND category = ?
             ORDER BY create_time_seconds DESC
@@ -65,13 +67,14 @@ final class NotificationTable: Table {
             let avatarUrl = String(cString: sqlite3_column_text(stmt, 10))
             let topicId = sqlite3_column_int64(stmt, 11)
             let rCategory = sqlite3_column_int(stmt, 12)
+            let messageId = sqlite3_column_int64(stmt, 13)
 
             return NotificationRecord(
                 id: id, subject: subject, content: content, code: code,
                 senderID: senderId, createTimeSeconds: createTime,
                 persistent: persistent, clanID: rClanId, channelID: channelId,
                 channelType: channelType, avatarURL: avatarUrl, topicID: topicId,
-                category: rCategory
+                category: rCategory, messageID: messageId
             )
         }
 
@@ -123,8 +126,8 @@ final class NotificationTable: Table {
                 db.run("""
                     INSERT INTO notifications(
                         id, subject, content, code, sender_id, create_time_seconds, 
-                        persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category, message_id
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in
                     sqlite3_bind_int64(s, 1, item.id)
                     sqlite3_bind_text(s, 2, (item.subject as NSString).utf8String, -1, nil)
@@ -139,6 +142,7 @@ final class NotificationTable: Table {
                     sqlite3_bind_text(s, 11, (item.avatarURL as NSString).utf8String, -1, nil)
                     sqlite3_bind_int64(s, 12, item.topicID)
                     sqlite3_bind_int(s, 13, item.category)
+                    sqlite3_bind_int64(s, 14, item.messageID)
                 }
             }
         }
