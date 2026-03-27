@@ -60,7 +60,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let prevState = self.state
 
                 if let msg = newState.errorMessage, msg != prevState.errorMessage {
-                    Toast.error(msg)
+                    // Toast.error(msg)
                 }
 
                 let wasClanSwitching = self.isClanSwitching
@@ -84,13 +84,15 @@ final class ChannelListContainerNode: ASDisplayNode {
                 } else if !newCats.isEmpty {
                     self.applyRowDiff(prev: prevState, new: newState)
                 }
+
+                if let selectedId = newState.selectedChannelId,
+                   selectedId != prevState.selectedChannelId {
+                    self.scrollToChannel(channelId: selectedId)
+                }
             })
         )
     }
 
-    // MARK: – Table update strategies
-
-    /// Safe full reload that keeps committedSectionCount in sync.
     private func safeReloadData() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -122,7 +124,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         let sectionOffset = hasChannelAppsSection ? 1 : 0
         let prevCatSections = committedSectionCount - sectionOffset
         let newCatSections = expectedAfter - sectionOffset
-        // If the category IDs match 1:1 we can do granular row-level diffs.
         let canPatch = prevCatSections == newCatSections
             && prevCatSections == prev.categories.count
             && newCatSections == new.categories.count
@@ -143,7 +144,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let nc = new.categories[i]
                 let section = i + sectionOffset
 
-                if pc.isCollapsed != nc.isCollapsed {
+                if pc.isCollapsed != nc.isCollapsed || pc.isCollapsed {
                     sectionsToReload.insert(section)
                     continue
                 }
@@ -286,6 +287,20 @@ final class ChannelListContainerNode: ASDisplayNode {
             self.tableNode.reloadRows(at: paths, with: .none)
         }
         CATransaction.commit()
+    }
+
+    private func scrollToChannel(channelId: Int64) {
+        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        for s in 0..<state.categories.count {
+            let rows = rowsForSection(s)
+            if let r = rows.firstIndex(where: { $0.channelDesc.channelID == channelId }) {
+                let indexPath = IndexPath(row: r, section: s + sectionOffset)
+                DispatchQueue.main.async {
+                    self.tableNode.scrollToRow(at: indexPath, at: .middle, animated: true)
+                }
+                return
+            }
+        }
     }
 
     deinit { disposables.dispose() }
@@ -522,10 +537,36 @@ final class ChannelListContainerNode: ASDisplayNode {
         if let cached = cachedRows[section] { return cached }
         guard section < state.categories.count else { return [] }
         let cat = state.categories[section]
-        if cat.isCollapsed { cachedRows[section] = []; return [] }
-        let rows = flattenCategoryToRows(cat, threadLookup: threadLookup)
-        cachedRows[section] = rows
-        return rows
+        let allRows = flattenCategoryToRows(cat, threadLookup: threadLookup)
+
+        if cat.isCollapsed {
+            let selectedId = state.selectedChannelId
+            let filtered = allRows.filter { row in
+                let ch = row.channelDesc
+                if ch.countMessUnread > 0 { return true }
+                if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
+                if ch.channelID == selectedId { return true }
+                if let threads = threadLookup[ch.channelID] {
+                    let hasUnreadOrActiveThread = threads.contains {
+                        $0.countMessUnread > 0
+                        || $0.lastSentMessage.timestampSeconds > $0.lastSeenMessage.timestampSeconds
+                        || $0.channelID == selectedId
+                    }
+                    if hasUnreadOrActiveThread { return true }
+                }
+                if case .thread = row {
+                    if ch.countMessUnread > 0 { return true }
+                    if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
+                    if ch.channelID == selectedId { return true }
+                }
+                return false
+            }
+            cachedRows[section] = filtered
+            return filtered
+        }
+
+        cachedRows[section] = allRows
+        return allRows
     }
 }
 

@@ -83,7 +83,7 @@ enum ChannelType: Int32 {
     var isSystemImage: Bool { true }
 }
 
-private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription]) -> [ChannelCategory] {
+private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription], collapsedIds: Set<Int64>? = nil) -> [ChannelCategory] {
     let topLevel = channels.filter { $0.parentID == 0 }
     var order: [Int64] = []
     var lookup: [Int64: (String, [Mezon_Api_ChannelDescription])] = [:]
@@ -94,18 +94,15 @@ private func buildChannelCategories(_ channels: [Mezon_Api_ChannelDescription]) 
     }
     return order.compactMap { id in
         guard let (name, list) = lookup[id] else { return nil }
-        return ChannelCategory(id: id, name: name, isCollapsed: false, channels: list)
+        return ChannelCategory(id: id, name: name, isCollapsed: collapsedIds?.contains(id) ?? false, channels: list)
     }
 }
 
-/// Pre-built thread lookup for O(1) access instead of O(n) filter per channel.
-/// Call once per state change, reuse for all sections.
 func buildThreadLookup(_ allChannels: [Mezon_Api_ChannelDescription]) -> [Int64: [Mezon_Api_ChannelDescription]] {
     var lookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
     for ch in allChannels where ch.parentID != 0 {
         lookup[ch.parentID, default: []].append(ch)
     }
-    // Sort each group once
     for key in lookup.keys {
         lookup[key]?.sort { $0.channelLabel < $1.channelLabel }
     }
@@ -395,8 +392,9 @@ final class ChannelListViewController: ViewController {
                 self.isLoading = false
                 switch result {
                 case .success(let channels):
-                self.allChannels = channels
-                    let cats = buildChannelCategories(channels)
+                    self.allChannels = channels
+                    let storedCollapsed = self.loadCollapsedCategoryIds()
+                    let cats = buildChannelCategories(channels, collapsedIds: storedCollapsed)
                     self.categories = cats
                 self.channelsLoadedPromise.set(true)
                 self.persistSelectedChannel()
@@ -421,6 +419,7 @@ final class ChannelListViewController: ViewController {
         var updated = categories
         updated[idx].isCollapsed.toggle()
         setCategories(updated)
+        persistCollapseState()
     }
 
     func select(channel: Mezon_Api_ChannelDescription) {
@@ -483,14 +482,14 @@ final class ChannelListViewController: ViewController {
     }
 
     private func fetchChannelApps() {
-        guard clanId != 0, let token = context.session?.token else { return }
+        guard clanId != 0 else { return }
         let clanId = self.clanId
         Task { @MainActor [weak self] in
             guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanId, token: token)
                 self.channelListNode.updateChannelApps(apps)
-                // Cache to postbox
                 self.context.account.postbox.setPreferenceData(
                     key: PreferencesKeys.channelApps(clanId: clanId),
                     value: self.encodeChannelApps(apps)
@@ -541,15 +540,14 @@ final class ChannelListViewController: ViewController {
         return result
     }
 
-    // MARK: - Channel List Cache
-
     @discardableResult
     private func restoreCachedChannels(clanId: Int64) -> Bool {
         guard let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) else { return false }
         let channels = decodeChannelList(data)
         guard !channels.isEmpty else { return false }
         allChannels = channels
-        let cats = buildChannelCategories(channels)
+        let storedCollapsed = loadCollapsedCategoryIds()
+        let cats = buildChannelCategories(channels, collapsedIds: storedCollapsed)
         categories = cats
         categoriesPipe.putNext(cats)
         persistSelectedChannel()
@@ -585,6 +583,42 @@ final class ChannelListViewController: ViewController {
                 result.append(m)
             }
             offset += Int(len)
+        }
+        return result
+    }
+
+    private func persistCollapseState() {
+        let collapsed = Set(categories.filter(\.isCollapsed).map(\.id))
+        let encoded = encodeCollapsedIds(collapsed)
+        context.account.postbox.setPreferenceData(key: PreferencesKeys.collapsedCategories(clanId: clanId), value: encoded)
+    }
+
+    private func loadCollapsedCategoryIds() -> Set<Int64>? {
+        guard let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.collapsedCategories(clanId: clanId)) else { return nil }
+        return decodeCollapsedIds(data)
+    }
+
+    private func encodeCollapsedIds(_ ids: Set<Int64>) -> Data {
+        var result = Data()
+        var count = UInt32(ids.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for id in ids {
+            var le = id.littleEndian
+            result.append(contentsOf: withUnsafeBytes(of: &le) { Array($0) })
+        }
+        return result
+    }
+
+    private func decodeCollapsedIds(_ data: Data) -> Set<Int64> {
+        guard data.count >= 4 else { return [] }
+        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result = Set<Int64>()
+        var offset = 4
+        for _ in 0..<count {
+            guard offset + 8 <= data.count else { break }
+            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            result.insert(id)
+            offset += 8
         }
         return result
     }

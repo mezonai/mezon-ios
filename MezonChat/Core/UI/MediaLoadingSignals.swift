@@ -26,6 +26,9 @@ final class ImageCache {
     }()
 
     private let ioQueue = DispatchQueue(label: "mezon.imagecache.io", qos: .utility)
+    func memoryImage(forKey key: String) -> UIImage? {
+        return memoryCache.object(forKey: key as NSString)
+    }
 
     func image(forKey key: String) -> UIImage? {
         let nsKey = key as NSString
@@ -36,10 +39,29 @@ final class ImageCache {
 
         let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
         guard let data = try? Data(contentsOf: fileURL),
-              let image = UIImage.decodeImage(from: data) else { return nil }
+              let image = UIImage.decompressedImage(from: data) else { return nil }
 
         memoryCache.setObject(image, forKey: nsKey, cost: data.count)
         return image
+    }
+
+    func imageFromDisk(forKey key: String, completion: @escaping (UIImage?) -> Void) {
+        ioQueue.async { [weak self] in
+            guard let self else { DispatchQueue.main.async { completion(nil) }; return }
+            let fileURL = self.diskCacheURL.appendingPathComponent(key.sha256Hash)
+            guard let data = try? Data(contentsOf: fileURL),
+                  let image = UIImage.decompressedImage(from: data) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            self.memoryCache.setObject(image, forKey: key as NSString, cost: data.count)
+            DispatchQueue.main.async { completion(image) }
+        }
+    }
+
+    func hasDiskCache(forKey key: String) -> Bool {
+        let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
+        return FileManager.default.fileExists(atPath: fileURL.path)
     }
 
     func setImage(_ image: UIImage, data: Data?, forKey key: String) {
@@ -95,17 +117,40 @@ final class ImageCache {
             return nil
         }
 
-        if let cached = image(forKey: urlString) {
+        if let cached = memoryCache.object(forKey: urlString as NSString) {
             completion(cached)
             return nil
         }
 
+        if hasDiskCache(forKey: urlString) {
+            imageFromDisk(forKey: urlString) { [weak self] diskImage in
+                if let diskImage {
+                    completion(diskImage)
+                } else {
+                    self?.downloadImage(url: url, key: urlString, completion: completion)
+                }
+            }
+            return nil
+        }
+
+        return downloadImage(url: url, key: urlString, completion: completion)
+    }
+
+    @discardableResult
+    private func downloadImage(
+        url: URL,
+        key: String,
+        completion: @escaping (UIImage?) -> Void
+    ) -> URLSessionDataTask {
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage.decodeImage(from: data) else {
+            guard let data else {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
-            self?.setImage(image, data: data, forKey: urlString)
+            let image = UIImage.decompressedImage(from: data)
+            if let image {
+                self?.setImage(image, data: data, forKey: key)
+            }
             DispatchQueue.main.async { completion(image) }
         }
         task.resume()
@@ -154,7 +199,14 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
             )
 
             if let cgImage = image.cgImage {
-                ctx.draw(cgImage, in: CGRect(origin: drawOrigin, size: fittedSize))
+                let imageRect = CGRect(origin: drawOrigin, size: fittedSize)
+                ctx.saveGState()
+                ctx.translateBy(x: 0, y: arguments.boundingSize.height)
+                ctx.scaleBy(x: 1.0, y: -1.0)
+                UIGraphicsPushContext(ctx)
+                image.draw(in: imageRect)
+                UIGraphicsPopContext()
+                ctx.restoreGState()
             }
         }
         return context
@@ -169,27 +221,42 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
         }
 
         let cache = ImageCache.shared
-        if let cached = cache.image(forKey: url) {
+        if let cached = cache.memoryImage(forKey: url) {
             subscriber.putNext(makeTransform(for: cached, resizeMode: resizeMode))
             subscriber.putCompletion()
             return EmptyDisposable
         }
 
-        let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
-            guard let data, let image = UIImage.decodeImage(from: data) else {
+        let cancelled = Atomic<Bool>(value: false)
+        var dataTask: URLSessionDataTask?
+
+        cache.imageFromDisk(forKey: url) { diskImage in
+            guard !cancelled.with({ $0 }) else { return }
+            if let diskImage {
+                subscriber.putNext(makeTransform(for: diskImage, resizeMode: resizeMode))
                 subscriber.putCompletion()
                 return
             }
-
-            // Store in both caches
-            cache.setImage(image, data: data, forKey: url)
-
-            subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
-            subscriber.putCompletion()
+            let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+                guard !cancelled.with({ $0 }), let data else {
+                    subscriber.putCompletion()
+                    return
+                }
+                let image = UIImage.decompressedImage(from: data)
+                if let image {
+                    cache.setImage(image, data: data, forKey: url)
+                    subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+                }
+                subscriber.putCompletion()
+            }
+            dataTask = task
+            task.resume()
         }
-        task.resume()
 
-        return ActionDisposable { task.cancel() }
+        return ActionDisposable {
+            let _ = cancelled.modify { _ in true }
+            dataTask?.cancel()
+        }
     }
 }
 
@@ -210,22 +277,40 @@ func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
         }
 
         let cache = ImageCache.shared
-        if let cached = cache.image(forKey: url) {
+
+        if let cached = cache.memoryImage(forKey: url) {
             subscriber.putNext(cached)
             subscriber.putCompletion()
             return EmptyDisposable
         }
 
-        let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
-            let image = data.flatMap { UIImage.decodeImage(from: $0) }
-            if let image, let data {
-                cache.setImage(image, data: data, forKey: url)
+        let cancelled = Atomic<Bool>(value: false)
+        var dataTask: URLSessionDataTask?
+
+        cache.imageFromDisk(forKey: url) { diskImage in
+            guard !cancelled.with({ $0 }) else { return }
+            if let diskImage {
+                subscriber.putNext(diskImage)
+                subscriber.putCompletion()
+                return
             }
-            subscriber.putNext(image)
-            subscriber.putCompletion()
+            let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+                guard !cancelled.with({ $0 }) else { return }
+                let image = data.flatMap { UIImage.decompressedImage(from: $0) }
+                if let image, let data {
+                    cache.setImage(image, data: data, forKey: url)
+                }
+                subscriber.putNext(image)
+                subscriber.putCompletion()
+            }
+            dataTask = task
+            task.resume()
         }
-        task.resume()
-        return ActionDisposable { task.cancel() }
+
+        return ActionDisposable {
+            let _ = cancelled.modify { _ in true }
+            dataTask?.cancel()
+        }
     }
 }
 
@@ -271,12 +356,17 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
 }
 
 func prefetchImages(urls: [String]) {
+    let cache = ImageCache.shared
     for url in urls {
-        guard ImageCache.shared.image(forKey: url) == nil else { continue }
+        guard cache.memoryImage(forKey: url) == nil else { continue }
+        guard !cache.hasDiskCache(forKey: url) else {
+            cache.imageFromDisk(forKey: url) { _ in }
+            continue
+        }
         guard let imageURL = URL(string: url) else { continue }
         URLSession.shared.dataTask(with: imageURL) { data, _, _ in
-            guard let data, let image = UIImage.decodeImage(from: data) else { return }
-            ImageCache.shared.setImage(image, data: data, forKey: url)
+            guard let data, let image = UIImage.decompressedImage(from: data) else { return }
+            cache.setImage(image, data: data, forKey: url)
         }.resume()
     }
 }

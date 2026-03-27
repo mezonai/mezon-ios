@@ -57,7 +57,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
         NetworkMonitor.shared.start()
         NetworkBannerView.install(on: nativeWindow)
-        SocketStatusBannerView.install(on: nativeWindow)
+        // SocketStatusBannerView.install(on: nativeWindow)
 
         let statusBarHost = SceneStatusBarHost(scene: windowScene)
         let mainWindow = Window1(hostView: hostView, statusBarHost: statusBarHost)
@@ -263,11 +263,12 @@ extension AppDelegate: MessagingDelegate {
         AppLogger.network.info("[FCM] Token received: \(fcmToken.prefix(20))...")
 
         Task { @MainActor in
-            guard let context = self.accountContext, let session = context.session else { return }
+            guard let context = self.accountContext else { return }
+            guard let token = await context.getToken() else { return }
             let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
             do {
                 _ = try await context.account.network.registFcmDeviceToken(
-                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: session.token
+                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: token
                 )
                 AppLogger.network.info("[FCM] Token registered with server")
             } catch {

@@ -28,6 +28,8 @@ public struct NotificationRecord: PostboxCoding, Identifiable, Equatable {
     public let topicID: Int64
     /// category (1: mentions, 2: messages, 3: for you).
     public let category: Int32
+    /// ID of the message that triggered this notification.
+    public let messageID: Int64
 
     public init(
         id: Int64,
@@ -42,7 +44,8 @@ public struct NotificationRecord: PostboxCoding, Identifiable, Equatable {
         channelType: Int32,
         avatarURL: String,
         topicID: Int64,
-        category: Int32
+        category: Int32,
+        messageID: Int64 = 0
     ) {
         self.id = id
         self.subject = subject
@@ -57,6 +60,7 @@ public struct NotificationRecord: PostboxCoding, Identifiable, Equatable {
         self.avatarURL = avatarURL
         self.topicID = topicID
         self.category = category
+        self.messageID = messageID
     }
 }
 
@@ -77,13 +81,14 @@ extension NotificationRecord {
         let decoded = NotificationRecord.decodeContent(from: apiModel.content)
         self.content = decoded.text
         self.avatarURL = apiModel.avatarURL.isEmpty ? decoded.avatar : apiModel.avatarURL
+        self.messageID = decoded.messageID
     }
 
-    private typealias DecodedContent = (text: String, avatar: String)
+    private typealias DecodedContent = (text: String, avatar: String, messageID: Int64)
 
     //Decode content in notification
     private static func decodeContent(from data: Data) -> DecodedContent {
-        guard !data.isEmpty else { return ("", "") }
+        guard !data.isEmpty else { return ("", "", 0) }
         if let channelMessage = try? Mezon_Api_DirectFcmProto(serializedBytes: data) {
             let jsonString = channelMessage.content
             let text: String
@@ -95,8 +100,8 @@ extension NotificationRecord {
             } else {
                 text = jsonString
             }
-            return (text, channelMessage.avatar)
+            return (text, channelMessage.avatar, channelMessage.messageID)
         }
-        return (String(data: data, encoding: .utf8) ?? "", "")
+        return (String(data: data, encoding: .utf8) ?? "", "", 0)
     }
 }

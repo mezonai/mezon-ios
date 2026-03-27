@@ -18,6 +18,7 @@ struct ChatInteraction {
     let onTopicTapped: (TopicData) -> Void
     let onReactionTapped: (ParsedReaction, ChatMessageDisplay) -> Void
     let onAvatarTapped: (ChatMessageDisplay) -> Void
+    let onSwipeReply: (ChatMessageDisplay) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -119,7 +120,7 @@ final class ChatContainerNode: ASDisplayNode {
                 self.state = newState
                 self.updateHeader(state: newState)
                 self.updateLoadingState(newState)
-                if let msg = newState.errorMessage { Toast.error(msg) }
+                // if let msg = newState.errorMessage { Toast.error(msg) }
 
                 let isEmpty = newState.messages.isEmpty
 

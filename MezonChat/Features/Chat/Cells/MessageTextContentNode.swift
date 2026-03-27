@@ -108,7 +108,7 @@ final class MessageTextContentNode: ASDisplayNode {
             attrText = NSAttributedString(
                 string: parsedContent.text,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 15.sf),
+                    .font: UIFont.systemFont(ofSize: 14.sf),
                     .foregroundColor: t.textStrong,
                 ]
             )
@@ -334,7 +334,7 @@ final class CodeBlockContainerNode: ASDisplayNode {
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
 
-        let codeFont = UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular)
+        let codeFont = UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular)
         codeTextNode.attributedText = NSAttributedString(
             string: code,
             attributes: [

@@ -27,10 +27,11 @@ final class ChannelAppCellNode: ASCellNode {
         logoNode.contentMode = .scaleAspectFit
 
         if !app.appLogo.isEmpty {
-            if let cached = ImageCache.shared.cachedImage(forURL: app.appLogo) {
+            let proxyURL = ImgproxyURL.create(from: app.appLogo)
+            if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
                 logoNode.image = cached
             } else {
-                ImageCache.shared.loadImage(urlString: app.appLogo) { [weak self] image in
+                ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
                     guard let self, let image else { return }
                     self.logoNode.image = image
                 }
@@ -171,11 +172,12 @@ final class ChannelAppIconNode: ASDisplayNode {
         nameNode.truncationMode = .byTruncatingTail
 
         if !app.appLogo.isEmpty {
-            if let cached = ImageCache.shared.cachedImage(forURL: app.appLogo) {
+            let proxyURL = ImgproxyURL.create(from: app.appLogo)
+            if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
                 logoImageNode.image = cached
             } else {
                 let id = app.appName
-                ImageCache.shared.loadImage(urlString: app.appLogo) { [weak self] image in
+                ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
                     guard let self, let image, self.nameNode.attributedText?.string == id else { return }
                     self.logoImageNode.image = image
                 }

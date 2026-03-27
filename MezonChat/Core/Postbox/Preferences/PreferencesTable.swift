@@ -93,4 +93,5 @@ enum PreferencesKeys {
     static let dmChannelList = "dmChannelList"
     static let allUserClans = "allUserClans"
     static let allChannelsByUser = "allChannelsByUser"
+    static func collapsedCategories(clanId: Int64) -> String { "collapsedCats_\(clanId)" }
 }

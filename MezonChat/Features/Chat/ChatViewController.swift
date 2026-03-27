@@ -169,7 +169,7 @@ final class ChatViewController: ViewController {
             context: context
         )
         vc.onSent = { [weak self] in self?.shouldScrollToBottom = true }
-        vc.onError = { Toast.error($0) }
+        // vc.onError = { Toast.error($0) }
         vc.onHeightChanged = { [weak self] newHeight in
             self?.updateInputBarHeight(newHeight)
         }
@@ -179,6 +179,8 @@ final class ChatViewController: ViewController {
 
     private var inputBarHeight: CGFloat = 56
     private var currentKeyboardOffset: CGFloat = 0
+    private var isKeyboardVisible = false
+    private var trackedKeyboardHeight: CGFloat = 0
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
@@ -260,6 +262,9 @@ final class ChatViewController: ViewController {
             onAvatarTapped: { [weak self] display in
                 self?.showMemberProfile(display)
             },
+            onSwipeReply: { [weak self] display in
+                self?.sendInputViewController.setReply(display)
+            },
             onMessagesReloaded: nil
         )
         interaction.onMessagesReloaded = { [weak self] in
@@ -286,6 +291,7 @@ final class ChatViewController: ViewController {
         }
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnected(_:)), name: .mezonSocketStatusChanged, object: nil)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -299,7 +305,17 @@ final class ChatViewController: ViewController {
 
         let keyboardHeight = layout.inputHeight ?? 0
         let bottomInset = layout.intrinsicInsets.bottom
-        let keyboardOffset = max(keyboardHeight - bottomInset, 0)
+        var keyboardOffset = max(keyboardHeight - bottomInset, 0)
+
+        // Safety: if local keyboard tracking says keyboard is hidden,
+        // verify via first-responder before accepting a non-zero offset.
+        if !isKeyboardVisible && keyboardOffset > 0 {
+            let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
+            if !hasFirstResponder {
+                keyboardOffset = 0
+            }
+        }
+
         let inputBarY = layout.size.height - bottomInset - keyboardOffset - inputBarHeight
         let inputBarFrame = CGRect(x: 0, y: inputBarY, width: layout.size.width, height: inputBarHeight)
         transition.updateFrame(view: sendInputViewController.view, frame: inputBarFrame)
@@ -316,6 +332,13 @@ final class ChatViewController: ViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        // Re-evaluate keyboard state when returning to this screen.
+        // The window layout may carry a stale inputHeight from a previous VC.
+        let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
+        if !hasFirstResponder {
+            isKeyboardVisible = false
+            trackedKeyboardHeight = 0
+        }
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .immediate)
         }
@@ -323,7 +346,21 @@ final class ChatViewController: ViewController {
 
     @objc private func handleThemeChange() { messagesNode.applyTheme() }
 
-    deinit { stateDisposables.dispose() }
+    @objc private func handleSocketReconnected(_ notification: Notification) {
+        guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            self.fetchMessages(token: token)
+            self.joinChat()
+        }
+    }
+
+    deinit {
+        stateDisposables.dispose()
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
@@ -392,12 +429,13 @@ final class ChatViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.context.waitForSessionReady()
-            self.fetchMessages()
+            guard let token = await self.context.getToken() else { return }
+            self.fetchMessages(token: token)
             self.joinChat()
-            self.fetchNotificationSetting()
-            self.fetchChannelPermissions()
-            self.fetchChannelMembers()
-            self.checkBanStatus()
+            self.fetchNotificationSetting(token: token)
+            self.fetchChannelPermissions(token: token)
+            self.fetchChannelMembers(token: token)
+            self.checkBanStatus(token: token)
         }
     }
 
@@ -476,13 +514,15 @@ final class ChatViewController: ViewController {
         )
     }
 
-    func fetchMessages() {
+    func fetchMessages(token: String? = nil) {
         setIsLoading(true)
         setErrorMessage(nil)
 
         Task { @MainActor in
             defer { self.setIsLoading(false) }
-            guard let token = await self.context.getToken() else { return }
+            let resolvedToken: String?
+            if let token { resolvedToken = token } else { resolvedToken = await self.context.getToken() }
+            guard let token = resolvedToken else { return }
             do {
                 var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token)
                 if response.messages.isEmpty {
@@ -490,7 +530,9 @@ final class ChatViewController: ViewController {
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }
-                self.context.account.postbox.write { tx in tx.addMessages(records) }
+                self.context.account.postbox.write { tx in
+                    tx.replaceAllMessages(records, channelId: self.storageChannelId)
+                }
             } catch {
                 self.setErrorMessage(error.localizedDescription)
             }
@@ -499,7 +541,6 @@ final class ChatViewController: ViewController {
 
     func fetchOlderMessages() {
         guard hasMoreOlder, !isLoadingMore else { return }
-        guard let token = context.session?.token else { return }
         guard messages.count >= 10 else { return }
 
         guard let oldest = messages.first(where: { !$0.isWelcome }),
@@ -514,6 +555,7 @@ final class ChatViewController: ViewController {
         setIsLoadingMore(true)
         Task { @MainActor in
             defer { self.setIsLoadingMore(false) }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
@@ -533,7 +575,6 @@ final class ChatViewController: ViewController {
 
     func fetchNewerMessages() {
         guard hasMoreNewer, !isLoadingNewer else { return }
-        guard let token = context.session?.token else { return }
         guard messages.count >= 10 else { return }
         guard let newest = messages.last, let msgId = Int64(newest.message.id) else { return }
 
@@ -543,6 +584,10 @@ final class ChatViewController: ViewController {
         shouldScrollToBottom = false
         setIsLoadingNewer(true)
         Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.setIsLoadingNewer(false)
+                return
+            }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
@@ -567,12 +612,15 @@ final class ChatViewController: ViewController {
     }
 
     private func jumpToPresent() {
-        guard let token = context.session?.token else { return }
         shouldScrollToBottom = true
         pendingScrollToBottom = true
         setHasMoreNewer(false)
 
         Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.pendingScrollToBottom = false
+                return
+            }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
@@ -593,10 +641,12 @@ final class ChatViewController: ViewController {
     }
 
 
-    private func fetchNotificationSetting() {
-        guard let token = context.session?.token else { return }
+    private func fetchNotificationSetting(token: String? = nil) {
         let channelId = channel.channelID
         Task { @MainActor in
+            let resolvedToken: String
+            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            let token = resolvedToken
             do {
                 let response = try await self.context.account.network.getNotificationChannel(channelId: channelId, token: token)
                 let record = NotificationSettingRecord(from: response)
@@ -609,10 +659,12 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func fetchChannelPermissions() {
-        guard let token = context.session?.token else { return }
+    private func fetchChannelPermissions(token: String? = nil) {
         let channelId = channel.channelID
         Task { @MainActor in
+            let resolvedToken: String
+            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            let token = resolvedToken
             do {
                 let response = try await self.context.account.network.listUserPermissionInChannel(clanId: clanId, channelId: channelId, token: token)
                 let records = response.permissions.permissions.map { PermissionRecord(from: $0) }
@@ -625,14 +677,16 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func fetchChannelMembers() {
-        guard let token = context.session?.token else { return }
+    private func fetchChannelMembers(token: String? = nil) {
         let channelId = channel.channelID
         let channelType: Int32 = clanId == 0
             ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
             : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
 
         Task { @MainActor in
+            let resolvedToken: String
+            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            let token = resolvedToken
             do {
                 if channel.parentID != 0 {
                     let parentResponse = try await self.context.account.network.listChannelUsers(
@@ -665,13 +719,15 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func checkBanStatus() {
-        guard let token = context.session?.token else { return }
+    private func checkBanStatus(token: String? = nil) {
         let channelId = channel.channelID
         let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
         guard isPublic else { return }
 
         Task { @MainActor in
+            let resolvedToken: String
+            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            let token = resolvedToken
             do {
                 let response = try await self.context.account.network.isBanned(channelId: channelId, token: token)
                 self.context.account.postbox.write { tx in
@@ -1008,10 +1064,12 @@ final class ChatViewController: ViewController {
             guard emojiKey != "?" || !r.emoji.isEmpty else { continue }
             let senderId = "\(r.senderID)"
             if grouped[emojiKey] == nil {
-                grouped[emojiKey] = (emoji: r.emoji, senderIds: [], countFromApi: r.count)
+                grouped[emojiKey] = (emoji: r.emoji, senderIds: [], countFromApi: 0)
+            }
+            if r.count > grouped[emojiKey]!.countFromApi {
+                grouped[emojiKey]!.countFromApi = r.count
             }
             if !r.action {
-                // API protobuf: action=false means active reaction
                 if !grouped[emojiKey]!.senderIds.contains(senderId) {
                     grouped[emojiKey]!.senderIds.append(senderId)
                 }
@@ -1020,7 +1078,7 @@ final class ChatViewController: ViewController {
             }
         }
         return grouped.compactMap { key, value in
-            let count = value.countFromApi > 0 ? Int(value.countFromApi) : value.senderIds.count
+            let count = max(Int(value.countFromApi), value.senderIds.count)
             guard count > 0 else { return nil }
             let isMe = currentUserId.map { value.senderIds.contains($0) } ?? false
             return ParsedReaction(
@@ -1053,6 +1111,21 @@ final class ChatViewController: ViewController {
         tap.cancelsTouchesInView = false
         messagesNode.listView.view.addGestureRecognizer(tap)
         messagesNode.listView.scroller.keyboardDismissMode = .onDrag
+
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        isKeyboardVisible = true
+        if let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            trackedKeyboardHeight = frame.height
+        }
+    }
+
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        isKeyboardVisible = false
+        trackedKeyboardHeight = 0
     }
 
     private func updateInputBarHeight(_ newHeight: CGFloat) {
@@ -1068,19 +1141,16 @@ final class ChatViewController: ViewController {
         shouldScrollToBottom = false
         isJumping = true
 
-        // Check if message is already loaded
         if messages.contains(where: { $0.id == messageId }) {
             messagesNode.pendingJumpMessageId = messageId
             messagesNode.triggerPendingJump()
-            // Re-enable loadmore after scroll settles
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.isJumping = false
             }
             return
         }
 
-        guard let token = context.session?.token,
-              let msgId = Int64(messageId) else {
+        guard let msgId = Int64(messageId) else {
             isJumping = false
             return
         }
@@ -1097,6 +1167,7 @@ final class ChatViewController: ViewController {
                     self?.readyToLoadMore = true
                 }
             }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: self.clanId,
@@ -1273,7 +1344,6 @@ final class ChatViewController: ViewController {
     }
 
     private func handleEmojiReaction(emojiId: String, shortname: String, display: ChatMessageDisplay) {
-        guard let token = context.session?.token else { return }
         guard let msgId = Int64(display.message.id) else { return }
         guard let emojiIdInt = Int64(emojiId) else { return }
         let senderId = Int64(display.message.senderId) ?? 0
@@ -1290,6 +1360,7 @@ final class ChatViewController: ViewController {
         let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
 
         Task { @MainActor in
+            guard let token = await self.context.getToken() else { return }
             do {
                 let _ = try await self.context.account.network.writeMessageReaction(
                     clanId: self.clanId,
@@ -1314,12 +1385,11 @@ final class ChatViewController: ViewController {
     private func handleMessageAction(_ action: MessageAction, display: ChatMessageDisplay) {
         switch action {
         case .reply:
-            break // TODO: implement reply
+            sendInputViewController.setReply(display)
+            sendInputViewController.view.becomeFirstResponder()
         case .copyText:
             UIPasteboard.general.string = display.parsedContent.text
             Toast.success(L(L10n.MessageAction.copied))
-        case .editMessage:
-            break // TODO: implement edit
         case .deleteMessage:
             let msgId = display.message.id
             if let msgIdInt = Int64(msgId) {

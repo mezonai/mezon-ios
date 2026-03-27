@@ -158,7 +158,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         avatarContainer.addSubview(avatarImageView)
 
         if !avatarURL.isEmpty {
-            ImageCache.shared.loadImage(urlString: avatarURL) {
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL)) {
                 [weak avatarImageView, weak initialsLabel] image in
                 if let image = image {
                     avatarImageView?.image = image

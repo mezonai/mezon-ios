@@ -8,6 +8,27 @@ extension UIImage {
         return decodeWithImageIO(data)
     }
 
+    static func decompressedImage(from data: Data) -> UIImage? {
+        guard let image = decodeImage(from: data) else { return nil }
+        guard let cgImage = image.cgImage else { return image }
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0 else { return image }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else { return image }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let decoded = ctx.makeImage() else { return image }
+        return UIImage(cgImage: decoded, scale: image.scale, orientation: image.imageOrientation)
+    }
+
     private static let heicTypeHint = "public.heic" as CFString
 
     private static func decodeWithImageIO(_ data: Data) -> UIImage? {
