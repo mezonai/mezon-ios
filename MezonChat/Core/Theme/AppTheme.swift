@@ -153,7 +153,7 @@ private extension ThemeAttributes {
 
     static let light = ThemeAttributes(
         primary:          hex("#f4f4f8"),
-        primaryGradient:  hex("#f4f4f8"),
+        primaryGradient:  hex("#ffffff"),
         secondary:        hex("#ffffff"),
         secondaryWeight:  hex("#F0F0F0"),
         secondaryLight:   hex("#fefdfe"),

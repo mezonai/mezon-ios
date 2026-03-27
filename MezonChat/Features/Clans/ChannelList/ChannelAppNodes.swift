@@ -191,7 +191,8 @@ final class ChannelAppIconNode: ASDisplayNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        logoContainerNode.style.preferredSize = CGSize(width: 40.swh, height: 40.swh)
+        let boxSize = 40.swh
+        logoContainerNode.style.preferredSize = CGSize(width: boxSize, height: boxSize)
         logoImageNode.style.preferredSize = CGSize(width: 24.swh, height: 24.swh)
 
         let logoCenter = ASCenterLayoutSpec(
@@ -199,6 +200,8 @@ final class ChannelAppIconNode: ASDisplayNode {
             sizingOptions: [],
             child: logoImageNode
         )
+        logoCenter.style.preferredSize = CGSize(width: boxSize, height: boxSize)
+
         let logoBackground = ASBackgroundLayoutSpec(child: logoCenter, background: logoContainerNode)
 
         nameNode.style.maxWidth = ASDimensionMake(40.sw)

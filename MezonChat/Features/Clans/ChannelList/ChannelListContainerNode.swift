@@ -1,5 +1,5 @@
-import UIKit
 import AsyncDisplayKit
+import UIKit
 
 struct ChannelListInteraction {
     let onSelectChannel: (Mezon_Api_ChannelDescription) -> Void
@@ -17,7 +17,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let bannerView = ChannelBannerView()
     private let headerSpacer = UIView()
     private var stickyTopOffset: CGFloat = 0
-    private let headerH: CGFloat = 100.sh
+    private let headerH: CGFloat = 120.sh
     private var channelApps: [Mezon_Api_ChannelAppResponse] = []
     private var isChannelAppsExpanded = true
     private var hasChannelAppsSection: Bool { !channelApps.isEmpty }
@@ -26,8 +26,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0, y: 0)
-        gl.endPoint   = CGPoint(x: 1, y: 1)
-        gl.locations  = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
+        gl.endPoint = CGPoint(x: 1, y: 1)
+        gl.locations = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
         return gl
     }()
 
@@ -158,7 +158,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 if oldIds == newIds {
                     for (r, row) in newRows.enumerated() {
                         if channelRowDataChanged(old: oldRows[r], new: row,
-                                                 prevSelected: prev.selectedChannelId,
+                            prevSelected: prev.selectedChannelId,
                                                  newSelected: new.selectedChannelId) {
                             rowsToReload.append(IndexPath(row: r, section: section))
                         }
@@ -189,7 +189,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     let chId = oldRow.channelDesc.channelID
                     guard let newRow = newRowLookup[chId] else { continue }
                     if channelRowDataChanged(old: oldRow, new: newRow,
-                                             prevSelected: prev.selectedChannelId,
+                        prevSelected: prev.selectedChannelId,
                                              newSelected: new.selectedChannelId) {
                         rowsToReload.append(IndexPath(row: r, section: section))
                     }
@@ -888,7 +888,7 @@ final class ChannelListHeaderView: UIView {
             mainStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             mainStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             mainStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
 
             communityDot.widthAnchor.constraint(equalToConstant: 4),
             communityDot.heightAnchor.constraint(equalToConstant: 4),
@@ -956,7 +956,7 @@ final class ChannelListHeaderView: UIView {
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         eventButton.backgroundColor = t.tertiary
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
-        separator.backgroundColor = t.border.withAlphaComponent(0.3)
+        separator.backgroundColor = t.borderDim
     }
 
     @objc private func handleHeaderTap() {

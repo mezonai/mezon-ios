@@ -82,6 +82,12 @@ final class SendMessageInputViewController: UIViewController {
         return v
     }()
 
+    private lazy var topSeparator: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
     private lazy var attachButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
@@ -346,6 +352,7 @@ final class SendMessageInputViewController: UIViewController {
 
         view.addSubview(attachmentPreviewView)
         view.addSubview(inputBarView)
+        inputBarView.addSubview(topSeparator)
         inputBarView.addSubview(attachButton)
         inputBarView.addSubview(textView)
         inputBarView.addSubview(placeholderLabel)
@@ -390,6 +397,11 @@ final class SendMessageInputViewController: UIViewController {
             inputBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             barHeight,
+
+            topSeparator.topAnchor.constraint(equalTo: inputBarView.topAnchor),
+            topSeparator.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor),
+            topSeparator.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor),
+            topSeparator.heightAnchor.constraint(equalToConstant: 0.5),
             bottomConstraint,
 
             attachButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 4.sw),
@@ -681,6 +693,7 @@ final class SendMessageInputViewController: UIViewController {
     private func applyTheme() {
         let t = UIColor.theme
         inputBarView.backgroundColor = t.secondary
+        topSeparator.backgroundColor = t.border
         textView.backgroundColor = t.tertiary
         textView.textColor = t.textStrong
         textView.font = .systemFont(ofSize: 15.sf)
