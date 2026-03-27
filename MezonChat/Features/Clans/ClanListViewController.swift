@@ -184,7 +184,7 @@ final class ClanListViewController: ViewController {
     }
 
     func openDirectMessage(_ dm: Mezon_Api_ChannelDescription) {
-        let vc = ChatViewController(clanId: 0, channel: dm, context: context)
+        let vc = ChatViewController(clanId: 0, channel: dm, context: context, parentName: nil)
         navigationController?.pushViewController(vc, animated: true)
     }
 

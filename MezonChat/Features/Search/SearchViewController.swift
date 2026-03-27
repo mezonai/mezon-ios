@@ -1,5 +1,5 @@
-import UIKit
 import AsyncDisplayKit
+import UIKit
 
 enum SearchTab: Int, CaseIterable {
     case members = 0
@@ -508,7 +508,8 @@ final class SearchViewController: ViewController {
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
-                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             }
         )
@@ -519,7 +520,13 @@ final class SearchViewController: ViewController {
     private func navigateToChannel(_ channel: Mezon_Api_ChannelDescription) {
         let targetClanId = channel.clanID
         context.currentClanId = targetClanId
-        let chatVC = ChatViewController(clanId: targetClanId, channel: channel, context: context)
+        var parentName: String?
+        if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
+            parentName =
+                allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: targetClanId, channel: channel, context: context, parentName: parentName)
         navigationController?.pushViewController(chatVC, animated: true)
     }
 
@@ -534,7 +541,13 @@ final class SearchViewController: ViewController {
         channel.clanID = targetClanId
 
         context.currentClanId = targetClanId
-        let chatVC = ChatViewController(clanId: targetClanId, channel: channel, context: context)
+        var parentName: String?
+        if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
+            parentName =
+                allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: targetClanId, channel: channel, context: context, parentName: parentName)
         chatVC.pendingJumpToMessageId = doc.messageID
         navigationController?.pushViewController(chatVC, animated: true)
     }
@@ -1400,7 +1413,7 @@ final class MessageSearchCellNode: ASCellNode {
 
     private static func parseMessageContent(_ json: String) -> String {
         guard let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let text = obj["t"] as? String else {
             return json
         }

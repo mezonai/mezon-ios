@@ -314,7 +314,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         let l = UILabel()
         l.text = action.title
-        l.font = .systemFont(ofSize: 16.sf, weight: .medium)
+        l.font = .systemFont(ofSize: 14.sf, weight: .medium)
         l.textColor = action.isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(l)
         l.translatesAutoresizingMaskIntoConstraints = false

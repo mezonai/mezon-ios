@@ -295,6 +295,7 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private let highlightNode = ASDisplayNode()
+    private let highlightBorderNode = ASDisplayNode()
 
     override func didLoad() {
         super.didLoad()
@@ -302,10 +303,13 @@ final class MessageBubbleNode: ASDisplayNode {
         longPress.minimumPressDuration = 0.25
         view.addGestureRecognizer(longPress)
 
-        highlightNode.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        highlightNode.backgroundColor = UIColor.mezonBorder.withAlphaComponent(0.3)
         highlightNode.alpha = 0
         highlightNode.isUserInteractionEnabled = false
         addSubnode(highlightNode)
+
+        highlightBorderNode.backgroundColor = .mezonLink
+        highlightNode.addSubnode(highlightBorderNode)
 
         if !isCombine {
             avatarContainerNode.view.addGestureRecognizer(
@@ -355,6 +359,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     func showHighlight(_ show: Bool) {
         highlightNode.frame = bounds
+        highlightBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
         UIView.animate(withDuration: show ? 0.15 : 0.3) {
             self.highlightNode.alpha = show ? 1 : 0
         }
@@ -366,6 +371,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     func flashHighlight() {
         highlightNode.frame = bounds
+        highlightBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
         highlightNode.alpha = 1
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             self?.showHighlight(false)
@@ -547,6 +553,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         highlightNode.frame = bounds
+        highlightBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha

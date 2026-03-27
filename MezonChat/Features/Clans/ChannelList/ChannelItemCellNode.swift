@@ -35,7 +35,7 @@ final class ChannelItemCellNode: ASCellNode {
         let unread = channel.countMessUnread
 
         let iconColor =
-            cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+            isUnread ? t.channelUnread : t.channelNormal
         if chType.isSystemImage {
             var iconName = chType.icon
             if chType == .text && channel.channelPrivate == 1 {
@@ -62,7 +62,7 @@ final class ChannelItemCellNode: ASCellNode {
 
         let nameStr = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
         let nameColor =
-            cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+            isUnread ? t.channelUnread : t.channelNormal
         let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail

@@ -139,7 +139,11 @@ final class HomeViewController: BaseViewController {
             (channelListVC.selectedChannelSignal |> deliverOnMainQueue)
                 .start(next: { [weak self] channel in
                     guard let channel, let self else { return }
-                    let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context)
+                    var parentName: String?
+                    if channel.parentID != 0 {
+                        parentName = self.channelListVC.allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+                    }
+                    let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context, parentName: parentName)
                     self.navigationController?.pushViewController(chatVC, animated: true)
                 })
         )
@@ -242,7 +246,11 @@ final class HomeViewController: BaseViewController {
 
         if let ch = channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
             channelListVC.selectWithoutNavigation(channelId: channelIdInt)
-            let chatVC = ChatViewController(clanId: channelListVC.clanId, channel: ch, context: context)
+            var parentName: String?
+            if ch.parentID != 0 {
+                parentName = channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
+            }
+            let chatVC = ChatViewController(clanId: channelListVC.clanId, channel: ch, context: context, parentName: parentName)
             navigationController?.pushViewController(chatVC, animated: false)
             return
         }
@@ -254,7 +262,11 @@ final class HomeViewController: BaseViewController {
                 channelListVC.configure(clanId: cachedClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
             }
             channelListVC.selectWithoutNavigation(channelId: channelIdInt)
-            let chatVC = ChatViewController(clanId: cachedClanId, channel: cachedChannel, context: context)
+            var parentName: String?
+            if cachedChannel.parentID != 0 {
+                parentName = channelListVC.allChannels.first(where: { $0.channelID == cachedChannel.parentID })?.channelLabel
+            }
+            let chatVC = ChatViewController(clanId: cachedClanId, channel: cachedChannel, context: context, parentName: parentName)
             navigationController?.pushViewController(chatVC, animated: false)
             return
         }
@@ -277,7 +289,11 @@ final class HomeViewController: BaseViewController {
             if self.isChatAlreadyVisible(channelId: channelIdInt) { return }
             if let ch = self.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
                 self.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
-                let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: ch, context: self.context)
+                var parentName: String?
+                if ch.parentID != 0 {
+                    parentName = self.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
+                }
+                let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: ch, context: self.context, parentName: parentName)
                 self.navigationController?.pushViewController(chatVC, animated: false)
             }
         }))

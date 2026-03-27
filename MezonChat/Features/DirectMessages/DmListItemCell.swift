@@ -170,7 +170,7 @@ final class DmListItemCell: UITableViewCell {
             || (channel.hasLastSentMessage && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
 
         nameLabel.text = displayName
-        nameLabel.textColor = isUnread ? .white : UIColor.theme.textDisabled
+        nameLabel.textColor = isUnread ? .mezonTextStrong : UIColor.theme.textDisabled
         nameLabel.font = .systemFont(ofSize: 14.sf, weight: isUnread ? .semibold : .medium)
 
         onlineIndicator.layer.borderColor = UIColor.theme.primary.cgColor

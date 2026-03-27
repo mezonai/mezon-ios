@@ -145,7 +145,7 @@ final class ChatContainerNode: ASDisplayNode {
         super.didLoad()
 
         let t = UIColor.theme
-        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
         layer.insertSublayer(gradientLayer, at: 0)
 
         listView.backgroundColor = .clear
@@ -185,7 +185,7 @@ final class ChatContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
         headerNode.applyTheme()
 
         reloadAllItems()
@@ -194,6 +194,7 @@ final class ChatContainerNode: ASDisplayNode {
     private func updateHeader(state: ChatState) {
         headerNode.configure(
             title: state.channelLabel,
+            subtitle: state.parentName,
             channelType: state.channelType,
             isPrivate: state.isPrivate,
             isAgeRestricted: state.isAgeRestricted

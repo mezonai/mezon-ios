@@ -1,5 +1,5 @@
-import UIKit
 import SwiftProtobuf
+import UIKit
 
 enum ActiveChannelTracker {
     private static let lock = NSLock()
@@ -100,7 +100,7 @@ struct ChatMessageDisplay: Identifiable {
 
     var checkOneLinkImage: Bool {
         guard attachments.count == 1,
-              let att = attachments.first,
+            let att = attachments.first,
               att.isImage else { return false }
         let trimmedText = parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmedText.isEmpty && trimmedText == att.url
@@ -128,8 +128,13 @@ struct ChatState {
     var errorMessage: String?
     var lastSeenMessageId: String?
     var currentUserId: String?
+    var parentName: String?
 
-    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false, isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil)
+    static let empty = ChatState(
+        messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
+        hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
+        isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
+        parentName: nil)
 }
 
 final class ChatViewController: ViewController {
@@ -159,6 +164,8 @@ final class ChatViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
     private(set) var channelMeta: ChannelRecord?
+    private(set) var parentChannelMeta: ChannelRecord?
+    private var initialParentName: String?
     private(set) var lastSeenMessageId: String?
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
@@ -191,10 +198,14 @@ final class ChatViewController: ViewController {
 
     var pendingJumpToMessageId: String?
 
-    init(clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext) {
+    init(
+        clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext,
+        parentName: String? = nil
+    ) {
         self.clanId = clanId
         self.channel = channel
         self.context = context
+        self.initialParentName = parentName
         self.channelLabel = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
         if channel.hasLastSeenMessage && channel.lastSeenMessage.id != 0 {
             self.lastSeenMessageId = "\(channel.lastSeenMessage.id)"
@@ -411,7 +422,8 @@ final class ChatViewController: ViewController {
 
         let channelIdStr = storageChannelId
         stateDisposables.add(
-            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr) |> deliverOnMainQueue)
+            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
+                |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
                     guard let self else { return }
                     let displays = self.buildDisplayMessages(from: view.messages)
@@ -425,6 +437,17 @@ final class ChatViewController: ViewController {
                     self.channelMeta = view.record
                 })
         )
+        if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
+            stateDisposables.add(
+                (self.context.account.postbox.channelMetaView(channelId: channel.parentID)
+                    |> deliverOnMainQueue)
+                    .start(next: { [weak self] view in
+                        guard let self else { return }
+                        self.parentChannelMeta = view.record
+                        self.metadataOnlyPipe.putNext(())
+                    })
+            )
+        }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -740,7 +763,11 @@ final class ChatViewController: ViewController {
     }
 
     var currentState: ChatState {
-        ChatState(
+        let labelFromMeta = parentChannelMeta?.label
+        let resolvedParentName =
+            (labelFromMeta?.isEmpty == false) ? labelFromMeta : initialParentName
+
+        return ChatState(
             messages: messages,
             channelLabel: channelLabel,
             channelType: channel.type,
@@ -753,7 +780,8 @@ final class ChatViewController: ViewController {
             isLoading: isLoading,
             errorMessage: errorMessage,
             lastSeenMessageId: lastSeenMessageId,
-            currentUserId: context.currentUser?.id
+            currentUserId: context.currentUser?.id,
+            parentName: resolvedParentName
         )
     }
 
@@ -770,42 +798,45 @@ final class ChatViewController: ViewController {
             var lastHasMoreOlder = self.hasMoreOlder
             var lastHasMoreNewer = self.hasMoreNewer
             var lastLastSeenMessageId = self.lastSeenMessageId
+            var lastParentName = self.currentState.parentName
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
                 let d2 = self.metadataOnlyPipe.signal().start(next: { subscriber.putNext(()) })
                 return ActionDisposable { d1.dispose(); d2.dispose() }
-            }
+                }
             return (merged
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
             ).start(next: { newState in
-                let newIds = newState.messages.map { $0.id }
-                let newSendingStates = newState.messages.map { $0.sendingState }
-                let newReactions = newState.messages.map { $0.reactions }
+                    let newIds = newState.messages.map { $0.id }
+                    let newSendingStates = newState.messages.map { $0.sendingState }
+                    let newReactions = newState.messages.map { $0.reactions }
                 let changed = newIds != lastIds
-                    || newSendingStates != lastSendingStates
-                    || newReactions != lastReactions
-                    || newState.isLoading != lastLoading
-                    || newState.isLoadingMore != lastLoadingMore
-                    || newState.isLoadingNewer != lastLoadingNewer
-                    || newState.errorMessage != lastError
-                    || newState.hasMoreOlder != lastHasMoreOlder
-                    || newState.hasMoreNewer != lastHasMoreNewer
-                    || newState.lastSeenMessageId != lastLastSeenMessageId
-                guard changed else { return }
-                lastIds = newIds
-                lastSendingStates = newSendingStates
-                lastReactions = newReactions
-                lastLoading = newState.isLoading
-                lastLoadingMore = newState.isLoadingMore
-                lastLoadingNewer = newState.isLoadingNewer
-                lastError = newState.errorMessage
-                lastHasMoreOlder = newState.hasMoreOlder
-                lastHasMoreNewer = newState.hasMoreNewer
-                lastLastSeenMessageId = newState.lastSeenMessageId
-                subscriber.putNext(newState)
-            })
+                        || newSendingStates != lastSendingStates
+                        || newReactions != lastReactions
+                        || newState.isLoading != lastLoading
+                        || newState.isLoadingMore != lastLoadingMore
+                        || newState.isLoadingNewer != lastLoadingNewer
+                        || newState.errorMessage != lastError
+                        || newState.hasMoreOlder != lastHasMoreOlder
+                        || newState.hasMoreNewer != lastHasMoreNewer
+                        || newState.lastSeenMessageId != lastLastSeenMessageId
+                        || newState.parentName != lastParentName
+                    guard changed else { return }
+                    lastIds = newIds
+                    lastSendingStates = newSendingStates
+                    lastReactions = newReactions
+                    lastLoading = newState.isLoading
+                    lastLoadingMore = newState.isLoadingMore
+                    lastLoadingNewer = newState.isLoadingNewer
+                    lastError = newState.errorMessage
+                    lastHasMoreOlder = newState.hasMoreOlder
+                    lastHasMoreNewer = newState.hasMoreNewer
+                    lastLastSeenMessageId = newState.lastSeenMessageId
+                    lastParentName = newState.parentName
+                    subscriber.putNext(newState)
+                })
         }
     }
 
@@ -850,7 +881,7 @@ final class ChatViewController: ViewController {
 
     private static func firstReplyRef(from data: Data) -> (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool) {
         guard !data.isEmpty,
-              let list = try? Mezon_Api_MessageRefList(serializedBytes: data),
+            let list = try? Mezon_Api_MessageRefList(serializedBytes: data),
               !list.refs.isEmpty else { return (nil, false) }
         if let validRef = list.refs.first(where: { $0.messageRefID != 0 }) {
             return (validRef, false)
@@ -905,7 +936,7 @@ final class ChatViewController: ViewController {
 
     private static func parseCallLog(from data: Data) -> CallLogData? {
         guard !data.isEmpty,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let callLogDict = json["callLog"] as? [String: Any] else { return nil }
         let typeRaw = callLogDict["callLogType"] as? Int ?? 0
         let callLogType = CallLogType(rawValue: typeRaw) ?? .timeoutCall
@@ -930,7 +961,7 @@ final class ChatViewController: ViewController {
         var fromJson: [ParsedAttachment]?
 
         if !isLikelyJson,
-           let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
+            let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
            !list.attachments.isEmpty {
             fromProto = list.attachments.compactMap { att -> ParsedAttachment? in
                 guard !att.url.isEmpty else { return nil }
@@ -949,7 +980,7 @@ final class ChatViewController: ViewController {
             if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 jsonArray = arr
             } else if let str = String(data: data, encoding: .utf8),
-                      let strData = str.data(using: .utf8),
+                let strData = str.data(using: .utf8),
                       let arr = try? JSONSerialization.jsonObject(with: strData) as? [[String: Any]] {
                 jsonArray = arr
             }
@@ -1245,7 +1276,8 @@ final class ChatViewController: ViewController {
         guard let topicIdInt = Int64(topicData.topicId), topicIdInt != 0 else { return }
         var topicChannel = channel
         topicChannel.channelLabel = "Topic Discussion"
-        let topicVC = ChatViewController(clanId: clanId, channel: topicChannel, context: context)
+        let topicVC = ChatViewController(
+            clanId: clanId, channel: topicChannel, context: context, parentName: nil)
         topicVC.topicId = topicIdInt
         navigationController?.pushViewController(topicVC, animated: true)
     }
@@ -1270,7 +1302,8 @@ final class ChatViewController: ViewController {
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
-                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             }
         )
@@ -1303,7 +1336,8 @@ final class ChatViewController: ViewController {
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
-                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             }
         )
