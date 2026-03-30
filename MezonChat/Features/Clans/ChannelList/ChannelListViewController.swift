@@ -407,7 +407,10 @@ final class ChannelListViewController: ViewController {
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
-    }
+                    if !self.allChannels.isEmpty {
+                        self.channelsLoadedPromise.set(true)
+                    }
+                }
                 self.channelListNode.endRefreshing()
                 self.isLoadingPipe.putNext(false)
                 self.needsReloadPipe.putNext(())
@@ -430,6 +433,16 @@ final class ChannelListViewController: ViewController {
 
     func selectWithoutNavigation(channelId: Int64) {
         setSelectedChannelId(channelId)
+    }
+
+    func updateChannels(_ channels: [Mezon_Api_ChannelDescription]) {
+        allChannels = channels
+        let storedCollapsed = loadCollapsedCategoryIds()
+        let cats = buildChannelCategories(channels, collapsedIds: storedCollapsed)
+        categories = cats
+        channelsLoadedPromise.set(true)
+        categoriesPipe.putNext(cats)
+        needsReloadPipe.putNext(())
     }
 
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
@@ -549,6 +562,7 @@ final class ChannelListViewController: ViewController {
         let storedCollapsed = loadCollapsedCategoryIds()
         let cats = buildChannelCategories(channels, collapsedIds: storedCollapsed)
         categories = cats
+        channelsLoadedPromise.set(true)
         categoriesPipe.putNext(cats)
         persistSelectedChannel()
         needsReloadPipe.putNext(())

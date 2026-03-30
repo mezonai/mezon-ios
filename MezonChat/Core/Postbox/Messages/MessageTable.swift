@@ -119,16 +119,17 @@ final class MessageTable: Table {
         for msg in messages {
             var current = cache[msg.channelId] ?? []
 
-
             if !msg.id.hasPrefix("pending-") {
-                let pendingIds = current.filter { $0.id.hasPrefix("pending-") && $0.senderId == msg.senderId }.map(\.id)
-                for pid in pendingIds {
-                    current.removeAll { $0.id == pid }
+                if let pidx = current.firstIndex(where: { $0.id.hasPrefix("pending-") && $0.senderId == msg.senderId }) {
+                    let pid = current[pidx].id
+                    current[pidx] = msg
                     pendingDeletes.insert(pid)
+                } else if let idx = current.firstIndex(where: { $0.id == msg.id }) {
+                    current[idx] = msg
+                } else {
+                    current.append(msg)
                 }
-            }
-
-            if let idx = current.firstIndex(where: { $0.id == msg.id }) {
+            } else if let idx = current.firstIndex(where: { $0.id == msg.id }) {
                 current[idx] = msg
             } else {
                 current.append(msg)
@@ -236,6 +237,14 @@ final class MessageTable: Table {
     }
 
     func markMessageFailed(id: String) {
+        updateSendingState(id: id, state: .failed)
+    }
+
+    func markMessageSent(id: String) {
+        updateSendingState(id: id, state: .sent)
+    }
+
+    private func updateSendingState(id: String, state: SendingState) {
         for channelId in cache.keys {
             if let idx = cache[channelId]?.firstIndex(where: { $0.id == id }) {
                 let old = cache[channelId]![idx]
@@ -245,13 +254,14 @@ final class MessageTable: Table {
                     createdAt: old.createdAt, editedAt: old.editedAt,
                     isDeleted: old.isDeleted, code: old.code,
                     senderDisplayName: old.senderDisplayName,
-                    senderAvatarURL: old.senderAvatarURL, sendingState: .failed,
+                    senderAvatarURL: old.senderAvatarURL, sendingState: state,
                     attachmentsJSON: old.attachmentsJSON, reactionsJSON: old.reactionsJSON,
                     referencesData: old.referencesData, mentionsJSON: old.mentionsJSON
                 )
                 pendingWrites.insert(channelId)
-                db.run("UPDATE messages SET sending_state = 2 WHERE id = ?") {
-                    sqlite3_bind_text($0, 1, id, -1, nil)
+                db.run("UPDATE messages SET sending_state = ? WHERE id = ?") {
+                    sqlite3_bind_int($0, 1, state.rawValue)
+                    sqlite3_bind_text($0, 2, id, -1, nil)
                 }
             }
         }

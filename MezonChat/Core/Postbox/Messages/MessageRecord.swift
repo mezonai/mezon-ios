@@ -107,9 +107,15 @@ extension MessageRecord {
         text: String,
         channelId: String,
         clanId: Int64,
-        sender: User
+        sender: User,
+        displayName: String? = nil,
+        avatarURL: String? = nil,
+        referencesData: Data = Data(),
+        mentionsData: Data = Data()
     ) -> MessageRecord {
         let contentData = (try? JSONSerialization.data(withJSONObject: ["t": text])) ?? Data()
+        let resolvedName = displayName ?? sender.displayName
+        let resolvedAvatar = avatarURL ?? sender.avatarURL?.absoluteString
         return MessageRecord(
             id:                localId,
             channelId:         channelId,
@@ -117,9 +123,11 @@ extension MessageRecord {
             senderId:          sender.id,
             content:           contentData,
             createdAt:         Date(),
-            senderDisplayName: sender.displayName,
-            senderAvatarURL:   sender.avatarURL?.absoluteString,
-            sendingState:      .pending
+            senderDisplayName: resolvedName,
+            senderAvatarURL:   resolvedAvatar,
+            sendingState:      .pending,
+            referencesData:    referencesData,
+            mentionsJSON:      mentionsData
         )
     }
 }

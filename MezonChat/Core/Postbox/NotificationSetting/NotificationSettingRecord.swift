@@ -29,7 +29,7 @@ struct NotificationSettingRecord: PostboxCoding, Equatable {
         self.entityId = proto.channelID
         self.scope = .channel
         self.notificationSettingType = proto.notificationSettingType
-        self.timeMuteSeconds = proto.timeMuteSeconds
+        self.timeMuteSeconds = UInt32(bitPattern: proto.timeMuteSeconds)
         self.active = proto.active
     }
 }

@@ -354,67 +354,34 @@ final class ChatContainerNode: ASDisplayNode {
         let newIds = buildIds(from: new)
 
         if oldIds == newIds {
-            let oldStates = old.messages.map { $0.sendingState }
-            let newStates = new.messages.map { $0.sendingState }
-            let oldReactions = old.messages.map { $0.reactions }
-            let newReactions = new.messages.map { $0.reactions }
-            if oldStates != newStates || oldReactions != newReactions {
-                // Build new items and find only the changed indices
-                let newItems = buildItems(from: new)
-                var updateItems: [ListViewUpdateItem] = []
-
-                // Messages are reversed in buildItems, so index in items
-                // corresponds to reversed message index.
-                let reversedOldMessages = old.messages.reversed() as [ChatMessageDisplay]
-                let reversedNewMessages = new.messages.reversed() as [ChatMessageDisplay]
-                var itemIdx = 0
-                for (msgIdx, newMsg) in reversedNewMessages.enumerated() {
-                    // Skip non-message items (welcome, unread line) that may be interleaved
-                    // Find the item index that corresponds to this message
-                    while itemIdx < newItems.count, !(newItems[itemIdx] is ChatMessageItem) {
-                        itemIdx += 1
-                    }
-                    guard itemIdx < newItems.count else { break }
-
-                    let changed: Bool
-                    if msgIdx < reversedOldMessages.count {
-                        let oldMsg = reversedOldMessages[msgIdx]
-                        changed = oldMsg.reactions != newMsg.reactions || oldMsg.sendingState != newMsg.sendingState
-                    } else {
-                        changed = true
-                    }
-
-                    if changed {
-                        updateItems.append(ListViewUpdateItem(
-                            index: itemIdx,
-                            previousIndex: itemIdx,
-                            item: newItems[itemIdx],
-                            directionHint: nil
-                        ))
-                    }
-                    itemIdx += 1
-                }
-
-                committedItems = newItems
-
-                if !updateItems.isEmpty {
-                    listView.transaction(
-                        deleteIndices: [],
-                        insertIndicesAndItems: [],
-                        updateIndicesAndItems: updateItems,
-                        options: [.Synchronous, .LowLatency],
-                        scrollToItem: nil,
-                        updateOpaqueState: nil,
-                        completion: { _ in }
-                    )
-                }
-            }
+            applyInPlaceUpdates(old: old, new: new, newIds: newIds)
             return
         }
 
         if oldIds.isEmpty {
             reloadAllItems()
             return
+        }
+
+        if oldIds.count == newIds.count {
+            var isPendingReplacement = true
+            var hasAnyChange = false
+            for i in 0..<oldIds.count {
+                if oldIds[i] != newIds[i] {
+                    hasAnyChange = true
+                    let isPendingSwap = oldIds[i].hasPrefix("pending-") && !newIds[i].hasPrefix("pending-")
+                    let isRealSwap = !oldIds[i].hasPrefix("pending-") && newIds[i].hasPrefix("pending-")
+                    if !isPendingSwap && !isRealSwap {
+                        isPendingReplacement = false
+                        break
+                    }
+                }
+            }
+            if isPendingReplacement && hasAnyChange {
+                committedMessageIds = Array(newIds)
+                applyInPlaceUpdates(old: old, new: new, newIds: newIds, forceAll: true)
+                return
+            }
         }
 
         let newItems = buildItems(from: new)
@@ -426,7 +393,11 @@ final class ChatContainerNode: ASDisplayNode {
 
         guard !addedIds.isEmpty || !removedIds.isEmpty else { return }
 
-        let oldIndexMap = Dictionary(uniqueKeysWithValues: oldIds.enumerated().map { ($1, $0) })
+        var oldIndexMap: [String: Int] = [:]
+        oldIndexMap.reserveCapacity(oldIds.count)
+        for (index, id) in oldIds.enumerated() {
+            oldIndexMap[id] = index
+        }
 
         var deleteItems: [ListViewDeleteItem] = []
         for id in removedIds {
@@ -447,12 +418,11 @@ final class ChatContainerNode: ASDisplayNode {
         }
         insertItems.sort { $0.index < $1.index }
 
-        let isNearBottom: Bool = {
-            if case let .known(offset) = self.listView.visibleContentOffset() {
-                return offset < 200
-            }
-            return true
+        let currentOffset: CGFloat? = {
+            if case let .known(value) = self.listView.visibleContentOffset() { return value }
+            return nil
         }()
+        let isAtBottom = (currentOffset ?? 0) < 10
 
         isLoadMoreGuardActive = true
 
@@ -462,10 +432,15 @@ final class ChatContainerNode: ASDisplayNode {
         let isLoadMoreResult = old.isLoadingMore || old.isLoadingNewer
             || new.isLoadingMore || new.isLoadingNewer
 
+        let newestMessageIsMe: Bool = {
+            guard hasNewAtBottom else { return false }
+            return new.messages.last?.isMe == true
+        }()
+
         var scrollToItem: ListViewScrollToItem?
-        if isNearBottom && hasNewAtBottom && !isLoadMoreResult {
+        if hasNewAtBottom && !isLoadMoreResult && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
-            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
+            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }
 
         listView.transaction(
@@ -482,6 +457,64 @@ final class ChatContainerNode: ASDisplayNode {
                 }
             }
         )
+    }
+
+    private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
+        let newItems = buildItems(from: new)
+        var updateItems: [ListViewUpdateItem] = []
+
+        let reversedOldMessages = old.messages.reversed() as [ChatMessageDisplay]
+        let reversedNewMessages = new.messages.reversed() as [ChatMessageDisplay]
+        var itemIdx = 0
+        for (msgIdx, newMsg) in reversedNewMessages.enumerated() {
+            while itemIdx < newItems.count, !(newItems[itemIdx] is ChatMessageItem) {
+                itemIdx += 1
+            }
+            guard itemIdx < newItems.count else { break }
+
+            let changed: Bool
+            if forceAll {
+                if msgIdx < reversedOldMessages.count {
+                    let oldMsg = reversedOldMessages[msgIdx]
+                    changed = oldMsg.id != newMsg.id
+                        || oldMsg.reactions != newMsg.reactions
+                        || oldMsg.sendingState != newMsg.sendingState
+                } else {
+                    changed = true
+                }
+            } else {
+                if msgIdx < reversedOldMessages.count {
+                    let oldMsg = reversedOldMessages[msgIdx]
+                    changed = oldMsg.reactions != newMsg.reactions || oldMsg.sendingState != newMsg.sendingState
+                } else {
+                    changed = true
+                }
+            }
+
+            if changed {
+                updateItems.append(ListViewUpdateItem(
+                    index: itemIdx,
+                    previousIndex: itemIdx,
+                    item: newItems[itemIdx],
+                    directionHint: nil
+                ))
+            }
+            itemIdx += 1
+        }
+
+        committedItems = newItems
+
+        if !updateItems.isEmpty {
+            listView.transaction(
+                deleteIndices: [],
+                insertIndicesAndItems: [],
+                updateIndicesAndItems: updateItems,
+                options: [.Synchronous, .LowLatency],
+                scrollToItem: nil,
+                updateOpaqueState: nil,
+                completion: { _ in }
+            )
+        }
     }
 
     private func applyFrameLayout(transition: ContainedViewLayoutTransition) {

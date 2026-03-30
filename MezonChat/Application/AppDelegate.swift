@@ -193,6 +193,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         }
+        if clanId == nil || clanId == "0" {
+            if let s = userInfo["clan_id"] as? String, !s.isEmpty, s != "0" { clanId = s }
+            else if let n = userInfo["clan_id"] { let s = "\(n)"; if s != "0" && !s.isEmpty { clanId = s } }
+        }
         return (channelId, clanId, isDM)
     }
 

@@ -332,6 +332,11 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
         spinner.style.preferredSize = CGSize(width: 36, height: 36)
         overlay.addSubnode(spinner)
+
+        overlay.layoutSpecBlock = { _, _ in
+            ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
+        }
+
         return overlay
     }
 
