@@ -79,7 +79,7 @@ final class MessageReplyNode: ASDisplayNode {
             ]
         )
 
-        if !ref.mesagesSenderAvatar.isEmpty, let url = URL(string: ref.mesagesSenderAvatar) {
+        if !ref.messageSenderAvatar.isEmpty, let url = URL(string: ref.messageSenderAvatar) {
             hasAvatar = true
             avatarPlaceholderNode.isHidden = true
             avatarImageNode.isHidden = false

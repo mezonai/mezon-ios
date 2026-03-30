@@ -177,15 +177,32 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
         return { [weak self] item, params in
             let width = params.width
             let bubble: MessageBubbleNode
-            if let existing = currentBubble, existing.display.id == item.display.id {
+            let isSameLogicalMessage: Bool = {
+                guard let existing = currentBubble else { return false }
+                if existing.display.id == item.display.id { return true }
+                let wasPending = existing.display.id.hasPrefix("pending-")
+                let isNowReal = !item.display.id.hasPrefix("pending-")
+                return wasPending && isNowReal
+                    && existing.display.message.senderId == item.display.message.senderId
+            }()
+
+            let attachmentsChanged: Bool = {
+                guard let existing = currentBubble, isSameLogicalMessage else { return false }
+                return existing.display.attachments != item.display.attachments
+            }()
+
+            if let existing = currentBubble, isSameLogicalMessage, !attachmentsChanged {
                 if existing.display.reactions == item.display.reactions
-                    && existing.display.sendingState == item.display.sendingState {
+                    && existing.display.sendingState == item.display.sendingState
+                    && existing.display.id == item.display.id {
                     bubble = existing
-                } else if existing.display.sendingState == item.display.sendingState {
+                } else if existing.display.sendingState == item.display.sendingState
+                            && existing.display.id == item.display.id {
                     existing.updateReactions(newDisplay: item.display)
                     bubble = existing
                 } else {
-                    bubble = MessageBubbleNode(display: item.display, interaction: item.interaction)
+                    existing.updateDisplay(item.display)
+                    bubble = existing
                 }
             } else {
                 bubble = MessageBubbleNode(display: item.display, interaction: item.interaction)

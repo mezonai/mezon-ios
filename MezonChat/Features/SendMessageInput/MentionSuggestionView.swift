@@ -1,16 +1,30 @@
 import UIKit
 
-struct MentionMember {
+struct MentionMember: Equatable {
     let userId: Int64
     let displayName: String
     let username: String
     let avatarURL: String?
 }
 
+enum MentionSuggestionItem: Equatable {
+    case user(MentionMember)
+    case role(id: Int64, title: String, colorHex: String, iconURL: String?)
+    case here
+
+    var sortKey: String {
+        switch self {
+        case .user(let m): return m.displayName.lowercased()
+        case .role(_, let title, _, _): return title.lowercased()
+        case .here: return "here"
+        }
+    }
+}
+
 final class MentionSuggestionView: UIView, UITableViewDataSource, UITableViewDelegate {
 
-    var onSelectMember: ((MentionMember) -> Void)?
-    private(set) var members: [MentionMember] = []
+    var onSelectItem: ((MentionSuggestionItem) -> Void)?
+    private(set) var items: [MentionSuggestionItem] = []
 
     private let tableView: UITableView = {
         let tv = UITableView(frame: .zero, style: .plain)
@@ -52,31 +66,31 @@ final class MentionSuggestionView: UIView, UITableViewDataSource, UITableViewDel
         tableView.backgroundColor = t.secondary
     }
 
-    func update(members: [MentionMember]) {
-        self.members = members
+    func update(items: [MentionSuggestionItem]) {
+        self.items = items
         tableView.reloadData()
     }
 
     var preferredHeight: CGFloat {
-        let rows = min(members.count, Self.maxVisibleRows)
+        let rows = min(items.count, Self.maxVisibleRows)
         return CGFloat(rows) * Self.rowHeight
     }
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        members.count
+        items.count
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "MentionCell", for: indexPath) as! MentionSuggestionCell
-        let member = members[indexPath.row]
-        cell.configure(member: member)
+        let item = items[indexPath.row]
+        cell.configure(item: item)
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: false)
-        let member = members[indexPath.row]
-        onSelectMember?(member)
+        let item = items[indexPath.row]
+        onSelectItem?(item)
     }
 }
 
@@ -148,26 +162,60 @@ private final class MentionSuggestionCell: UITableViewCell {
         ])
     }
 
-    func configure(member: MentionMember) {
+    func configure(item: MentionSuggestionItem) {
         let t = UIColor.theme
         backgroundColor = t.secondary
         contentView.backgroundColor = t.secondary
-        nameLabel.textColor = t.textStrong
-        usernameLabel.textColor = t.textDisabled
+        avatarImageView.isHidden = false
+        placeholderLabel.isHidden = true
+        avatarImageView.image = nil
+        avatarImageView.tintColor = nil
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.layer.cornerRadius = 14
 
-        nameLabel.text = member.displayName
-        usernameLabel.text = member.username
+        switch item {
+        case .user(let member):
+            nameLabel.textColor = t.textStrong
+            usernameLabel.textColor = t.textDisabled
+            nameLabel.text = member.displayName
+            usernameLabel.text = member.username
 
-        if let url = member.avatarURL, !url.isEmpty, let imageURL = URL(string: url) {
-            placeholderLabel.isHidden = true
-            avatarImageView.backgroundColor = .clear
-            loadAvatar(from: imageURL)
-        } else {
-            avatarImageView.image = nil
-            avatarImageView.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-            let initial = String(member.displayName.prefix(1)).uppercased()
-            placeholderLabel.text = initial
+            if let url = member.avatarURL, !url.isEmpty, let imageURL = URL(string: url) {
+                placeholderLabel.isHidden = true
+                avatarImageView.backgroundColor = .clear
+                loadAvatar(from: imageURL)
+            } else {
+                avatarImageView.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+                let initial = String(member.displayName.prefix(1)).uppercased()
+                placeholderLabel.text = initial
+                placeholderLabel.isHidden = false
+            }
+
+        case .role(_, let title, let colorHex, let iconURL):
+            nameLabel.textColor = UIColor(hexString: colorHex) ?? t.textRoleLink
+            usernameLabel.textColor = t.textDisabled
+            usernameLabel.text = ""
+            nameLabel.text = title
+            let accent = UIColor(hexString: colorHex) ?? t.textRoleLink
+            if let s = iconURL, !s.isEmpty, let imageURL = URL(string: s) {
+                avatarImageView.backgroundColor = .clear
+                avatarImageView.contentMode = .scaleAspectFit
+                loadAvatar(from: imageURL)
+            } else {
+                avatarImageView.backgroundColor = .clear
+                avatarImageView.contentMode = .scaleAspectFit
+                avatarImageView.image = UIImage(systemName: "shield.fill")?.withRenderingMode(.alwaysTemplate)
+                avatarImageView.tintColor = accent
+            }
+
+        case .here:
+            nameLabel.textColor = t.textRoleLink
+            usernameLabel.text = ""
+            nameLabel.text = "@here"
+            avatarImageView.backgroundColor = t.tertiary
+            placeholderLabel.textColor = t.textRoleLink
             placeholderLabel.isHidden = false
+            placeholderLabel.text = "@"
         }
     }
 
@@ -178,7 +226,6 @@ private final class MentionSuggestionCell: UITableViewCell {
             return
         }
         avatarImageView.image = nil
-        let expectedURL = url
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
             ImageCache.shared.setImage(image, data: data, forKey: cacheKey)
@@ -192,8 +239,11 @@ private final class MentionSuggestionCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarImageView.image = nil
+        avatarImageView.tintColor = nil
         placeholderLabel.text = nil
+        placeholderLabel.textColor = .white
         nameLabel.text = nil
         usernameLabel.text = nil
+        avatarImageView.isHidden = false
     }
 }

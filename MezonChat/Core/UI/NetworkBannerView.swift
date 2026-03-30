@@ -6,6 +6,7 @@ final class NetworkBannerView: UIView {
     private let label = UILabel()
 
     private var isShowing = false
+    private var hideWorkItem: DispatchWorkItem?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -53,6 +54,8 @@ final class NetworkBannerView: UIView {
     }
 
     private func show() {
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
         guard !isShowing else { return }
         isShowing = true
         isHidden = false
@@ -60,10 +63,14 @@ final class NetworkBannerView: UIView {
     }
 
     private func hide() {
+        hideWorkItem?.cancel()
+        hideWorkItem = nil
         guard isShowing else { return }
         isShowing = false
         UIView.animate(withDuration: 0.3, animations: { self.alpha = 0 }) { _ in
-            self.isHidden = true
+            if !self.isShowing {
+                self.isHidden = true
+            }
         }
     }
 
@@ -73,6 +80,15 @@ final class NetworkBannerView: UIView {
         } else {
             show()
         }
+    }
+
+    private func scheduleDeferredSync() {
+        hideWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.syncWithNetworkState()
+        }
+        hideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     @discardableResult
@@ -96,11 +112,20 @@ final class NetworkBannerView: UIView {
                 banner?.hide()
             } else {
                 banner?.show()
+                banner?.scheduleDeferredSync()
             }
         }
 
         NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak banner] _ in
+            banner?.syncWithNetworkState()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak banner] _ in

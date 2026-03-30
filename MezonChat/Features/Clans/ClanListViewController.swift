@@ -147,7 +147,13 @@ final class ClanListViewController: ViewController {
         error = nil
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { self.setIsLoading(false); return }
+            guard let token = await self.context.getToken() else {
+                self.setIsLoading(false)
+                if !self.clans.isEmpty {
+                    self.clansLoadedPromise.set(true)
+                }
+                return
+            }
             defer { self.setIsLoading(false) }
             do {
                 let result = try await self.context.account.network.listClanDescs(token: token)
@@ -172,6 +178,9 @@ final class ClanListViewController: ViewController {
                 self.clansLoadedPromise.set(true)
             } catch {
                 self.error = error.localizedDescription
+                if !self.clans.isEmpty {
+                    self.clansLoadedPromise.set(true)
+                }
             }
         }
     }

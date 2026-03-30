@@ -84,6 +84,15 @@ final class MessageBubbleNode: ASDisplayNode {
         super.init()
         backgroundColor = .clear
 
+        if display.hasIncludeMention {
+            mentionHighlightNode.backgroundColor = UIColor(red: 201.0/255, green: 157.0/255, blue: 7.0/255, alpha: 0.1)
+            mentionHighlightNode.isUserInteractionEnabled = false
+            addSubnode(mentionHighlightNode)
+
+            mentionBorderNode.backgroundColor = UIColor(red: 240.0/255, green: 177.0/255, blue: 50.0/255, alpha: 1.0)
+            mentionHighlightNode.addSubnode(mentionBorderNode)
+        }
+
         let t = UIColor.theme
 
         avatarContainerNode.backgroundColor = .colorAvatarDefault
@@ -248,6 +257,39 @@ final class MessageBubbleNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    func updateDisplay(_ newDisplay: ChatMessageDisplay) {
+        let oldFailed = self.isFailed
+        self.display = newDisplay
+        self.isFailed = newDisplay.isFailed
+
+        if oldFailed && !newDisplay.isFailed {
+            errorTextNode?.removeFromSupernode()
+            errorTextNode = nil
+        } else if !oldFailed && newDisplay.isFailed {
+            let etn = ASTextNode2()
+            etn.attributedText = NSAttributedString(
+                string: "Unable to send message",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                    .foregroundColor: UIColor.systemRed,
+                ]
+            )
+            etn.maximumNumberOfLines = 1
+            errorTextNode = etn
+            addSubnode(etn)
+        }
+
+        let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
+        callLogNode?.alpha = contentAlpha
+        topicNode?.alpha = contentAlpha
+        textContentNode?.alpha = contentAlpha
+        mediaContentNode?.alpha = contentAlpha
+        fileAttachmentNode?.alpha = contentAlpha
+
+        let _ = measureSize(width: cachedTotalSize.width)
+        setNeedsLayout()
+    }
+
     private func loadAvatar() {
         if let urlString = display.avatarURL, !urlString.isEmpty {
             avatarPlaceholderNode.isHidden = true
@@ -259,7 +301,8 @@ final class MessageBubbleNode: ASDisplayNode {
                 intrinsicInsets: .zero
             )
             let proxyURL = ImgproxyURL.create(from: urlString, width: Int(size * UIScreen.main.scale), height: Int(size * UIScreen.main.scale))
-            avatarImageNode.setSignal(remoteImageSignal(url: proxyURL, resizeMode: .fill), attemptSynchronously: false)
+            let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
+            avatarImageNode.setSignal(remoteAvatarSignal(url: proxyURL), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()
@@ -296,6 +339,8 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private let highlightNode = ASDisplayNode()
     private let highlightBorderNode = ASDisplayNode()
+    private let mentionHighlightNode = ASDisplayNode()
+    private let mentionBorderNode = ASDisplayNode()
 
     override func didLoad() {
         super.didLoad()
@@ -554,6 +599,11 @@ final class MessageBubbleNode: ASDisplayNode {
 
         highlightNode.frame = bounds
         highlightBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
+
+        if display.hasIncludeMention {
+            mentionHighlightNode.frame = bounds
+            mentionBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
+        }
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha

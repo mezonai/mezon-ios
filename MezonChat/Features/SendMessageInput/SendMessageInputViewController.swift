@@ -3,7 +3,17 @@ import PhotosUI
 import AVFoundation
 import UniformTypeIdentifiers
 
+private struct ComposerMention {
+    var userId: Int64
+    var roleId: Int64
+    var rolename: String
+    var displayName: String
+    var range: NSRange
+}
+
 final class SendMessageInputViewController: UIViewController {
+
+    private static let mentionHereUserId: Int64 = 1_775_731_111_020_111_321
 
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
@@ -37,7 +47,8 @@ final class SendMessageInputViewController: UIViewController {
     private var pickedFileURLs: [Int: URL] = [:]
 
     private var allMentionMembers: [MentionMember] = []
-    private var activeMentions: [(userId: Int64, displayName: String, range: NSRange)] = []
+    private var allMentionSuggestionItems: [MentionSuggestionItem] = []
+    private var activeMentions: [ComposerMention] = []
     private var mentionSuggestionView: MentionSuggestionView?
     private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
 
@@ -193,6 +204,53 @@ final class SendMessageInputViewController: UIViewController {
         applyTheme()
         restoreFromCache()
         loadClanMembers()
+        bindMentionDataUpdates()
+    }
+
+    private var channelStreamMode: Int32 {
+        switch channel.type {
+        case MezonConstants.ChannelType.thread.rawValue:
+            return MezonConstants.ChannelStreamMode.thread.rawValue
+        case MezonConstants.ChannelType.dm.rawValue:
+            return MezonConstants.ChannelStreamMode.dm.rawValue
+        case MezonConstants.ChannelType.group.rawValue:
+            return MezonConstants.ChannelStreamMode.group.rawValue
+        default:
+            return clanId == 0
+                ? MezonConstants.ChannelStreamMode.group.rawValue
+                : MezonConstants.ChannelStreamMode.channel.rawValue
+        }
+    }
+
+    private var includeRoleMentions: Bool {
+        let m = channelStreamMode
+        return m == MezonConstants.ChannelStreamMode.channel.rawValue
+            || m == MezonConstants.ChannelStreamMode.thread.rawValue
+    }
+
+    private var includeHereMention: Bool {
+        let m = channelStreamMode
+        return includeRoleMentions || m == MezonConstants.ChannelStreamMode.group.rawValue
+    }
+
+    private func bindMentionDataUpdates() {
+        disposables.add(
+            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] updatedClanId in
+                    guard let self, updatedClanId == self.clanId else { return }
+                    if let clanUsers = self.context.engine.clanData.getClanUsers(clanId: self.clanId) {
+                        self.buildMentionMembers(from: clanUsers)
+                        self.rebuildMentionSuggestionItems()
+                    }
+                })
+        )
+        disposables.add(
+            (context.engine.clanData.clanRolesUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] updatedClanId in
+                    guard let self, updatedClanId == self.clanId else { return }
+                    self.rebuildMentionSuggestionItems()
+                })
+        )
     }
 
     func send() {
@@ -437,8 +495,8 @@ final class SendMessageInputViewController: UIViewController {
         let sv = MentionSuggestionView()
         sv.translatesAutoresizingMaskIntoConstraints = false
         sv.isHidden = true
-        sv.onSelectMember = { [weak self] member in
-            self?.insertMention(member: member)
+        sv.onSelectItem = { [weak self] item in
+            self?.insertMention(item: item)
         }
         view.insertSubview(sv, at: 0)
 
@@ -454,20 +512,78 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func loadClanMembers() {
-        guard clanId != 0 else { return }
+        guard clanId != 0 else {
+            allMentionMembers = []
+            rebuildMentionSuggestionItems()
+            return
+        }
         if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
             buildMentionMembers(from: clanUsers)
+            ensureRolesLoadedIfNeeded()
+            rebuildMentionSuggestionItems()
         } else {
             Task { @MainActor in
                 guard let token = await context.getToken() else { return }
                 do {
                     let response = try await context.account.network.listClanUsers(clanId: clanId, token: token)
                     buildMentionMembers(from: response)
+                    ensureRolesLoadedIfNeeded()
+                    rebuildMentionSuggestionItems()
                 } catch {
                     AppLogger.network.warning("[MentionSuggestion] loadClanMembers failed: \(error)")
                 }
             }
         }
+    }
+
+    private func filteredRolesFromCache() -> [Mezon_Api_Role] {
+        guard let response = context.engine.clanData.getClanRoles(clanId: clanId) else { return [] }
+        return response.roles.roles.filter { role in
+            guard role.id != 0, !role.title.isEmpty else { return false }
+            let everyoneSlug = "everyone-\(role.clanID)"
+            return role.slug != everyoneSlug
+        }
+    }
+
+    private func ensureRolesLoadedIfNeeded() {
+        guard includeRoleMentions, clanId != 0 else { return }
+        guard context.engine.clanData.getClanRoles(clanId: clanId) == nil else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let response = try await context.account.network.listRoles(clanId: clanId, token: token)
+                if let data = try? response.serializedData() {
+                    context.account.postbox.setPreferenceData(key: PreferencesKeys.clanRoles(clanId: clanId), value: data)
+                }
+                rebuildMentionSuggestionItems()
+            } catch {
+                AppLogger.network.warning("[MentionSuggestion] listRoles failed: \(error)")
+            }
+        }
+    }
+
+    private func rebuildMentionSuggestionItems() {
+        var items: [MentionSuggestionItem] = allMentionMembers
+            .map { MentionSuggestionItem.user($0) }
+            .sorted { $0.sortKey < $1.sortKey }
+
+        if includeRoleMentions {
+            let roleItems = filteredRolesFromCache()
+                .map { role in
+                    MentionSuggestionItem.role(
+                        id: role.id,
+                        title: role.title,
+                        colorHex: role.color,
+                        iconURL: role.roleIcon.isEmpty ? nil : role.roleIcon
+                    )
+                }
+                .sorted { $0.sortKey < $1.sortKey }
+            items.append(contentsOf: roleItems)
+        }
+        if includeHereMention {
+            items.append(.here)
+        }
+        allMentionSuggestionItems = items
     }
 
     private func buildMentionMembers(from clanUsers: Mezon_Api_ClanUserList) {
@@ -522,19 +638,38 @@ final class SendMessageInputViewController: UIViewController {
             return
         }
 
-        let filtered: [MentionMember]
+        let pool = allMentionSuggestionItems
+        let filtered: [MentionSuggestionItem]
         if keyword.isEmpty {
-            filtered = allMentionMembers
+            filtered = pool
         } else {
             let lower = keyword.lowercased()
-            filtered = allMentionMembers.filter {
-                $0.displayName.lowercased().contains(lower) ||
-                $0.username.lowercased().contains(lower)
+            filtered = pool.filter { item in
+                switch item {
+                case .user(let m):
+                    return m.displayName.lowercased().contains(lower) || m.username.lowercased().contains(lower)
+                case .role(_, let title, _, _):
+                    return title.lowercased().contains(lower)
+                case .here:
+                    return "here".contains(lower)
+                }
             }.sorted { a, b in
-                let aStarts = a.displayName.lowercased().hasPrefix(lower) || a.username.lowercased().hasPrefix(lower)
-                let bStarts = b.displayName.lowercased().hasPrefix(lower) || b.username.lowercased().hasPrefix(lower)
-                if aStarts != bStarts { return aStarts }
-                return a.displayName < b.displayName
+                func rank(_ item: MentionSuggestionItem) -> (Bool, String) {
+                    switch item {
+                    case .user(let m):
+                        let starts = m.displayName.lowercased().hasPrefix(lower) || m.username.lowercased().hasPrefix(lower)
+                        return (starts, m.displayName.lowercased())
+                    case .role(_, let title, _, _):
+                        let starts = title.lowercased().hasPrefix(lower)
+                        return (starts, title.lowercased())
+                    case .here:
+                        let starts = "here".hasPrefix(lower)
+                        return (starts, "here")
+                    }
+                }
+                let ra = rank(a), rb = rank(b)
+                if ra.0 != rb.0 { return ra.0 && !rb.0 }
+                return ra.1 < rb.1
             }
         }
 
@@ -542,12 +677,12 @@ final class SendMessageInputViewController: UIViewController {
             hideMentionSuggestions()
             return
         }
-        showMentionSuggestions(members: filtered)
+        showMentionSuggestions(items: filtered)
     }
 
-    private func showMentionSuggestions(members: [MentionMember]) {
+    private func showMentionSuggestions(items: [MentionSuggestionItem]) {
         guard let sv = mentionSuggestionView else { return }
-        sv.update(members: members)
+        sv.update(items: items)
         sv.applyTheme()
         let h = sv.preferredHeight
         mentionSuggestionHeightConstraint?.constant = h
@@ -566,8 +701,8 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
-    private func insertMention(member: MentionMember) {
-        guard let keyword = detectMentionKeyword() else { return }
+    private func insertMention(item: MentionSuggestionItem) {
+        guard detectMentionKeyword() != nil else { return }
         guard let selectedRange = textView.selectedTextRange else { return }
         let cursorOffset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
 
@@ -577,7 +712,20 @@ final class SendMessageInputViewController: UIViewController {
         let atIntIdx = textBefore.distance(from: textBefore.startIndex, to: atIdx)
         let replaceRange = NSRange(location: atIntIdx, length: cursorOffset - atIntIdx)
 
-        let mentionText = "@\(member.displayName)"
+        let mentionText: String
+        let tracked: ComposerMention
+        switch item {
+        case .user(let member):
+            mentionText = "@\(member.displayName)"
+            tracked = ComposerMention(userId: member.userId, roleId: 0, rolename: "", displayName: member.displayName, range: NSRange(location: 0, length: 0))
+        case .role(let roleId, let title, _, _):
+            mentionText = "@\(title)"
+            tracked = ComposerMention(userId: 0, roleId: roleId, rolename: title, displayName: title, range: NSRange(location: 0, length: 0))
+        case .here:
+            mentionText = "@here"
+            tracked = ComposerMention(userId: Self.mentionHereUserId, roleId: 0, rolename: "", displayName: "here", range: NSRange(location: 0, length: 0))
+        }
+
         let trailingSpace = " "
         let insertText = mentionText + trailingSpace
 
@@ -603,11 +751,19 @@ final class SendMessageInputViewController: UIViewController {
         let lengthDelta = insertText.count - replaceRange.length
         activeMentions = activeMentions.map { m in
             if m.range.location >= replaceRange.location + replaceRange.length {
-                return (m.userId, m.displayName, NSRange(location: m.range.location + lengthDelta, length: m.range.length))
+                return ComposerMention(
+                    userId: m.userId,
+                    roleId: m.roleId,
+                    rolename: m.rolename,
+                    displayName: m.displayName,
+                    range: NSRange(location: m.range.location + lengthDelta, length: m.range.length)
+                )
             }
             return m
         }
-        activeMentions.append((userId: member.userId, displayName: member.displayName, range: mentionNSRange))
+        var appended = tracked
+        appended.range = mentionNSRange
+        activeMentions.append(appended)
 
         let newCursorPos = atIntIdx + insertText.count
         if let pos = textView.position(from: textView.beginningOfDocument, offset: newCursorPos) {
@@ -637,7 +793,13 @@ final class SendMessageInputViewController: UIViewController {
                 activeMentions.remove(at: index)
                 activeMentions = activeMentions.map { m in
                     if m.range.location > deleteRange.location {
-                        return (m.userId, m.displayName, NSRange(location: m.range.location - deletedLength, length: m.range.length))
+                        return ComposerMention(
+                            userId: m.userId,
+                            roleId: m.roleId,
+                            rolename: m.rolename,
+                            displayName: m.displayName,
+                            range: NSRange(location: m.range.location - deletedLength, length: m.range.length)
+                        )
                     }
                     return m
                 }
@@ -660,10 +822,86 @@ final class SendMessageInputViewController: UIViewController {
         return textView.text ?? ""
     }
 
+    private static let trailingPunctuation: Set<Character> = [",", ".", "!", "?", ";", ":"]
+    private static let stopChars: Set<Character> = [" ", "\n", "\r", "\t"]
+    private static let googleMeetPrefix = "https://meet.google.com/"
+
+    private static let youtubeRegex = try! NSRegularExpression(
+        pattern: #"(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|e\/|shorts\/)|youtu\.be\/)"#
+    )
+    private static let facebookRegex = try! NSRegularExpression(
+        pattern: #"(?:facebook\.com\/(?:reel\/|watch\?v=|[\w.]+\/videos\/(?:[\w.]+\/)?))([\w-]+)"#
+    )
+    private static let tiktokRegex = try! NSRegularExpression(
+        pattern: #"(?:tiktok\.com\/@[^/]+\/video\/\d+|vm\.tiktok\.com\/[a-zA-Z0-9]+|tiktok\.com\/t\/[a-zA-Z0-9]+)"#
+    )
+
+    private func detectLinks(in text: String) -> [[String: Any]] {
+        var links: [[String: Any]] = []
+        let chars = Array(text)
+        var i = 0
+
+        while i < chars.count {
+            let remaining = String(chars[i...])
+            guard remaining.hasPrefix("http://") || remaining.hasPrefix("https://") else {
+                i += 1
+                continue
+            }
+
+            let startIndex = i
+            let prefixLen = remaining.hasPrefix("https://") ? 8 : 7
+            i += prefixLen
+
+            while i < chars.count && !Self.stopChars.contains(chars[i]) {
+                i += 1
+            }
+            var endIndex = i
+
+            while endIndex > startIndex + prefixLen && Self.trailingPunctuation.contains(chars[endIndex - 1]) {
+                endIndex -= 1
+            }
+
+            let urlString = String(chars[startIndex..<endIndex])
+            let linkType = Self.classifyLink(urlString)
+
+            var entry: [String: Any] = [
+                "type": linkType,
+                "s": startIndex,
+                "e": endIndex
+            ]
+            if linkType == "lk" || linkType == "lk_yt" || linkType == "lk_fb" || linkType == "lk_tt" {
+                entry["channelId"] = ""
+                entry["clanId"] = ""
+                entry["channelLabel"] = ""
+            }
+            links.append(entry)
+        }
+        return links
+    }
+
+    private static func classifyLink(_ url: String) -> String {
+        if url.hasPrefix(googleMeetPrefix) { return "vk" }
+        let range = NSRange(url.startIndex..., in: url)
+        if youtubeRegex.firstMatch(in: url, range: range) != nil { return "lk_yt" }
+        if facebookRegex.firstMatch(in: url, range: range) != nil { return "lk_fb" }
+        if tiktokRegex.firstMatch(in: url, range: range) != nil { return "lk_tt" }
+        return "lk"
+    }
+
     private func buildMentionList() -> [Mezon_Api_MessageMention] {
         return activeMentions.map { m in
             var mention = Mezon_Api_MessageMention()
-            mention.userID = m.userId
+            if m.roleId != 0 {
+                mention.roleID = m.roleId
+                mention.rolename = m.rolename
+            } else {
+                mention.userID = m.userId
+                if m.userId == Self.mentionHereUserId {
+                    mention.username = "here"
+                } else if let member = allMentionMembers.first(where: { $0.userId == m.userId }) {
+                    mention.username = member.username
+                }
+            }
             mention.s = Int32(m.range.location)
             mention.e = Int32(m.range.location + m.range.length)
             return mention
@@ -799,13 +1037,46 @@ final class SendMessageInputViewController: UIViewController {
         }
 
         let replyRef: Mezon_Api_MessageRef? = buildReplyRef()
+        let mentionList = buildMentionList()
 
         if let sender = context.currentUser {
-            let pendingRecord = MessageRecord.pending(localId: localId, text: text, channelId: channelIdStr, clanId: clanId, sender: sender)
-            self.context.account.postbox.write { tx in tx.addMessages([pendingRecord]) }
-        }
+            let referencesData: Data = {
+                guard let ref = replyRef else { return Data() }
+                var list = Mezon_Api_MessageRefList()
+                list.refs = [ref]
+                return (try? list.serializedData()) ?? Data()
+            }()
 
-        let mentionList = buildMentionList()
+            let mentionsData: Data = {
+                guard !mentionList.isEmpty else { return Data() }
+                var list = Mezon_Api_MessageMentionList()
+                list.mentions = mentionList
+                return (try? list.serializedData()) ?? Data()
+            }()
+
+            let senderId = Int64(sender.id) ?? 0
+            let clanMember = self.allMentionMembers.first(where: { $0.userId == senderId })
+
+            let resolvedName: String = clanMember?.displayName
+                ?? (sender.displayName.isEmpty ? sender.username : sender.displayName)
+            let resolvedAvatar: String? = clanMember?.avatarURL
+                ?? sender.avatarURL?.absoluteString
+
+            let pendingRecord = MessageRecord.pending(
+                localId: localId,
+                text: text,
+                channelId: channelIdStr,
+                clanId: clanId,
+                sender: sender,
+                displayName: resolvedName,
+                avatarURL: resolvedAvatar,
+                referencesData: referencesData,
+                mentionsData: mentionsData
+            )
+            self.context.account.postbox.write { tx in
+                tx.addMessages([pendingRecord])
+            }
+        }
 
         self.text = ""
         self.activeMentions = []
@@ -816,12 +1087,20 @@ final class SendMessageInputViewController: UIViewController {
             .foregroundColor: UIColor.theme.textStrong
         ]
         placeholderLabel.isHidden = false
+        textView.isScrollEnabled = false
+        resetTextViewHeight()
         clearPickedImages()
         clearReply()
         hideMentionSuggestions()
         onSent?()
 
-        let contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": text]
+        var contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": text]
+        if !text.isEmpty {
+            let links = detectLinks(in: text)
+            if !links.isEmpty {
+                contentJSON["mk"] = links
+            }
+        }
         let contentStr: String
         if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
            let str = String(data: data, encoding: .utf8) {
@@ -876,8 +1155,15 @@ final class SendMessageInputViewController: UIViewController {
                     topicId: self.topicId,
                     token: token
                 )
-                self.context.account.postbox.write { tx in tx.deleteMessage(id: localId) }
-                ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                self.context.account.postbox.write { tx in
+                    let msgs = tx.getMessages(channelId: channelIdStr)
+                    let pendingStillExists = msgs.contains { $0.id == localId }
+                    if pendingStillExists {
+                        tx.markMessageSent(id: localId)
+                    } else {
+                        ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                    }
+                }
             } catch {
                 self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                 ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
@@ -895,7 +1181,7 @@ final class SendMessageInputViewController: UIViewController {
         ref.messageSenderID = Int64(display.message.senderId) ?? 0
         ref.messageSenderUsername = display.senderDisplayName
         ref.messageSenderDisplayName = display.senderDisplayName
-        ref.mesagesSenderAvatar = display.avatarURL ?? ""
+        ref.messageSenderAvatar = display.avatarURL ?? ""
         ref.hasAttachment_p = !display.attachments.isEmpty
         let contentJSON: [String: Any] = ["t": display.parsedContent.text]
         if let jsonData = try? JSONSerialization.data(withJSONObject: contentJSON),
@@ -930,14 +1216,26 @@ extension SendMessageInputViewController: UITextViewDelegate {
             let insertLen = (text as NSString).length
             activeMentions = activeMentions.map { m in
                 if m.range.location >= range.location {
-                    return (m.userId, m.displayName, NSRange(location: m.range.location + insertLen, length: m.range.length))
+                    return ComposerMention(
+                        userId: m.userId,
+                        roleId: m.roleId,
+                        rolename: m.rolename,
+                        displayName: m.displayName,
+                        range: NSRange(location: m.range.location + insertLen, length: m.range.length)
+                    )
                 }
                 return m
             }
         } else if text.isEmpty && range.length > 0 {
             activeMentions = activeMentions.map { m in
                 if m.range.location >= range.location + range.length {
-                    return (m.userId, m.displayName, NSRange(location: m.range.location - range.length, length: m.range.length))
+                    return ComposerMention(
+                        userId: m.userId,
+                        roleId: m.roleId,
+                        rolename: m.rolename,
+                        displayName: m.displayName,
+                        range: NSRange(location: m.range.location - range.length, length: m.range.length)
+                    )
                 }
                 return m
             }
@@ -945,12 +1243,26 @@ extension SendMessageInputViewController: UITextViewDelegate {
             let delta = (text as NSString).length - range.length
             activeMentions = activeMentions.map { m in
                 if m.range.location >= range.location + range.length {
-                    return (m.userId, m.displayName, NSRange(location: m.range.location + delta, length: m.range.length))
+                    return ComposerMention(
+                        userId: m.userId,
+                        roleId: m.roleId,
+                        rolename: m.rolename,
+                        displayName: m.displayName,
+                        range: NSRange(location: m.range.location + delta, length: m.range.length)
+                    )
                 }
                 return m
             }
         }
         return true
+    }
+
+    private func resetTextViewHeight() {
+        currentTextViewHeight = Self.textViewMinHeight
+        textViewHeightConstraint?.constant = Self.textViewMinHeight
+        inputBarHeightConstraint?.constant = Self.textViewMinHeight + Self.inputBarPadding
+        onHeightChanged?(totalHeight)
+        view.superview?.layoutIfNeeded()
     }
 
     private func updateTextViewHeight() {

@@ -881,6 +881,7 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     set {_uniqueStorage()._message = .clanCreatedEvent(newValue)}
   }
 
+  /// Voice Agent Event
   var aiagentEnabledEvent: Mezon_Realtime_AIAgentEnabledEvent {
     get {
       if case .aiagentEnabledEvent(let v)? = _storage._message {return v}
@@ -1075,6 +1076,7 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     case updateLocalcacheEvent(Mezon_Realtime_UpdateLocalCacheEvent)
     /// Clan Created Event
     case clanCreatedEvent(Mezon_Realtime_ClanCreatedEvent)
+    /// Voice Agent Event
     case aiagentEnabledEvent(Mezon_Realtime_AIAgentEnabledEvent)
 
   }
@@ -3556,32 +3558,23 @@ struct Mezon_Realtime_ListDataSocket: Sendable {
 
   var apiName: String = String()
 
-  var listUnreadMsgIndicatorReq: Mezon_Api_ListClanUnreadMsgIndicatorRequest {
-    get {_listUnreadMsgIndicatorReq ?? Mezon_Api_ListClanUnreadMsgIndicatorRequest()}
-    set {_listUnreadMsgIndicatorReq = newValue}
+  var listChannelBadgeCountReq: Mezon_Api_ListChannelBadgeCountRequest {
+    get {_listChannelBadgeCountReq ?? Mezon_Api_ListChannelBadgeCountRequest()}
+    set {_listChannelBadgeCountReq = newValue}
   }
-  /// Returns true if `listUnreadMsgIndicatorReq` has been explicitly set.
-  var hasListUnreadMsgIndicatorReq: Bool {self._listUnreadMsgIndicatorReq != nil}
-  /// Clears the value of `listUnreadMsgIndicatorReq`. Subsequent reads from it will return its default value.
-  mutating func clearListUnreadMsgIndicatorReq() {self._listUnreadMsgIndicatorReq = nil}
+  /// Returns true if `listChannelBadgeCountReq` has been explicitly set.
+  var hasListChannelBadgeCountReq: Bool {self._listChannelBadgeCountReq != nil}
+  /// Clears the value of `listChannelBadgeCountReq`. Subsequent reads from it will return its default value.
+  mutating func clearListChannelBadgeCountReq() {self._listChannelBadgeCountReq = nil}
 
-  var unreadMsgIndicator: Mezon_Api_ListClanUnreadMsgIndicatorResponse {
-    get {_unreadMsgIndicator ?? Mezon_Api_ListClanUnreadMsgIndicatorResponse()}
-    set {_unreadMsgIndicator = newValue}
+  var channelBadgeCount: Mezon_Api_ListChannelBadgeCountResponse {
+    get {_channelBadgeCount ?? Mezon_Api_ListChannelBadgeCountResponse()}
+    set {_channelBadgeCount = newValue}
   }
-  /// Returns true if `unreadMsgIndicator` has been explicitly set.
-  var hasUnreadMsgIndicator: Bool {self._unreadMsgIndicator != nil}
-  /// Clears the value of `unreadMsgIndicator`. Subsequent reads from it will return its default value.
-  mutating func clearUnreadMsgIndicator() {self._unreadMsgIndicator = nil}
-
-  var listClanBadgeCountReq: Mezon_Api_ListClanBadgeCountRequest {
-    get {_listClanBadgeCountReq ?? Mezon_Api_ListClanBadgeCountRequest()}
-    set {_listClanBadgeCountReq = newValue}
-  }
-  /// Returns true if `listClanBadgeCountReq` has been explicitly set.
-  var hasListClanBadgeCountReq: Bool {self._listClanBadgeCountReq != nil}
-  /// Clears the value of `listClanBadgeCountReq`. Subsequent reads from it will return its default value.
-  mutating func clearListClanBadgeCountReq() {self._listClanBadgeCountReq = nil}
+  /// Returns true if `channelBadgeCount` has been explicitly set.
+  var hasChannelBadgeCount: Bool {self._channelBadgeCount != nil}
+  /// Clears the value of `channelBadgeCount`. Subsequent reads from it will return its default value.
+  mutating func clearChannelBadgeCount() {self._channelBadgeCount = nil}
 
   var clanBadgeCount: Mezon_Api_ListClanBadgeCountResponse {
     get {_clanBadgeCount ?? Mezon_Api_ListClanBadgeCountResponse()}
@@ -3601,15 +3594,34 @@ struct Mezon_Realtime_ListDataSocket: Sendable {
   /// Clears the value of `listLogedDevice`. Subsequent reads from it will return its default value.
   mutating func clearListLogedDevice() {self._listLogedDevice = nil}
 
+  var listUserOnlineReq: Mezon_Api_ListUserOnlineRequest {
+    get {_listUserOnlineReq ?? Mezon_Api_ListUserOnlineRequest()}
+    set {_listUserOnlineReq = newValue}
+  }
+  /// Returns true if `listUserOnlineReq` has been explicitly set.
+  var hasListUserOnlineReq: Bool {self._listUserOnlineReq != nil}
+  /// Clears the value of `listUserOnlineReq`. Subsequent reads from it will return its default value.
+  mutating func clearListUserOnlineReq() {self._listUserOnlineReq = nil}
+
+  var userOnlineList: Mezon_Api_ListUserOnlineResponse {
+    get {_userOnlineList ?? Mezon_Api_ListUserOnlineResponse()}
+    set {_userOnlineList = newValue}
+  }
+  /// Returns true if `userOnlineList` has been explicitly set.
+  var hasUserOnlineList: Bool {self._userOnlineList != nil}
+  /// Clears the value of `userOnlineList`. Subsequent reads from it will return its default value.
+  mutating func clearUserOnlineList() {self._userOnlineList = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
-  fileprivate var _listUnreadMsgIndicatorReq: Mezon_Api_ListClanUnreadMsgIndicatorRequest? = nil
-  fileprivate var _unreadMsgIndicator: Mezon_Api_ListClanUnreadMsgIndicatorResponse? = nil
-  fileprivate var _listClanBadgeCountReq: Mezon_Api_ListClanBadgeCountRequest? = nil
+  fileprivate var _listChannelBadgeCountReq: Mezon_Api_ListChannelBadgeCountRequest? = nil
+  fileprivate var _channelBadgeCount: Mezon_Api_ListChannelBadgeCountResponse? = nil
   fileprivate var _clanBadgeCount: Mezon_Api_ListClanBadgeCountResponse? = nil
   fileprivate var _listLogedDevice: Mezon_Api_LogedDeviceList? = nil
+  fileprivate var _listUserOnlineReq: Mezon_Api_ListUserOnlineRequest? = nil
+  fileprivate var _userOnlineList: Mezon_Api_ListUserOnlineResponse? = nil
 }
 
 struct Mezon_Realtime_MeetParticipantEvent: Sendable {
@@ -10079,7 +10091,7 @@ extension Mezon_Realtime_DeleteAccountEvent: SwiftProtobuf.Message, SwiftProtobu
 
 extension Mezon_Realtime_ListDataSocket: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListDataSocket"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}api_name\0\u{3}list_unread_msg_indicator_req\0\u{3}unread_msg_indicator\0\u{3}list_clan_badge_count_req\0\u{3}clan_badge_count\0\u{3}list_loged_device\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}api_name\0\u{3}list_channel_badge_count_req\0\u{3}channel_badge_count\0\u{3}clan_badge_count\0\u{3}list_loged_device\0\u{3}list_user_online_req\0\u{3}user_online_list\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -10088,11 +10100,12 @@ extension Mezon_Realtime_ListDataSocket: SwiftProtobuf.Message, SwiftProtobuf._M
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.apiName) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._listUnreadMsgIndicatorReq) }()
-      case 3: try { try decoder.decodeSingularMessageField(value: &self._unreadMsgIndicator) }()
-      case 4: try { try decoder.decodeSingularMessageField(value: &self._listClanBadgeCountReq) }()
-      case 5: try { try decoder.decodeSingularMessageField(value: &self._clanBadgeCount) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._listLogedDevice) }()
+      case 2: try { try decoder.decodeSingularMessageField(value: &self._listChannelBadgeCountReq) }()
+      case 3: try { try decoder.decodeSingularMessageField(value: &self._channelBadgeCount) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._clanBadgeCount) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._listLogedDevice) }()
+      case 6: try { try decoder.decodeSingularMessageField(value: &self._listUserOnlineReq) }()
+      case 7: try { try decoder.decodeSingularMessageField(value: &self._userOnlineList) }()
       default: break
       }
     }
@@ -10106,31 +10119,35 @@ extension Mezon_Realtime_ListDataSocket: SwiftProtobuf.Message, SwiftProtobuf._M
     if !self.apiName.isEmpty {
       try visitor.visitSingularStringField(value: self.apiName, fieldNumber: 1)
     }
-    try { if let v = self._listUnreadMsgIndicatorReq {
+    try { if let v = self._listChannelBadgeCountReq {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     } }()
-    try { if let v = self._unreadMsgIndicator {
+    try { if let v = self._channelBadgeCount {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
-    try { if let v = self._listClanBadgeCountReq {
+    try { if let v = self._clanBadgeCount {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     } }()
-    try { if let v = self._clanBadgeCount {
+    try { if let v = self._listLogedDevice {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     } }()
-    try { if let v = self._listLogedDevice {
+    try { if let v = self._listUserOnlineReq {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+    } }()
+    try { if let v = self._userOnlineList {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Realtime_ListDataSocket, rhs: Mezon_Realtime_ListDataSocket) -> Bool {
     if lhs.apiName != rhs.apiName {return false}
-    if lhs._listUnreadMsgIndicatorReq != rhs._listUnreadMsgIndicatorReq {return false}
-    if lhs._unreadMsgIndicator != rhs._unreadMsgIndicator {return false}
-    if lhs._listClanBadgeCountReq != rhs._listClanBadgeCountReq {return false}
+    if lhs._listChannelBadgeCountReq != rhs._listChannelBadgeCountReq {return false}
+    if lhs._channelBadgeCount != rhs._channelBadgeCount {return false}
     if lhs._clanBadgeCount != rhs._clanBadgeCount {return false}
     if lhs._listLogedDevice != rhs._listLogedDevice {return false}
+    if lhs._listUserOnlineReq != rhs._listUserOnlineReq {return false}
+    if lhs._userOnlineList != rhs._userOnlineList {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -26,6 +26,16 @@ final class ImageCache {
     }()
 
     private let ioQueue = DispatchQueue(label: "mezon.imagecache.io", qos: .utility)
+
+    private let avatarSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 6
+        config.timeoutIntervalForRequest = 15
+        return URLSession(configuration: config)
+    }()
+
+    private var inflightCallbacks: [String: [(UIImage?) -> Void]] = [:]
+    private let inflightLock = NSLock()
     func memoryImage(forKey key: String) -> UIImage? {
         return memoryCache.object(forKey: key as NSString)
     }
@@ -160,6 +170,60 @@ final class ImageCache {
     func cachedImage(forURL urlString: String) -> UIImage? {
         return image(forKey: urlString)
     }
+
+    func loadAvatar(urlString: String, completion: @escaping (UIImage?) -> Void) {
+        guard let url = URL(string: urlString), !urlString.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        if let cached = memoryCache.object(forKey: urlString as NSString) {
+            completion(cached)
+            return
+        }
+
+        inflightLock.lock()
+        if inflightCallbacks[urlString] != nil {
+            inflightCallbacks[urlString]?.append(completion)
+            inflightLock.unlock()
+            return
+        }
+        inflightCallbacks[urlString] = [completion]
+        inflightLock.unlock()
+
+        let fetchAndDeliver: (UIImage?) -> Void = { [weak self] image in
+            guard let self else { return }
+            self.inflightLock.lock()
+            let callbacks = self.inflightCallbacks.removeValue(forKey: urlString) ?? []
+            self.inflightLock.unlock()
+            DispatchQueue.main.async {
+                for cb in callbacks { cb(image) }
+            }
+        }
+
+        if hasDiskCache(forKey: urlString) {
+            imageFromDisk(forKey: urlString) { [weak self] diskImage in
+                if let diskImage {
+                    fetchAndDeliver(diskImage)
+                } else {
+                    self?.downloadAvatar(url: url, key: urlString, deliver: fetchAndDeliver)
+                }
+            }
+        } else {
+            downloadAvatar(url: url, key: urlString, deliver: fetchAndDeliver)
+        }
+    }
+
+    private func downloadAvatar(url: URL, key: String, deliver: @escaping (UIImage?) -> Void) {
+        avatarSession.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data else { deliver(nil); return }
+            let image = UIImage.decompressedImage(from: data)
+            if let image {
+                self?.setImage(image, data: data, forKey: key)
+            }
+            deliver(image)
+        }.resume()
+    }
 }
 
 private extension String {
@@ -210,6 +274,35 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
             }
         }
         return context
+    }
+}
+
+func remoteAvatarSignal(url: String) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return Signal { subscriber in
+        guard !url.isEmpty else {
+            subscriber.putCompletion()
+            return EmptyDisposable
+        }
+
+        let cache = ImageCache.shared
+        if let cached = cache.memoryImage(forKey: url) {
+            subscriber.putNext(makeTransform(for: cached, resizeMode: .fill))
+            subscriber.putCompletion()
+            return EmptyDisposable
+        }
+
+        let cancelled = Atomic<Bool>(value: false)
+        cache.loadAvatar(urlString: url) { image in
+            guard !cancelled.with({ $0 }) else { return }
+            if let image {
+                subscriber.putNext(makeTransform(for: image, resizeMode: .fill))
+            }
+            subscriber.putCompletion()
+        }
+
+        return ActionDisposable {
+            let _ = cancelled.modify { _ in true }
+        }
     }
 }
 

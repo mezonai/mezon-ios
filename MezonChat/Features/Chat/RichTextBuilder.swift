@@ -3,6 +3,7 @@ import UIKit
 extension NSAttributedString.Key {
     static let mezonLink = NSAttributedString.Key("mezon.link")
     static let mezonMention = NSAttributedString.Key("mezon.mention")
+    static let mezonRoleMention = NSAttributedString.Key("mezon.roleMention")
     static let mezonHashtag = NSAttributedString.Key("mezon.hashtag")
 }
 
@@ -95,7 +96,11 @@ enum RichTextBuilder {
                 let isRoleMention = roleId != nil && userId == nil
                 attrs[.foregroundColor] = isRoleMention ? s.roleMentionColor : s.mentionColor
                 attrs[.backgroundColor] = isRoleMention ? s.roleMentionBgColor : s.mentionBgColor
-                attrs[.mezonMention] = (userId ?? roleId ?? "") as NSString
+                if isRoleMention {
+                    attrs[.mezonRoleMention] = (roleId ?? "") as NSString
+                } else {
+                    attrs[.mezonMention] = (userId ?? "") as NSString
+                }
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
 

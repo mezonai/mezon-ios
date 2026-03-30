@@ -93,6 +93,7 @@ struct ChatMessageDisplay: Identifiable {
     let topicData: TopicData?
     let isMe: Bool
     let sendingState: SendingState
+    let hasIncludeMention: Bool
     var isFailed: Bool { sendingState == .failed }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
@@ -112,6 +113,7 @@ struct ChatMessageDisplay: Identifiable {
         let diff = current.createdAt.timeIntervalSince(prev.createdAt)
         return diff < 120 && diff >= 0
     }
+    static let mentionHereUserId: String = "1775731111020111321"
 }
 
 struct ChatState {
@@ -140,7 +142,7 @@ struct ChatState {
 final class ChatViewController: ViewController {
 
     let clanId: Int64
-    let channel: Mezon_Api_ChannelDescription
+    private(set) var channel: Mezon_Api_ChannelDescription
     let context: AccountContext
     var topicId: Int64 = 0
     private var storageChannelId: String {
@@ -364,6 +366,13 @@ final class ChatViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             self.fetchMessages(token: token)
             self.joinChat()
+            if !self.hasCompletedInitialFetch {
+                self.hasCompletedInitialFetch = true
+                self.fetchNotificationSetting(token: token)
+                self.fetchChannelPermissions(token: token)
+                self.fetchChannelMembers(token: token)
+                self.checkBanStatus(token: token)
+            }
         }
     }
 
@@ -412,6 +421,8 @@ final class ChatViewController: ViewController {
     private func setIsLoading(_ v: Bool) { isLoading = v; metadataOnlyPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
+    private var hasCompletedInitialFetch = false
+
     func start() {
         if topicId == 0 {
             context.currentClanId = clanId
@@ -420,7 +431,17 @@ final class ChatViewController: ViewController {
             Self.removeDeliveredNotifications(forChannelId: channel.channelID)
         }
 
+        if channel.channelLabel.isEmpty {
+            resolveChannelLabelFromCache()
+        }
+
         let channelIdStr = storageChannelId
+
+        setIsLoading(true)
+        context.account.postbox.write { tx in
+            tx.replaceAllMessages([], channelId: channelIdStr)
+        }
+
         stateDisposables.add(
             (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
                 |> deliverOnMainQueue)
@@ -452,13 +473,58 @@ final class ChatViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.context.waitForSessionReady()
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getToken() else {
+                AppLogger.network.warning("[Chat] start: getToken returned nil, will retry on socket reconnect")
+                return
+            }
+            self.hasCompletedInitialFetch = true
             self.fetchMessages(token: token)
             self.joinChat()
             self.fetchNotificationSetting(token: token)
             self.fetchChannelPermissions(token: token)
             self.fetchChannelMembers(token: token)
             self.checkBanStatus(token: token)
+            self.resolveChannelLabelFromNetwork(token: token)
+        }
+    }
+
+    private func resolveChannelLabelFromCache() {
+        if clanId == 0 {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
+               !cached.channelLabel.isEmpty {
+                channel = cached
+                setChannelLabel(cached.channelLabel)
+            }
+        } else {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
+               !cached.channelLabel.isEmpty {
+                channel = cached
+                setChannelLabel(cached.channelLabel)
+            }
+        }
+    }
+
+    private func resolveChannelLabelFromNetwork(token: String) {
+        guard channel.channelLabel.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                if self.clanId == 0 {
+                    let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                    if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
+                        self.channel = found
+                        self.setChannelLabel(found.channelLabel)
+                    }
+                } else {
+                    let channels = try await self.context.account.network.listChannelDescs(clanId: self.clanId, token: token)
+                    if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
+                        self.channel = found
+                        self.setChannelLabel(found.channelLabel)
+                    }
+                }
+            } catch {
+                AppLogger.network.error("[Chat] resolveChannelLabel failed: \(error)")
+            }
         }
     }
 
@@ -485,7 +551,11 @@ final class ChatViewController: ViewController {
             shared?.set(newCount, forKey: "badgeCount")
 
             DispatchQueue.main.async {
-                UIApplication.shared.applicationIconBadgeNumber = newCount
+                if #available(iOS 16.0, *) {
+                    UNUserNotificationCenter.current().setBadgeCount(newCount)
+                } else {
+                    UIApplication.shared.applicationIconBadgeNumber = newCount
+                }
             }
         }
     }
@@ -845,14 +915,27 @@ final class ChatViewController: ViewController {
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
+
+        // Gather current user's role IDs for role-mention matching
+        let currentUserRoleIds: Set<Int64> = {
+            guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
+            return Set(roleList.roles.map { $0.id })
+        }()
+
+        let currentPendingIds = Set(validRecords.compactMap { $0.id.hasPrefix("pending-") ? $0.id : nil })
+        for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
+            ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
+        }
+
         let displays = validRecords.map { record -> ChatMessageDisplay in
             let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if record.sendingState == .pending,
+            if record.id.hasPrefix("pending-"),
                let localImages = ParsedAttachment.pendingImageCache[record.id], !localImages.isEmpty {
+                let stillUploading = record.sendingState == .pending
                 attachments = localImages.map { image in
                     ParsedAttachment(
                         url: "",
@@ -861,7 +944,7 @@ final class ChatViewController: ViewController {
                         width: Int(image.size.width),
                         height: Int(image.size.height),
                         localImage: image,
-                        isUploading: true
+                        isUploading: stillUploading
                     )
                 }
             }
@@ -874,7 +957,13 @@ final class ChatViewController: ViewController {
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
             let isMe = currentUserId != nil && record.senderId == currentUserId
-            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog, topicData: topicData, isMe: isMe, sendingState: record.sendingState)
+            let hasMention = Self.checkIncludeMention(
+                mentionsData: record.mentionsJSON,
+                referencesData: record.referencesData,
+                currentUserId: currentUserId,
+                currentUserRoleIds: currentUserRoleIds
+            )
+            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog, topicData: topicData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention)
         }
         return Self.applyCombine(to: displays)
     }
@@ -949,8 +1038,64 @@ final class ChatViewController: ViewController {
             let prev = i > 0 ? displays[i - 1].message : nil
             let hasReply = d.replyRef != nil || d.isDeletedReply
             let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog, topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState)
+            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog, topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention)
         }
+    }
+
+    private static func checkIncludeMention(
+        mentionsData: Data,
+        referencesData: Data,
+        currentUserId: String?,
+        currentUserRoleIds: Set<Int64>
+    ) -> Bool {
+        guard let currentUserId, !currentUserId.isEmpty else { return false }
+
+        let mentions = parseMentionList(from: mentionsData)
+        for mention in mentions {
+            // @here
+            if mention.userID != 0, "\(mention.userID)" == ChatMessageDisplay.mentionHereUserId {
+                return true
+            }
+            // Direct user mention
+            if mention.userID != 0, "\(mention.userID)" == currentUserId {
+                return true
+            }
+            // Role mention
+            if mention.roleID != 0, currentUserRoleIds.contains(mention.roleID) {
+                return true
+            }
+        }
+
+        // Replied-to check
+        if !referencesData.isEmpty,
+           let list = try? Mezon_Api_MessageRefList(serializedBytes: referencesData),
+           let firstRef = list.refs.first,
+           firstRef.messageSenderID != 0,
+           "\(firstRef.messageSenderID)" == currentUserId {
+            return true
+        }
+
+        return false
+    }
+
+    private static func parseMentionList(from data: Data) -> [Mezon_Api_MessageMention] {
+        guard !data.isEmpty else { return [] }
+        if let list = try? Mezon_Api_MessageMentionList(serializedBytes: data), !list.mentions.isEmpty {
+            return list.mentions
+        }
+        if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            return jsonArray.compactMap { item -> Mezon_Api_MessageMention? in
+                var m = Mezon_Api_MessageMention()
+                if let uid = item["user_id"] as? String, let v = Int64(uid) { m.userID = v }
+                else if let uid = item["user_id"] as? Int64 { m.userID = uid }
+                else if let uid = item["user_id"] as? Double { m.userID = Int64(uid) }
+                if let rid = item["role_id"] as? String, let v = Int64(rid) { m.roleID = v }
+                else if let rid = item["role_id"] as? Int64 { m.roleID = rid }
+                else if let rid = item["role_id"] as? Double { m.roleID = Int64(rid) }
+                return m
+            }
+        }
+        return []
     }
 
     private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {
@@ -1250,7 +1395,7 @@ final class ChatViewController: ViewController {
             insertIndicesAndItems: [],
             updateIndicesAndItems: [],
             options: [.Synchronous],
-            scrollToItem: ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up),
+            scrollToItem: ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up),
             updateOpaqueState: nil,
             completion: { _ in }
         )
@@ -1470,6 +1615,8 @@ final class ChatViewController: ViewController {
             break // TODO: implement mark message
         case .quickMenu:
             break // TODO: implement quick menu
+        case .editMessage:
+            break // TODO: implement edit message
         case .report:
             break // TODO: implement report
         }
