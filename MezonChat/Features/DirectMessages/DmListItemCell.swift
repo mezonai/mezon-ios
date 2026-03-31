@@ -236,35 +236,185 @@ final class DmListItemCell: UITableViewCell {
         return "Chat"
     }
 
+    /// Zero-width space so the second line keeps height when there is no text (RN still mounts `MessagePreviewLastest` with empty props).
+    private static let previewLayoutPlaceholder = "\u{200B}"
+
+    /// RN `MessagePreviewLastest` + `DmListItem`: parse `last_sent_message.content` (JSON with optional nested `content`), `t`, `embed`, links.
+    /// Real `content` / `sender_id` are filled from socket via `updateDmLastSentMessage` (see `DirectMessagesViewController`).
     private func lastMessagePreview(channel: Mezon_Api_ChannelDescription, currentUserId: String?) -> (String, String) {
-        guard channel.hasLastSentMessage else { return ("", "") }
         let msg = channel.lastSentMessage
-        let isFromMe = currentUserId.map { String(msg.senderID) == $0 } ?? false
+        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
+        let hasHeaderPayload =
+            channel.hasLastSentMessage
+            || msg.timestampSeconds > 0
+            || !msg.content.isEmpty
+            || msg.id != 0
+            || msg.senderID != 0
+
+        // RN `MessagePreviewLastest`: when no `last_sent_message` at all,
+        // show "Group created" for groups or empty placeholder for DMs.
+        if !hasHeaderPayload {
+            let ts = max(
+                channel.updateTimeSeconds,
+                channel.lastSeenMessage.timestampSeconds,
+                channel.createTimeSeconds
+            )
+            let time = ts > 0 ? formatRelativeTime(timestamp: ts) : ""
+            if isGroup {
+                return (L(L10n.DirectMessage.groupCreated), time)
+            }
+            return (Self.previewLayoutPlaceholder, time)
+        }
+
+        let isFromMe: Bool = {
+            if let uid = currentUserId.flatMap({ Int64($0) }) { return uid == msg.senderID }
+            if let s = currentUserId { return String(msg.senderID) == s }
+            return false
+        }()
 
         var senderPrefix = ""
-        if isFromMe {
-            senderPrefix = "\(L(L10n.DirectMessage.you)): "
-        } else {
-            let senderName = channel.displayNames.first(where: { !$0.isEmpty }) ?? channel.usernames.first(where: { !$0.isEmpty }) ?? ""
-            if !senderName.isEmpty {
-                senderPrefix = "\(senderName): "
-            }
-        }
-
-        var text = ""
-        if !msg.content.isEmpty {
-            if let data = msg.content.data(using: .utf8),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let t = json["t"] as? String, !t.isEmpty {
-                text = t
+        if msg.senderID != 0 {
+            if isFromMe {
+                senderPrefix = "\(L(L10n.DirectMessage.you)): "
             } else {
-                text = msg.content
+                let senderName = channel.displayNames.first(where: { !$0.isEmpty }) ?? channel.usernames.first(where: { !$0.isEmpty }) ?? ""
+                if !senderName.isEmpty {
+                    senderPrefix = "\(senderName): "
+                }
             }
         }
 
-        let preview = senderPrefix + (text.isEmpty ? "" : text)
         let time = formatRelativeTime(timestamp: msg.timestampSeconds)
+
+        // RN `MessagePreviewLastest` parses content from `last_sent_message.content`.
+        // Content may be: JSON object, double-encoded JSON string, or nested {"content": ...}.
+        let preview: String
+        if let payload = Self.messageContentPayload(from: msg.content) {
+            if Self.isRNEmptyMessageContent(payload) {
+                preview = Self.previewWhenNoMessageBody(senderPrefix: senderPrefix, isGroup: isGroup)
+            } else {
+                preview = senderPrefix + Self.dmPreviewBody(from: payload)
+            }
+        } else if msg.content.isEmpty {
+            preview = Self.previewWhenNoMessageBody(senderPrefix: senderPrefix, isGroup: isGroup)
+        } else {
+            preview = senderPrefix + msg.content
+        }
+
+        let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return (Self.previewLayoutPlaceholder, time)
+        }
         return (preview, time)
+    }
+
+    private static func previewWhenNoMessageBody(senderPrefix: String, isGroup: Bool) -> String {
+        if isGroup {
+            return senderPrefix + L(L10n.DirectMessage.groupCreated)
+        }
+        let p = senderPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        return p.isEmpty ? previewLayoutPlaceholder : p
+    }
+
+    /// RN `MessagePreviewLastest`: inner body JSON, optional nested `content`, or double-encoded JSON string at root.
+    private static func messageContentPayload(from raw: String) -> [String: Any]? {
+        guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
+        guard let any = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        if let dict = any as? [String: Any] {
+            return unwrapContentNested(in: dict)
+        }
+        // Some gateways store a JSON string that must be parsed again.
+        if let s = any as? String {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let innerData = trimmed.data(using: .utf8),
+                  let inner = try? JSONSerialization.jsonObject(with: innerData) else {
+                return nil
+            }
+            if let dict = inner as? [String: Any] { return unwrapContentNested(in: dict) }
+        }
+        return nil
+    }
+
+    private static func unwrapContentNested(in top: [String: Any]) -> [String: Any] {
+        if top["content"] != nil {
+            if let inner = top["content"] as? [String: Any] { return inner }
+            if let s = top["content"] as? String {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let innerData = trimmed.data(using: .utf8),
+                   let inner = try? JSONSerialization.jsonObject(with: innerData) as? [String: Any] {
+                    return inner
+                }
+            }
+        }
+        return top
+    }
+
+    private static func isRNEmptyMessageContent(_ d: [String: Any]) -> Bool {
+        d.isEmpty
+    }
+
+    private static let shareContactFieldValue = "share_contact"
+
+    private static func firstEmbed(in content: [String: Any]) -> [String: Any]? {
+        if let arr = content["embed"] as? [[String: Any]] { return arr.first }
+        if let arr = content["embed"] as? [Any] {
+            for item in arr {
+                if let d = item as? [String: Any] { return d }
+            }
+        }
+        if let one = content["embed"] as? [String: Any] { return one }
+        return nil
+    }
+
+    /// `content.t` may decode as String, NSNumber, etc. depending on JSON / ObjC bridging.
+    private static func messageTextT(from content: [String: Any]) -> String {
+        guard let v = content["t"] else { return "" }
+        if let s = v as? String { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let n = v as? NSNumber { return n.stringValue }
+        return String(describing: v).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func dmPreviewBody(from content: [String: Any]) -> String {
+        let t = messageTextT(from: content)
+
+        if let embed = firstEmbed(in: content) {
+            let title = (embed["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let desc = (embed["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let title { return title }
+            if let desc { return desc }
+            if let fields = embed["fields"] as? [[String: Any]],
+               fields.contains(where: { ($0["value"] as? String) == shareContactFieldValue }) {
+                return "[\(L(L10n.DirectMessage.previewContact))]"
+            }
+            return "[\(L(L10n.DirectMessage.previewFile))]"
+        }
+
+        if isGoogleMapsLink(t) {
+            return "[\(L(L10n.DirectMessage.previewLocation))]"
+        }
+        if textContainsURL(t) {
+            return "[\(L(L10n.DirectMessage.previewLink))] \(t)"
+        }
+        if !t.isEmpty {
+            return t
+        }
+        return "[\(L(L10n.DirectMessage.previewFile))]"
+    }
+
+    private static func textContainsURL(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return false }
+        let range = NSRange(text.startIndex..., in: text)
+        return detector.firstMatch(in: text, options: [], range: range) != nil
+    }
+
+    private static func isGoogleMapsLink(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        if lower.contains("google.com/maps") { return true }
+        if lower.contains("maps.app.goo.gl") { return true }
+        if lower.contains("goo.gl/maps") { return true }
+        return false
     }
 
     private func formatRelativeTime(timestamp: UInt32) -> String {

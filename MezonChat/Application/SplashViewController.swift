@@ -3,8 +3,9 @@ import AsyncDisplayKit
 
 final class SplashViewController: ViewController {
 
+    private let imageNode = ASImageNode()
+
     init() {
-        print("[SplashViewController] init")
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -13,23 +14,25 @@ final class SplashViewController: ViewController {
     }
 
     override func loadDisplayNode() {
-        print("[SplashViewController] loadDisplayNode")
-        self.displayNode = ASDisplayNode()
-        self.displayNode.backgroundColor = .black
-    }
+        let container = ASDisplayNode()
+        container.backgroundColor = .black
 
-    override func viewDidLoad() {
-        print("[SplashViewController] viewDidLoad")
-        super.viewDidLoad()
-        let iv = UIImageView(image: UIImage(named: "SplashScreen"))
-        iv.contentMode = .scaleAspectFit
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(iv)
-        NSLayoutConstraint.activate([
-            iv.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            iv.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            iv.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor),
-            iv.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor),
-        ])
+        imageNode.image = UIImage(named: "SplashScreen")
+        imageNode.contentMode = .scaleAspectFit
+
+        container.addSubnode(imageNode)
+        container.layoutSpecBlock = { [weak self] _, constrainedSize in
+            guard let self else { return ASLayoutSpec() }
+            return ASCenterLayoutSpec(
+                centeringOptions: .XY,
+                sizingOptions: .minimumXY,
+                child: ASRatioLayoutSpec(ratio: 1.0, child: self.imageNode)
+                    .styled { style in
+                        style.maxWidth = ASDimensionMake(constrainedSize.max.width * 0.5)
+                    }
+            )
+        }
+
+        self.displayNode = container
     }
 }

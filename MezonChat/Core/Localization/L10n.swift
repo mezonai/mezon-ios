@@ -214,11 +214,20 @@ enum L10n {
         static let todayAt        = "channelMessages.todayAt"
         static let yesterdayAt   = "channelMessages.yesterdayAt"
         static let writeMessage   = "channelMessages.writeMessage"
+        static let userIsTyping        = "channelMessages.userIsTyping"
+        static let usersAreTyping      = "channelMessages.usersAreTyping"
+        static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
     }
 
     enum DirectMessage {
         static let you        = "directMessage.you"
         static let addFriend = "directMessage.addFriend"
+        /// RN `MessagePreviewLastest` empty group / attachment labels (`attachments.*` keys on mobile).
+        static let groupCreated   = "directMessage.groupCreated"
+        static let previewFile    = "directMessage.previewFile"
+        static let previewLink    = "directMessage.previewLink"
+        static let previewLocation = "directMessage.previewLocation"
+        static let previewContact = "directMessage.previewContact"
     }
 
     enum MessageAction {
@@ -425,9 +434,17 @@ extension L10n {
         "channelMessages.todayAt": "Today at %@",
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
+        "channelMessages.userIsTyping": "%@ is typing…",
+        "channelMessages.usersAreTyping": "%@ are typing…",
+        "channelMessages.severalPeopleTyping": "Several people are typing…",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
+        "directMessage.groupCreated": "Group created",
+        "directMessage.previewFile": "File",
+        "directMessage.previewLink": "Link",
+        "directMessage.previewLocation": "Location",
+        "directMessage.previewContact": "Contact",
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
@@ -634,9 +651,17 @@ extension L10n {
         "channelMessages.todayAt": "Hôm nay lúc %@",
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
+        "channelMessages.userIsTyping": "%@ đang nhập…",
+        "channelMessages.usersAreTyping": "%@ đang nhập…",
+        "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
+        "directMessage.groupCreated": "Nhóm đã được tạo",
+        "directMessage.previewFile": "Tệp",
+        "directMessage.previewLink": "Liên kết",
+        "directMessage.previewLocation": "Vị trí",
+        "directMessage.previewContact": "Danh bạ",
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",

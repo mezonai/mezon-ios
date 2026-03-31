@@ -137,10 +137,13 @@ final class ChannelListViewController: ViewController {
     private let context: AccountContext
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
+    private var processedBadgeKeys = Set<String>()
 
     deinit {
         fetchDisposable.dispose()
         dataDisposable.dispose()
+        NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.removeObserver(self, name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
     }
 
     private let categoriesPipe = ValuePipe<[ChannelCategory]>()
@@ -195,6 +198,49 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForChannelBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
+    }
+
+    @objc private func handleJoinedClanForChannelBadges(_ notification: Notification) {
+        guard let joinedClan = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard joinedClan == clanId, joinedClan != 0 else { return }
+        Task { @MainActor in
+            await self.applyChannelBadgeCountsFromSocket(clanId: joinedClan)
+        }
+    }
+
+    @objc private func handleSocketStatusForChannelBadges(_ notification: Notification) {
+        guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+        guard clanId != 0 else { return }
+        Task { @MainActor in
+            await self.applyChannelBadgeCountsFromSocket(clanId: self.clanId)
+        }
+    }
+
+    /// RN `listChannelBadgeCount` — socket-only authoritative unread per channel.
+    @MainActor
+    private func applyChannelBadgeCountsFromSocket(clanId: Int64) async {
+        guard clanId != 0 else { return }
+        guard context.account.socket.isConnected else { return }
+        do {
+            let rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: clanId)
+            guard !rows.isEmpty else { return }
+            var updated = allChannels
+            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
+            allChannels = updated
+            let storedCollapsed = loadCollapsedCategoryIds()
+            let cats = buildChannelCategories(updated, collapsedIds: storedCollapsed)
+            categories = cats
+            categoriesPipe.putNext(cats)
+            context.account.postbox.setPreferenceData(
+                key: PreferencesKeys.channelList(clanId: clanId),
+                value: encodeChannelList(updated)
+            )
+            needsReloadPipe.putNext(())
+        } catch {
+            AppLogger.network.debug("[ChannelList] ListChannelBadgeCount: \(error)")
+        }
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -276,15 +322,29 @@ final class ChannelListViewController: ViewController {
 
     @objc private func handleThemeChange() { channelListNode.applyTheme() }
 
-    /// Handle new incoming message — update lastSentMessage for unread highlight (NO badge increment)
-    @objc private func handleNewMessageReceived(_ notification: Notification) {
-        guard let channelId = notification.userInfo?["channelId"] as? Int64,
-              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+    private static func int64UserInfo(_ value: Any?) -> Int64? {
+        if let n = value as? Int64 { return n }
+        if let n = value as? Int { return Int64(n) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
 
-        let senderId: String
-        if let s = notification.userInfo?["senderId"] as? String { senderId = s }
-        else if let n = notification.userInfo?["senderId"] as? Int64 { senderId = String(n) }
-        else { return }
+    @objc private func handleNewMessageReceived(_ notification: Notification) {
+        let rawChannelId = notification.userInfo?["channelId"]
+        let rawClanId = notification.userInfo?["clanId"]
+
+        guard let channelId = Self.int64UserInfo(rawChannelId),
+              let clanId = Self.int64UserInfo(rawClanId) else { return }
+
+        let senderId: String? = {
+            let v = notification.userInfo?["senderId"]
+            if let s = v as? String { return s }
+            if let n = v as? Int64 { return String(n) }
+            if let n = v as? Int { return String(n) }
+            if let n = v as? NSNumber { return n.stringValue }
+            return nil
+        }()
+        guard let senderId else { return }
 
         let ts: UInt32
         if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
@@ -293,26 +353,112 @@ final class ChannelListViewController: ViewController {
 
         guard clanId == self.clanId, clanId != 0 else { return }
         guard senderId != context.currentUser?.id else { return }
-        if let currentChannel = context.currentChannel, currentChannel.channelID == channelId { return }
+        if ActiveChannelTracker.currentChannelId == channelId { return }
+
+        let topicId: Int64 = {
+            if let t = notification.userInfo?["topicId"] as? Int64 { return t }
+            if let t = notification.userInfo?["topicId"] as? Int { return Int64(t) }
+            return 0
+        }()
+
+        let mode: Int32 = {
+            if let m = notification.userInfo?["mode"] as? Int32 { return m }
+            if let m = notification.userInfo?["mode"] as? Int { return Int32(m) }
+            return 0
+        }()
+        let isThreadMode = mode == MezonConstants.ChannelStreamMode.thread.rawValue
 
         var updated = false
         for i in 0..<allChannels.count {
             if allChannels[i].channelID == channelId {
+                let oldTs = allChannels[i].lastSentMessage.timestampSeconds
+                let lastSeenTs = allChannels[i].lastSeenMessage.timestampSeconds
                 var header = allChannels[i].lastSentMessage
                 header.timestampSeconds = ts
                 allChannels[i].lastSentMessage = header
                 updated = true
             }
         }
+
+        if topicId != 0 {
+            for i in 0..<allChannels.count {
+                if allChannels[i].channelID == topicId {
+                    var header = allChannels[i].lastSentMessage
+                    header.timestampSeconds = ts
+                    allChannels[i].lastSentMessage = header
+                    updated = true
+                }
+            }
+        }
+
+        if let serializedData = notification.userInfo?["serializedChannelMessage"] as? Data,
+           let apiMessage = try? Mezon_Api_ChannelMessage(serializedBytes: serializedData) {
+            let currentUserId = context.currentUser?.id
+            let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context)
+            let isMentioned = ClanListViewController.checkMessageMentionsUser(
+                apiMessage,
+                currentUserId: currentUserId,
+                currentUserRoleIds: roleIds
+            )
+            if isMentioned {
+                let isTopicMessage = topicId != 0
+                if isTopicMessage {
+                    let topicDedupKey = "\(topicId)_\(apiMessage.messageID)"
+                    if !processedBadgeKeys.contains(topicDedupKey) {
+                        processedBadgeKeys.insert(topicDedupKey)
+                        if processedBadgeKeys.count > 500 { processedBadgeKeys.removeAll() }
+                        for i in 0..<allChannels.count {
+                            if allChannels[i].channelID == topicId {
+                                allChannels[i].countMessUnread += 1
+                                updated = true
+                            }
+                        }
+                    }
+                    let parentDedupKey = "\(channelId)_\(apiMessage.messageID)"
+                    if !processedBadgeKeys.contains(parentDedupKey) {
+                        processedBadgeKeys.insert(parentDedupKey)
+                        for i in 0..<allChannels.count {
+                            if allChannels[i].channelID == channelId {
+                                allChannels[i].countMessUnread += 1
+                                updated = true
+                            }
+                        }
+                    }
+                } else {
+                    let dedupKey = "\(channelId)_\(apiMessage.messageID)"
+                    if !processedBadgeKeys.contains(dedupKey) {
+                        processedBadgeKeys.insert(dedupKey)
+                        if processedBadgeKeys.count > 500 { processedBadgeKeys.removeAll() }
+                        for i in 0..<allChannels.count {
+                            if allChannels[i].channelID == channelId {
+                                allChannels[i].countMessUnread += 1
+                                updated = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         guard updated else { return }
         rebuildAndReload()
     }
 
-    /// Handle mention/reply notification — increment countMessUnread badge
     @objc private func handleMentionReceived(_ notification: Notification) {
-        guard let channelId = notification.userInfo?["channelId"] as? Int64,
-              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+              let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
         guard clanId == self.clanId, clanId != 0 else { return }
+        let messageId = notification.userInfo?["messageId"] as? String ?? ""
+        let ts = notification.userInfo?["timestampSeconds"]
+        let dedupKey: String
+        if !messageId.isEmpty, messageId != "0" {
+            dedupKey = "\(channelId)_\(messageId)"
+        } else {
+            dedupKey = "\(channelId)_\(ts ?? 0)"
+        }
+        guard !processedBadgeKeys.contains(dedupKey) else { return }
+        processedBadgeKeys.insert(dedupKey)
+        if processedBadgeKeys.count > 500 { processedBadgeKeys.removeAll() }
 
         var updated = false
         for i in 0..<allChannels.count {
@@ -404,6 +550,9 @@ final class ChannelListViewController: ViewController {
                         key: PreferencesKeys.channelList(clanId: clanId),
                         value: self.encodeChannelList(channels)
                     )
+                    Task { @MainActor in
+                        await self.applyChannelBadgeCountsFromSocket(clanId: clanId)
+                    }
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)

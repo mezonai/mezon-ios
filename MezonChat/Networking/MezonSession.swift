@@ -78,10 +78,11 @@ struct MezonSession: Codable {
     }
 
     static func fromProto(_ proto: Mezon_Api_Session) -> MezonSession {
-        MezonSession(
+        let expiresAt = accessTokenExpiryFromJWT(proto.token) ?? Date().addingTimeInterval(3600)
+        return MezonSession(
             token: proto.token,
             refreshToken: proto.refreshToken,
-            expiresAt: Date().addingTimeInterval(3600),
+            expiresAt: expiresAt,
             created: proto.created,
             apiURL: proto.apiURL.isEmpty ? nil : proto.apiURL,
             wsURL: proto.wsURL.isEmpty ? nil : proto.wsURL,
@@ -90,6 +91,28 @@ struct MezonSession: Codable {
             idToken: proto.idToken.isEmpty ? nil : proto.idToken,
             isRemember: proto.isRemember
         )
+    }
+
+    private static func accessTokenExpiryFromJWT(_ token: String) -> Date? {
+        let parts = token.split(separator: ".")
+        guard parts.count >= 2 else { return nil }
+        var payload = String(parts[1])
+        let pad = (4 - payload.count % 4) % 4
+        if pad > 0 { payload += String(repeating: "=", count: pad) }
+        payload = payload.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        guard let data = Data(base64Encoded: payload),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        if let exp = obj["exp"] as? Double {
+            return Date(timeIntervalSince1970: exp)
+        }
+        if let exp = obj["exp"] as? Int {
+            return Date(timeIntervalSince1970: TimeInterval(exp))
+        }
+        if let exp = obj["exp"] as? Int64 {
+            return Date(timeIntervalSince1970: TimeInterval(exp))
+        }
+        return nil
     }
 
     private init(

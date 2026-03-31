@@ -95,7 +95,7 @@ final class ChannelItemCellNode: ASCellNode {
 
         unreadDot.backgroundColor = .white
         unreadDot.cornerRadius = 3.swh
-        unreadDot.isHidden = !(unread > 0 && !cellSelected)
+        unreadDot.isHidden = !(isUnread && !cellSelected)
 
         selectionNode.isHidden = !cellSelected
         let theme = ThemeManager.shared.current
@@ -161,8 +161,19 @@ final class ChannelItemCellNode: ASCellNode {
 
         inset.style.minHeight = ASDimensionMake(36.sh)
         let contentWithBackground = ASBackgroundLayoutSpec(child: inset, background: selectionNode)
+        
+        let finalContent: ASLayoutElement
+        if !unreadDot.isHidden {
+            unreadDot.style.layoutPosition = CGPoint(x: -4.sw, y: 15.sh)
+            let absDot = ASAbsoluteLayoutSpec(children: [unreadDot])
+            let overlay = ASOverlayLayoutSpec(child: contentWithBackground, overlay: absDot)
+            finalContent = overlay
+        } else {
+            finalContent = contentWithBackground
+        }
+
         return ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw),
-            child: contentWithBackground)
+            child: finalContent)
     }
 }
