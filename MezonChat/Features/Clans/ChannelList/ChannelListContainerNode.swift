@@ -98,6 +98,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.reloadData()
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
         committedSectionCount = totalSections
@@ -133,6 +134,13 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
 
         if canPatch {
+            let hasCollapseChange = zip(prev.categories, new.categories).contains { $0.isCollapsed != $1.isCollapsed }
+            if hasCollapseChange {
+                CATransaction.commit()
+                safeReloadData()
+                return
+            }
+
             let prevThreadLookup = buildThreadLookup(prev.allChannels)
             var sectionsToReload = IndexSet()
             var rowsToInsert: [IndexPath] = []
@@ -144,8 +152,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let nc = new.categories[i]
                 let section = i + sectionOffset
 
-                if pc.isCollapsed != nc.isCollapsed || pc.isCollapsed {
-                    sectionsToReload.insert(section)
+                if pc.isCollapsed {
                     continue
                 }
 
@@ -196,39 +203,30 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
             }
 
-            let hasChanges = !sectionsToReload.isEmpty || !rowsToInsert.isEmpty
-                || !rowsToDelete.isEmpty || !rowsToReload.isEmpty
+            // Filter out rows belonging to sections that are being fully reloaded
+            let filteredInsert = rowsToInsert.filter { !sectionsToReload.contains($0.section) }
+            let filteredDelete = rowsToDelete.filter { !sectionsToReload.contains($0.section) }
+            let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) }
+
+            let hasChanges = !sectionsToReload.isEmpty || !filteredInsert.isEmpty
+                || !filteredDelete.isEmpty || !filteredReload.isEmpty
             if hasChanges {
                 UIView.performWithoutAnimation {
                     self.tableNode.performBatch(animated: false) {
                         if !sectionsToReload.isEmpty {
                             self.tableNode.reloadSections(sectionsToReload, with: .none)
                         }
-                        if !rowsToDelete.isEmpty {
-                            self.tableNode.deleteRows(at: rowsToDelete, with: .none)
+                        if !filteredDelete.isEmpty {
+                            self.tableNode.deleteRows(at: filteredDelete, with: .none)
                         }
-                        if !rowsToInsert.isEmpty {
-                            self.tableNode.insertRows(at: rowsToInsert, with: .none)
+                        if !filteredInsert.isEmpty {
+                            self.tableNode.insertRows(at: filteredInsert, with: .none)
                         }
-                        if !rowsToReload.isEmpty {
-                            self.tableNode.reloadRows(at: rowsToReload, with: .none)
+                        if !filteredReload.isEmpty {
+                            self.tableNode.reloadRows(at: filteredReload, with: .none)
                         }
                     }
-                }
-            }
-            committedSectionCount = expectedAfter
-        } else if prevCatSections >= 0 && newCatSections >= 0 {
-            let oldRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + prevCatSections))
-            let newRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + newCatSections))
-            guard !oldRange.isEmpty || !newRange.isEmpty else {
-                safeReloadData()
-                CATransaction.commit()
-                return
-            }
-            UIView.performWithoutAnimation {
-                self.tableNode.performBatch(animated: false) {
-                    if !oldRange.isEmpty { self.tableNode.deleteSections(oldRange, with: .none) }
-                    if !newRange.isEmpty { self.tableNode.insertSections(newRange, with: .none) }
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
                 }
             }
             committedSectionCount = expectedAfter
@@ -252,23 +250,40 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyRowDiff(prev: ChannelListState, new: ChannelListState) {
-        var paths: [IndexPath] = []
+        guard committedSectionCount == tableNode.numberOfSections else {
+            safeReloadData()
+            return
+        }
+
         let sectionOffset = hasChannelAppsSection ? 1 : 0
 
         for s in 0..<new.categories.count {
-            let oldCh = prev.categories[s].channels
-            let newCh = new.categories[s].channels
-            let rows = rowsForSection(s)
+            let section = s + sectionOffset
+            guard section < tableNode.numberOfSections else {
+                safeReloadData()
+                return
+            }
+            let committedRows = tableNode.numberOfRows(inSection: section)
+            let newRows = rowsForSection(s).count
+            if committedRows != newRows {
+                safeReloadData()
+                return
+            }
+        }
 
-            var oldLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
-            for ch in oldCh { oldLookup[ch.channelID] = ch }
-            var newLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
-            for ch in newCh { newLookup[ch.channelID] = ch }
+        var oldAllLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for ch in prev.allChannels { oldAllLookup[ch.channelID] = ch }
+        var newAllLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for ch in new.allChannels { newAllLookup[ch.channelID] = ch }
+
+        var paths: [IndexPath] = []
+        for s in 0..<new.categories.count {
+            let rows = rowsForSection(s)
 
             for (r, row) in rows.enumerated() {
                 let chId = row.channelDesc.channelID
-                let oldDesc = oldLookup[chId]
-                let newDesc = newLookup[chId]
+                let oldDesc = oldAllLookup[chId]
+                let newDesc = newAllLookup[chId]
                 let changed = oldDesc?.countMessUnread != newDesc?.countMessUnread
                     || (oldDesc?.hasLastSentMessage != newDesc?.hasLastSentMessage)
                     || (oldDesc?.lastSentMessage.timestampSeconds != newDesc?.lastSentMessage.timestampSeconds)
@@ -285,6 +300,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.reloadRows(at: paths, with: .none)
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
     }
@@ -315,6 +331,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         if #available(iOS 15.0, *) {
             tableNode.view.sectionHeaderTopPadding = 0
         }
+        tableNode.view.contentInset.bottom = 80
+        tableNode.view.scrollIndicatorInsets.bottom = 80
         tableNode.delegate = self
         tableNode.dataSource = self
         committedSectionCount = totalSections

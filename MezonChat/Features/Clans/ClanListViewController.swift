@@ -32,6 +32,9 @@ final class ClanListViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var error: String?
     private(set) var unreadDMs: [Mezon_Api_ChannelDescription] = []
+    private var processedMentionIds = Set<String>()
+
+    private var debouncedUnreadDmFetchWorkItem: DispatchWorkItem?
 
     var onLogoTapped: (() -> Void)?
 
@@ -67,6 +70,39 @@ final class ClanListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForClanBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+    }
+
+    @objc private func handleSocketStatusForClanBadges(_ notification: Notification) {
+        guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+        Task { @MainActor in
+            await self.refreshClanSidebarBadgesFromSocket()
+            self.fetchUnreadDMs()
+        }
+    }
+
+    /// RN `listClanBadgeCount` — socket-only; updates `badgeCount` / `hasUnreadMessage_p` on clan rows.
+    @MainActor
+    private func refreshClanSidebarBadgesFromSocket() async {
+        guard context.account.socket.isConnected else { return }
+        do {
+            let rows = try await context.account.socket.fetchListClanBadgeCount()
+            guard !rows.isEmpty else { return }
+            var next = clans
+            ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
+            setClans(next)
+            persistClanRecordsToPostbox(next)
+        } catch {
+            AppLogger.network.debug("[ClanList] ListClanBadgeCount: \(error)")
+        }
+    }
+
+    private func persistClanRecordsToPostbox(_ sorted: [Mezon_Api_ClanDesc]) {
+        let records = sorted.map { api -> ClanRecord in
+            let data = (try? api.serializedData()) ?? Data()
+            return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
+        }
+        context.account.postbox.write { tx in tx.updateClans(records) }
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -77,27 +113,92 @@ final class ClanListViewController: ViewController {
     @objc private func handleThemeChange() { clanListNode.applyTheme() }
 
     @objc private func handleNewMessageReceived(_ notification: Notification) {
-        guard let channelId = notification.userInfo?["channelId"] as? Int64,
-              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+              let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
 
-        let senderId: String
-        if let s = notification.userInfo?["senderId"] as? String { senderId = s }
-        else if let n = notification.userInfo?["senderId"] as? Int64 { senderId = String(n) }
-        else { return }
+        let senderId: String? = {
+            let v = notification.userInfo?["senderId"]
+            if let s = v as? String { return s }
+            if let n = v as? Int64 { return String(n) }
+            if let n = v as? Int { return String(n) }
+            if let n = v as? NSNumber { return n.stringValue }
+            return nil
+        }()
+        guard let senderId else { return }
 
         guard senderId != context.currentUser?.id else { return }
-        guard clanId == 0 else { return }
+
+        // --- Clan messages: badge handled by handleMentionReceived only ---
+        if clanId != 0 {
+            return
+        }
+
+        guard (notification.userInfo?["incrementDmBadge"] as? Bool) == true else { return }
+
+        let ts: UInt32
+        if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
+        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(t) }
+        else { ts = UInt32(Date().timeIntervalSince1970) }
 
         if let idx = unreadDMs.firstIndex(where: { $0.channelID == channelId }) {
             unreadDMs[idx].countMessUnread += 1
+            var header = unreadDMs[idx].lastSentMessage
+            header.timestampSeconds = ts
+            unreadDMs[idx].lastSentMessage = header
+            unreadDMsPipe.putNext(unreadDMs)
+            needsReloadPipe.putNext(())
+            return
         }
-        unreadDMsPipe.putNext(unreadDMs)
-        needsReloadPipe.putNext(())
+
+        if var ch = context.account.postbox.getDMChannelDescription(channelId: channelId) {
+            ch.countMessUnread = max(1, ch.countMessUnread + 1)
+            var header = ch.lastSentMessage
+            header.timestampSeconds = ts
+            ch.lastSentMessage = header
+            var next = unreadDMs
+            next.append(ch)
+            next.sort { a, b in
+                let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
+                let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
+                return ta > tb
+            }
+            setUnreadDMs(next)
+            scheduleFetchUnreadDMsDebounced()
+            return
+        }
+
+        fetchUnreadDMs()
+    }
+
+    private func scheduleFetchUnreadDMsDebounced() {
+        debouncedUnreadDmFetchWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.fetchUnreadDMs()
+        }
+        debouncedUnreadDmFetchWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: item)
     }
 
     @objc private func handleMentionReceived(_ notification: Notification) {
         guard let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
         guard clanId != 0 else { return }
+        let channelId = notification.userInfo?["channelId"] as? Int64 ?? 0
+
+        if notification.userInfo?["isParentOfTopic"] as? Bool == true { return }
+
+        let messageId = notification.userInfo?["messageId"] as? String ?? ""
+        let ts = notification.userInfo?["timestampSeconds"]
+        let dedupKey: String
+        if !messageId.isEmpty, messageId != "0" {
+            dedupKey = "\(channelId)_\(messageId)"
+        } else {
+            dedupKey = "\(channelId)_\(ts ?? 0)"
+        }
+        guard !processedMentionIds.contains(dedupKey) else { return }
+        processedMentionIds.insert(dedupKey)
+        if processedMentionIds.count > 500 {
+            processedMentionIds.removeAll()
+        }
 
         for i in 0..<clans.count {
             if clans[i].clanID == clanId {
@@ -114,13 +215,21 @@ final class ClanListViewController: ViewController {
 
         if clanId != 0 {
             let channelUnread = (notification.userInfo?["channelUnreadCount"] as? Int32) ?? 0
-            if channelUnread > 0 {
-                for i in 0..<clans.count {
-                    if clans[i].clanID == clanId {
+            var changed = false
+            for i in 0..<clans.count {
+                if clans[i].clanID == clanId {
+                    if channelUnread > 0 {
                         clans[i].badgeCount = max(0, clans[i].badgeCount - channelUnread)
+                        changed = true
+                    }
+                    if (notification.userInfo?["fromSelf"] as? Bool) == true {
+                        // Don't clear the dot for self-messages — other channels might still be unread
                     }
                 }
+            }
+            if changed {
                 clansPipe.putNext(clans)
+                persistClanRecordsToPostbox(clans)
             }
         }
 
@@ -135,7 +244,11 @@ final class ClanListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        debouncedUnreadDmFetchWorkItem?.cancel()
+        disposables.dispose()
+        NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+    }
 
     private func setClans(_ v: [Mezon_Api_ClanDesc]) { clans = v; clansPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setSelectedClanId(_ v: Int64?) { selectedClanId = v; selectedClanIdPipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -176,6 +289,9 @@ final class ClanListViewController: ViewController {
                     self.fetchClanData(clanId: first.clanID)
                 }
                 self.clansLoadedPromise.set(true)
+                Task { @MainActor in
+                    await self.refreshClanSidebarBadgesFromSocket()
+                }
             } catch {
                 self.error = error.localizedDescription
                 if !self.clans.isEmpty {
@@ -188,6 +304,7 @@ final class ClanListViewController: ViewController {
     func select(clan: Mezon_Api_ClanDesc) {
         setSelectedClanId(clan.clanID)
         context.currentClanId = clan.clanID
+        context.account.socket.joinClanChat(clanId: clan.clanID)
         persistToPostbox()
         fetchClanData(clanId: clan.clanID)
     }
@@ -202,13 +319,37 @@ final class ClanListViewController: ViewController {
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
             do {
-                let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                if self.context.account.socket.isConnected {
+                    do {
+                        let badgeRows = try await self.context.account.socket.fetchListChannelBadgeCount(clanId: 0)
+                        ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
+                    } catch {
+                        AppLogger.network.debug("[ClanList] DM ListChannelBadgeCount: \(error)")
+                    }
+                }
                 let unread = channels.filter { $0.countMessUnread > 0 }
-                self.setUnreadDMs(unread)
+                // HTTP + ListChannelBadgeCount often expose 1 = “has unread”, not the real count. Socket `handleNewMessageReceived` increments locally; keep the higher per channel (RN-style until server sends exact counts).
+                let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
+                self.setUnreadDMs(merged)
             } catch {
                 AppLogger.network.error("fetchUnreadDMs: \(error)")
             }
         }
+    }
+
+    /// Per-channel `max(server, previousStrip)` so debounced / reconnect fetches don’t reset DM badge to 1 after socket `+= 1`.
+    private static func mergeUnreadDmStrip(serverUnread: [Mezon_Api_ChannelDescription], previousStrip: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+        let prevCount = Dictionary(uniqueKeysWithValues: previousStrip.map { ($0.channelID, $0.countMessUnread) })
+        guard !prevCount.isEmpty else { return serverUnread }
+        var result = serverUnread
+        for i in result.indices {
+            let id = result[i].channelID
+            if let p = prevCount[id] {
+                result[i].countMessUnread = max(result[i].countMessUnread, p)
+            }
+        }
+        return result
     }
 
     private func fetchClanData(clanId: Int64) {
@@ -217,6 +358,61 @@ final class ClanListViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             self.context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
         }
+    }
+
+    private static func int64UserInfo(_ value: Any?) -> Int64? {
+        if let n = value as? Int64 { return n }
+        if let n = value as? Int { return Int64(n) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
+    /// Returns the current user's role IDs from the active clan's permission state.
+    /// Mirrors RN's `selectMemberClanByUserId` → `role_id`.
+    static func getCurrentUserRoleIds(context: AccountContext) -> Set<Int64> {
+        let clanId = context.currentClanId
+        guard clanId != 0 else { return [] }
+        guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
+        return Set(roleList.roles.map { $0.id })
+    }
+
+    /// Checks if a channel message mentions or replies to the current user.
+    /// Mirrors RN's `badgeService.isMessageMentionOrReply`.
+    static func checkMessageMentionsUser(
+        _ message: Mezon_Api_ChannelMessage,
+        currentUserId: String?,
+        currentUserRoleIds: Set<Int64>
+    ) -> Bool {
+        guard let currentUserId, !currentUserId.isEmpty else { return false }
+
+        // Check mentions
+        if let mentionList = try? Mezon_Api_MessageMentionList(serializedBytes: message.mentions) {
+            for mention in mentionList.mentions {
+                // @here
+                if mention.userID != 0, "\(mention.userID)" == ChatMessageDisplay.mentionHereUserId {
+                    return true
+                }
+                // Direct user mention
+                if mention.userID != 0, "\(mention.userID)" == currentUserId {
+                    return true
+                }
+                // Role mention
+                if mention.roleID != 0, currentUserRoleIds.contains(mention.roleID) {
+                    return true
+                }
+            }
+        }
+
+        // Check replies — if any reference was sent by the current user
+        if let refList = try? Mezon_Api_MessageRefList(serializedBytes: message.references) {
+            for ref in refList.refs {
+                if ref.messageSenderID != 0, "\(ref.messageSenderID)" == currentUserId {
+                    return true
+                }
+            }
+        }
+
+        return false
     }
 
     private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"

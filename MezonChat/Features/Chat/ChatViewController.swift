@@ -196,6 +196,33 @@ final class ChatViewController: ViewController {
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
 
+    private struct RemoteTyperState {
+        var displayName: String
+        var expires: Date
+    }
+
+    private var remoteTypers: [Int64: RemoteTyperState] = [:]
+    private var typingPruneTimer: Foundation.Timer?
+
+    private static let remoteTypingStripMaxHeight: CGFloat = 22
+
+    private lazy var remoteTypingStripView: UIView = {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        v.clipsToBounds = true
+        return v
+    }()
+
+    private let remoteTypingLabel: UILabel = {
+        let lbl = UILabel()
+        lbl.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 13))
+        lbl.adjustsFontForContentSizeCategory = true
+        lbl.numberOfLines = 1
+        lbl.lineBreakMode = .byTruncatingTail
+        lbl.isHidden = true
+        return lbl
+    }()
+
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
     var pendingJumpToMessageId: String?
@@ -305,11 +332,22 @@ final class ChatViewController: ViewController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnected(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isMovingFromParent { onLeave() }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard !isMovingFromParent else { return }
+        guard topicId == 0 else { return }
+        if ActiveChannelTracker.currentChannelId == channel.channelID {
+            context.currentChannel = nil
+            ActiveChannelTracker.currentChannelId = 0
+        }
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -320,8 +358,6 @@ final class ChatViewController: ViewController {
         let bottomInset = layout.intrinsicInsets.bottom
         var keyboardOffset = max(keyboardHeight - bottomInset, 0)
 
-        // Safety: if local keyboard tracking says keyboard is hidden,
-        // verify via first-responder before accepting a non-zero offset.
         if !isKeyboardVisible && keyboardOffset > 0 {
             let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
             if !hasFirstResponder {
@@ -329,24 +365,45 @@ final class ChatViewController: ViewController {
             }
         }
 
-        let inputBarY = layout.size.height - bottomInset - keyboardOffset - inputBarHeight
-        let inputBarFrame = CGRect(x: 0, y: inputBarY, width: layout.size.width, height: inputBarHeight)
-        transition.updateFrame(view: sendInputViewController.view, frame: inputBarFrame)
+        let sendComposerH = sendInputViewController.totalHeight
+        let totalBottomH = sendComposerH
+        let inputY = layout.size.height - bottomInset - keyboardOffset - totalBottomH
+        let inputFrame = CGRect(
+            x: 0,
+            y: inputY,
+            width: layout.size.width,
+            height: sendComposerH
+        )
+        transition.updateFrame(view: sendInputViewController.view, frame: inputFrame)
+
+        let stripBottomPad: CGFloat = 2
+        let stripH = Self.remoteTypingStripMaxHeight + stripBottomPad
+        let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layout.size.width, height: stripH)
+        transition.updateFrame(view: remoteTypingStripView, frame: typingFrame)
+        remoteTypingLabel.frame = CGRect(
+            x: 12,
+            y: 0,
+            width: max(0, layout.size.width - 24),
+            height: Self.remoteTypingStripMaxHeight
+        )
 
         if keyboardOffset > 0 && currentKeyboardOffset == 0 {
             scrollToBottomIfNeeded()
         }
         currentKeyboardOffset = keyboardOffset
 
-        messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight + keyboardOffset, transition: transition)
+        messagesNode.updateLayout(layout: layout, inputBarHeight: totalBottomH + keyboardOffset, transition: transition)
     }
 
     private var lastLayout: ContainerViewLayout?
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Re-evaluate keyboard state when returning to this screen.
-        // The window layout may carry a stale inputHeight from a previous VC.
+        if topicId == 0 {
+            context.currentClanId = clanId
+            context.currentChannel = channel
+            ActiveChannelTracker.currentChannelId = channel.channelID
+        }
         let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
         if !hasFirstResponder {
             isKeyboardVisible = false
@@ -357,7 +414,16 @@ final class ChatViewController: ViewController {
         }
     }
 
-    @objc private func handleThemeChange() { messagesNode.applyTheme() }
+    @objc private func handleThemeChange() {
+        messagesNode.applyTheme()
+        applyRemoteTypingStripTheme()
+    }
+
+    private func applyRemoteTypingStripTheme() {
+        let t = UIColor.theme
+        remoteTypingStripView.backgroundColor = t.primaryGradient
+        remoteTypingLabel.textColor = t.textDisabled
+    }
 
     @objc private func handleSocketReconnected(_ notification: Notification) {
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
@@ -376,19 +442,102 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @objc private func handleMessageTypingReceived(_ notification: Notification) {
+        guard let eventClanId = Self.int64FromTypingUserInfo(notification.userInfo?["clanId"]),
+              let eventChannelId = Self.int64FromTypingUserInfo(notification.userInfo?["channelId"]),
+              let senderId = Self.int64FromTypingUserInfo(notification.userInfo?["senderId"]) else { return }
+        let eventTopicId = Self.int64FromTypingUserInfo(notification.userInfo?["topicId"]) ?? 0
+
+        if eventClanId != 0 && eventClanId != clanId { return }
+
+        let eventLogicalId = eventTopicId != 0 ? eventTopicId : eventChannelId
+        let localLogicalId = topicId != 0 ? topicId : channel.channelID
+        guard eventLogicalId == localLogicalId else { return }
+
+        if let myId = context.currentUser?.id, let myInt = Int64(myId), myInt == senderId { return }
+
+        let d = (notification.userInfo?["senderDisplayName"] as? String) ?? ""
+        let u = (notification.userInfo?["senderUsername"] as? String) ?? ""
+        let label = !d.isEmpty ? d : (!u.isEmpty ? u : "…")
+
+        remoteTypers[senderId] = RemoteTyperState(displayName: label, expires: Date().addingTimeInterval(3))
+        restartTypingPruneTimerIfNeeded()
+        refreshRemoteTypingIndicator()
+    }
+
+    private func restartTypingPruneTimerIfNeeded() {
+        guard typingPruneTimer == nil else { return }
+        let t = Foundation.Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] (_: Foundation.Timer) in
+            self?.pruneExpiredTypersIfNeeded()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        typingPruneTimer = t
+    }
+
+    private func pruneExpiredTypersIfNeeded() {
+        let now = Date()
+        let beforeCount = remoteTypers.count
+        remoteTypers = remoteTypers.filter { $0.value.expires > now }
+        if remoteTypers.count != beforeCount {
+            refreshRemoteTypingIndicator()
+        }
+        if remoteTypers.isEmpty {
+            typingPruneTimer?.invalidate()
+            typingPruneTimer = nil
+        }
+    }
+
+    private func refreshRemoteTypingIndicator() {
+        let names = remoteTypers.values.map(\.displayName).sorted()
+        let line: String?
+        switch names.count {
+        case 0:
+            line = nil
+        case 1:
+            line = String(format: L(L10n.ChannelMessages.userIsTyping), names[0])
+        default:
+            line = L(L10n.ChannelMessages.severalPeopleTyping)
+        }
+        remoteTypingLabel.text = line
+        let shouldShow = line != nil
+        remoteTypingLabel.isHidden = !shouldShow
+        UIView.animate(withDuration: 0.2) {
+            self.remoteTypingStripView.alpha = shouldShow ? 1 : 0
+        } completion: { _ in
+            self.remoteTypingStripView.isHidden = !shouldShow
+        }
+    }
+
+    private func clearRemoteTypingState() {
+        typingPruneTimer?.invalidate()
+        typingPruneTimer = nil
+        remoteTypers.removeAll()
+        remoteTypingLabel.text = nil
+        remoteTypingLabel.isHidden = true
+        remoteTypingStripView.alpha = 0
+        remoteTypingStripView.isHidden = true
+    }
+
+    private static func int64FromTypingUserInfo(_ value: Any?) -> Int64? {
+        if let v = value as? Int64 { return v }
+        if let v = value as? Int { return Int64(v) }
+        if let v = value as? NSNumber { return v.int64Value }
+        if let v = value as? String { return Int64(v) }
+        return nil
+    }
+
     deinit {
+        typingPruneTimer?.invalidate()
         stateDisposables.dispose()
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonMessageTypingReceived, object: nil)
     }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
-        let oldCount = messages.count
-        let oldReactionsCount = messages.reduce(0) { $0 + $1.reactions.count }
         messages = v
-        let newReactionsCount = v.reduce(0) { $0 + $1.reactions.count }
         let newFirstId = v.first(where: { !$0.isWelcome })?.id
         let newLastId = v.last?.id
         if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
@@ -561,6 +710,7 @@ final class ChatViewController: ViewController {
     }
 
     func onLeave() {
+        clearRemoteTypingState()
         context.currentChannel = nil
         ActiveChannelTracker.currentChannelId = 0
         stateDisposables.dispose()
@@ -1274,14 +1424,28 @@ final class ChatViewController: ViewController {
             : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
         let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
         self.context.account.socket.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
+        if clanId != 0 {
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonJoinedClanChatForBadges"),
+                object: nil,
+                userInfo: ["clanId": clanId]
+            )
+        }
     }
 
     private func setupInputBar() {
+        remoteTypingStripView.addSubview(remoteTypingLabel)
+        view.addSubview(remoteTypingStripView)
         addChild(sendInputViewController)
         view.addSubview(sendInputViewController.view)
         sendInputViewController.didMove(toParent: self)
 
+        applyRemoteTypingStripTheme()
         inputBarHeight = sendInputViewController.totalHeight
+        remoteTypingStripView.alpha = 0
+        remoteTypingStripView.isHidden = true
+        view.bringSubviewToFront(remoteTypingStripView)
+        view.bringSubviewToFront(sendInputViewController.view)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false

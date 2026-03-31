@@ -131,21 +131,22 @@ extension MezonEngine {
             }
         }
 
+        // TODO: Update fetchBadgeCount after ListClanBadgeCount proto is finalized
         private func fetchBadgeCount(clanId: Int64, token: String) async {
-            do {
-                var req = Mezon_Realtime_ListDataSocket()
-                req.apiName = "ListClanBadgeCount"
-                req.listClanBadgeCountReq.clanID = clanId
-                let result = try await engine.account.socket.listDataSocket(req)
-                let response = result.clanBadgeCount
-                var count = response.badgeCount.littleEndian
-                let data = withUnsafeBytes(of: &count) { Data($0) }
-                postbox.setPreferenceData(key: PreferencesKeys.clanBadgeCount(clanId: clanId), value: data)
-                clanBadgeCountUpdated.putNext((clanId: clanId, count: response.badgeCount))
-                AppLogger.network.debug("[ClanData] badge count for clan \(clanId): \(response.badgeCount)")
-            } catch {
-                AppLogger.network.warning("[ClanData] fetchBadgeCount failed: \(error)")
-            }
+            // do {
+            //     var req = Mezon_Realtime_ListDataSocket()
+            //     req.apiName = "ListClanBadgeCount"
+            //     req.listClanBadgeCountReq.clanID = clanId
+            //     let result = try await engine.account.socket.listDataSocket(req)
+            //     let response = result.clanBadgeCount
+            //     var count = response.badgeCount.littleEndian
+            //     let data = withUnsafeBytes(of: &count) { Data($0) }
+            //     postbox.setPreferenceData(key: PreferencesKeys.clanBadgeCount(clanId: clanId), value: data)
+            //     clanBadgeCountUpdated.putNext((clanId: clanId, count: response.badgeCount))
+            //     AppLogger.network.debug("[ClanData] badge count for clan \(clanId): \(response.badgeCount)")
+            // } catch {
+            //     AppLogger.network.warning("[ClanData] fetchBadgeCount failed: \(error)")
+            // }
         }
 
         private func fetchDefaultNotification(clanId: Int64, token: String) async {

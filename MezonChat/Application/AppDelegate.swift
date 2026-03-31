@@ -180,8 +180,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let channelId: String? = {
             if let s = userInfo["channel"] as? String { return s }
             if let n = userInfo["channel"] { return "\(n)" }
+            if let s = userInfo["channel_id"] as? String { return s }
+            if let n = userInfo["channel_id"] { return "\(n)" }
             return nil
         }()
+        
         var clanId: String?
         var isDM = false
         if let link = userInfo["link"] as? String {
@@ -193,10 +196,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         }
+        
         if clanId == nil || clanId == "0" {
             if let s = userInfo["clan_id"] as? String, !s.isEmpty, s != "0" { clanId = s }
             else if let n = userInfo["clan_id"] { let s = "\(n)"; if s != "0" && !s.isEmpty { clanId = s } }
+            if clanId == nil || clanId == "0" {
+                if let s = userInfo["clanId"] as? String { clanId = s }
+                else if let n = userInfo["clanId"] { clanId = "\(n)" }
+            }
         }
+        
         return (channelId, clanId, isDM)
     }
 
@@ -234,10 +243,9 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        AppLogger.network.info("[FCM] Notification tapped: \(userInfo)")
-
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
         let title = response.notification.request.content.title
+
         Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
 
         completionHandler()
@@ -258,6 +266,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 extension Notification.Name {
     static let mezonNavigateToChannel = Notification.Name("MezonNavigateToChannel")
     static let mezonSocketStatusChanged = Notification.Name("MezonSocketStatusChanged")
+    static let mezonMessageTypingReceived = Notification.Name("MezonMessageTypingReceived")
 }
 
 extension AppDelegate: MessagingDelegate {

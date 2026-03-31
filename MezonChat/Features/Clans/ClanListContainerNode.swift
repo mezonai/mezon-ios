@@ -39,6 +39,8 @@ final class ClanListContainerNode: ASDisplayNode {
                 let prevClanId = self.state.selectedClanId
                 let wasLoading = self.state.isLoading
                 let prevDMCount = self.state.unreadDMs.count
+                let prevDMBadges = self.state.unreadDMs.map { $0.countMessUnread }
+                let prevClanBadges = self.state.clans.map { $0.badgeCount }
                 self.state = newState
 
                 if newState.isLoading != wasLoading {
@@ -49,7 +51,11 @@ final class ClanListContainerNode: ASDisplayNode {
                 let hasClanSection = self.collectionView.numberOfSections > 2
                 let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 2) : 0
 
-                if newState.clans.count != oldCount || newState.unreadDMs.count != prevDMCount {
+                let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
+                let newClanBadges = newState.clans.map { $0.badgeCount }
+                let badgesChanged = prevDMBadges != newDMBadges || prevClanBadges != newClanBadges
+
+                if newState.clans.count != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged {
                     self.collectionView.reloadData()
                 } else if prevClanId != newState.selectedClanId {
                     var paths: [IndexPath] = []
