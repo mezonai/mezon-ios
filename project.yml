@@ -65,8 +65,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.89"
-        CURRENT_PROJECT_VERSION: "86"
+        MARKETING_VERSION: "1.2.91"
+        CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic

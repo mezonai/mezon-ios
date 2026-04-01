@@ -1,7 +1,5 @@
 import UIKit
-import PhotosUI
 import AVFoundation
-import UniformTypeIdentifiers
 
 private struct ComposerMention {
     var userId: Int64
@@ -290,13 +288,23 @@ final class SendMessageInputViewController: UIViewController {
     func updateText(_ newText: String) { text = newText; textPipe.putNext(newText) }
 
     private func openPhotoPicker() {
-        var config = PHPickerConfiguration(photoLibrary: .shared())
-        config.selectionLimit = 0
-        config.filter = .any(of: [.images, .videos])
-        config.preferredAssetRepresentationMode = .current
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = self
-        present(picker, animated: true)
+        MediaPickerViewController.present(from: self) { [weak self] results in
+            guard let self else { return }
+            for result in results {
+                let index = self.pickedImages.count
+                self.pickedImages.append(result.image)
+                if result.isVideo {
+                    self.attachmentPreviewView.addVideo(thumbnail: result.image)
+                } else {
+                    self.attachmentPreviewView.addImage(result.image)
+                }
+                if let fileURL = result.fileURL {
+                    self.pickedFileURLs[index] = fileURL
+                }
+            }
+            self.saveToCache()
+            self.updatePreviewVisibility()
+        }
     }
 
     private func addPickedImage(_ image: UIImage) {
@@ -1140,7 +1148,7 @@ final class SendMessageInputViewController: UIViewController {
                     uploadedAttachments = try await self.uploadAttachments(imagesToUpload, fileURLs: fileURLsToUpload, token: token)
                 }
 
-                _ = try await self.context.account.network.sendChannelMessage(
+                let ack = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
                     mode: mode,
@@ -1290,68 +1298,6 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 }
 
-extension SendMessageInputViewController: PHPickerViewControllerDelegate {
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true)
-
-        for result in results {
-            let provider = result.itemProvider
-
-            if provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
-                provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { [weak self] url, _ in
-                    guard let url else { return }
-
-                    let tempDir = FileManager.default.temporaryDirectory
-                    let destURL = tempDir.appendingPathComponent(url.lastPathComponent)
-                    try? FileManager.default.copyItem(at: url, to: destURL)
-
-                    let thumbnail = Self.generateVideoThumbnail(from: destURL)
-                    DispatchQueue.main.async {
-                        guard let self else { return }
-                        if let thumb = thumbnail {
-                            let index = self.pickedImages.count
-                            self.pickedImages.append(thumb)
-                            self.attachmentPreviewView.addVideo(thumbnail: thumb)
-                            self.pickedFileURLs[index] = destURL
-                            self.saveToCache()
-                            self.updatePreviewVisibility()
-                        }
-                    }
-                }
-            }
-            else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-                provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] url, _ in
-                    guard let url else { return }
-
-                    let tempDir = FileManager.default.temporaryDirectory
-                    let destURL = tempDir.appendingPathComponent(url.lastPathComponent)
-                    try? FileManager.default.copyItem(at: url, to: destURL)
-
-                    guard let image = UIImage(contentsOfFile: destURL.path) else { return }
-                    DispatchQueue.main.async {
-                        guard let self else { return }
-                        let index = self.pickedImages.count
-                        self.pickedImages.append(image)
-                        self.attachmentPreviewView.addImage(image)
-                        self.pickedFileURLs[index] = destURL
-                        self.saveToCache()
-                        self.updatePreviewVisibility()
-                    }
-                }
-            }
-        }
-    }
-
-    private static func generateVideoThumbnail(from url: URL) -> UIImage? {
-        let asset = AVAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 600, height: 600)
-        let time = CMTime(seconds: 0.5, preferredTimescale: 600)
-        guard let cgImage = try? generator.copyCGImage(at: time, actualTime: nil) else { return nil }
-        return UIImage(cgImage: cgImage)
-    }
-}
 
 final class PastableTextView: UITextView {
 
