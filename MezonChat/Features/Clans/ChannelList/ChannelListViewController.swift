@@ -186,7 +186,12 @@ final class ChannelListViewController: ViewController {
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
-            onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) }
+            onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
+            onQRTapped: { [weak self] in
+                guard let self else { return }
+                let vc = QRScannerViewController(context: self.context)
+                self.navigationController?.pushViewController(vc, animated: true)
+            }
         )
         displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
     }

@@ -8,6 +8,7 @@ struct ChannelListInteraction {
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
     let onSearchTapped: (() -> Void)?
+    let onQRTapped: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -53,6 +54,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         self.interaction = interaction
         super.init()
         backgroundColor = UIColor.theme.secondary
+        
+        headerUIView.onQRTapped = { [weak self] in
+            self?.interaction.onQRTapped?()
+        }
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -766,11 +771,12 @@ private final class CategorySectionHeaderView: UIView {
 final class ChannelListHeaderView: UIView {
 
     var onTap: (() -> Void)?
+    var onSearchTapped: (() -> Void)?
+    var onQRTapped: (() -> Void)?
 
     var title: String {
         return titleLabel.text ?? ""
     }
-    var onSearchTapped: (() -> Void)?
 
     private let titleLabel: UILabel = {
         let l = UILabel()
@@ -882,6 +888,8 @@ final class ChannelListHeaderView: UIView {
         let searchTap = UITapGestureRecognizer(target: self, action: #selector(searchBarTapped))
         searchBar.addGestureRecognizer(searchTap)
 
+        qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
+
         let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
         actionRow.axis = .horizontal
         actionRow.spacing = 8
@@ -935,6 +943,10 @@ final class ChannelListHeaderView: UIView {
 
     @objc private func searchBarTapped() {
         onSearchTapped?()
+    }
+
+    @objc private func qrTapped() {
+        onQRTapped?()
     }
 
     func configure(title: String, memberCount: Int = 0, isCommunity: Bool = false) {

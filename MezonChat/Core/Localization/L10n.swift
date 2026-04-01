@@ -67,6 +67,28 @@ enum L10n {
         static let logout            = "settings.logout"
     }
 
+    enum QRScanner {
+        static let title = "qrScanner.title"
+        static let cameraPermissionTitle = "qrScanner.cameraPermissionTitle"
+        static let cameraPermissionMessage = "qrScanner.cameraPermissionMessage"
+        static let gallery = "qrScanner.gallery"
+        static let invalidQR = "qrScanner.invalidQR"
+        static let loginConfirm = "qrScanner.loginConfirm"
+        static let joinGroup = "qrScanner.joinGroup"
+        static let transferTo = "qrScanner.transferTo"
+        static let processing = "qrScanner.processing"
+        static let logInOnNewDevice = "qrScanner.logInOnNewDevice"
+        static let neverScanLoginQR = "qrScanner.neverScanLoginQR"
+        static let youAreIn = "qrScanner.youAreIn"
+        static let youAreLoggedInDesktop = "qrScanner.youAreLoggedInDesktop"
+        static let startTalking = "qrScanner.startTalking"
+        static let inviteToJoinClan = "qrScanner.inviteToJoinClan"
+        static let joinClan = "qrScanner.joinClan"
+        static let noThanks = "qrScanner.noThanks"
+        static let userProfile = "qrScanner.userProfile"
+        static let message = "qrScanner.message"
+    }
+
     enum Language {
         static let title          = "language.title"
     }
@@ -112,11 +134,11 @@ enum L10n {
         static let resendInSeconds    = "login.resendInSeconds"
         static let selectCountry      = "login.selectCountry"
     }
-    
+
     enum Welcome {
-        static let title          = "welcome.title"
-        static let subtitle       = "welcome.subtitle"
-        static let startNow       = "welcome.startNow"
+        static let title = "welcome.title"
+        static let subtitle = "welcome.subtitle"
+        static let startNow = "welcome.startNow"
     }
 
     enum Notifications {
@@ -351,7 +373,7 @@ extension L10n {
         "login.loginTooFast":   "Please wait before trying again",
         "login.resendInSeconds": "Resend in %ds",
         "login.selectCountry":  "Select country code",
-        
+
         "welcome.title":        "Welcome to Mezon",
         "welcome.subtitle":     "The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.",
         "welcome.startNow":     "Get started",
@@ -474,10 +496,24 @@ extension L10n {
         "profile.userIdCopied": "User ID copied",
         "profile.currency": "đồng",
 
-        "error.networkError":           "Network Error",
-        "error.connectionFailed":       "Connection failed. Please try again.",
-        "error.somethingWentWrong":     "Something went wrong",
-        "error.sessionExpiredTitle":    "Session Expired",
+        "qrScanner.joinGroup": "Join Group",
+        "qrScanner.transferTo": "Transfer to user: %@",
+        "qrScanner.processing": "Processing...",
+        "qrScanner.logInOnNewDevice": "Log in on a new device?",
+        "qrScanner.neverScanLoginQR": "Never scan a login QR code from another user.",
+        "qrScanner.youAreIn": "You are in",
+        "qrScanner.youAreLoggedInDesktop": "You are now logged in on Desktop",
+        "qrScanner.startTalking": "Start Talking",
+        "qrScanner.inviteToJoinClan": "INVITE TO JOIN A CLAN",
+        "qrScanner.joinClan": "Join",
+        "qrScanner.noThanks": "No, Thanks",
+        "qrScanner.message": "Message",
+        "qrScanner.userProfile": "USER PROFILE",
+
+        "error.networkError": "Network Error",
+        "error.connectionFailed": "Connection failed. Please try again.",
+        "error.somethingWentWrong": "Something went wrong",
+        "error.sessionExpiredTitle": "Session Expired",
         "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
@@ -568,7 +604,7 @@ extension L10n {
         "login.loginTooFast":   "Vui lòng đợi trước khi thử lại",
         "login.resendInSeconds": "Gửi lại sau %ds",
         "login.selectCountry":  "Chọn mã vùng",
-        
+
         "welcome.title":        "Chào mừng đến với Mezon",
         "welcome.subtitle":     "Nền tảng Kết nối, Làm việc,\nvà Giải trí",
         "welcome.startNow":     "Bắt đầu nào",
@@ -691,12 +727,34 @@ extension L10n {
         "profile.userIdCopied": "Đã sao chép User ID",
         "profile.currency": "đồng",
 
-        "error.networkError":           "Lỗi kết nối mạng",
-        "error.connectionFailed":       "Kết nối thất bại. Vui lòng thử lại.",
-        "error.somethingWentWrong":     "Đã xảy ra lỗi",
-        "error.sessionExpiredTitle":    "Phiên đăng nhập hết hạn",
+        "qrScanner.title": "Quét mã QR",
+        "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",
+        "qrScanner.cameraPermissionMessage":
+            "Vui lòng cho phép truy cập camera trong Cài đặt để quét mã QR.",
+        "qrScanner.gallery": "Thư viện",
+        "qrScanner.invalidQR": "Mã QR không hợp lệ",
+        "qrScanner.loginConfirm": "Bạn có muốn đăng nhập với %@?",
+        "qrScanner.joinGroup": "Tham gia nhóm",
+        "qrScanner.transferTo": "Chuyển tiền cho %@",
+        "qrScanner.processing": "Đang xử lý...",
+        "qrScanner.logInOnNewDevice": "Đăng nhập trên thiết bị mới?",
+        "qrScanner.neverScanLoginQR": "Không bao giờ quét mã QR đăng nhập từ người dùng khác.",
+        "qrScanner.youAreIn": "Bạn đã đăng nhập",
+        "qrScanner.youAreLoggedInDesktop": "Bạn đã đăng nhập trên máy tính",
+        "qrScanner.startTalking": "Bắt đầu trò chuyện",
+        "qrScanner.inviteToJoinClan": "LỜI MỜI THAM GIA CLAN",
+        "qrScanner.joinClan": "Tham gia",
+        "qrScanner.noThanks": "Không, cảm ơn",
+        "qrScanner.message": "Nhắn tin",
+        "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",
+
+        "error.networkError": "Lỗi kết nối mạng",
+        "error.connectionFailed": "Kết nối thất bại. Vui lòng thử lại.",
+        "error.somethingWentWrong": "Đã xảy ra lỗi",
+        "error.sessionExpiredTitle": "Phiên đăng nhập hết hạn",
         "error.sessionExpiredOrNetwork": "Phiên hết hạn hoặc lỗi mạng",
-        "error.sessionExpiredContent":  "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
-        "error.sessionExpiredConfirm":  "Đăng nhập lại",
+        "error.sessionExpiredContent":
+            "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
+        "error.sessionExpiredConfirm": "Đăng nhập lại",
     ]
 }

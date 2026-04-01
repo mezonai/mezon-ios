@@ -66,11 +66,37 @@ final class ClanListViewController: ViewController {
         clanListNode.applyTheme()
         loadClans()
         fetchUnreadDMs()
-        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForClanBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleChannelMarkedAsRead(_:)),
+            name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleNewMessageReceived(_:)),
+            name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleMentionReceived(_:)),
+            name: Notification.Name("MezonMentionReceived"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleSocketStatusForClanBadges(_:)),
+            name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleMezonSelectClan(_:)), name: .mezonSelectClan,
+            object: nil)
+    }
+
+    @objc private func handleMezonSelectClan(_ notification: Notification) {
+        guard let clanIdStr = notification.userInfo?["clanId"] as? String,
+            let clanId = Int64(clanIdStr)
+        else { return }
+
+        if let clan = clans.first(where: { $0.clanID == clanId }) {
+            select(clan: clan)
+        } else {
+            setSelectedClanId(clanId)
+            loadClans()
+        }
     }
 
     @objc private func handleSocketStatusForClanBadges(_ notification: Notification) {
@@ -473,15 +499,15 @@ final class ClanListViewController: ViewController {
             subscriber.putNext(self.currentState)
 
             let postboxDisposable = (self.context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
-                guard let self else { return }
-                self.clans = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
-                    guard !record.data.isEmpty else {
+                    guard let self else { return }
+                    self.clans = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
+                        guard !record.data.isEmpty else {
                         var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
-                    }
-                    return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
+                        }
+                        return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
                 }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
-                subscriber.putNext(self.currentState)
-            })
+                    subscriber.putNext(self.currentState)
+                })
             let reloadDisposable = (self.needsReloadPipe.signal()
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue

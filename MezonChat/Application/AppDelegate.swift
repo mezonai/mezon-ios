@@ -267,6 +267,8 @@ extension Notification.Name {
     static let mezonNavigateToChannel = Notification.Name("MezonNavigateToChannel")
     static let mezonSocketStatusChanged = Notification.Name("MezonSocketStatusChanged")
     static let mezonMessageTypingReceived = Notification.Name("MezonMessageTypingReceived")
+    static let mezonSelectClan = Notification.Name("MezonSelectClan")
+    static let mezonNavigateToDM = Notification.Name("MezonNavigateToDM")
 }
 
 extension AppDelegate: MessagingDelegate {
