@@ -150,6 +150,28 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         titleLabel.textColor = .mezonTextPrimary
 
+        guard isNodeLoaded else { return }
+
+        var addCfg = UIButton.Configuration.filled()
+        addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
+        addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
+        addCfg.baseForegroundColor = UIColor.theme.textStrong
+        addCfg.baseBackgroundColor = UIColor.theme.secondary
+        addCfg.cornerStyle = .capsule
+        addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
+        addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+            var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
+        }
+        addFriendButton.configuration = addCfg
+
+        var searchCfg = UIButton.Configuration.filled()
+        searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+        searchCfg.baseForegroundColor = UIColor.theme.textDisabled
+        searchCfg.baseBackgroundColor = UIColor.theme.secondary
+        searchCfg.cornerStyle = .capsule
+        searchButton.configuration = searchCfg
+
+        tableView.reloadData()
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }

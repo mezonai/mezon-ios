@@ -49,7 +49,16 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedEmbedSize: CGSize = .zero
     private var cachedReactionsSize: CGSize = .zero
     private var cachedErrorSize: CGSize = .zero
+    private var cachedForwardHeaderSize: CGSize = .zero
+    private var cachedForwardLabelSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
+
+    private let forwardLeftBarNode: ASDisplayNode?
+    private let forwardHeaderIconNode: ASImageNode?
+    private let forwardHeaderLabelNode: ASTextNode2?
+
+    private static let forwardHeaderIconSide: CGFloat = 15
+    private static let forwardHeaderIconGap: CGFloat = 4
 
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
         self.display = display
@@ -80,6 +89,30 @@ final class MessageBubbleNode: ASDisplayNode {
             self.hasEmbeds = !parsed.embeds.isEmpty
         }
         self.hasReactions = !display.reactions.isEmpty
+
+        if display.isForward {
+            let b = ASDisplayNode()
+            b.backgroundColor = UIColor.mezonBorder
+            self.forwardLeftBarNode = b
+        } else {
+            self.forwardLeftBarNode = nil
+        }
+        if display.showForwardHeader {
+            let icon = ASImageNode()
+            let sym = UIImage(systemName: "arrowshape.turn.up.right")
+                ?? UIImage(systemName: "arrow.turn.up.right")
+            icon.image = sym?.withRenderingMode(.alwaysTemplate)
+            icon.tintColor = UIColor.theme.textDisabled
+            icon.contentMode = .scaleAspectFit
+            let lbl = ASTextNode2()
+            lbl.attributedText = Self.forwardHeaderLabelAttributedString()
+            lbl.maximumNumberOfLines = 1
+            self.forwardHeaderIconNode = icon
+            self.forwardHeaderLabelNode = lbl
+        } else {
+            self.forwardHeaderIconNode = nil
+            self.forwardHeaderLabelNode = nil
+        }
 
         super.init()
         backgroundColor = .clear
@@ -151,6 +184,16 @@ final class MessageBubbleNode: ASDisplayNode {
             let drn = MessageDeletedReplyNode()
             deletedReplyNode = drn
             addSubnode(drn)
+        }
+
+        if let forwardLeftBarNode {
+            addSubnode(forwardLeftBarNode)
+        }
+        if let forwardHeaderIconNode {
+            addSubnode(forwardHeaderIconNode)
+        }
+        if let forwardHeaderLabelNode {
+            addSubnode(forwardHeaderLabelNode)
         }
 
         if let callLog = display.callLog {
@@ -285,6 +328,10 @@ final class MessageBubbleNode: ASDisplayNode {
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
         fileAttachmentNode?.alpha = contentAlpha
+        embedNode?.alpha = contentAlpha
+        forwardHeaderIconNode?.alpha = contentAlpha
+        forwardHeaderLabelNode?.alpha = contentAlpha
+        forwardLeftBarNode?.alpha = contentAlpha
 
         let _ = measureSize(width: cachedTotalSize.width)
         setNeedsLayout()
@@ -428,6 +475,8 @@ final class MessageBubbleNode: ASDisplayNode {
         let contentLeadingTotal: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let trailingInset: CGFloat = 12.sw
         let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
+        let forwardInset: CGFloat = display.isForward ? (2 + 10.sw) : 0
+        let bodyContentWidth = max(contentWidth - forwardInset, 1)
         let vertSpacing: CGFloat = 4.sh
 
         var totalH: CGFloat = 0
@@ -455,36 +504,51 @@ final class MessageBubbleNode: ASDisplayNode {
             totalH += max(cachedNameSize.height, cachedTimeSize.height) + vertSpacing
         }
 
+        if let lbl = forwardHeaderLabelNode {
+            let iconW = Self.forwardHeaderIconSide + Self.forwardHeaderIconGap
+            let labelMaxW = max(bodyContentWidth - iconW, 1)
+            cachedForwardLabelSize = lbl.measure(CGSize(width: labelMaxW, height: .greatestFiniteMagnitude))
+            let rowH = max(Self.forwardHeaderIconSide, cachedForwardLabelSize.height)
+            cachedForwardHeaderSize = CGSize(
+                width: min(iconW + cachedForwardLabelSize.width, bodyContentWidth),
+                height: rowH
+            )
+            totalH += cachedForwardHeaderSize.height + vertSpacing
+        } else {
+            cachedForwardHeaderSize = .zero
+            cachedForwardLabelSize = .zero
+        }
+
         if let callLogNode {
-            cachedCallLogSize = callLogNode.measureSize(maxWidth: contentWidth)
+            cachedCallLogSize = callLogNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedCallLogSize.height + vertSpacing
         } else {
             cachedCallLogSize = .zero
         }
 
         if let textContentNode {
-            cachedTextSize = textContentNode.measureSize(maxWidth: contentWidth)
+            cachedTextSize = textContentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedTextSize.height + vertSpacing
         } else {
             cachedTextSize = .zero
         }
 
         if let mediaContentNode {
-            cachedMediaSize = mediaContentNode.measureSize(maxWidth: contentWidth)
+            cachedMediaSize = mediaContentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedMediaSize.height + vertSpacing
         } else {
             cachedMediaSize = .zero
         }
 
         if let fileAttachmentNode {
-            cachedFileSize = fileAttachmentNode.measureSize(maxWidth: contentWidth)
+            cachedFileSize = fileAttachmentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedFileSize.height + vertSpacing
         } else {
             cachedFileSize = .zero
         }
 
         if let embedNode {
-            cachedEmbedSize = embedNode.measureSize(maxWidth: contentWidth)
+            cachedEmbedSize = embedNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedEmbedSize.height + vertSpacing
         } else {
             cachedEmbedSize = .zero
@@ -498,7 +562,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         if let topicNode {
-            cachedTopicSize = topicNode.measureSize(maxWidth: contentWidth)
+            cachedTopicSize = topicNode.measureSize(maxWidth: bodyContentWidth)
             totalH += 8.sh + cachedTopicSize.height + vertSpacing
         } else {
             cachedTopicSize = .zero
@@ -524,10 +588,21 @@ final class MessageBubbleNode: ASDisplayNode {
         let combineLeading: CGFloat = 6.sw + Self.avatarSize + 10.sw
         let trailingInset: CGFloat = 12.sw
         let contentWidth = max(width - contentLeadingTotal - trailingInset, 1)
+        let forwardInset: CGFloat = display.isForward ? (2 + 10.sw) : 0
+        let bodyContentWidth = max(contentWidth - forwardInset, 1)
         let vertSpacing: CGFloat = 4.sh
 
         let contentX = isCombine ? combineLeading : contentLeadingTotal
+        let contentInnerX = contentX + forwardInset
         var y: CGFloat = isCombine ? 1.sh : 6.sh
+        var forwardBarMinY: CGFloat?
+        var forwardBarMaxY: CGFloat?
+        func noteForwardBlock(topY: CGFloat, height: CGFloat) {
+            guard display.isForward, height > 0 else { return }
+            let bottom = topY + height
+            if forwardBarMinY == nil { forwardBarMinY = topY }
+            forwardBarMaxY = max(forwardBarMaxY ?? bottom, bottom)
+        }
 
         if let replyNode {
             replyNode.frame = CGRect(x: 6.sw, y: y, width: width - 6.sw - 12.sw, height: cachedReplySize.height)
@@ -556,28 +631,50 @@ final class MessageBubbleNode: ASDisplayNode {
             y += nameRowH + vertSpacing
         }
 
+        if let icon = forwardHeaderIconNode, let lbl = forwardHeaderLabelNode {
+            let rowH = cachedForwardHeaderSize.height
+            let iconSide = Self.forwardHeaderIconSide
+            let gap = Self.forwardHeaderIconGap
+            let iconY = y + (rowH - iconSide) / 2
+            icon.frame = CGRect(x: contentInnerX, y: iconY, width: iconSide, height: iconSide)
+            let labelY = y + (rowH - cachedForwardLabelSize.height) / 2
+            lbl.frame = CGRect(
+                x: contentInnerX + iconSide + gap,
+                y: labelY,
+                width: cachedForwardLabelSize.width,
+                height: cachedForwardLabelSize.height
+            )
+            noteForwardBlock(topY: y, height: rowH)
+            y += rowH + vertSpacing
+        }
+
         if let callLogNode {
-            callLogNode.frame = CGRect(x: contentX, y: y, width: contentWidth, height: cachedCallLogSize.height)
+            callLogNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedCallLogSize.height)
+            noteForwardBlock(topY: y, height: cachedCallLogSize.height)
             y += cachedCallLogSize.height + vertSpacing
         }
 
         if let textContentNode {
-            textContentNode.frame = CGRect(x: contentX, y: y, width: contentWidth, height: cachedTextSize.height)
+            textContentNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedTextSize.height)
+            noteForwardBlock(topY: y, height: cachedTextSize.height)
             y += cachedTextSize.height + vertSpacing
         }
 
         if let mediaContentNode {
-            mediaContentNode.frame = CGRect(x: contentX, y: y, width: cachedMediaSize.width, height: cachedMediaSize.height)
+            mediaContentNode.frame = CGRect(x: contentInnerX, y: y, width: cachedMediaSize.width, height: cachedMediaSize.height)
+            noteForwardBlock(topY: y, height: cachedMediaSize.height)
             y += cachedMediaSize.height + vertSpacing
         }
 
         if let fileAttachmentNode {
-            fileAttachmentNode.frame = CGRect(x: contentX, y: y, width: cachedFileSize.width, height: cachedFileSize.height)
+            fileAttachmentNode.frame = CGRect(x: contentInnerX, y: y, width: cachedFileSize.width, height: cachedFileSize.height)
+            noteForwardBlock(topY: y, height: cachedFileSize.height)
             y += cachedFileSize.height + vertSpacing
         }
 
         if let embedNode {
-            embedNode.frame = CGRect(x: contentX, y: y, width: cachedEmbedSize.width, height: cachedEmbedSize.height)
+            embedNode.frame = CGRect(x: contentInnerX, y: y, width: cachedEmbedSize.width, height: cachedEmbedSize.height)
+            noteForwardBlock(topY: y, height: cachedEmbedSize.height)
             y += cachedEmbedSize.height + vertSpacing
         }
 
@@ -588,7 +685,8 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if let topicNode {
             y += 8.sh
-            topicNode.frame = CGRect(x: contentX, y: y, width: cachedTopicSize.width, height: cachedTopicSize.height)
+            topicNode.frame = CGRect(x: contentInnerX, y: y, width: cachedTopicSize.width, height: cachedTopicSize.height)
+            noteForwardBlock(topY: y, height: cachedTopicSize.height)
             y += cachedTopicSize.height + vertSpacing
         }
 
@@ -605,6 +703,13 @@ final class MessageBubbleNode: ASDisplayNode {
             mentionBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
         }
 
+        if let bar = forwardLeftBarNode, let top = forwardBarMinY, let bottom = forwardBarMaxY, bottom > top {
+            bar.frame = CGRect(x: contentX, y: top, width: 2, height: bottom - top)
+            bar.isHidden = false
+        } else {
+            forwardLeftBarNode?.isHidden = true
+        }
+
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
@@ -612,6 +717,9 @@ final class MessageBubbleNode: ASDisplayNode {
         mediaContentNode?.alpha = contentAlpha
         fileAttachmentNode?.alpha = contentAlpha
         embedNode?.alpha = contentAlpha
+        forwardHeaderIconNode?.alpha = contentAlpha
+        forwardHeaderLabelNode?.alpha = contentAlpha
+        forwardLeftBarNode?.alpha = contentAlpha
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -625,6 +733,17 @@ final class MessageBubbleNode: ASDisplayNode {
         f.dateFormat = "dd/MM/yyyy, HH:mm"
         return f
     }()
+
+    private static func forwardHeaderLabelAttributedString() -> NSAttributedString {
+        let t = UIColor.theme
+        let fontSize: CGFloat = 12.sf
+        let baseFont = UIFont.systemFont(ofSize: fontSize)
+        let italicFont = UIFont(descriptor: baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) ?? baseFont.fontDescriptor, size: fontSize)
+        return NSAttributedString(string: L(L10n.Common.forwarded), attributes: [
+            .font: italicFont,
+            .foregroundColor: t.textDisabled,
+        ])
+    }
 
     private static func formatDate(_ date: Date) -> String {
         let cal = Calendar.current

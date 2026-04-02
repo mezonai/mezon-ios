@@ -63,6 +63,8 @@ final class TabBarControllerNode: ASDisplayNode {
 
         transition.updateAlpha(node: tabBarNode, alpha: tabBarHidden ? 0.0 : 1.0)
 
+        backgroundColor = UIColor.theme.primary
+
         return tabBarHidden ? layout.intrinsicInsets.bottom : max(layout.intrinsicInsets.bottom, tabBarTotalHeight)
     }
 

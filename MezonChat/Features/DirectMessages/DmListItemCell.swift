@@ -163,6 +163,9 @@ final class DmListItemCell: UITableViewCell {
     }
 
     func configure(channel: Mezon_Api_ChannelDescription, currentUserId: String?) {
+        avatarPlaceholder.textColor = .mezonTextPrimary
+        groupIconView.tintColor = .mezonTextSecondary
+
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let displayName = displayName(for: channel)
         let unread = channel.countMessUnread
