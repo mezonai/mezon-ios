@@ -82,7 +82,7 @@ private class DistinctUntilChangedContext<T> {
 public func distinctUntilChanged<T: Equatable, E>(_ signal: Signal<T, E>) -> Signal<T, E> {
     return Signal { subscriber in
         let context = Atomic(value: DistinctUntilChangedContext<T>())
-        
+
         return signal.start(next: { next in
             let pass = context.with { context -> Bool in
                 if let value = context.value, value == next {
@@ -107,7 +107,7 @@ public func distinctUntilChanged<T, E>(isEqual: @escaping (T, T) -> Bool) -> (_ 
     return { signal in
         return Signal { subscriber in
             let context = Atomic(value: DistinctUntilChangedContext<T>())
-            
+
             return signal.start(next: { next in
                 let pass = context.with { context -> Bool in
                     if let value = context.value, isEqual(value, next) {

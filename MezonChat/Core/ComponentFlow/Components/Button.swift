@@ -35,7 +35,7 @@ public final class Button: Component {
             highlightedAction: highlightedAction
         )
     }
-    
+
     private init(
         content: AnyComponent<Empty>,
         contentInsets: UIEdgeInsets = UIEdgeInsets(),
@@ -61,7 +61,7 @@ public final class Button: Component {
         self.holdAction = holdAction
         self.highlightedAction = highlightedAction
     }
-    
+
     public func minSize(_ minSize: CGSize?) -> Button {
         return Button(
             content: self.content,
@@ -77,7 +77,7 @@ public final class Button: Component {
             highlightedAction: self.highlightedAction
         )
     }
-    
+
     public func withHitTestEdgeInsets(_ hitTestEdgeInsets: UIEdgeInsets?) -> Button {
         return Button(
             content: self.content,
@@ -93,7 +93,7 @@ public final class Button: Component {
             highlightedAction: self.highlightedAction
         )
     }
-    
+
     public func withIsExclusive(_ isExclusive: Bool) -> Button {
         return Button(
             content: self.content,
@@ -125,7 +125,7 @@ public final class Button: Component {
             highlightedAction: self.highlightedAction
         )
     }
-    
+
     public func tagged(_ tag: AnyObject) -> Button {
         return Button(
             content: self.content,
@@ -141,7 +141,7 @@ public final class Button: Component {
             highlightedAction: self.highlightedAction
         )
     }
-    
+
     public static func ==(lhs: Button, rhs: Button) -> Bool {
         if lhs.content != rhs.content {
             return false
@@ -169,14 +169,14 @@ public final class Button: Component {
         }
         return true
     }
-    
+
     public final class View: UIButton, ComponentTaggedView {
         private let contentView: ComponentHostView<Empty>
-        
+
         public var content: UIView? {
             return self.contentView.componentView
         }
-        
+
         private var component: Button?
         private var currentIsHighlighted: Bool = false {
             didSet {
@@ -191,7 +191,7 @@ public final class Button: Component {
                 }
             }
         }
-        
+
         private func updateAlpha(transition: ComponentTransition) {
             guard let component = self.component else {
                 return
@@ -208,10 +208,10 @@ public final class Button: Component {
             }
             transition.setAlpha(view: self.contentView, alpha: alpha)
         }
-        
+
         private var holdActionTriggerred: Bool = false
         private var holdActionTimer: Foundation.Timer?
-        
+
         public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
             var bounds = self.bounds
             if let hitTestEdgeInsets = self.component?.hitTestEdgeInsets {
@@ -219,27 +219,27 @@ public final class Button: Component {
             }
             return bounds.contains(point)
         }
-        
+
         override init(frame: CGRect) {
             self.contentView = ComponentHostView<Empty>()
             self.contentView.isUserInteractionEnabled = false
             self.contentView.layer.allowsGroupOpacity = true
-            
+
             super.init(frame: frame)
-            
+
             self.addSubview(self.contentView)
-            
+
             self.addTarget(self, action: #selector(self.pressed), for: .touchUpInside)
         }
-        
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
-        
+
         deinit {
             self.holdActionTimer?.invalidate()
         }
-        
+
         public func matches(tag: Any) -> Bool {
             if let component = self.component, let componentTag = component.tag {
                 let tag = tag as AnyObject
@@ -249,7 +249,7 @@ public final class Button: Component {
             }
             return false
         }
-        
+
         @objc private func pressed() {
             if self.holdActionTriggerred {
                 self.holdActionTriggerred = false
@@ -257,16 +257,16 @@ public final class Button: Component {
                 self.component?.action()
             }
         }
-        
+
         override public func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
             self.currentIsHighlighted = true
-            
+
             self.holdActionTriggerred = false
-            
+
             if self.component?.holdAction != nil {
                 self.holdActionTriggerred = true
                 self.component?.action()
-                
+
                 self.holdActionTimer?.invalidate()
                 if #available(iOS 10.0, *) {
                     let holdActionTimer = Foundation.Timer(timeInterval: 0.5, repeats: false, block: { [weak self] _ in
@@ -281,10 +281,10 @@ public final class Button: Component {
                     RunLoop.main.add(holdActionTimer, forMode: .common)
                 }
             }
-            
+
             return super.beginTracking(touch, with: event)
         }
-        
+
         private func beginExecuteHoldActionTimer() {
             self.holdActionTimer?.invalidate()
             if #available(iOS 10.0, *) {
@@ -298,25 +298,25 @@ public final class Button: Component {
                 RunLoop.main.add(holdActionTimer, forMode: .common)
             }
         }
-        
+
         override public func endTracking(_ touch: UITouch?, with event: UIEvent?) {
             self.currentIsHighlighted = false
-            
+
             self.holdActionTimer?.invalidate()
             self.holdActionTimer = nil
-            
+
             super.endTracking(touch, with: event)
         }
-        
+
         override public func cancelTracking(with event: UIEvent?) {
             self.currentIsHighlighted = false
-            
+
             self.holdActionTimer?.invalidate()
             self.holdActionTimer = nil
-            
+
             super.cancelTracking(with: event)
         }
-        
+
         func update(component: Button, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: ComponentTransition) -> CGSize {
             let contentSize = self.contentView.update(
                 transition: transition,
@@ -324,7 +324,7 @@ public final class Button: Component {
                 environment: {},
                 containerSize: availableSize
             )
-            
+
             var size = contentSize
             if let minSize = component.minSize {
                 size.width = max(size.width, minSize.width)
@@ -332,23 +332,23 @@ public final class Button: Component {
             }
             size.width += component.contentInsets.left + component.contentInsets.right
             size.height += component.contentInsets.top + component.contentInsets.bottom
-            
+
             self.component = component
-            
+
             self.updateAlpha(transition: transition)
             self.isEnabled = component.isEnabled
             self.isExclusiveTouch = component.isExclusive
-            
+
             transition.setFrame(view: self.contentView, frame: CGRect(origin: CGPoint(x: floor((size.width - contentSize.width) / 2.0), y: floor((size.height - contentSize.height) / 2.0)), size: contentSize), completion: nil)
-            
+
             return size
         }
     }
-    
+
     public func makeView() -> View {
         return View(frame: CGRect())
     }
-    
+
     public func update(view: View, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: ComponentTransition) -> CGSize {
         view.update(component: self, availableSize: availableSize, state: state, environment: environment, transition: transition)
     }

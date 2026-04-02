@@ -13,15 +13,15 @@ public protocol ContainableController: AnyObject {
     var blocksBackgroundWhenInOverlay: Bool { get }
     var ready: Promise<Bool> { get }
     var updateTransitionWhenPresentedAsModal: ((CGFloat, ContainedViewLayoutTransition) -> Void)? { get set }
-    
+
     func combinedSupportedOrientations(currentOrientationToLock: UIInterfaceOrientationMask) -> ViewControllerSupportedOrientations
     var deferScreenEdgeGestures: UIRectEdge { get }
     var prefersOnScreenNavigationHidden: Bool { get }
-    
+
     func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition)
     func updateToInterfaceOrientation(_ orientation: UIInterfaceOrientation)
     func preferredContentSizeForLayout(_ layout: ContainerViewLayout) -> CGSize?
-    
+
     func viewWillAppear(_ animated: Bool)
     func viewWillDisappear(_ animated: Bool)
     func viewDidAppear(_ animated: Bool)

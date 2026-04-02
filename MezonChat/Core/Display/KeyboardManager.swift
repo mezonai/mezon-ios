@@ -37,20 +37,20 @@ private func getFirstResponder(_ view: UIView) -> UIView? {
 
 class KeyboardManager {
     private let host: StatusBarHost
-    
+
     private weak var previousFirstResponderView: UIView?
     private var interactiveInputOffset: CGFloat = 0.0
-    
+
     var surfaces: [KeyboardSurface] = [] {
         didSet {
             self.updateSurfaces(oldValue)
         }
     }
-    
+
     init(host: StatusBarHost) {
         self.host = host
     }
-    
+
     func getCurrentKeyboardHeight() -> CGFloat {
         guard let keyboardView = self.host.keyboardView else {
             return 0.0
@@ -60,14 +60,14 @@ class KeyboardManager {
         }
         return keyboardView.bounds.height
     }
-    
+
     func updateInteractiveInputOffset(_ offset: CGFloat, transition: ContainedViewLayoutTransition, completion: @escaping () -> Void) {
         guard let keyboardView = self.host.keyboardView else {
             return
         }
-        
+
         self.interactiveInputOffset = offset
-        
+
         let previousBounds = keyboardView.bounds
         let updatedBounds = CGRect(origin: CGPoint(x: 0.0, y: -offset), size: previousBounds.size)
         keyboardView.layer.bounds = updatedBounds
@@ -78,12 +78,12 @@ class KeyboardManager {
         }
 
     }
-    
+
     private func updateSurfaces(_ previousSurfaces: [KeyboardSurface]) {
         guard let keyboardWindow = self.host.keyboardWindow else {
             return
         }
-        
+
         var firstResponderView: UIView?
         var firstResponderDisableAutomaticKeyboardHandling: UIResponderDisableAutomaticKeyboardHandling = []
         for surface in self.surfaces {
@@ -93,7 +93,7 @@ class KeyboardManager {
                 break
             }
         }
-        
+
         if let firstResponderView = firstResponderView {
             let containerOrigin = firstResponderView.convert(CGPoint(), to: nil)
             var filteredTranslation = containerOrigin.x
@@ -120,7 +120,7 @@ class KeyboardManager {
                 }
             }
         }
-        
+
         self.previousFirstResponderView = firstResponderView
     }
 }
@@ -147,11 +147,11 @@ public func viewTreeContainsFirstResponder(view: UIView) -> Bool {
 
 public final class KeyboardViewManager {
     private let host: StatusBarHost
-    
+
     init(host: StatusBarHost) {
         self.host = host
     }
-    
+
     public func dismissEditingWithoutAnimation(view: UIView) {
         if viewTreeContainsFirstResponder(view: view) {
             view.endEditing(true)
@@ -162,7 +162,7 @@ public final class KeyboardViewManager {
             }
         }
     }
-    
+
     public func update(leftEdge: CGFloat, transition: ContainedViewLayoutTransition) {
         guard let keyboardWindow = self.host.keyboardWindow else {
             return

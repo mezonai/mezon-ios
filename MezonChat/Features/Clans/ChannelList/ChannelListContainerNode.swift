@@ -1,5 +1,5 @@
-import UIKit
 import AsyncDisplayKit
+import UIKit
 
 struct ChannelListInteraction {
     let onSelectChannel: (Mezon_Api_ChannelDescription) -> Void
@@ -8,6 +8,7 @@ struct ChannelListInteraction {
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
     let onSearchTapped: (() -> Void)?
+    let onQRTapped: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -17,7 +18,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let bannerView = ChannelBannerView()
     private let headerSpacer = UIView()
     private var stickyTopOffset: CGFloat = 0
-    private let headerH: CGFloat = 100.sh
+    private let headerH: CGFloat = 120.sh
     private var channelApps: [Mezon_Api_ChannelAppResponse] = []
     private var isChannelAppsExpanded = true
     private var hasChannelAppsSection: Bool { !channelApps.isEmpty }
@@ -26,18 +27,18 @@ final class ChannelListContainerNode: ASDisplayNode {
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0, y: 0)
-        gl.endPoint   = CGPoint(x: 1, y: 1)
-        gl.locations  = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
+        gl.endPoint = CGPoint(x: 1, y: 1)
+        gl.locations = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
         return gl
     }()
 
     private var state: ChannelListState = .empty
     private var threadLookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
-    /// Cached rows per category index — rebuilt only when state changes.
+
     private var cachedRows: [Int: [ChannelListRow]] = [:]
-    /// Cached section header views — keyed by section index, avoids re-allocation on scroll.
+
     private var cachedHeaders: [Int: CategorySectionHeaderView] = [:]
-    /// Snapshot of section count at last table update — used for safe batch updates.
+
     private var committedSectionCount: Int = 0
     private let interaction: ChannelListInteraction
     private let disposables = DisposableSet()
@@ -53,6 +54,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         self.interaction = interaction
         super.init()
         backgroundColor = UIColor.theme.secondary
+        
+        headerUIView.onQRTapped = { [weak self] in
+            self?.interaction.onQRTapped?()
+        }
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -60,7 +65,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let prevState = self.state
 
                 if let msg = newState.errorMessage, msg != prevState.errorMessage {
-                    // Toast.error(msg)
+
                 }
 
                 let wasClanSwitching = self.isClanSwitching
@@ -75,6 +80,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let structureChanged = prevCats.count != newCats.count
                     || zip(prevCats, newCats).contains(where: {
                         $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.channels.count != $1.channels.count
+                            || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
                     })
 
                 if wasClanSwitching {
@@ -98,6 +104,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.reloadData()
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
         committedSectionCount = totalSections
@@ -129,114 +136,99 @@ final class ChannelListContainerNode: ASDisplayNode {
             && newCatSections == new.categories.count
             && zip(prev.categories, new.categories).allSatisfy({ $0.id == $1.id })
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        guard canPatch else {
+            safeReloadData()
+            return
+        }
 
-        if canPatch {
-            let prevThreadLookup = buildThreadLookup(prev.allChannels)
-            var sectionsToReload = IndexSet()
-            var rowsToInsert: [IndexPath] = []
-            var rowsToDelete: [IndexPath] = []
-            var rowsToReload: [IndexPath] = []
+        var sectionsToReload = IndexSet()
+        var rowsToInsert: [IndexPath] = []
+        var rowsToDelete: [IndexPath] = []
+        var rowsToReload: [IndexPath] = []
 
-            for i in 0..<newCatSections {
-                let pc = prev.categories[i]
-                let nc = new.categories[i]
-                let section = i + sectionOffset
+        for i in 0..<newCatSections {
+            let pc = prev.categories[i]
+            let nc = new.categories[i]
+            let section = i + sectionOffset
 
-                if pc.isCollapsed != nc.isCollapsed || pc.isCollapsed {
-                    sectionsToReload.insert(section)
-                    continue
-                }
 
-                let oldRows = flattenCategoryToRows(pc, threadLookup: prevThreadLookup)
-                let newRows = rowsForSection(i)
+            if pc.isCollapsed != nc.isCollapsed {
+                sectionsToReload.insert(section)
+                continue
+            }
 
-                let oldIds = oldRows.map { $0.channelDesc.channelID }
-                let newIds = newRows.map { $0.channelDesc.channelID }
+            let oldRows = computeRows(for: pc, allChannels: prev.allChannels, selectedChannelId: prev.selectedChannelId)
+            let newRows = rowsForSection(i)
 
-                if oldIds == newIds {
-                    for (r, row) in newRows.enumerated() {
-                        if channelRowDataChanged(old: oldRows[r], new: row,
-                                                 prevSelected: prev.selectedChannelId,
-                                                 newSelected: new.selectedChannelId) {
-                            rowsToReload.append(IndexPath(row: r, section: section))
-                        }
-                    }
-                    continue
-                }
+            let oldIds = oldRows.map { $0.channelDesc.channelID }
+            let newIds = newRows.map { $0.channelDesc.channelID }
 
-                let oldSet = Set(oldIds)
-                let newSet = Set(newIds)
-
-                let commonOld = oldIds.filter { newSet.contains($0) }
-                let commonNew = newIds.filter { oldSet.contains($0) }
-                if commonOld != commonNew {
-                    sectionsToReload.insert(section)
-                    continue
-                }
-
-                for (r, id) in oldIds.enumerated() where !newSet.contains(id) {
-                    rowsToDelete.append(IndexPath(row: r, section: section))
-                }
-                for (r, id) in newIds.enumerated() where !oldSet.contains(id) {
-                    rowsToInsert.append(IndexPath(row: r, section: section))
-                }
-
-                var newRowLookup: [Int64: ChannelListRow] = [:]
-                for row in newRows { newRowLookup[row.channelDesc.channelID] = row }
-                for (r, oldRow) in oldRows.enumerated() {
-                    let chId = oldRow.channelDesc.channelID
-                    guard let newRow = newRowLookup[chId] else { continue }
-                    if channelRowDataChanged(old: oldRow, new: newRow,
-                                             prevSelected: prev.selectedChannelId,
+            if oldIds == newIds {
+                for (r, row) in newRows.enumerated() {
+                    if channelRowDataChanged(old: oldRows[r], new: row,
+                        prevSelected: prev.selectedChannelId,
                                              newSelected: new.selectedChannelId) {
                         rowsToReload.append(IndexPath(row: r, section: section))
                     }
                 }
+                continue
             }
 
-            let hasChanges = !sectionsToReload.isEmpty || !rowsToInsert.isEmpty
-                || !rowsToDelete.isEmpty || !rowsToReload.isEmpty
-            if hasChanges {
-                UIView.performWithoutAnimation {
-                    self.tableNode.performBatch(animated: false) {
-                        if !sectionsToReload.isEmpty {
-                            self.tableNode.reloadSections(sectionsToReload, with: .none)
-                        }
-                        if !rowsToDelete.isEmpty {
-                            self.tableNode.deleteRows(at: rowsToDelete, with: .none)
-                        }
-                        if !rowsToInsert.isEmpty {
-                            self.tableNode.insertRows(at: rowsToInsert, with: .none)
-                        }
-                        if !rowsToReload.isEmpty {
-                            self.tableNode.reloadRows(at: rowsToReload, with: .none)
-                        }
-                    }
+            let oldSet = Set(oldIds)
+            let newSet = Set(newIds)
+
+            let commonOld = oldIds.filter { newSet.contains($0) }
+            let commonNew = newIds.filter { oldSet.contains($0) }
+            if commonOld != commonNew {
+                sectionsToReload.insert(section)
+                continue
+            }
+
+            for (r, id) in oldIds.enumerated() where !newSet.contains(id) {
+                rowsToDelete.append(IndexPath(row: r, section: section))
+            }
+            for (r, id) in newIds.enumerated() where !oldSet.contains(id) {
+                rowsToInsert.append(IndexPath(row: r, section: section))
+            }
+
+            var newRowLookup: [Int64: ChannelListRow] = [:]
+            for row in newRows { newRowLookup[row.channelDesc.channelID] = row }
+            for (r, oldRow) in oldRows.enumerated() {
+                let chId = oldRow.channelDesc.channelID
+                guard let newRow = newRowLookup[chId] else { continue }
+                if channelRowDataChanged(old: oldRow, new: newRow,
+                    prevSelected: prev.selectedChannelId,
+                                         newSelected: new.selectedChannelId) {
+                    rowsToReload.append(IndexPath(row: r, section: section))
                 }
             }
-            committedSectionCount = expectedAfter
-        } else if prevCatSections >= 0 && newCatSections >= 0 {
-            let oldRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + prevCatSections))
-            let newRange = IndexSet(integersIn: sectionOffset..<(sectionOffset + newCatSections))
-            guard !oldRange.isEmpty || !newRange.isEmpty else {
-                safeReloadData()
-                CATransaction.commit()
-                return
-            }
-            UIView.performWithoutAnimation {
-                self.tableNode.performBatch(animated: false) {
-                    if !oldRange.isEmpty { self.tableNode.deleteSections(oldRange, with: .none) }
-                    if !newRange.isEmpty { self.tableNode.insertSections(newRange, with: .none) }
-                }
-            }
-            committedSectionCount = expectedAfter
-        } else {
-            safeReloadData()
         }
 
-        CATransaction.commit()
+        let filteredInsert = rowsToInsert.filter { !sectionsToReload.contains($0.section) }
+        let filteredDelete = rowsToDelete.filter { !sectionsToReload.contains($0.section) }
+        let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) }
+
+        let hasChanges = !sectionsToReload.isEmpty || !filteredInsert.isEmpty
+            || !filteredDelete.isEmpty || !filteredReload.isEmpty
+        if hasChanges {
+            let rowAnim: UITableView.RowAnimation = .fade
+            tableNode.performBatch(animated: true) {
+                if !sectionsToReload.isEmpty {
+                    self.tableNode.reloadSections(sectionsToReload, with: rowAnim)
+                }
+                if !filteredDelete.isEmpty {
+                    self.tableNode.deleteRows(at: filteredDelete, with: rowAnim)
+                }
+                if !filteredInsert.isEmpty {
+                    self.tableNode.insertRows(at: filteredInsert, with: rowAnim)
+                }
+                if !filteredReload.isEmpty {
+                    self.tableNode.reloadRows(at: filteredReload, with: .none)
+                }
+            }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        committedSectionCount = expectedAfter
     }
 
     private func channelRowDataChanged(old: ChannelListRow, new: ChannelListRow,
@@ -252,23 +244,40 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyRowDiff(prev: ChannelListState, new: ChannelListState) {
-        var paths: [IndexPath] = []
+        guard committedSectionCount == tableNode.numberOfSections else {
+            safeReloadData()
+            return
+        }
+
         let sectionOffset = hasChannelAppsSection ? 1 : 0
 
         for s in 0..<new.categories.count {
-            let oldCh = prev.categories[s].channels
-            let newCh = new.categories[s].channels
-            let rows = rowsForSection(s)
+            let section = s + sectionOffset
+            guard section < tableNode.numberOfSections else {
+                safeReloadData()
+                return
+            }
+            let committedRows = tableNode.numberOfRows(inSection: section)
+            let newRows = rowsForSection(s).count
+            if committedRows != newRows {
+                safeReloadData()
+                return
+            }
+        }
 
-            var oldLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
-            for ch in oldCh { oldLookup[ch.channelID] = ch }
-            var newLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
-            for ch in newCh { newLookup[ch.channelID] = ch }
+        var oldAllLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for ch in prev.allChannels { oldAllLookup[ch.channelID] = ch }
+        var newAllLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for ch in new.allChannels { newAllLookup[ch.channelID] = ch }
+
+        var paths: [IndexPath] = []
+        for s in 0..<new.categories.count {
+            let rows = rowsForSection(s)
 
             for (r, row) in rows.enumerated() {
                 let chId = row.channelDesc.channelID
-                let oldDesc = oldLookup[chId]
-                let newDesc = newLookup[chId]
+                let oldDesc = oldAllLookup[chId]
+                let newDesc = newAllLookup[chId]
                 let changed = oldDesc?.countMessUnread != newDesc?.countMessUnread
                     || (oldDesc?.hasLastSentMessage != newDesc?.hasLastSentMessage)
                     || (oldDesc?.lastSentMessage.timestampSeconds != newDesc?.lastSentMessage.timestampSeconds)
@@ -285,6 +294,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.reloadRows(at: paths, with: .none)
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
     }
@@ -295,7 +305,13 @@ final class ChannelListContainerNode: ASDisplayNode {
             let rows = rowsForSection(s)
             if let r = rows.firstIndex(where: { $0.channelDesc.channelID == channelId }) {
                 let indexPath = IndexPath(row: r, section: s + sectionOffset)
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
+                    guard indexPath.section < self.tableNode.numberOfSections,
+                          indexPath.row < self.tableNode.numberOfRows(inSection: indexPath.section) else {
+                        return
+                    }
                     self.tableNode.scrollToRow(at: indexPath, at: .middle, animated: true)
                 }
                 return
@@ -315,6 +331,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         if #available(iOS 15.0, *) {
             tableNode.view.sectionHeaderTopPadding = 0
         }
+        tableNode.view.contentInset.bottom = 80
+        tableNode.view.scrollIndicatorInsets.bottom = 80
         tableNode.delegate = self
         tableNode.dataSource = self
         committedSectionCount = totalSections
@@ -481,7 +499,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 if action == .settings {
                     self.interaction.onPresentSettings?()
                 } else {
-                    print("Clan action selected: \(action)")
                 }
             }
         )
@@ -533,40 +550,44 @@ final class ChannelListContainerNode: ASDisplayNode {
         tableNode.reloadRows(at: paths, with: .none)
     }
 
+
+    private func computeRows(
+        for category: ChannelCategory,
+        allChannels: [Mezon_Api_ChannelDescription],
+        selectedChannelId: Int64?
+    ) -> [ChannelListRow] {
+        let lookup = buildThreadLookup(allChannels)
+        let allRows = flattenCategoryToRows(category, threadLookup: lookup)
+        guard category.isCollapsed else { return allRows }
+        return allRows.filter { row in
+            let ch = row.channelDesc
+            if ch.countMessUnread > 0 { return true }
+            if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
+            if ch.channelID == selectedChannelId { return true }
+            if let threads = lookup[ch.channelID] {
+                let hasUnreadOrActiveThread = threads.contains {
+                    $0.countMessUnread > 0
+                    || $0.lastSentMessage.timestampSeconds > $0.lastSeenMessage.timestampSeconds
+                    || $0.channelID == selectedChannelId
+                }
+                if hasUnreadOrActiveThread { return true }
+            }
+            if case .thread = row {
+                if ch.countMessUnread > 0 { return true }
+                if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
+                if ch.channelID == selectedChannelId { return true }
+            }
+            return false
+        }
+    }
+
     private func rowsForSection(_ section: Int) -> [ChannelListRow] {
         if let cached = cachedRows[section] { return cached }
         guard section < state.categories.count else { return [] }
         let cat = state.categories[section]
-        let allRows = flattenCategoryToRows(cat, threadLookup: threadLookup)
-
-        if cat.isCollapsed {
-            let selectedId = state.selectedChannelId
-            let filtered = allRows.filter { row in
-                let ch = row.channelDesc
-                if ch.countMessUnread > 0 { return true }
-                if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
-                if ch.channelID == selectedId { return true }
-                if let threads = threadLookup[ch.channelID] {
-                    let hasUnreadOrActiveThread = threads.contains {
-                        $0.countMessUnread > 0
-                        || $0.lastSentMessage.timestampSeconds > $0.lastSeenMessage.timestampSeconds
-                        || $0.channelID == selectedId
-                    }
-                    if hasUnreadOrActiveThread { return true }
-                }
-                if case .thread = row {
-                    if ch.countMessUnread > 0 { return true }
-                    if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
-                    if ch.channelID == selectedId { return true }
-                }
-                return false
-            }
-            cachedRows[section] = filtered
-            return filtered
-        }
-
-        cachedRows[section] = allRows
-        return allRows
+        let rows = computeRows(for: cat, allChannels: state.allChannels, selectedChannelId: state.selectedChannelId)
+        cachedRows[section] = rows
+        return rows
     }
 }
 
@@ -581,7 +602,7 @@ extension ChannelListContainerNode: ASTableDataSource {
             if isCompactView {
                 return isChannelAppsExpanded ? channelApps.count : 0
             } else {
-                return 1 // single horizontal scroll row
+                return 1
             }
         }
         let catIdx = categoryIndex(forSection: section)
@@ -606,19 +627,23 @@ extension ChannelListContainerNode: ASTableDataSource {
         let row = rows[indexPath.row]
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
         switch row {
-        case .channel(let ch):
+        case .channel(let ch, let inFav):
             return {
                 let node = ChannelItemCellNode(channel: ch, isSelected: isSelected)
-                node.onLongPress = { [weak self] in
-                    self?.interaction.onLongPressChannel(ch)
+                if !inFav {
+                    node.onLongPress = { [weak self] in
+                        self?.interaction.onLongPressChannel(ch)
+                    }
                 }
                 return node
             }
-        case .thread(let ch, let isLast):
+        case .thread(let ch, let isLast, let inFav):
             return {
                 let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
-                node.onLongPress = { [weak self] in
-                    self?.interaction.onLongPressChannel(ch)
+                if !inFav {
+                    node.onLongPress = { [weak self] in
+                        self?.interaction.onLongPressChannel(ch)
+                    }
                 }
                 return node
             }
@@ -679,10 +704,6 @@ extension ChannelListContainerNode: ASTableDelegate {
         updateStickyHeaderPosition()
     }
 }
-
-// ChannelItemCellNode → ChannelItemCellNode.swift
-// ThreadItemCellNode  → ThreadItemCellNode.swift
-
 
 
 private final class CategorySectionHeaderView: UIView {
@@ -748,11 +769,12 @@ private final class CategorySectionHeaderView: UIView {
 final class ChannelListHeaderView: UIView {
 
     var onTap: (() -> Void)?
+    var onSearchTapped: (() -> Void)?
+    var onQRTapped: (() -> Void)?
 
     var title: String {
         return titleLabel.text ?? ""
     }
-    var onSearchTapped: (() -> Void)?
 
     private let titleLabel: UILabel = {
         let l = UILabel()
@@ -864,6 +886,8 @@ final class ChannelListHeaderView: UIView {
         let searchTap = UITapGestureRecognizer(target: self, action: #selector(searchBarTapped))
         searchBar.addGestureRecognizer(searchTap)
 
+        qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
+
         let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
         actionRow.axis = .horizontal
         actionRow.spacing = 8
@@ -888,7 +912,7 @@ final class ChannelListHeaderView: UIView {
             mainStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             mainStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             mainStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
 
             communityDot.widthAnchor.constraint(equalToConstant: 4),
             communityDot.heightAnchor.constraint(equalToConstant: 4),
@@ -917,6 +941,10 @@ final class ChannelListHeaderView: UIView {
 
     @objc private func searchBarTapped() {
         onSearchTapped?()
+    }
+
+    @objc private func qrTapped() {
+        onQRTapped?()
     }
 
     func configure(title: String, memberCount: Int = 0, isCommunity: Bool = false) {
@@ -956,7 +984,7 @@ final class ChannelListHeaderView: UIView {
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         eventButton.backgroundColor = t.tertiary
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
-        separator.backgroundColor = t.border.withAlphaComponent(0.3)
+        separator.backgroundColor = t.borderDim
     }
 
     @objc private func handleHeaderTap() {
@@ -964,7 +992,4 @@ final class ChannelListHeaderView: UIView {
     }
 }
 
-// ChannelBannerView        → ChannelBannerView.swift
-// ChannelAppCellNode       → ChannelAppNodes.swift
-// ChannelAppHorizontalCellNode → ChannelAppNodes.swift
-// ChannelAppIconItemView   → ChannelAppNodes.swift
+

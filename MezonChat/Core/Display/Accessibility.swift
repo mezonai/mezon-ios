@@ -29,11 +29,11 @@ public func smartInvertColorsEnabled() -> Bool {
 public func isReduceMotionEnabled() -> Signal<Bool, NoError> {
     return Signal { subscriber in
         subscriber.putNext(UIAccessibility.isReduceMotionEnabled)
-        
+
         let observer = NotificationCenter.default.addObserver(forName: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil, queue: .main, using: { _ in
             subscriber.putNext(UIAccessibility.isReduceMotionEnabled)
         })
-        
+
         return ActionDisposable {
             Queue.mainQueue().async {
                 NotificationCenter.default.removeObserver(observer)
@@ -49,11 +49,11 @@ public func isSpeakSelectionEnabled() -> Bool {
 public func isSpeakSelectionEnabledSignal() -> Signal<Bool, NoError> {
     return Signal { subscriber in
         subscriber.putNext(UIAccessibility.isSpeakSelectionEnabled)
-        
+
         let observer = NotificationCenter.default.addObserver(forName: UIAccessibility.speakSelectionStatusDidChangeNotification, object: nil, queue: .main, using: { _ in
             subscriber.putNext(UIAccessibility.isSpeakSelectionEnabled)
         })
-        
+
         return ActionDisposable {
             Queue.mainQueue().async {
                 NotificationCenter.default.removeObserver(observer)
@@ -65,11 +65,11 @@ public func isSpeakSelectionEnabledSignal() -> Signal<Bool, NoError> {
 public func isBoldTextEnabled() -> Signal<Bool, NoError> {
     return Signal { subscriber in
         subscriber.putNext(UIAccessibility.isBoldTextEnabled)
-        
+
         let observer = NotificationCenter.default.addObserver(forName: UIAccessibility.boldTextStatusDidChangeNotification, object: nil, queue: .main, using: { _ in
             subscriber.putNext(UIAccessibility.isBoldTextEnabled)
         })
-        
+
         return ActionDisposable {
             Queue.mainQueue().async {
                 NotificationCenter.default.removeObserver(observer)

@@ -53,7 +53,7 @@ private final class ToastManager {
     func present(type: ToastType, title: String?, message: String, duration: TimeInterval, onTap: (() -> Void)? = nil) {
         dismissWorkItem?.cancel()
 
-        // Remove previous toast
+
         toastContainer?.removeFromSuperview()
         toastContainer = nil
 
@@ -110,7 +110,7 @@ private final class ToastManager {
         }
     }
 
-    /// Find the rootViewController's view from the key window to add toast to
+
     private static func findContainerView() -> UIView? {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }

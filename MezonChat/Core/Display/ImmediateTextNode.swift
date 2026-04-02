@@ -5,7 +5,7 @@ public struct ImmediateTextNodeLayoutInfo {
     public let size: CGSize
     public let truncated: Bool
     public let numberOfLines: Int
-    
+
     public init(size: CGSize, truncated: Bool, numberOfLines: Int) {
         self.size = size
         self.truncated = truncated
@@ -26,7 +26,7 @@ open class ImmediateTextNode: TextNode {
     public var textStroke: (UIColor, CGFloat)?
     public var cutout: TextNodeCutout?
     public var displaySpoilers = false
-    
+
     public var truncationMode: NSLineBreakMode {
         get {
             switch self.truncationType {
@@ -52,16 +52,16 @@ open class ImmediateTextNode: TextNode {
             }
         }
     }
-    
+
     private var tapRecognizer: TapLongTapOrDoubleTapGestureRecognizer?
     private var linkHighlightingNode: LinkHighlightingNode?
-    
+
     public var linkHighlightColor: UIColor?
-    
+
     public var trailingLineWidth: CGFloat?
-    
+
     public var constrainedSize: CGSize?
-    
+
     public var highlightAttributeAction: (([NSAttributedString.Key: Any]) -> NSAttributedString.Key?)? {
         didSet {
             if self.isNodeLoaded {
@@ -69,10 +69,10 @@ open class ImmediateTextNode: TextNode {
             }
         }
     }
-    
+
     public var tapAttributeAction: (([NSAttributedString.Key: Any], Int) -> Void)?
     public var longTapAttributeAction: (([NSAttributedString.Key: Any], Int) -> Void)?
-    
+
     public func makeCopy() -> TextNode {
         let node = TextNode()
         node.cachedLayout = self.cachedLayout
@@ -92,10 +92,10 @@ open class ImmediateTextNode: TextNode {
         }
         return node
     }
-    
+
     open func updateLayout(_ constrainedSize: CGSize) -> CGSize {
         self.constrainedSize = constrainedSize
-        
+
         let makeLayout = TextNode.asyncLayout(self)
         let (layout, apply) = makeLayout(TextNodeLayoutArguments(attributedString: self.attributedText, backgroundColor: nil, maximumNumberOfLines: self.maximumNumberOfLines, truncationType: self.truncationType, constrainedSize: constrainedSize, alignment: self.textAlignment, verticalAlignment: self.verticalAlignment, lineSpacing: self.lineSpacing, cutout: self.cutout, insets: self.insets, textShadowColor: self.textShadowColor, textShadowBlur: self.textShadowBlur, textStroke: self.textStroke, displaySpoilers: self.displaySpoilers))
         let _ = apply()
@@ -106,37 +106,37 @@ open class ImmediateTextNode: TextNode {
         }
         return layout.size
     }
-    
+
     public func updateLayoutInfo(_ constrainedSize: CGSize) -> ImmediateTextNodeLayoutInfo {
         self.constrainedSize = constrainedSize
-        
+
         let makeLayout = TextNode.asyncLayout(self)
         let (layout, apply) = makeLayout(TextNodeLayoutArguments(attributedString: self.attributedText, backgroundColor: nil, maximumNumberOfLines: self.maximumNumberOfLines, truncationType: self.truncationType, constrainedSize: constrainedSize, alignment: self.textAlignment, verticalAlignment: self.verticalAlignment, lineSpacing: self.lineSpacing, cutout: self.cutout, insets: self.insets, displaySpoilers: self.displaySpoilers))
         let _ = apply()
         return ImmediateTextNodeLayoutInfo(size: layout.size, truncated: layout.truncated, numberOfLines: layout.numberOfLines)
     }
-    
+
     public func updateLayoutFullInfo(_ constrainedSize: CGSize) -> TextNodeLayout {
         self.constrainedSize = constrainedSize
-        
+
         let makeLayout = TextNode.asyncLayout(self)
         let (layout, apply) = makeLayout(TextNodeLayoutArguments(attributedString: self.attributedText, backgroundColor: nil, maximumNumberOfLines: self.maximumNumberOfLines, truncationType: self.truncationType, constrainedSize: constrainedSize, alignment: self.textAlignment, verticalAlignment: self.verticalAlignment, lineSpacing: self.lineSpacing, cutout: self.cutout, insets: self.insets, displaySpoilers: self.displaySpoilers))
         let _ = apply()
         return layout
     }
-    
+
     public func redrawIfPossible() {
         if let constrainedSize = self.constrainedSize {
             let _ = self.updateLayout(constrainedSize)
         }
     }
-    
+
     override open func didLoad() {
         super.didLoad()
-        
+
         self.updateInteractiveActions()
     }
-    
+
     private func updateInteractiveActions() {
         if self.highlightAttributeAction != nil {
             if self.tapRecognizer == nil {
@@ -163,7 +163,7 @@ open class ImmediateTextNode: TextNode {
                                 }
                             }
                         }
-                        
+
                         if let rects = rects {
                             let linkHighlightingNode: LinkHighlightingNode
                             if let current = strongSelf.linkHighlightingNode {
@@ -190,7 +190,7 @@ open class ImmediateTextNode: TextNode {
             self.view.removeGestureRecognizer(tapRecognizer)
         }
     }
-    
+
     @objc private func tapAction(_ recognizer: TapLongTapOrDoubleTapGestureRecognizer) {
         switch recognizer.state {
             case .ended:
@@ -220,13 +220,13 @@ public class ASTextNode: ImmediateTextNode {
             self.setNeedsLayout()
         }
     }
-    
+
     override public init() {
         super.init()
-        
+
         self.maximumNumberOfLines = 0
     }
-    
+
     override public func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
         return self.updateLayout(constrainedSize)
     }
@@ -245,7 +245,7 @@ open class ImmediateTextView: TextView {
     public var textStroke: (UIColor, CGFloat)?
     public var cutout: TextNodeCutout?
     public var displaySpoilers = false
-    
+
     public var truncationMode: NSLineBreakMode {
         get {
             switch self.truncationType {
@@ -271,29 +271,29 @@ open class ImmediateTextView: TextView {
             }
         }
     }
-    
+
     private var tapRecognizer: TapLongTapOrDoubleTapGestureRecognizer?
     private var linkHighlightingNode: LinkHighlightingNode?
-    
+
     public var linkHighlightColor: UIColor?
     public var linkHighlightInset: UIEdgeInsets = .zero
-    
+
     public var trailingLineWidth: CGFloat?
-    
+
     var constrainedSize: CGSize?
-    
+
     public var highlightAttributeAction: (([NSAttributedString.Key: Any]) -> NSAttributedString.Key?)? {
         didSet {
             self.updateInteractiveActions()
         }
     }
-    
+
     public var tapAttributeAction: (([NSAttributedString.Key: Any], Int) -> Void)?
     public var longTapAttributeAction: (([NSAttributedString.Key: Any], Int) -> Void)?
-    
+
     public func updateLayout(_ constrainedSize: CGSize) -> CGSize {
         self.constrainedSize = constrainedSize
-        
+
         let makeLayout = TextView.asyncLayout(self)
         let (layout, apply) = makeLayout(TextNodeLayoutArguments(attributedString: self.attributedText, backgroundColor: nil, maximumNumberOfLines: self.maximumNumberOfLines, truncationType: self.truncationType, constrainedSize: constrainedSize, alignment: self.textAlignment, verticalAlignment: self.verticalAlignment, lineSpacing: self.lineSpacing, cutout: self.cutout, insets: self.insets, textShadowColor: self.textShadowColor, textShadowBlur: self.textShadowBlur, textStroke: self.textStroke, displaySpoilers: self.displaySpoilers))
         let _ = apply()
@@ -304,31 +304,31 @@ open class ImmediateTextView: TextView {
         }
         return layout.size
     }
-    
+
     public func updateLayoutInfo(_ constrainedSize: CGSize) -> ImmediateTextNodeLayoutInfo {
         self.constrainedSize = constrainedSize
-        
+
         let makeLayout = TextView.asyncLayout(self)
         let (layout, apply) = makeLayout(TextNodeLayoutArguments(attributedString: self.attributedText, backgroundColor: nil, maximumNumberOfLines: self.maximumNumberOfLines, truncationType: self.truncationType, constrainedSize: constrainedSize, alignment: self.textAlignment, verticalAlignment: self.verticalAlignment, lineSpacing: self.lineSpacing, cutout: self.cutout, insets: self.insets, displaySpoilers: self.displaySpoilers))
         let _ = apply()
         return ImmediateTextNodeLayoutInfo(size: layout.size, truncated: layout.truncated, numberOfLines: layout.numberOfLines)
     }
-    
+
     public func updateLayoutFullInfo(_ constrainedSize: CGSize) -> TextNodeLayout {
         self.constrainedSize = constrainedSize
-        
+
         let makeLayout = TextView.asyncLayout(self)
         let (layout, apply) = makeLayout(TextNodeLayoutArguments(attributedString: self.attributedText, backgroundColor: nil, maximumNumberOfLines: self.maximumNumberOfLines, truncationType: self.truncationType, constrainedSize: constrainedSize, alignment: self.textAlignment, verticalAlignment: self.verticalAlignment, lineSpacing: self.lineSpacing, cutout: self.cutout, insets: self.insets, displaySpoilers: self.displaySpoilers))
         let _ = apply()
         return layout
     }
-    
+
     public func redrawIfPossible() {
         if let constrainedSize = self.constrainedSize {
             let _ = self.updateLayout(constrainedSize)
         }
     }
-    
+
     private func updateInteractiveActions() {
         if self.highlightAttributeAction != nil {
             if self.tapRecognizer == nil {
@@ -355,7 +355,7 @@ open class ImmediateTextView: TextView {
                                 }
                             }
                         }
-                        
+
                         if var rects, !rects.isEmpty {
                             let linkHighlightingNode: LinkHighlightingNode
                             if let current = strongSelf.linkHighlightingNode {
@@ -383,7 +383,7 @@ open class ImmediateTextView: TextView {
             self.removeGestureRecognizer(tapRecognizer)
         }
     }
-    
+
     @objc private func tapAction(_ recognizer: TapLongTapOrDoubleTapGestureRecognizer) {
         switch recognizer.state {
         case .ended:

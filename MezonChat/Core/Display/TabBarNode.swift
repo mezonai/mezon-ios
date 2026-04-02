@@ -74,7 +74,7 @@ final class TabBarItemNode: ASDisplayNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let s = TabBarLayoutScale.value
-        let iconSize: CGFloat = 26 * s
+        let iconSize: CGFloat = 22 * s
         iconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
 
         let fontSize: CGFloat = 10 * s
@@ -193,6 +193,12 @@ public final class TabBarNode: ASDisplayNode {
     func frameForItem(at index: Int) -> CGRect? {
         guard index < itemNodes.count else { return nil }
         return itemNodes[index].frame
+    }
+
+    /// Call when `UIColor.theme` changes so tab labels (built in `layoutSpecThatFits`) pick up new colors.
+    func refreshItemAppearanceForThemeChange() {
+        separatorNode.backgroundColor = UIColor.theme.border
+        itemNodes.forEach { $0.setNeedsLayout() }
     }
 
     func updateLayout(size: CGSize, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {

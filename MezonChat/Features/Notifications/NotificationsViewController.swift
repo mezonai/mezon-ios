@@ -4,11 +4,9 @@ import UIKit
 
 final class NotificationsViewController: ViewController {
 
-    // MARK: - Dependencies
 
     private let context: AccountContext
 
-    // MARK: - State pipes (Signal-based, matching MessagesViewController pattern)
 
     private let itemsPipe = ValuePipe<[NotificationItem]>()
     private let isLoadingPipe = ValuePipe<Bool>()
@@ -65,7 +63,9 @@ final class NotificationsViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        Task { await fetchNotifications(category: 1) }
+        if items.isEmpty {
+            Task { await fetchNotifications(category: currentCategory) }
+        }
     }
 
     private var lastLayout: ContainerViewLayout?
@@ -96,7 +96,7 @@ final class NotificationsViewController: ViewController {
         let clanId = context.currentClanId
 
         if category == 4 {
-            dataDisposable?.dispose()  // Dispose previous subscription if any
+            dataDisposable?.dispose()
             asyncDetached { [weak self] in
                 guard let self else { return }
                 do {
@@ -174,16 +174,19 @@ final class NotificationsViewController: ViewController {
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
-            if record.messageID != 0 {
+            if record.category == 1 && record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
             self.navigationController?.pushViewController(vc, animated: true)
         case .topic(let record):
             channel.clanID = record.clanID
             channel.channelID = record.channelID
+            channel.channelLabel = "Topic Discussion"
             context.currentClanId = record.clanID
+            
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
+            vc.topicId = record.id
             self.navigationController?.pushViewController(vc, animated: true)
         }
     }

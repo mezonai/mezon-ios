@@ -474,6 +474,9 @@ final class SettingsViewController: BaseViewController {
         case L(L10n.Settings.language):
             let vc = LanguageSettingsViewController()
             navigationController?.pushViewController(vc, animated: true)
+        case L(L10n.Settings.qrScan):
+            let vc = QRScannerViewController(context: context)
+            navigationController?.pushViewController(vc, animated: true)
         default:
             break
         }

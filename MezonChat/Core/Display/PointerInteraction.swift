@@ -15,39 +15,39 @@ public enum PointerStyle {
 private final class PointerInteractionImpl: NSObject, UIPointerInteractionDelegate {
     private weak var pointerInteraction: UIPointerInteraction?
     private weak var customInteractionView: UIView?
-    
+
     private let style: PointerStyle
-    
+
     private let willEnter: () -> Void
     private let willExit: () -> Void
-    
+
     init(style: PointerStyle, willEnter: @escaping () -> Void, willExit: @escaping () -> Void) {
         self.style = style
         self.willEnter = willEnter
         self.willExit = willExit
-        
+
         super.init()
     }
-    
+
     deinit {
         if let pointerInteraction = self.pointerInteraction {
             pointerInteraction.view?.removeInteraction(pointerInteraction)
         }
     }
-    
+
     func setup(view: UIView, customInteractionView: UIView?) {
         self.customInteractionView = customInteractionView
-        
+
         let pointerInteraction = UIPointerInteraction(delegate: self)
         view.addInteraction(pointerInteraction)
         self.pointerInteraction = pointerInteraction
     }
-    
+
     func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
         var pointerStyle: UIPointerStyle? = nil
-        
+
         let interactionView = self.customInteractionView ?? interaction.view
-        
+
         if let interactionView = interactionView {
             let targetedPreview = UITargetedPreview(view: interactionView)
             switch self.style {
@@ -101,10 +101,10 @@ private final class PointerInteractionImpl: NSObject, UIPointerInteractionDelega
 public final class PointerInteraction {
     private var impl: AnyObject?
     private let style: PointerStyle
-    
+
     private let willEnter: () -> Void
     private let willExit: () -> Void
-    
+
     @available(iOSApplicationExtension 13.4, iOS 13.4, *)
     private func withImpl(_ f: (PointerInteractionImpl) -> Void) {
         if self.impl == nil {
@@ -112,11 +112,11 @@ public final class PointerInteraction {
         }
         f(self.impl as! PointerInteractionImpl)
     }
-    
+
     public convenience init(node: ASDisplayNode, style: PointerStyle = .default, willEnter: @escaping () -> Void = {}, willExit: @escaping () -> Void = {}) {
         self.init(view: node.view, style: style, willEnter: willEnter, willExit: willExit)
     }
-    
+
     public init(view: UIView, customInteractionView: UIView? = nil, style: PointerStyle = .default, willEnter: @escaping () -> Void = {}, willExit: @escaping () -> Void = {}) {
         self.style = style
         self.willEnter = willEnter

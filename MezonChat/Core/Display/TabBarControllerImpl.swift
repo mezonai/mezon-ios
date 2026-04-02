@@ -49,6 +49,7 @@ open class TabBarControllerImpl: ViewController, TabBarController {
     required public init(coder aDecoder: NSCoder) { fatalError() }
 
     deinit {
+        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
         pendingControllerDisposable.dispose()
     }
 
@@ -85,6 +86,16 @@ open class TabBarControllerImpl: ViewController, TabBarController {
 
         updateSelectedIndex()
         displayNodeDidLoad()
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleAppThemeDidChange),
+            name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    @objc private func handleAppThemeDidChange() {
+        guard let layout = validLayout else { return }
+        tabBarControllerNode.tabBarNode.refreshItemAppearanceForThemeChange()
+        containerLayoutUpdated(layout, transition: .immediate)
     }
 
     public func frameForControllerTab(controller: ViewController) -> CGRect? {

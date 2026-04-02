@@ -38,13 +38,13 @@ private var ASScrollViewDelegateKey: Int?
 
 private final class WrappedGestureRecognizerDelegate: NSObject, UIGestureRecognizerDelegate {
     private weak var target: ASGestureRecognizerDelegate?
-    
+
     init(target: ASGestureRecognizerDelegate) {
         self.target = target
-        
+
         super.init()
     }
-    
+
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let target = self.target else {
             return true
@@ -58,7 +58,7 @@ private final class WrappedGestureRecognizerDelegate: NSObject, UIGestureRecogni
         }
         return target.gestureRecognizer?(gestureRecognizer, shouldRecognizeSimultaneouslyWith: otherGestureRecognizer) ?? false
     }
-    
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let target = self.target else {
             return false
@@ -72,7 +72,7 @@ private final class WrappedGestureRecognizerDelegate: NSObject, UIGestureRecogni
         }
         return target.gestureRecognizer?(gestureRecognizer, shouldBeRequiredToFailBy: otherGestureRecognizer) ?? false
     }
-    
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let target = self.target else {
             return true
@@ -110,13 +110,13 @@ public extension ASGestureRecognizerDelegate {
 
 private final class WrappedScrollViewDelegate: NSObject, UIScrollViewDelegate, UIScrollViewAccessibilityDelegate {
     private weak var target: ASScrollViewDelegate?
-    
+
     init(target: ASScrollViewDelegate) {
         self.target = target
-        
+
         super.init()
     }
-    
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard let target = self.target else {
             return
@@ -151,7 +151,7 @@ private final class WrappedScrollViewDelegate: NSObject, UIScrollViewDelegate, U
         }
         target.scrollViewDidEndDragging?(scrollView, willDecelerate: decelerate)
     }
-    
+
     func scrollViewWillBeginDecelerating(_ scrollView: UIScrollView) {
         guard let target = self.target else {
             return
@@ -165,7 +165,7 @@ private final class WrappedScrollViewDelegate: NSObject, UIScrollViewDelegate, U
         }
         target.scrollViewDidEndDecelerating?(scrollView)
     }
-    
+
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard let target = self.target else {
             return
@@ -193,7 +193,7 @@ private final class WrappedScrollViewDelegate: NSObject, UIScrollViewDelegate, U
         }
         target.scrollViewDidEndZooming?(scrollView, with: view, atScale: scale)
     }
-    
+
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         guard let target = self.target else {
             return true
@@ -207,21 +207,21 @@ private final class WrappedScrollViewDelegate: NSObject, UIScrollViewDelegate, U
         }
         target.scrollViewDidScroll?(toTop: scrollView)
     }
-    
+
     func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
         guard let target = self.target else {
             return
         }
         target.scrollViewDidChangeAdjustedContentInset?(scrollView)
     }
-    
+
     func accessibilityScrollStatus(for scrollView: UIScrollView) -> String? {
         guard let target = self.target else {
             return nil
         }
         return target.accessibilityScrollStatus?(for: scrollView)
     }
-    
+
     func accessibilityAttributedScrollStatus(for scrollView: UIScrollView) -> NSAttributedString? {
         guard let target = self.target else {
             return nil

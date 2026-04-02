@@ -18,16 +18,16 @@ public final class ContextMenuContainerNode: ASDisplayNode {
     private var cachedMaskParams: CachedMaskParams?
     private let maskView = ContextMenuContainerMaskView()
     public let containerNode: ASDisplayNode
-    
+
     public var relativeArrowPosition: (CGFloat, Bool)?
-    
+
     private var effectView: UIVisualEffectView?
-    
+
     public init(isBlurred: Bool, isDark: Bool) {
         self.containerNode = ASDisplayNode()
-        
+
         super.init()
-        
+
         if isBlurred {
             let effectView = UIVisualEffectView(effect: UIBlurEffect(style: isDark ? .dark : .light))
             self.containerNode.view.addSubview(effectView)
@@ -35,33 +35,33 @@ public final class ContextMenuContainerNode: ASDisplayNode {
         } else {
             self.containerNode.backgroundColor = isDark ? UIColor(rgb: 0x2f2f2f) : UIColor(rgb: 0xF8F8F6)
         }
-        
+
         self.layer.shadowColor = UIColor.black.cgColor
         self.layer.shadowRadius = 10.0
         self.layer.shadowOpacity = 0.2
         self.layer.shadowOffset = CGSize(width: 0.0, height: 5.0)
-        
+
         self.containerNode.view.mask = self.maskView
         self.addSubnode(self.containerNode)
     }
-    
+
     override public func didLoad() {
         super.didLoad()
-        
+
         self.layer.allowsGroupOpacity = true
     }
-    
+
     override public func layout() {
         super.layout()
-        
+
         self.updateLayout(transition: .immediate)
     }
-    
+
     public func updateLayout(transition: ContainedViewLayoutTransition) {
         transition.updateFrame(node: self.containerNode, frame: self.bounds)
-        
+
         self.effectView?.frame = self.bounds
-        
+
         let maskParams = CachedMaskParams(size: self.bounds.size, relativeArrowPosition: self.relativeArrowPosition?.0 ?? self.bounds.size.width / 2.0, arrowOnBottom: self.relativeArrowPosition?.1 ?? true)
         if self.cachedMaskParams != maskParams {
             let path = UIBezierPath()
@@ -71,7 +71,7 @@ public final class ContextMenuContainerNode: ASDisplayNode {
             let requestedArrowPosition = maskParams.relativeArrowPosition
             let arrowPosition = max(cornerRadius + arrowWidth / 2.0, min(maskParams.size.width - cornerRadius - arrowWidth / 2.0, requestedArrowPosition))
             let arrowOnBottom = maskParams.arrowOnBottom
-            
+
             path.move(to: CGPoint(x: 0.0, y: verticalInset + cornerRadius))
             path.addArc(withCenter: CGPoint(x: cornerRadius, y: verticalInset + cornerRadius), radius: cornerRadius, startAngle: CGFloat.pi, endAngle: CGFloat(3.0 * CGFloat.pi / 2.0), clockwise: true)
             if !arrowOnBottom {
@@ -91,7 +91,7 @@ public final class ContextMenuContainerNode: ASDisplayNode {
             path.addLine(to: CGPoint(x: cornerRadius, y: maskParams.size.height - verticalInset))
             path.addArc(withCenter: CGPoint(x: cornerRadius, y: maskParams.size.height - cornerRadius - verticalInset), radius: cornerRadius, startAngle: CGFloat(CGFloat.pi / 2.0), endAngle: CGFloat.pi, clockwise: true)
             path.close()
-            
+
             self.cachedMaskParams = maskParams
             if let layer = self.maskView.layer as? CAShapeLayer {
                 if case let .animated(duration, curve) = transition, let previousPath = layer.path {
@@ -99,7 +99,7 @@ public final class ContextMenuContainerNode: ASDisplayNode {
                 }
                 layer.path = path.cgPath
             }
-            
+
             if case let .animated(duration, curve) = transition, let previousPath = self.layer.shadowPath {
                 self.layer.shadowPath = path.cgPath
                 self.layer.animate(from: previousPath, to: path.cgPath, keyPath: "shadowPath", timingFunction: curve.timingFunction, duration: duration)

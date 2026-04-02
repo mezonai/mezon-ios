@@ -11,15 +11,15 @@ private func hasHorizontalGestures(_ view: UIView, point: CGPoint?) -> Horizonta
     if let disablesInteractiveTransitionGestureRecognizerNow = view.disablesInteractiveTransitionGestureRecognizerNow, disablesInteractiveTransitionGestureRecognizerNow() {
         return .strict
     }
-    
+
     if view.disablesInteractiveTransitionGestureRecognizer {
         return .some
     }
-    
+
     if let point = point, let test = view.interactiveTransitionGestureRecognizerTest, test(point) {
         return .some
     }
-    
+
     if let view = view as? ListViewBackingView {
         let transform = view.transform
         let angle: Double = Double(atan2f(Float(transform.b), Float(transform.a)))
@@ -30,7 +30,7 @@ private func hasHorizontalGestures(_ view: UIView, point: CGPoint?) -> Horizonta
             return .some
         }
     }
-    
+
     if let superview = view.superview {
         return hasHorizontalGestures(superview, point: point != nil ? view.convert(point!, to: superview) : nil)
     } else {
@@ -40,17 +40,17 @@ private func hasHorizontalGestures(_ view: UIView, point: CGPoint?) -> Horizonta
 
 public struct InteractiveTransitionGestureRecognizerDirections: OptionSet {
     public var rawValue: Int
-    
+
     public init(rawValue: Int) {
         self.rawValue = rawValue
     }
-    
+
     public static let leftEdge = InteractiveTransitionGestureRecognizerDirections(rawValue: 1 << 2)
     public static let rightEdge = InteractiveTransitionGestureRecognizerDirections(rawValue: 1 << 3)
     public static let leftCenter = InteractiveTransitionGestureRecognizerDirections(rawValue: 1 << 0)
     public static let rightCenter = InteractiveTransitionGestureRecognizerDirections(rawValue: 1 << 1)
     public static let down = InteractiveTransitionGestureRecognizerDirections(rawValue: 1 << 4)
-    
+
     public static let left: InteractiveTransitionGestureRecognizerDirections = [.leftEdge, .leftCenter]
     public static let right: InteractiveTransitionGestureRecognizerDirections = [.rightEdge, .rightCenter]
 }
@@ -63,24 +63,24 @@ public enum InteractiveTransitionGestureRecognizerEdgeWidth {
 public class InteractiveTransitionGestureRecognizer: UIPanGestureRecognizer {
     private let edgeWidth: InteractiveTransitionGestureRecognizerEdgeWidth
     private let allowedDirections: (CGPoint) -> InteractiveTransitionGestureRecognizerDirections
-    
+
     private var validatedGesture = false
     private var firstLocation: CGPoint = CGPoint()
     private var currentAllowedDirections: InteractiveTransitionGestureRecognizerDirections = []
-    
+
     public init(target: Any?, action: Selector?, allowedDirections: @escaping (CGPoint) -> InteractiveTransitionGestureRecognizerDirections, edgeWidth: InteractiveTransitionGestureRecognizerEdgeWidth = .constant(16.0)) {
         self.allowedDirections = allowedDirections
         self.edgeWidth = edgeWidth
-        
+
         super.init(target: target, action: action)
-        
+
         self.maximumNumberOfTouches = 1
         self.delaysTouchesBegan = false
     }
-    
+
     override public func reset() {
         super.reset()
-        
+
         self.validatedGesture = false
         self.currentAllowedDirections = []
     }
@@ -88,21 +88,21 @@ public class InteractiveTransitionGestureRecognizer: UIPanGestureRecognizer {
     public func cancel() {
         self.state = .cancelled
     }
-    
+
     override public func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         let touch = touches.first!
         let point = touch.location(in: self.view)
-        
+
         var allowedDirections = self.allowedDirections(point)
         if allowedDirections.isEmpty {
             self.state = .failed
             return
         }
-        
+
         super.touchesBegan(touches, with: event)
-        
+
         self.firstLocation = point
-        
+
         if let target = self.view?.hitTest(self.firstLocation, with: event) {
             let horizontalGestures = hasHorizontalGestures(target, point: self.view?.convert(self.firstLocation, to: target))
             switch horizontalGestures {
@@ -120,25 +120,25 @@ public class InteractiveTransitionGestureRecognizer: UIPanGestureRecognizer {
                 break
             }
         }
-        
+
         if allowedDirections.isEmpty {
             self.state = .failed
         } else {
             self.currentAllowedDirections = allowedDirections
         }
     }
-    
+
     override public func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         let location = touches.first!.location(in: self.view)
         let translation = CGPoint(x: location.x - self.firstLocation.x, y: location.y - self.firstLocation.y)
-        
+
         let absTranslationX: CGFloat = abs(translation.x)
         let absTranslationY: CGFloat = abs(translation.y)
-        
+
         let size = self.view?.bounds.size ?? CGSize()
 
         var fireBegan = false
-        
+
         if self.currentAllowedDirections.contains(.down) {
             if !self.validatedGesture {
                 let totalMovement = sqrt(absTranslationX * absTranslationX + absTranslationY * absTranslationY)
@@ -163,7 +163,7 @@ public class InteractiveTransitionGestureRecognizer: UIPanGestureRecognizer {
             case let .widthMultiplier(factor, minValue, maxValue):
                 edgeWidth = max(minValue, min(size.width * factor, maxValue))
             }
-            
+
             if !self.validatedGesture {
                 if self.firstLocation.x < edgeWidth && !self.currentAllowedDirections.contains(.rightEdge) {
                     self.state = .failed
@@ -173,7 +173,7 @@ public class InteractiveTransitionGestureRecognizer: UIPanGestureRecognizer {
                     self.state = .failed
                     return
                 }
-                
+
                 if self.currentAllowedDirections.contains(.rightEdge) && self.firstLocation.x < edgeWidth {
                     self.validatedGesture = true
                 } else if self.currentAllowedDirections.contains(.leftEdge) && self.firstLocation.x > size.width - edgeWidth {
@@ -201,7 +201,7 @@ public class InteractiveTransitionGestureRecognizer: UIPanGestureRecognizer {
                 }
             }
         }
-        
+
         if self.validatedGesture {
             super.touchesMoved(touches, with: event)
             if fireBegan {

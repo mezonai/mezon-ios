@@ -25,35 +25,11 @@ final class MessageTextContentNode: ASDisplayNode {
 
     override func didLoad() {
         super.didLoad()
-        NotificationCenter.default.addObserver(self, selector: #selector(handleEmojiLoaded), name: EmojiTextAttachment.imageDidLoad, object: nil)
 
         isUserInteractionEnabled = true
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self, name: EmojiTextAttachment.imageDidLoad, object: nil)
-    }
-
-    private var emojiReloadScheduled = false
-
-    @objc private func handleEmojiLoaded() {
-        guard hasEmoji, !emojiReloadScheduled else { return }
-        emojiReloadScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, self.hasEmoji, let content = self.currentParsedContent, !content.isPlainText else {
-                self?.emojiReloadScheduled = false
-                return
-            }
-            let attrText = RichTextBuilder.build(from: content)
-            self.currentAttrText = attrText
-            if let emojiView = self.emojiLabelNode?.view as? EmojiTextView {
-                emojiView.attributedText = attrText
-            }
-            self.emojiReloadScheduled = false
-        }
     }
 
     func configure(parsedContent: ParsedContent) {
@@ -102,19 +78,8 @@ final class MessageTextContentNode: ASDisplayNode {
 
         useSegments = false
 
-        let attrText: NSAttributedString
-        if parsedContent.isPlainText {
-            let t = UIColor.theme
-            attrText = NSAttributedString(
-                string: parsedContent.text,
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf),
-                    .foregroundColor: t.textStrong,
-                ]
-            )
-        } else {
-            attrText = RichTextBuilder.build(from: parsedContent)
-        }
+
+        let attrText = RichTextBuilder.build(from: parsedContent)
         currentAttrText = attrText
 
         if containsEmoji {
@@ -232,8 +197,8 @@ final class MessageTextContentNode: ASDisplayNode {
 
         if let emojiLabelNode, let emojiView = emojiLabelNode.view as? EmojiTextView,
            let attrText = emojiView.attributedText {
-            let localPoint = view.convert(point, to: emojiView.label)
-            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: emojiView.label.bounds.size) {
+            let localPoint = view.convert(point, to: emojiView.textView)
+            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: emojiView.textView.bounds.size) {
                 dispatchLinkAction(result)
                 return
             }
@@ -369,12 +334,25 @@ final class CodeBlockContainerNode: ASDisplayNode {
 
 final class EmojiTextView: UIView {
 
-    let label = UILabel()
+
+    let textView: UITextView = {
+        let tv = UITextView()
+        tv.isEditable = false
+        tv.isScrollEnabled = false
+        tv.backgroundColor = .clear
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
+        tv.isUserInteractionEnabled = false
+        tv.textDragInteraction?.isEnabled = false
+        tv.clipsToBounds = false
+        return tv
+    }()
+
     private var emojiOverlays: [UIImageView] = []
 
     var attributedText: NSAttributedString? {
         didSet {
-            label.attributedText = attributedText
+            textView.attributedText = attributedText
             rebuildEmojiOverlays()
             setNeedsLayout()
         }
@@ -383,16 +361,15 @@ final class EmojiTextView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-        label.numberOfLines = 0
-        label.backgroundColor = .clear
-        addSubview(label)
+        addSubview(textView)
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        label.frame = bounds
+        textView.frame = bounds
+        textView.layoutIfNeeded()
         positionEmojiOverlays()
     }
 
@@ -410,50 +387,51 @@ final class EmojiTextView: UIView {
             addSubview(imageView)
             emojiOverlays.append(imageView)
 
-            loadAnimatedEmoji(emojiId: emoji.emojiId, size: emoji.emojiSize, into: imageView)
+            loadAnimatedEmoji(emojiId: emoji.emojiId, imgproxyFitSide: emoji.imgproxyFitSide, into: imageView)
         }
     }
 
     private func positionEmojiOverlays() {
         guard let attrText = attributedText, !emojiOverlays.isEmpty else { return }
 
-        let layoutManager = NSLayoutManager()
-        let textContainer = NSTextContainer(size: bounds.size)
-        let textStorage = NSTextStorage(attributedString: attrText)
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-        textContainer.lineFragmentPadding = 0
+        textView.layoutManager.ensureLayout(for: textView.textContainer)
+        let inset = textView.textContainerInset
 
         var index = 0
         attrText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attrText.length)) { value, range, _ in
             guard value is EmojiTextAttachment, index < self.emojiOverlays.count else { return }
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
+            rect.origin.x += inset.left
+            rect.origin.y += inset.top
             self.emojiOverlays[index].frame = rect
             index += 1
         }
     }
 
-    private func loadAnimatedEmoji(emojiId: String, size: CGFloat, into imageView: UIImageView) {
-        guard let url = MezonConfig.emojiImageURL(emojiId: emojiId) else { return }
+    private func loadAnimatedEmoji(emojiId: String, imgproxyFitSide: Int, into imageView: UIImageView) {
+        guard let url = MezonConfig.emojiResourceURL(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) else { return }
         let key = url.absoluteString
 
         if let data = ImageCache.shared.cachedData(forKey: key),
            let animated = UIImage.animatedImage(from: data) {
             imageView.image = animated
+            setNeedsLayout()
             return
         }
 
         if let cached = ImageCache.shared.image(forKey: key) {
             imageView.image = cached
+            setNeedsLayout()
         }
 
         URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data, !data.isEmpty else { return }
             let animated = UIImage.animatedImage(from: data)
             let display = animated ?? UIImage.decodeImage(from: data)
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
                 imageView.image = display
+                self?.setNeedsLayout()
             }
         }.resume()
     }

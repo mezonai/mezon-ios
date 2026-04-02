@@ -6,7 +6,7 @@ public final class Circle: Component {
     public let strokeColor: UIColor
     public let strokeWidth: CGFloat
     public let size: CGSize
-    
+
     public init(fillColor: UIColor = .clear, strokeColor: UIColor = .clear, strokeWidth: CGFloat = 0.0, size: CGSize) {
         self.fillColor = fillColor
         self.strokeColor = strokeColor
@@ -29,18 +29,18 @@ public final class Circle: Component {
         }
         return true
     }
-    
+
     public final class View: UIImageView {
         var component: Circle?
         var currentSize: CGSize?
-        
+
         func update(component: Circle, availableSize: CGSize, transition: ComponentTransition) -> CGSize {
             let size = CGSize(width: min(availableSize.width, component.size.width), height: min(availableSize.height, component.size.height))
-            
+
             if self.currentSize != size || self.component != component {
                 self.currentSize = size
                 self.component = component
-                
+
                 UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
                 if let context = UIGraphicsGetCurrentContext() {
                     context.setFillColor(component.fillColor.cgColor)
@@ -58,11 +58,11 @@ public final class Circle: Component {
             return size
         }
     }
-    
+
     public func makeView() -> View {
         return View()
     }
-    
+
     public func update(view: View, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: ComponentTransition) -> CGSize {
         return view.update(component: self, availableSize: availableSize, transition: transition)
     }

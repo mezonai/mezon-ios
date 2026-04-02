@@ -3,22 +3,22 @@ import UIKit
 public final class ListViewScroller: UIScrollView, UIGestureRecognizerDelegate {
     override public init(frame: CGRect) {
         super.init(frame: frame)
-        
+
         self.scrollsToTop = false
         self.contentInsetAdjustmentBehavior = .never
     }
-    
+
     required public init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         if otherGestureRecognizer is ListViewTapGestureRecognizer {
             return true
         }
         return false
     }
-    
+
     override public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer is UIPanGestureRecognizer, let gestureRecognizers = gestureRecognizer.view?.gestureRecognizers {
             for otherGestureRecognizer in gestureRecognizers {
@@ -26,21 +26,21 @@ public final class ListViewScroller: UIScrollView, UIGestureRecognizerDelegate {
                     return gestureRecognizer.numberOfTouches < 2
                 }
             }
-            
+
             if let view = gestureRecognizer.view?.hitTest(gestureRecognizer.location(in: gestureRecognizer.view), with: nil) as? UIControl {
                 return !view.isTracking
             }
-            
+
             return true
         } else {
             return true
         }
     }
-    
+
     override public func touchesShouldCancel(in view: UIView) -> Bool {
         return true
     }
-    
+
     var forceDecelerating = false
     public override var isDecelerating: Bool {
         return self.forceDecelerating || super.isDecelerating

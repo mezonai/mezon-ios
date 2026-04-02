@@ -103,6 +103,12 @@ final class PostboxTransaction {
         if let channelId { updatedMessageChannelIds.insert(channelId) }
     }
 
+    func markMessageSent(id: String) {
+        let channelId = messageTable.channelIdForMessage(id: id)
+        messageTable.markMessageSent(id: id)
+        if let channelId { updatedMessageChannelIds.insert(channelId) }
+    }
+
     func replaceMessage(pendingId: String, with record: MessageRecord) {
         messageTable.replaceMessage(pendingId: pendingId, with: record)
         updatedMessageChannelIds.insert(record.channelId)

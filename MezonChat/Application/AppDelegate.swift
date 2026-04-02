@@ -57,7 +57,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
         NetworkMonitor.shared.start()
         NetworkBannerView.install(on: nativeWindow)
-        // SocketStatusBannerView.install(on: nativeWindow)
+
 
         let statusBarHost = SceneStatusBarHost(scene: windowScene)
         let mainWindow = Window1(hostView: hostView, statusBarHost: statusBarHost)
@@ -180,8 +180,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let channelId: String? = {
             if let s = userInfo["channel"] as? String { return s }
             if let n = userInfo["channel"] { return "\(n)" }
+            if let s = userInfo["channel_id"] as? String { return s }
+            if let n = userInfo["channel_id"] { return "\(n)" }
             return nil
         }()
+
         var clanId: String?
         var isDM = false
         if let link = userInfo["link"] as? String {
@@ -193,6 +196,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         }
+
+        if clanId == nil || clanId == "0" {
+            if let s = userInfo["clan_id"] as? String, !s.isEmpty, s != "0" { clanId = s }
+            else if let n = userInfo["clan_id"] { let s = "\(n)"; if s != "0" && !s.isEmpty { clanId = s } }
+            if clanId == nil || clanId == "0" {
+                if let s = userInfo["clanId"] as? String { clanId = s }
+                else if let n = userInfo["clanId"] { clanId = "\(n)" }
+            }
+        }
+
         return (channelId, clanId, isDM)
     }
 
@@ -207,7 +220,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
 
-        // Skip toast if user is already viewing this channel
+
         let isViewingChannel: Bool = {
             guard let chId = channelId, let chIdInt = Int64(chId) else { return false }
             return ActiveChannelTracker.currentChannelId == chIdInt
@@ -230,36 +243,58 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
-        AppLogger.network.info("[FCM] Notification tapped: \(userInfo)")
-
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
         let title = response.notification.request.content.title
+
+        if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
+            accountContext?.currentClanId = clanIdInt
+        }
+
         Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
 
         completionHandler()
     }
 
     static var pendingNavigation: [String: Any]?
+    static var lastHandledNavigationInstanceId: String?
 
     static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false, title: String? = nil) {
         guard let channelId, !channelId.isEmpty else { return }
-        var info: [String: Any] = ["channelId": channelId, "isDM": isDM]
+        var info: [String: Any] = [
+            "channelId": channelId,
+            "isDM": isDM,
+            "navigationInstanceId": UUID().uuidString,
+        ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
         if let title, !title.isEmpty { info["title"] = title }
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
+        let instanceId = info["navigationInstanceId"] as? String
+        DispatchQueue.main.async {
+            guard let instanceId,
+                  (pendingNavigation?["navigationInstanceId"] as? String) == instanceId else { return }
+            pendingNavigation = nil
+        }
+    }
+
+    static func recordNavigationInstanceHandled(userInfo: [AnyHashable: Any]?) {
+        if let sid = userInfo?["navigationInstanceId"] as? String {
+            lastHandledNavigationInstanceId = sid
+        }
     }
 }
 
 extension Notification.Name {
     static let mezonNavigateToChannel = Notification.Name("MezonNavigateToChannel")
     static let mezonSocketStatusChanged = Notification.Name("MezonSocketStatusChanged")
+    static let mezonMessageTypingReceived = Notification.Name("MezonMessageTypingReceived")
+    static let mezonQRSelectClan = Notification.Name("MezonQRSelectClan")
+    static let mezonQRNavigateToDM = Notification.Name("MezonQRNavigateToDM")
 }
 
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         guard let fcmToken else { return }
-        print("[FCM] Token: \(fcmToken)")
         AppLogger.network.info("[FCM] Token received: \(fcmToken.prefix(20))...")
 
         Task { @MainActor in

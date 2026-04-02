@@ -7,7 +7,7 @@ public enum StatusBarStyle {
     case White
     case Ignore
     case Hide
-    
+
     public init(systemStyle: UIStatusBarStyle) {
         switch systemStyle {
         case .default:
@@ -20,7 +20,7 @@ public enum StatusBarStyle {
             self = .Black
         }
     }
-    
+
     public var systemStyle: UIStatusBarStyle {
         switch self {
             case .Black:
@@ -69,25 +69,25 @@ private class StatusBarItemNode: ASDisplayNode {
     var targetView: UIView
     var rootView: UIView
     private let contentNode: ASDisplayNode
-    
+
     init(statusBarStyle: StatusBarStyle, targetView: UIView, rootView: UIView) {
         self.statusBarStyle = statusBarStyle
         self.targetView = targetView
         self.rootView = rootView
         self.contentNode = ASDisplayNode()
         self.contentNode.isUserInteractionEnabled = false
-        
+
         super.init()
-        
+
         self.addSubnode(self.contentNode)
     }
-    
+
     func update() {
         let containingBounds = maxSubviewBounds(self.targetView)
         guard let context = DrawingContext(size: containingBounds.size, clear: true) else {
             return
         }
-        
+
         if let contents = self.targetView.layer.contents, (self.targetView.layer.sublayers?.count ?? 0) == 0 && CFGetTypeID(contents as CFTypeRef) == CGImage.typeID && false {
             let image = contents as! CGImage
             context.withFlippedContext { c in
@@ -95,7 +95,7 @@ private class StatusBarItemNode: ASDisplayNode {
                 c.draw(image, in: CGRect(origin: CGPoint(), size: context.size))
                 c.setAlpha(1.0)
             }
-            
+
             if let sublayers = self.targetView.layer.sublayers {
                 for sublayer in sublayers {
                     let origin = sublayer.frame.origin
@@ -122,7 +122,7 @@ private class StatusBarItemNode: ASDisplayNode {
                 context.withContext { c in
                     c.translateBy(x: containingBounds.minX, y: -containingBounds.minY)
                     UIGraphicsPushContext(c)
-                    
+
                     let color: UIColor
                     switch self.statusBarStyle {
                         case .Black, .Ignore, .Hide:
@@ -130,21 +130,21 @@ private class StatusBarItemNode: ASDisplayNode {
                         case .White:
                             color = UIColor.white
                     }
-                    
+
                     formatter?.locale = Locale.current
                     if let string = formatter?.string(from: Date()) {
                         let attributedString = NSAttributedString(string: string, attributes: [NSAttributedString.Key.font: UIFont.boldSystemFont(ofSize: 12.0), NSAttributedString.Key.foregroundColor: color])
-                        
+
                         let line = CTLineCreateWithAttributedString(attributedString)
 
                         c.translateBy(x: containingBounds.width / 2.0, y: containingBounds.height / 2.0)
                         c.scaleBy(x: 1.0, y: -1.0)
                         c.translateBy(x: -containingBounds.width / 2.0, y: -containingBounds.height / 2.0)
-                        
+
                         c.translateBy(x: 0.0, y: 5.0 + UIScreenPixel)
                         CTLineDraw(line, c)
                     }
-                    
+
                     UIGraphicsPopContext()
                 }
             } else {
@@ -185,7 +185,7 @@ private class StatusBarItemNode: ASDisplayNode {
         tintStatusBarItem(context, type: type, style: self.statusBarStyle)
         let image = context.generateImage()?.cgImage
         self.contentNode.contents = image
-        
+
         let mappedFrame = self.targetView.convert(self.targetView.bounds, to: self.rootView)
         self.frame = mappedFrame
         self.contentNode.frame = containingBounds
@@ -202,7 +202,7 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
             if minY < maxY && minX < maxX {
                 let basePixel = context.bytes.assumingMemoryBound(to: UInt32.self)
                 let pixelsPerRow = context.bytesPerRow / 4
-                
+
                 let midX = (maxX + minX) / 2
                 let midY = (maxY + minY) / 2
                 let baseMidRow = basePixel + pixelsPerRow * midY
@@ -215,7 +215,7 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     }
                     baseX += 1
                 }
-                
+
                 while baseX < maxX {
                     let pixel = baseMidRow + baseX
                     let alpha = pixel.pointee & 0xff000000
@@ -224,7 +224,7 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     }
                     baseX += 1
                 }
-                
+
                 while baseX < maxX {
                     let pixel = baseMidRow + baseX
                     let alpha = pixel.pointee & 0xff000000
@@ -233,7 +233,7 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     }
                     baseX += 1
                 }
-                
+
                 var targetX = baseX
                 while targetX < maxX {
                     let pixel = baseMidRow + targetX
@@ -241,15 +241,15 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     if alpha == 0 {
                         break
                     }
-                    
+
                     targetX += 1
                 }
-                
+
                 let batteryColor = (baseMidRow + baseX + 2).pointee
                 let batteryR = (batteryColor >> 16) & 0xff
                 let batteryG = (batteryColor >> 8) & 0xff
                 let batteryB = batteryColor & 0xff
-                
+
                 var baseY = minY
                 while baseY < maxY {
                     let baseRow = basePixel + pixelsPerRow * baseY
@@ -260,7 +260,7 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     }
                     baseY += 1
                 }
-                
+
                 var targetY = maxY - 1
                 while targetY >= baseY {
                     let baseRow = basePixel + pixelsPerRow * targetY
@@ -271,9 +271,9 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     }
                     targetY -= 1
                 }
-                
+
                 targetY -= 1
-                
+
                 let baseColor: UInt32
                 switch style {
                     case .Black, .Ignore, .Hide:
@@ -281,25 +281,25 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                     case .White:
                         baseColor = 0xffffff
                 }
-                
+
                 let baseR = (baseColor >> 16) & 0xff
                 let baseG = (baseColor >> 8) & 0xff
                 let baseB = baseColor & 0xff
-                
+
                 var pixel = context.bytes.assumingMemoryBound(to: UInt32.self)
                 let end = context.bytes.advanced(by: context.length).assumingMemoryBound(to: UInt32.self)
                 while pixel != end {
                     let alpha = (pixel.pointee & 0xff000000) >> 24
-                    
+
                     let r = (baseR * alpha) / 255
                     let g = (baseG * alpha) / 255
                     let b = (baseB * alpha) / 255
-                    
+
                     pixel.pointee = (alpha << 24) | (r << 16) | (g << 8) | b
-                    
+
                     pixel += 1
                 }
-                
+
                 let whiteColor: UInt32 = 0xffffffff as UInt32
                 let blackColor: UInt32 = 0xff000000 as UInt32
                 if batteryColor != whiteColor && batteryColor != blackColor {
@@ -310,13 +310,13 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
                         while x < targetX {
                             let pixel = baseRow + x
                             let alpha = (pixel.pointee >> 24) & 0xff
-                            
+
                             let r = (batteryR * alpha) / 255
                             let g = (batteryG * alpha) / 255
                             let b = (batteryB * alpha) / 255
-                            
+
                             pixel.pointee = (alpha << 24) | (r << 16) | (g << 8) | b
-                            
+
                             x += 1
                         }
                         y += 1
@@ -328,7 +328,7 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
     case .Generic:
         var pixel = context.bytes.assumingMemoryBound(to: UInt32.self)
         let end = context.bytes.advanced(by: context.length).assumingMemoryBound(to: UInt32.self)
-        
+
         let baseColor: UInt32
         switch style {
             case .Black, .Ignore, .Hide:
@@ -336,20 +336,20 @@ private func tintStatusBarItem(_ context: DrawingContext, type: StatusBarItemTyp
             case .White:
                 baseColor = 0xffffff
         }
-        
+
         let baseR = (baseColor >> 16) & 0xff
         let baseG = (baseColor >> 8) & 0xff
         let baseB = baseColor & 0xff
-        
+
         while pixel != end {
             let alpha = (pixel.pointee & 0xff000000) >> 24
-            
+
             let r = (baseR * alpha) / 255
             let g = (baseG * alpha) / 255
             let b = (baseB * alpha) / 255
-            
+
             pixel.pointee = (alpha << 24) | (r << 16) | (g << 8) | b
-            
+
             pixel += 1
         }
     }
@@ -425,11 +425,11 @@ private func containsSubviewOfClass(view: UIView, of subviewClass: AnyClass?) ->
 
 private class StatusBarProxyNodeTimerTarget: NSObject {
     let action: () -> Void
-    
+
     init(action: @escaping () -> Void) {
         self.action = action
     }
-    
+
     @objc func tick() {
         action()
     }
@@ -463,7 +463,7 @@ private func forEachSubview(statusBar: UIView, _ f: (UIView, UIView) -> Bool) {
 
 class StatusBarProxyNode: ASDisplayNode {
     private let statusBar: UIView
-    
+
     var timer: Foundation.Timer?
     var statusBarStyle: StatusBarStyle {
         didSet {
@@ -474,16 +474,16 @@ class StatusBarProxyNode: ASDisplayNode {
             }
         }
     }
-    
+
     private var itemNodes: [StatusBarItemNode] = []
-    
+
     override var isHidden: Bool {
         get {
             return super.isHidden
         } set(value) {
             if super.isHidden != value {
                 super.isHidden = value
-                
+
                 if !value {
                     self.updateItems()
                     self.timer = Foundation.Timer(timeInterval: 5.0, target: StatusBarProxyNodeTimerTarget { [weak self] in
@@ -497,15 +497,15 @@ class StatusBarProxyNode: ASDisplayNode {
             }
         }
     }
-    
+
     init(statusBarStyle: StatusBarStyle, statusBar: UIView) {
         self.statusBarStyle = statusBarStyle
         self.statusBar = statusBar
-        
+
         super.init()
-        
+
         self.isHidden = true
-        
+
         self.clipsToBounds = true
 
         forEachSubview(statusBar: statusBar, { rootView, subview in
@@ -514,17 +514,17 @@ class StatusBarProxyNode: ASDisplayNode {
             self.addSubnode(itemNode)
             return true
         })
-        
+
         self.frame = statusBar.bounds
     }
-    
+
     deinit {
         self.timer?.invalidate()
     }
-    
+
     private func updateItems() {
         let statusBar = self.statusBar
-        
+
         var i = 0
         while i < self.itemNodes.count {
             var found = false
@@ -545,7 +545,7 @@ class StatusBarProxyNode: ASDisplayNode {
                 i += 1
             }
         }
-        
+
         forEachSubview(statusBar: statusBar, { rootView, subview in
             var found = false
             for itemNode in self.itemNodes {

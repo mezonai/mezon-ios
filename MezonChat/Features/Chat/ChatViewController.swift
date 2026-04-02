@@ -1,5 +1,5 @@
-import UIKit
 import SwiftProtobuf
+import UIKit
 
 enum ActiveChannelTracker {
     private static let lock = NSLock()
@@ -93,6 +93,9 @@ struct ChatMessageDisplay: Identifiable {
     let topicData: TopicData?
     let isMe: Bool
     let sendingState: SendingState
+    let hasIncludeMention: Bool
+    let isForward: Bool
+    let showForwardHeader: Bool
     var isFailed: Bool { sendingState == .failed }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
@@ -100,7 +103,7 @@ struct ChatMessageDisplay: Identifiable {
 
     var checkOneLinkImage: Bool {
         guard attachments.count == 1,
-              let att = attachments.first,
+            let att = attachments.first,
               att.isImage else { return false }
         let trimmedText = parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmedText.isEmpty && trimmedText == att.url
@@ -111,6 +114,19 @@ struct ChatMessageDisplay: Identifiable {
         guard current.senderId == prev.senderId else { return false }
         let diff = current.createdAt.timeIntervalSince(prev.createdAt)
         return diff < 120 && diff >= 0
+    }
+
+    static let mentionHereUserId: String = "1775731111020111321"
+    private static let forwardCombineGapSeconds: TimeInterval = 120
+
+    static func shouldShowForwardHeader(isForward: Bool, current: Message, previous: Message?, previousWasForward: Bool) -> Bool {
+        guard isForward else { return false }
+        guard let prev = previous else { return true }
+        if !previousWasForward { return true }
+        let diff = current.createdAt.timeIntervalSince(prev.createdAt)
+        if diff > Self.forwardCombineGapSeconds || diff < 0 { return true }
+        if current.senderId != prev.senderId { return true }
+        return false
     }
 }
 
@@ -128,14 +144,19 @@ struct ChatState {
     var errorMessage: String?
     var lastSeenMessageId: String?
     var currentUserId: String?
+    var parentName: String?
 
-    static let empty = ChatState(messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false, hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false, isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil)
+    static let empty = ChatState(
+        messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
+        hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
+        isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
+        parentName: nil)
 }
 
 final class ChatViewController: ViewController {
 
     let clanId: Int64
-    let channel: Mezon_Api_ChannelDescription
+    private(set) var channel: Mezon_Api_ChannelDescription
     let context: AccountContext
     var topicId: Int64 = 0
     private var storageChannelId: String {
@@ -159,6 +180,8 @@ final class ChatViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
     private(set) var channelMeta: ChannelRecord?
+    private(set) var parentChannelMeta: ChannelRecord?
+    private var initialParentName: String?
     private(set) var lastSeenMessageId: String?
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
@@ -169,32 +192,103 @@ final class ChatViewController: ViewController {
             context: context
         )
         vc.onSent = { [weak self] in self?.shouldScrollToBottom = true }
-        // vc.onError = { Toast.error($0) }
         vc.onHeightChanged = { [weak self] newHeight in
             self?.updateInputBarHeight(newHeight)
+        }
+        vc.onToggleEmojiPicker = { [weak self] visible, collapsedH in
+            self?.handleEmojiPickerToggle(visible: visible, collapsedHeight: collapsedH)
         }
         vc.topicId = self.topicId
         return vc
     }()
 
+
+    private lazy var emojiPickerView: PanelKeyboardView = {
+        let v = PanelKeyboardView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        v.onEmojiSelected = { [weak self] emojiId, shortname in
+            guard let self else { return }
+            self.sendInputViewController.insertEmoji(emojiId, shortname: shortname)
+
+            self.sendInputViewController.hideEmojiPickerIfNeeded()
+        }
+        v.onStickerSelected = { [weak self] sticker in
+            guard let self else { return }
+            self.sendInputViewController.sendSticker(sticker)
+            self.sendInputViewController.hideEmojiPickerIfNeeded()
+        }
+        v.onGifSelected = { [weak self] url in
+            guard let self else { return }
+            self.sendInputViewController.sendGif(url: url)
+            self.sendInputViewController.hideEmojiPickerIfNeeded()
+        }
+        v.onHeightChanged = { [weak self] newHeight in
+            self?.updateEmojiPickerOverlayHeight(newHeight)
+        }
+        v.onPanelSearchBegin = {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateEmojiPickerHeightForSearchKeyboard()
+            }
+        }
+        return v
+    }()
+
+    private var emojiPickerHeightConstraint: NSLayoutConstraint?
+    private var emojiPickerBottomConstraint: NSLayoutConstraint?
+    private var emojiPickerCollapsedHeight: CGFloat = 0
+
     private var inputBarHeight: CGFloat = 56
     private var currentKeyboardOffset: CGFloat = 0
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
+    private var wasEmojiPickerJustDismissed = false
+    private var suppressScrollToBottomForNextKeyboardInset = false
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
 
+    private struct RemoteTyperState {
+        var displayName: String
+        var expires: Date
+    }
+
+    private var remoteTypers: [Int64: RemoteTyperState] = [:]
+    private var typingPruneTimer: Foundation.Timer?
+
+    private static let remoteTypingStripMaxHeight: CGFloat = 22
+
+    private lazy var remoteTypingStripView: UIView = {
+        let v = UIView()
+        v.isUserInteractionEnabled = false
+        v.clipsToBounds = true
+        return v
+    }()
+
+    private let remoteTypingLabel: UILabel = {
+        let lbl = UILabel()
+        lbl.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 13))
+        lbl.adjustsFontForContentSizeCategory = true
+        lbl.numberOfLines = 1
+        lbl.lineBreakMode = .byTruncatingTail
+        lbl.isHidden = true
+        return lbl
+    }()
+
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
     var pendingJumpToMessageId: String?
 
-    init(clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext) {
+    init(
+        clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext,
+        parentName: String? = nil
+    ) {
         self.clanId = clanId
         self.channel = channel
         self.context = context
+        self.initialParentName = parentName
         self.channelLabel = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
         if channel.hasLastSeenMessage && channel.lastSeenMessage.id != 0 {
             self.lastSeenMessageId = "\(channel.lastSeenMessage.id)"
@@ -292,6 +386,7 @@ final class ChatViewController: ViewController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnected(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -299,16 +394,25 @@ final class ChatViewController: ViewController {
         if isMovingFromParent { onLeave() }
     }
 
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard !isMovingFromParent else { return }
+        guard topicId == 0 else { return }
+        if ActiveChannelTracker.currentChannelId == channel.channelID {
+            context.currentChannel = nil
+            ActiveChannelTracker.currentChannelId = 0
+        }
+    }
+
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
 
-        let keyboardHeight = layout.inputHeight ?? 0
         let bottomInset = layout.intrinsicInsets.bottom
-        var keyboardOffset = max(keyboardHeight - bottomInset, 0)
+        let rawInputH = layout.inputHeight ?? 0
+        var rawKeyboardOffset = max(rawInputH - bottomInset, 0)
+        var keyboardOffset = rawKeyboardOffset
 
-        // Safety: if local keyboard tracking says keyboard is hidden,
-        // verify via first-responder before accepting a non-zero offset.
         if !isKeyboardVisible && keyboardOffset > 0 {
             let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
             if !hasFirstResponder {
@@ -316,24 +420,68 @@ final class ChatViewController: ViewController {
             }
         }
 
-        let inputBarY = layout.size.height - bottomInset - keyboardOffset - inputBarHeight
-        let inputBarFrame = CGRect(x: 0, y: inputBarY, width: layout.size.width, height: inputBarHeight)
-        transition.updateFrame(view: sendInputViewController.view, frame: inputBarFrame)
-
-        if keyboardOffset > 0 && currentKeyboardOffset == 0 {
-            scrollToBottomIfNeeded()
+        if suppressScrollToBottomForNextKeyboardInset,
+           emojiPickerCollapsedHeight == 0,
+           keyboardOffset < 0.5 {
+            keyboardOffset = max(
+                keyboardOffset,
+                sendInputViewController.keyboardOverlayHeightEstimate
+            )
         }
-        currentKeyboardOffset = keyboardOffset
 
-        messagesNode.updateLayout(layout: layout, inputBarHeight: inputBarHeight + keyboardOffset, transition: transition)
+        let emojiOffset = emojiPickerCollapsedHeight
+        let bottomOffset = max(keyboardOffset, emojiOffset)
+
+        let sendComposerH = sendInputViewController.totalHeight
+        let totalBottomH = sendComposerH
+        let inputY = layout.size.height - bottomInset - bottomOffset - totalBottomH
+        let inputFrame = CGRect(
+            x: 0,
+            y: inputY,
+            width: layout.size.width,
+            height: sendComposerH
+        )
+        transition.updateFrame(view: sendInputViewController.view, frame: inputFrame)
+
+        emojiPickerBottomConstraint?.constant = -bottomInset
+
+        let stripBottomPad: CGFloat = 2
+        let stripH = Self.remoteTypingStripMaxHeight + stripBottomPad
+        let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layout.size.width, height: stripH)
+        transition.updateFrame(view: remoteTypingStripView, frame: typingFrame)
+        remoteTypingLabel.frame = CGRect(
+            x: 12,
+            y: 0,
+            width: max(0, layout.size.width - 24),
+            height: Self.remoteTypingStripMaxHeight
+        )
+
+        let totalInputArea = totalBottomH + bottomOffset
+        if bottomOffset > 0 && currentKeyboardOffset == 0 && !wasEmojiPickerJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
+            let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
+            if totalInputArea > previousTotalInputArea + 20 {
+                scrollToBottomIfNeeded()
+            }
+        }
+        wasEmojiPickerJustDismissed = false
+        if suppressScrollToBottomForNextKeyboardInset, rawKeyboardOffset > 0.5 {
+            suppressScrollToBottomForNextKeyboardInset = false
+        }
+        inputBarHeight = sendComposerH
+        currentKeyboardOffset = bottomOffset
+
+        messagesNode.updateLayout(layout: layout, inputBarHeight: totalInputArea, transition: transition)
     }
 
     private var lastLayout: ContainerViewLayout?
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        // Re-evaluate keyboard state when returning to this screen.
-        // The window layout may carry a stale inputHeight from a previous VC.
+        if topicId == 0 {
+            context.currentClanId = clanId
+            context.currentChannel = channel
+            ActiveChannelTracker.currentChannelId = channel.channelID
+        }
         let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
         if !hasFirstResponder {
             isKeyboardVisible = false
@@ -344,7 +492,16 @@ final class ChatViewController: ViewController {
         }
     }
 
-    @objc private func handleThemeChange() { messagesNode.applyTheme() }
+    @objc private func handleThemeChange() {
+        messagesNode.applyTheme()
+        applyRemoteTypingStripTheme()
+    }
+
+    private func applyRemoteTypingStripTheme() {
+        let t = UIColor.theme
+        remoteTypingStripView.backgroundColor = t.primaryGradient
+        remoteTypingLabel.textColor = t.textDisabled
+    }
 
     @objc private func handleSocketReconnected(_ notification: Notification) {
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
@@ -353,22 +510,112 @@ final class ChatViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             self.fetchMessages(token: token)
             self.joinChat()
+            if !self.hasCompletedInitialFetch {
+                self.hasCompletedInitialFetch = true
+                self.fetchNotificationSetting(token: token)
+                self.fetchChannelPermissions(token: token)
+                self.fetchChannelMembers(token: token)
+                self.checkBanStatus(token: token)
+            }
         }
     }
 
+    @objc private func handleMessageTypingReceived(_ notification: Notification) {
+        guard let eventClanId = Self.int64FromTypingUserInfo(notification.userInfo?["clanId"]),
+              let eventChannelId = Self.int64FromTypingUserInfo(notification.userInfo?["channelId"]),
+              let senderId = Self.int64FromTypingUserInfo(notification.userInfo?["senderId"]) else { return }
+        let eventTopicId = Self.int64FromTypingUserInfo(notification.userInfo?["topicId"]) ?? 0
+
+        if eventClanId != 0 && eventClanId != clanId { return }
+
+        let eventLogicalId = eventTopicId != 0 ? eventTopicId : eventChannelId
+        let localLogicalId = topicId != 0 ? topicId : channel.channelID
+        guard eventLogicalId == localLogicalId else { return }
+
+        if let myId = context.currentUser?.id, let myInt = Int64(myId), myInt == senderId { return }
+
+        let d = (notification.userInfo?["senderDisplayName"] as? String) ?? ""
+        let u = (notification.userInfo?["senderUsername"] as? String) ?? ""
+        let label = !d.isEmpty ? d : (!u.isEmpty ? u : "…")
+
+        remoteTypers[senderId] = RemoteTyperState(displayName: label, expires: Date().addingTimeInterval(3))
+        restartTypingPruneTimerIfNeeded()
+        refreshRemoteTypingIndicator()
+    }
+
+    private func restartTypingPruneTimerIfNeeded() {
+        guard typingPruneTimer == nil else { return }
+        let t = Foundation.Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] (_: Foundation.Timer) in
+            self?.pruneExpiredTypersIfNeeded()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        typingPruneTimer = t
+    }
+
+    private func pruneExpiredTypersIfNeeded() {
+        let now = Date()
+        let beforeCount = remoteTypers.count
+        remoteTypers = remoteTypers.filter { $0.value.expires > now }
+        if remoteTypers.count != beforeCount {
+            refreshRemoteTypingIndicator()
+        }
+        if remoteTypers.isEmpty {
+            typingPruneTimer?.invalidate()
+            typingPruneTimer = nil
+        }
+    }
+
+    private func refreshRemoteTypingIndicator() {
+        let names = remoteTypers.values.map(\.displayName).sorted()
+        let line: String?
+        switch names.count {
+        case 0:
+            line = nil
+        case 1:
+            line = String(format: L(L10n.ChannelMessages.userIsTyping), names[0])
+        default:
+            line = L(L10n.ChannelMessages.severalPeopleTyping)
+        }
+        remoteTypingLabel.text = line
+        let shouldShow = line != nil
+        remoteTypingLabel.isHidden = !shouldShow
+        UIView.animate(withDuration: 0.2) {
+            self.remoteTypingStripView.alpha = shouldShow ? 1 : 0
+        } completion: { _ in
+            self.remoteTypingStripView.isHidden = !shouldShow
+        }
+    }
+
+    private func clearRemoteTypingState() {
+        typingPruneTimer?.invalidate()
+        typingPruneTimer = nil
+        remoteTypers.removeAll()
+        remoteTypingLabel.text = nil
+        remoteTypingLabel.isHidden = true
+        remoteTypingStripView.alpha = 0
+        remoteTypingStripView.isHidden = true
+    }
+
+    private static func int64FromTypingUserInfo(_ value: Any?) -> Int64? {
+        if let v = value as? Int64 { return v }
+        if let v = value as? Int { return Int64(v) }
+        if let v = value as? NSNumber { return v.int64Value }
+        if let v = value as? String { return Int64(v) }
+        return nil
+    }
+
     deinit {
+        typingPruneTimer?.invalidate()
         stateDisposables.dispose()
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonMessageTypingReceived, object: nil)
     }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
-        let oldCount = messages.count
-        let oldReactionsCount = messages.reduce(0) { $0 + $1.reactions.count }
         messages = v
-        let newReactionsCount = v.reduce(0) { $0 + $1.reactions.count }
         let newFirstId = v.first(where: { !$0.isWelcome })?.id
         let newLastId = v.last?.id
         if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
@@ -401,6 +648,8 @@ final class ChatViewController: ViewController {
     private func setIsLoading(_ v: Bool) { isLoading = v; metadataOnlyPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
+    private var hasCompletedInitialFetch = false
+
     func start() {
         if topicId == 0 {
             context.currentClanId = clanId
@@ -409,9 +658,20 @@ final class ChatViewController: ViewController {
             Self.removeDeliveredNotifications(forChannelId: channel.channelID)
         }
 
+        if channel.channelLabel.isEmpty {
+            resolveChannelLabelFromCache()
+        }
+
         let channelIdStr = storageChannelId
+
+        setIsLoading(true)
+        context.account.postbox.write { tx in
+            tx.replaceAllMessages([], channelId: channelIdStr)
+        }
+
         stateDisposables.add(
-            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr) |> deliverOnMainQueue)
+            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
+                |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
                     guard let self else { return }
                     let displays = self.buildDisplayMessages(from: view.messages)
@@ -425,17 +685,74 @@ final class ChatViewController: ViewController {
                     self.channelMeta = view.record
                 })
         )
+        if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
+            stateDisposables.add(
+                (self.context.account.postbox.channelMetaView(channelId: channel.parentID)
+                    |> deliverOnMainQueue)
+                    .start(next: { [weak self] view in
+                        guard let self else { return }
+                        self.parentChannelMeta = view.record
+                        self.metadataOnlyPipe.putNext(())
+                    })
+            )
+        }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.context.waitForSessionReady()
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getToken() else {
+                AppLogger.network.warning("[Chat] start: getToken returned nil, will retry on socket reconnect")
+                return
+            }
+            self.hasCompletedInitialFetch = true
             self.fetchMessages(token: token)
+            await self.waitForSocketConnected()
             self.joinChat()
             self.fetchNotificationSetting(token: token)
             self.fetchChannelPermissions(token: token)
             self.fetchChannelMembers(token: token)
             self.checkBanStatus(token: token)
+            self.resolveChannelLabelFromNetwork(token: token)
+        }
+    }
+
+    private func resolveChannelLabelFromCache() {
+        if clanId == 0 {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
+               !cached.channelLabel.isEmpty {
+                channel = cached
+                setChannelLabel(cached.channelLabel)
+            }
+        } else {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
+               !cached.channelLabel.isEmpty {
+                channel = cached
+                setChannelLabel(cached.channelLabel)
+            }
+        }
+    }
+
+    private func resolveChannelLabelFromNetwork(token: String) {
+        guard channel.channelLabel.isEmpty else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                if self.clanId == 0 {
+                    let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                    if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
+                        self.channel = found
+                        self.setChannelLabel(found.channelLabel)
+                    }
+                } else {
+                    let channels = try await self.context.account.network.listChannelDescs(clanId: self.clanId, token: token)
+                    if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
+                        self.channel = found
+                        self.setChannelLabel(found.channelLabel)
+                    }
+                }
+            } catch {
+                AppLogger.network.error("[Chat] resolveChannelLabel failed: \(error)")
+            }
         }
     }
 
@@ -462,12 +779,17 @@ final class ChatViewController: ViewController {
             shared?.set(newCount, forKey: "badgeCount")
 
             DispatchQueue.main.async {
-                UIApplication.shared.applicationIconBadgeNumber = newCount
+                if #available(iOS 16.0, *) {
+                    UNUserNotificationCenter.current().setBadgeCount(newCount)
+                } else {
+                    UIApplication.shared.applicationIconBadgeNumber = newCount
+                }
             }
         }
     }
 
     func onLeave() {
+        clearRemoteTypingState()
         context.currentChannel = nil
         ActiveChannelTracker.currentChannelId = 0
         stateDisposables.dispose()
@@ -740,7 +1062,11 @@ final class ChatViewController: ViewController {
     }
 
     var currentState: ChatState {
-        ChatState(
+        let labelFromMeta = parentChannelMeta?.label
+        let resolvedParentName =
+            (labelFromMeta?.isEmpty == false) ? labelFromMeta : initialParentName
+
+        return ChatState(
             messages: messages,
             channelLabel: channelLabel,
             channelType: channel.type,
@@ -753,7 +1079,8 @@ final class ChatViewController: ViewController {
             isLoading: isLoading,
             errorMessage: errorMessage,
             lastSeenMessageId: lastSeenMessageId,
-            currentUserId: context.currentUser?.id
+            currentUserId: context.currentUser?.id,
+            parentName: resolvedParentName
         )
     }
 
@@ -770,58 +1097,73 @@ final class ChatViewController: ViewController {
             var lastHasMoreOlder = self.hasMoreOlder
             var lastHasMoreNewer = self.hasMoreNewer
             var lastLastSeenMessageId = self.lastSeenMessageId
+            var lastParentName = self.currentState.parentName
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
                 let d2 = self.metadataOnlyPipe.signal().start(next: { subscriber.putNext(()) })
                 return ActionDisposable { d1.dispose(); d2.dispose() }
-            }
+                }
             return (merged
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
             ).start(next: { newState in
-                let newIds = newState.messages.map { $0.id }
-                let newSendingStates = newState.messages.map { $0.sendingState }
-                let newReactions = newState.messages.map { $0.reactions }
+                    let newIds = newState.messages.map { $0.id }
+                    let newSendingStates = newState.messages.map { $0.sendingState }
+                    let newReactions = newState.messages.map { $0.reactions }
                 let changed = newIds != lastIds
-                    || newSendingStates != lastSendingStates
-                    || newReactions != lastReactions
-                    || newState.isLoading != lastLoading
-                    || newState.isLoadingMore != lastLoadingMore
-                    || newState.isLoadingNewer != lastLoadingNewer
-                    || newState.errorMessage != lastError
-                    || newState.hasMoreOlder != lastHasMoreOlder
-                    || newState.hasMoreNewer != lastHasMoreNewer
-                    || newState.lastSeenMessageId != lastLastSeenMessageId
-                guard changed else { return }
-                lastIds = newIds
-                lastSendingStates = newSendingStates
-                lastReactions = newReactions
-                lastLoading = newState.isLoading
-                lastLoadingMore = newState.isLoadingMore
-                lastLoadingNewer = newState.isLoadingNewer
-                lastError = newState.errorMessage
-                lastHasMoreOlder = newState.hasMoreOlder
-                lastHasMoreNewer = newState.hasMoreNewer
-                lastLastSeenMessageId = newState.lastSeenMessageId
-                subscriber.putNext(newState)
-            })
+                        || newSendingStates != lastSendingStates
+                        || newReactions != lastReactions
+                        || newState.isLoading != lastLoading
+                        || newState.isLoadingMore != lastLoadingMore
+                        || newState.isLoadingNewer != lastLoadingNewer
+                        || newState.errorMessage != lastError
+                        || newState.hasMoreOlder != lastHasMoreOlder
+                        || newState.hasMoreNewer != lastHasMoreNewer
+                        || newState.lastSeenMessageId != lastLastSeenMessageId
+                        || newState.parentName != lastParentName
+                    guard changed else { return }
+                    lastIds = newIds
+                    lastSendingStates = newSendingStates
+                    lastReactions = newReactions
+                    lastLoading = newState.isLoading
+                    lastLoadingMore = newState.isLoadingMore
+                    lastLoadingNewer = newState.isLoadingNewer
+                    lastError = newState.errorMessage
+                    lastHasMoreOlder = newState.hasMoreOlder
+                    lastHasMoreNewer = newState.hasMoreNewer
+                    lastLastSeenMessageId = newState.lastSeenMessageId
+                    lastParentName = newState.parentName
+                    subscriber.putNext(newState)
+                })
         }
     }
-
 
 
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
+
+
+        let currentUserRoleIds: Set<Int64> = {
+            guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
+            return Set(roleList.roles.map { $0.id })
+        }()
+
+        let currentPendingIds = Set(validRecords.compactMap { $0.id.hasPrefix("pending-") ? $0.id : nil })
+        for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
+            ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
+        }
+
         let displays = validRecords.map { record -> ChatMessageDisplay in
             let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if record.sendingState == .pending,
+            if record.id.hasPrefix("pending-"),
                let localImages = ParsedAttachment.pendingImageCache[record.id], !localImages.isEmpty {
+                let stillUploading = record.sendingState == .pending
                 attachments = localImages.map { image in
                     ParsedAttachment(
                         url: "",
@@ -830,7 +1172,7 @@ final class ChatViewController: ViewController {
                         width: Int(image.size.width),
                         height: Int(image.size.height),
                         localImage: image,
-                        isUploading: true
+                        isUploading: stillUploading
                     )
                 }
             }
@@ -843,14 +1185,53 @@ final class ChatViewController: ViewController {
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
             let isMe = currentUserId != nil && record.senderId == currentUserId
-            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog, topicData: topicData, isMe: isMe, sendingState: record.sendingState)
+            let hasMention = Self.checkIncludeMention(
+                mentionsData: record.mentionsJSON,
+                referencesData: record.referencesData,
+                currentUserId: currentUserId,
+                currentUserRoleIds: currentUserRoleIds
+            )
+            let isForward = Self.parseContentIsForward(from: record.content)
+            return ChatMessageDisplay(
+                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
+                isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
+                replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
+                topicData: topicData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
+                isForward: isForward, showForwardHeader: false
+            )
         }
         return Self.applyCombine(to: displays)
     }
 
+    private static func parseContentIsForward(from data: Data) -> Bool {
+        guard !data.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return jsonForwardTruth(json["fwd"])
+    }
+
+    private static func jsonForwardTruth(_ value: Any?) -> Bool {
+        switch value {
+        case let b as Bool: return b
+        case let n as NSNumber:
+            return n.boolValue || n.intValue != 0
+        case let i as Int: return i != 0
+        case let i64 as Int64: return i64 != 0
+        case let d as Double: return d != 0
+        case is [String: Any]: return true
+        case let arr as [Any]: return !arr.isEmpty
+        case let s as String:
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if t.isEmpty { return false }
+            if t == "0" || t == "false" { return false }
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func firstReplyRef(from data: Data) -> (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool) {
         guard !data.isEmpty,
-              let list = try? Mezon_Api_MessageRefList(serializedBytes: data),
+            let list = try? Mezon_Api_MessageRefList(serializedBytes: data),
               !list.refs.isEmpty else { return (nil, false) }
         if let validRef = list.refs.first(where: { $0.messageRefID != 0 }) {
             return (validRef, false)
@@ -883,7 +1264,7 @@ final class ChatViewController: ViewController {
     private static func parseTopicData(from data: Data, code: Int32) -> TopicData? {
         guard !data.isEmpty,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        // Detect topic by code field OR by presence of "tp" in content
+
         let hasTp = json["tp"] != nil
         guard code == messageCodeTopic || hasTp else { return nil }
         let topicId: String
@@ -905,7 +1286,7 @@ final class ChatViewController: ViewController {
 
     private static func parseCallLog(from data: Data) -> CallLogData? {
         guard !data.isEmpty,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let callLogDict = json["callLog"] as? [String: Any] else { return nil }
         let typeRaw = callLogDict["callLogType"] as? Int ?? 0
         let callLogType = CallLogType(rawValue: typeRaw) ?? .timeoutCall
@@ -915,11 +1296,80 @@ final class ChatViewController: ViewController {
 
     private static func applyCombine(to displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         displays.enumerated().map { i, d in
-            let prev = i > 0 ? displays[i - 1].message : nil
+            let prevDisplay = i > 0 ? displays[i - 1] : nil
+            let prev = prevDisplay?.message
             let hasReply = d.replyRef != nil || d.isDeletedReply
             let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog, topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState)
+            let showForwardHeader = ChatMessageDisplay.shouldShowForwardHeader(
+                isForward: d.isForward,
+                current: d.message,
+                previous: prev,
+                previousWasForward: prevDisplay?.isForward ?? false
+            )
+            return ChatMessageDisplay(
+                message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine,
+                attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
+                replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
+                topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
+                isForward: d.isForward, showForwardHeader: showForwardHeader
+            )
         }
+    }
+
+    private static func checkIncludeMention(
+        mentionsData: Data,
+        referencesData: Data,
+        currentUserId: String?,
+        currentUserRoleIds: Set<Int64>
+    ) -> Bool {
+        guard let currentUserId, !currentUserId.isEmpty else { return false }
+
+        let mentions = parseMentionList(from: mentionsData)
+        for mention in mentions {
+
+            if mention.userID != 0, "\(mention.userID)" == ChatMessageDisplay.mentionHereUserId {
+                return true
+            }
+
+            if mention.userID != 0, "\(mention.userID)" == currentUserId {
+                return true
+            }
+
+            if mention.roleID != 0, currentUserRoleIds.contains(mention.roleID) {
+                return true
+            }
+        }
+
+
+        if !referencesData.isEmpty,
+           let list = try? Mezon_Api_MessageRefList(serializedBytes: referencesData),
+           let firstRef = list.refs.first,
+           firstRef.messageSenderID != 0,
+           "\(firstRef.messageSenderID)" == currentUserId {
+            return true
+        }
+
+        return false
+    }
+
+    private static func parseMentionList(from data: Data) -> [Mezon_Api_MessageMention] {
+        guard !data.isEmpty else { return [] }
+        if let list = try? Mezon_Api_MessageMentionList(serializedBytes: data), !list.mentions.isEmpty {
+            return list.mentions
+        }
+        if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            return jsonArray.compactMap { item -> Mezon_Api_MessageMention? in
+                var m = Mezon_Api_MessageMention()
+                if let uid = item["user_id"] as? String, let v = Int64(uid) { m.userID = v }
+                else if let uid = item["user_id"] as? Int64 { m.userID = uid }
+                else if let uid = item["user_id"] as? Double { m.userID = Int64(uid) }
+                if let rid = item["role_id"] as? String, let v = Int64(rid) { m.roleID = v }
+                else if let rid = item["role_id"] as? Int64 { m.roleID = rid }
+                else if let rid = item["role_id"] as? Double { m.roleID = Int64(rid) }
+                return m
+            }
+        }
+        return []
     }
 
     private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {
@@ -930,7 +1380,7 @@ final class ChatViewController: ViewController {
         var fromJson: [ParsedAttachment]?
 
         if !isLikelyJson,
-           let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
+            let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
            !list.attachments.isEmpty {
             fromProto = list.attachments.compactMap { att -> ParsedAttachment? in
                 guard !att.url.isEmpty else { return nil }
@@ -949,7 +1399,7 @@ final class ChatViewController: ViewController {
             if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 jsonArray = arr
             } else if let str = String(data: data, encoding: .utf8),
-                      let strData = str.data(using: .utf8),
+                let strData = str.data(using: .utf8),
                       let arr = try? JSONSerialization.jsonObject(with: strData) as? [[String: Any]] {
                 jsonArray = arr
             }
@@ -1091,21 +1541,69 @@ final class ChatViewController: ViewController {
         }.sorted { $0.emojiId < $1.emojiId }
     }
 
+    private func waitForSocketConnected() async {
+        if context.account.socket.isConnected { return }
+        AppLogger.network.info("[Chat] waitForSocketConnected: waiting for socket connection...")
+        for _ in 0..<50 {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if context.account.socket.isConnected {
+                AppLogger.network.info("[Chat] waitForSocketConnected: socket connected")
+                return
+            }
+        }
+        AppLogger.network.warning("[Chat] waitForSocketConnected: timed out after 10s, proceeding anyway")
+    }
+
     private func joinChat() {
+        guard context.account.socket.isConnected else {
+            AppLogger.network.info("[Chat] joinChat: socket not connected yet, clanId=\(self.clanId) channelId=\(self.channel.channelID) — will retry on socket reconnect")
+            return
+        }
         self.context.account.socket.joinClanChat(clanId: clanId)
         let channelType: Int32 = clanId == 0
             ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
             : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
         let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
         self.context.account.socket.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
+        AppLogger.network.info("[Chat] joinChat: sent joinClanChat(\(self.clanId)) + joinChannel(\(self.channel.channelID))")
+        if clanId != 0 {
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonJoinedClanChatForBadges"),
+                object: nil,
+                userInfo: ["clanId": clanId]
+            )
+        }
     }
 
     private func setupInputBar() {
+        remoteTypingStripView.addSubview(remoteTypingLabel)
+        view.addSubview(remoteTypingStripView)
         addChild(sendInputViewController)
         view.addSubview(sendInputViewController.view)
         sendInputViewController.didMove(toParent: self)
 
+
+        view.addSubview(emojiPickerView)
+        let emojiH = emojiPickerView.heightAnchor.constraint(equalToConstant: 0)
+        emojiPickerHeightConstraint = emojiH
+        let emojiBottom = emojiPickerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        emojiPickerBottomConstraint = emojiBottom
+        NSLayoutConstraint.activate([
+            emojiPickerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            emojiPickerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            emojiH,
+            emojiBottom,
+        ])
+
+        emojiPickerView.configureMediaPanelCache(engine: context.engine)
+
+        applyRemoteTypingStripTheme()
         inputBarHeight = sendInputViewController.totalHeight
+        remoteTypingStripView.alpha = 0
+        remoteTypingStripView.isHidden = true
+        view.bringSubviewToFront(remoteTypingStripView)
+        view.bringSubviewToFront(sendInputViewController.view)
+        view.bringSubviewToFront(emojiPickerView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false
@@ -1121,11 +1619,34 @@ final class ChatViewController: ViewController {
         if let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
             trackedKeyboardHeight = frame.height
         }
+
+        let searchFocused = emojiPickerView.isPanelSearchFocused || emojiPickerView.isSearchFieldActive
+
+
+        if emojiPickerCollapsedHeight > 0 && searchFocused {
+            updateEmojiPickerHeightForSearchKeyboard()
+            return
+        }
+
+
+        if emojiPickerCollapsedHeight > 0 {
+            wasEmojiPickerJustDismissed = true
+            emojiPickerCollapsedHeight = 0
+            emojiPickerHeightConstraint?.constant = 0
+            emojiPickerView.isHidden = true
+            emojiPickerView.resetToCollapsed()
+            UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+        }
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
         isKeyboardVisible = false
         trackedKeyboardHeight = 0
+
+
+        if emojiPickerCollapsedHeight > 0 && !emojiPickerView.isHidden {
+            emojiPickerView.applySnapCollapsed()
+        }
     }
 
     private func updateInputBarHeight(_ newHeight: CGFloat) {
@@ -1133,6 +1654,58 @@ final class ChatViewController: ViewController {
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
         }
+    }
+
+    private func handleEmojiPickerToggle(visible: Bool, collapsedHeight: CGFloat) {
+        if visible {
+            suppressScrollToBottomForNextKeyboardInset = false
+            let screenH = UIScreen.main.bounds.height
+            let expandedH = max(screenH * 0.85, collapsedHeight + 200)
+            emojiPickerView.collapsedHeight = collapsedHeight
+            emojiPickerView.expandedHeight = expandedH
+            emojiPickerView.resetToCollapsed()
+
+            emojiPickerCollapsedHeight = collapsedHeight
+            emojiPickerHeightConstraint?.constant = collapsedHeight
+            emojiPickerView.isHidden = false
+            emojiPickerView.applyTheme()
+            emojiPickerView.refreshMediaPanelCache()
+        } else {
+            suppressScrollToBottomForNextKeyboardInset = true
+            emojiPickerCollapsedHeight = 0
+            emojiPickerHeightConstraint?.constant = 0
+            emojiPickerView.isHidden = true
+            emojiPickerView.resetToCollapsed()
+        }
+
+        if let layout = lastLayout {
+            let transition: ContainedViewLayoutTransition = visible
+                ? .animated(duration: 0.25, curve: .easeInOut)
+                : .immediate
+            containerLayoutUpdated(layout, transition: transition)
+        }
+        if visible {
+            UIView.animate(withDuration: 0.25) {
+                self.view.layoutIfNeeded()
+            }
+        } else {
+            view.layoutIfNeeded()
+        }
+    }
+
+    private func updateEmojiPickerOverlayHeight(_ newHeight: CGFloat) {
+        emojiPickerHeightConstraint?.constant = newHeight
+        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func updateEmojiPickerHeightForSearchKeyboard() {
+        guard emojiPickerCollapsedHeight > 0, !emojiPickerView.isHidden else { return }
+        guard emojiPickerView.isPanelSearchFocused || emojiPickerView.isSearchFieldActive else { return }
+
+        let panelH = emojiPickerView.expandedHeight
+        emojiPickerView.applySnapExpanded(height: panelH)
     }
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
@@ -1219,7 +1792,7 @@ final class ChatViewController: ViewController {
             insertIndicesAndItems: [],
             updateIndicesAndItems: [],
             options: [.Synchronous],
-            scrollToItem: ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up),
+            scrollToItem: ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up),
             updateOpaqueState: nil,
             completion: { _ in }
         )
@@ -1245,7 +1818,8 @@ final class ChatViewController: ViewController {
         guard let topicIdInt = Int64(topicData.topicId), topicIdInt != 0 else { return }
         var topicChannel = channel
         topicChannel.channelLabel = "Topic Discussion"
-        let topicVC = ChatViewController(clanId: clanId, channel: topicChannel, context: context)
+        let topicVC = ChatViewController(
+            clanId: clanId, channel: topicChannel, context: context, parentName: nil)
         topicVC.topicId = topicIdInt
         navigationController?.pushViewController(topicVC, animated: true)
     }
@@ -1270,7 +1844,8 @@ final class ChatViewController: ViewController {
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
-                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             }
         )
@@ -1303,7 +1878,8 @@ final class ChatViewController: ViewController {
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
-                let chatVC = ChatViewController(clanId: 0, channel: dmChannel, context: self.context)
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             }
         )
@@ -1413,9 +1989,9 @@ final class ChatViewController: ViewController {
             }
             context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
         case .pinMessage:
-            break // TODO: implement pin
+            break
         case .forward, .forwardMessage:
-            break // TODO: implement forward
+            break
         case .resend:
             let msgId = display.message.id
             let text = display.parsedContent.text
@@ -1425,19 +2001,21 @@ final class ChatViewController: ViewController {
                 sendInputViewController.send()
             }
         case .giveACoffee:
-            break // TODO: implement give coffee
+            break
         case .createThread:
-            break // TODO: implement create thread
+            break
         case .markUnread:
-            break // TODO: implement mark unread
+            break
         case .topicDiscussion:
-            break // TODO: implement topic discussion
+            break
         case .markMessage:
-            break // TODO: implement mark message
+            break
         case .quickMenu:
-            break // TODO: implement quick menu
+            break
+        case .editMessage:
+            break
         case .report:
-            break // TODO: implement report
+            break
         }
     }
 }

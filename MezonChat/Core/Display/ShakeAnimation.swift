@@ -11,7 +11,7 @@ public extension CALayer {
         if k != 0 && k != 1 {
             speed = Float(1.0) / k
         }
-                
+
         let animation = CAKeyframeAnimation(keyPath: "position.x")
         var values: [CGFloat] = []
         values.append(0.0)
@@ -36,10 +36,10 @@ public extension CALayer {
         animation.speed = speed
         animation.duration = duration
         animation.isAdditive = true
-        
+
         self.add(animation, forKey: "shake")
     }
-    
+
     func addReorderingShaking() {
         func degreesToRadians(_ x: CGFloat) -> CGFloat {
             return .pi * x / 180.0
@@ -48,7 +48,7 @@ public extension CALayer {
         let duration: Double = 0.4
         let displacement: CGFloat = 1.0
         let degreesRotation: CGFloat = 2.0
-        
+
         let negativeDisplacement = -1.0 * displacement
         let position = CAKeyframeAnimation.init(keyPath: "position")
         position.beginTime = 0.8

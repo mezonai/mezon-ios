@@ -86,7 +86,6 @@ final class ChannelAppCellNode: ASCellNode {
     }
 }
 
-// MARK: - Channel App Horizontal Cell Node (>3 apps, horizontal scroll)
 
 final class ChannelAppHorizontalCellNode: ASCellNode {
 
@@ -137,7 +136,6 @@ final class ChannelAppHorizontalCellNode: ASCellNode {
     }
 }
 
-// MARK: - Channel App Icon Node (pure ASDisplayKit replacement for ChannelAppIconItemView)
 
 final class ChannelAppIconNode: ASDisplayNode {
 
@@ -191,7 +189,8 @@ final class ChannelAppIconNode: ASDisplayNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        logoContainerNode.style.preferredSize = CGSize(width: 40.swh, height: 40.swh)
+        let boxSize = 40.swh
+        logoContainerNode.style.preferredSize = CGSize(width: boxSize, height: boxSize)
         logoImageNode.style.preferredSize = CGSize(width: 24.swh, height: 24.swh)
 
         let logoCenter = ASCenterLayoutSpec(
@@ -199,6 +198,8 @@ final class ChannelAppIconNode: ASDisplayNode {
             sizingOptions: [],
             child: logoImageNode
         )
+        logoCenter.style.preferredSize = CGSize(width: boxSize, height: boxSize)
+
         let logoBackground = ASBackgroundLayoutSpec(child: logoCenter, background: logoContainerNode)
 
         nameNode.style.maxWidth = ASDimensionMake(40.sw)
@@ -215,4 +216,4 @@ final class ChannelAppIconNode: ASDisplayNode {
     }
 }
 
-// ChannelAppIconItemView removed — replaced by ChannelAppIconNode (pure ASDisplayKit)
+

@@ -54,10 +54,10 @@ public final class Image: Component {
             self.image = component.image
             self.contentMode = component.contentMode
             self.clipsToBounds = component.cornerRadius > 0.0
-            
+
             transition.setCornerRadius(layer: self.layer, cornerRadius: component.cornerRadius)
             transition.setTintColor(view: self, color: component.tintColor ?? .white)
-            
+
             switch component.contentMode {
             case .center:
                 return component.image?.size ?? availableSize

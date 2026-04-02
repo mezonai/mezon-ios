@@ -21,7 +21,12 @@ extension MezonEngine {
         func sessionLogout(session: MezonSession) async throws {
             try await network.sessionLogout(session: session)
         }
+
+        func confirmLogin(loginId: String, token: String) async throws -> MezonSession {
+            try await network.confirmLogin(loginId: loginId, token: token)
+        }
     }
+
 }
 
 @MainActor

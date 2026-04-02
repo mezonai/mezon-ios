@@ -6,7 +6,7 @@ public final class Text: Component {
         let attributedText: NSAttributedString
         let availableSize: CGSize
         let size: CGSize
-        
+
         init(attributedText: NSAttributedString, availableSize: CGSize, size: CGSize) {
             self.attributedText = attributedText
             self.availableSize = availableSize
@@ -26,7 +26,7 @@ public final class Text: Component {
             return true
         }
     }
-    
+
     public final class View: UIView {
         private var measureState: MeasureState?
 
@@ -35,17 +35,17 @@ public final class Text: Component {
                 NSAttributedString.Key.font: component.font,
                 NSAttributedString.Key.foregroundColor: component.color
             ])
-            
+
             if let tintColor = component.tintColor {
                 transition.setTintColor(layer: self.layer, color: tintColor)
             }
-            
+
             if let measureState = self.measureState {
                 if measureState.attributedText.isEqual(to: attributedText) && measureState.availableSize == availableSize {
                     return measureState.size
                 }
             }
-            
+
             var boundingRect = attributedText.boundingRect(with: availableSize, options: .usesLineFragmentOrigin, context: nil)
             boundingRect.size.width = ceil(boundingRect.size.width)
             boundingRect.size.height = ceil(boundingRect.size.height)
@@ -67,16 +67,16 @@ public final class Text: Component {
             }
 
             self.measureState = measureState
-            
+
             return boundingRect.size
         }
     }
-    
+
     public let text: String
     public let font: UIFont
     public let color: UIColor
     public let tintColor: UIColor?
-    
+
     public init(text: String, font: UIFont, color: UIColor, tintColor: UIColor? = nil) {
         self.text = text
         self.font = font
@@ -99,11 +99,11 @@ public final class Text: Component {
         }
         return true
     }
-    
+
     public func makeView() -> View {
         return View()
     }
-    
+
     public func update(view: View, availableSize: CGSize, state: EmptyComponentState, environment: Environment<Empty>, transition: ComponentTransition) -> CGSize {
         return view.update(component: self, availableSize: availableSize, transition: transition)
     }

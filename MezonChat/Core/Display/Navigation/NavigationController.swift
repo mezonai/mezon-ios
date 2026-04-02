@@ -11,7 +11,7 @@ public final class NavigationControllerTheme {
     public let statusBar: NavigationStatusBarStyle
     public let navigationBar: NavigationBarTheme
     public let emptyAreaColor: UIColor
-    
+
     public init(statusBar: NavigationStatusBarStyle, navigationBar: NavigationBarTheme, emptyAreaColor: UIColor) {
         self.statusBar = statusBar
         self.navigationBar = navigationBar
@@ -21,15 +21,15 @@ public final class NavigationControllerTheme {
 
 public struct NavigationAnimationOptions : OptionSet {
     public let rawValue: Int
-    
+
     public init(rawValue: Int) {
         self.rawValue = rawValue
     }
-    
+
     public init() {
         self.rawValue = 0
     }
-    
+
     public static let removeOnMasterDetails = NavigationAnimationOptions(rawValue: 1 << 0)
 }
 
@@ -41,7 +41,7 @@ private enum ControllerTransition {
 private final class ControllerRecord {
     let controller: UIViewController
     var transition: ControllerTransition = .none
-    
+
     init(controller: UIViewController) {
         self.controller = controller
     }
@@ -78,34 +78,34 @@ private final class GlobalOverlayContainerParent: ASDisplayNode {
 private final class NavigationControllerNode: ASDisplayNode {
     private final class View: UIView {
         private var scheduledWithLayout: (() -> Void)?
-        
+
         func schedule(layout f: @escaping () -> Void) {
             self.scheduledWithLayout = f
             self.setNeedsLayout()
         }
-        
+
         override func layoutSubviews() {
             super.layoutSubviews()
-            
+
             if let scheduledWithLayout = self.scheduledWithLayout {
                 self.scheduledWithLayout = nil
                 scheduledWithLayout()
             }
         }
     }
-    
+
     private weak var controller: NavigationController?
-    
+
     init(controller: NavigationController) {
         self.controller = controller
-        
+
         super.init()
-        
+
         self.setViewBlock({
             return View(frame: CGRect())
         })
     }
-    
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if let controller = self.controller, controller.isInteractionDisabled() {
             return self.view
@@ -113,7 +113,7 @@ private final class NavigationControllerNode: ASDisplayNode {
             return super.hitTest(point, with: event)
         }
     }
-    
+
     override func accessibilityPerformEscape() -> Bool {
         if let controller = self.controller, controller.viewControllers.count > 1 {
             let _ = self.controller?.popViewController(animated: true)
@@ -121,7 +121,7 @@ private final class NavigationControllerNode: ASDisplayNode {
         }
         return false
     }
-    
+
     func schedule(layout f: @escaping () -> Void) {
         (self.view as? View)?.schedule(layout: f)
     }
@@ -133,7 +133,7 @@ public protocol NavigationControllerDropContentItem: AnyObject {
 public final class NavigationControllerDropContent {
     public let position: CGPoint
     public let item: NavigationControllerDropContentItem
-    
+
     public init(position: CGPoint, item: NavigationControllerDropContentItem) {
         self.position = position
         self.item = item
@@ -148,25 +148,25 @@ open class NavigationController: UINavigationController, ContainableController, 
     public var isOpaqueWhenInOverlay: Bool = true
     public var blocksBackgroundWhenInOverlay: Bool = true
     public var updateTransitionWhenPresentedAsModal: ((CGFloat, ContainedViewLayoutTransition) -> Void)?
-    
+
     private let _ready = Promise<Bool>(true)
     open var ready: Promise<Bool> {
         return self._ready
     }
-    
+
     private var masterDetailsBlackout: MasterDetailLayoutBlackout?
-    
+
     public var lockOrientation: Bool = false
-    
+
     public var deferScreenEdgeGestures: UIRectEdge = UIRectEdge()
     public var prefersOnScreenNavigationHidden: Bool {
         return (self.topViewController as? ViewController)?.prefersOnScreenNavigationHidden ?? false
     }
-    
+
     private let mode: NavigationControllerMode
     private var theme: NavigationControllerTheme
     private let isFlat: Bool
-    
+
     var inCallNavigate: (() -> Void)?
     private var inCallStatusBar: StatusBar?
     private var updateInCallStatusBarState: CallStatusBarNode?
@@ -203,27 +203,27 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     private var globalOverlayContainers: [NavigationOverlayContainer] = []
     private var globalOverlayBelowKeyboardContainerParent: GlobalOverlayContainerParent?
     private var globalOverlayContainerParent: GlobalOverlayContainerParent?
     public var globalOverlayControllersUpdated: (() -> Void)?
-    
+
     public private(set) var validLayout: ContainerViewLayout?
     private var validStatusBarStyle: NavigationStatusBarStyle?
     private var validStatusBarHidden: Bool?
-    
+
     private var ignoreInputHeight: Bool = false
     private var currentStatusBarExternalHidden: Bool = false
-    
+
     private var scheduledLayoutTransitionRequestId: Int = 0
     private var scheduledLayoutTransitionRequest: (Int, ContainedViewLayoutTransition)?
-    
+
     private var _presentedViewController: UIViewController?
     open override var presentedViewController: UIViewController? {
         return self._presentedViewController
     }
-    
+
     private var _viewControllers: [ViewController] = []
     override open var viewControllers: [UIViewController] {
         get {
@@ -232,21 +232,21 @@ open class NavigationController: UINavigationController, ContainableController, 
             self.setViewControllers(value, animated: false)
         }
     }
-    
+
     private var _viewControllersPromise = ValuePromise<[UIViewController]>()
     public var viewControllersSignal: Signal<[UIViewController], NoError> {
         return _viewControllersPromise.get()
     }
-    
+
     private var _overlayControllersPromise = ValuePromise<[UIViewController]>()
     public var overlayControllersSignal: Signal<[UIViewController], NoError> {
         return _overlayControllersPromise.get()
     }
-    
+
     override open var topViewController: UIViewController? {
         return self._viewControllers.last
     }
-    
+
     var topOverlayController: ViewController? {
         if let overlayContainer = self.overlayContainers.last {
             return overlayContainer.controller
@@ -254,7 +254,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             return nil
         }
     }
-    
+
     private var _displayNode: ASDisplayNode?
     public var displayNode: ASDisplayNode {
         if let value = self._displayNode {
@@ -263,18 +263,18 @@ open class NavigationController: UINavigationController, ContainableController, 
         if !self.isViewLoaded {
             self.loadView()
         }
-        
+
         return self._displayNode!
     }
-    
+
     public var statusBarHost: StatusBarHost? {
         didSet {
         }
     }
     var keyboardViewManager: KeyboardViewManager?
-    
+
     var updateSupportedOrientations: (() -> Void)?
-    
+
     var statusBar: (style: UIStatusBarStyle, isHidden: Bool) {
         let normalStatusBarStyle: UIStatusBarStyle
         switch self.validStatusBarStyle {
@@ -289,11 +289,11 @@ open class NavigationController: UINavigationController, ContainableController, 
         case .white:
             normalStatusBarStyle = .lightContent
         }
-        
+
         return (normalStatusBarStyle, self.validStatusBarHidden ?? false)
     }
     var updateStatusBar: ((ContainedViewLayoutTransition) -> Void)?
-    
+
     public func updateMasterDetailsBlackout(_ blackout: MasterDetailLayoutBlackout?, transition: ContainedViewLayoutTransition) {
         self.masterDetailsBlackout = blackout
         if isViewLoaded {
@@ -301,7 +301,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         self.requestLayout(transition: transition)
     }
-    
+
     private weak var detailsPlaceholderNode: NavigationDetailsPlaceholderNode?
     public func updateDetailsPlaceholderNode(_ node: NavigationDetailsPlaceholderNode?) {
         if self.detailsPlaceholderNode !== node {
@@ -312,26 +312,26 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public init(mode: NavigationControllerMode, theme: NavigationControllerTheme, isFlat: Bool = false) {
         self.mode = mode
         self.theme = theme
         self.isFlat = isFlat
-        
+
         super.init(nibName: nil, bundle: nil)
     }
-    
+
     public override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         preconditionFailure()
     }
-    
+
     public required init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     deinit {
     }
-    
+
     public func combinedSupportedOrientations(currentOrientationToLock: UIInterfaceOrientationMask) -> ViewControllerSupportedOrientations {
         var supportedOrientations = ViewControllerSupportedOrientations(regularSize: .all, compactSize: .allButUpsideDown)
         if let rootContainer = self.rootContainer {
@@ -371,7 +371,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         return supportedOrientations
     }
-    
+
     fileprivate func isInteractionDisabled() -> Bool {
         for overlayContainer in self.overlayContainers {
             if overlayContainer.blocksInteractionUntilReady && !overlayContainer.isReady {
@@ -392,7 +392,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         return false
     }
-    
+
     public func updateTheme(_ theme: NavigationControllerTheme) {
         self.theme = theme
         if let rootContainer = self.rootContainer {
@@ -410,26 +410,26 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     open func preferredContentSizeForLayout(_ layout: ContainerViewLayout) -> CGSize? {
         return nil
     }
-    
+
     open func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         if !self.isViewLoaded {
             self.loadView()
         }
         self.validLayout = layout
-        
+
         self.scheduledLayoutTransitionRequest = nil
-        
+
         self.updateContainers(layout: layout, transition: transition)
     }
-    
+
     private weak var currentTopVisibleOverlayContainerStatusBar: NavigationOverlayContainer? = nil
-    
+
     private var isUpdatingContainers: Bool = false
-    
+
     func updateContainersNonReentrant(transition: ContainedViewLayoutTransition) {
         if self.isUpdatingContainers {
             return
@@ -438,12 +438,12 @@ open class NavigationController: UINavigationController, ContainableController, 
             self.updateContainers(layout: layout, transition: transition)
         }
     }
-        
+
     private func updateContainers(layout rawLayout: ContainerViewLayout, transition: ContainedViewLayoutTransition, completion externalCompletion: (() -> Void)? = nil) {
         self.isUpdatingContainers = true
-                
+
         var layout = rawLayout
-        
+
         if self.ignoreInputHeight {
             if layout.inputHeight == nil {
                 self.ignoreInputHeight = false
@@ -451,9 +451,9 @@ open class NavigationController: UINavigationController, ContainableController, 
                 layout = layout.withUpdatedInputHeight(nil)
             }
         }
-        
+
         let initialPrefersOnScreenNavigationHidden = self.collectPrefersOnScreenNavigationHidden()
-        
+
         let belowKeyboardOverlayLayout = layout
         var globalOverlayLayout = layout
 
@@ -463,7 +463,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
 
         }
-        
+
         if let globalOverlayContainerParent = self.globalOverlayContainerParent {
             let portraitSize = CGSize(width: min(layout.size.width, layout.size.height), height: max(layout.size.width, layout.size.height))
             let screenSize = UIScreen.main.bounds.size
@@ -472,7 +472,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 if globalOverlayContainerParent.view.superview != self.displayNode.view {
                     self.displayNode.addSubnode(globalOverlayContainerParent)
                 }
-                
+
                 globalOverlayLayout.size.height = globalOverlayLayout.size.height - (layout.inputHeight ?? 0.0)
                 globalOverlayLayout.inputHeight = nil
                 globalOverlayLayout.inputHeightIsInteractivellyChanging = false
@@ -491,13 +491,13 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-        
+
         if let globalScrollToTopNode = self.globalScrollToTopNode {
             globalScrollToTopNode.frame = CGRect(origin: CGPoint(x: 0.0, y: -1.0), size: CGSize(width: layout.size.width, height: 1.0))
         }
-        
+
         var overlayContainerLayout = layout
-        
+
         var updatedSize = layout.size
         var updatedIntrinsicInsets = layout.intrinsicInsets
         var updatedAdditionalInsets = layout.additionalInsets
@@ -510,7 +510,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
         overlayContainerLayout = overlayContainerLayout.withUpdatedAdditionalInsets(updatedAdditionalInsets)
-        
+
         if let inCallStatusBar = self.inCallStatusBar {
             let isLandscape = layout.size.width > layout.size.height
             var minHeight: CGFloat
@@ -536,27 +536,27 @@ open class NavigationController: UINavigationController, ContainableController, 
             inCallStatusBar.callStatusBarNode?.frame = inCallStatusBarFrame
             layout.statusBarHeight = inCallStatusBarFrame.height
             inCallStatusBar.frame = inCallStatusBarFrame
-            
+
             if let forceInCallStatusBar = self.updateInCallStatusBarState {
                 self.updateInCallStatusBarState = nil
                 inCallStatusBar.updateState(statusBar: nil, withSafeInsets: !layout.safeInsets.top.isZero, inCallNode: forceInCallStatusBar, animated: false)
             }
         }
-        
+
         if let globalOverlayBelowKeyboardContainerParent = self.globalOverlayBelowKeyboardContainerParent {
             transition.updateFrame(node: globalOverlayBelowKeyboardContainerParent, frame: CGRect(origin: CGPoint(), size: layout.size))
         }
         if let globalOverlayContainerParent = self.globalOverlayContainerParent {
             transition.updateFrame(node: globalOverlayContainerParent, frame: CGRect(origin: CGPoint(), size: layout.size))
         }
-        
+
         let navigationLayout = makeNavigationLayout(mode: self.mode, layout: layout, controllers: self._viewControllers)
-        
+
         var transition = transition
         var statusBarStyle: StatusBarStyle = .Ignore
         var statusBarHidden = false
         var animateStatusBarStyleTransition = transition.isAnimated
-        
+
         var modalContainers: [NavigationModalContainer] = []
         for i in 0 ..< navigationLayout.modal.count {
             var existingModalContainer: NavigationModalContainer?
@@ -568,7 +568,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                     }
                 }
             }
-            
+
             let modalContainer: NavigationModalContainer
             if let existingModalContainer = existingModalContainer {
                 modalContainer = existingModalContainer
@@ -611,40 +611,40 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
             modalContainers.append(modalContainer)
         }
-        
+
         for container in self.modalContainers {
             if !modalContainers.contains(where: { $0 === container }) {
                 if viewTreeContainsFirstResponder(view: container.view) {
                     self.ignoreInputHeight = true
                     container.view.endEditing(true)
                 }
-                
+
                 transition = container.dismiss(transition: transition, completion: { [weak container] in
                     container?.removeFromSupernode()
                 })
             }
         }
         self.modalContainers = modalContainers
-        
+
         var topVisibleOverlayContainerWithStatusBar: NavigationOverlayContainer?
-        
+
         var notifyGlobalOverlayControllersUpdated = false
-        
+
         var additionalSideInsets = UIEdgeInsets()
-        
+
         var modalStyleOverlayTransitionFactor: CGFloat = 0.0
         var previousGlobalOverlayBelowKeyboardContainer: NavigationOverlayContainer?
         var previousGlobalOverlayContainer: NavigationOverlayContainer?
         for i in (0 ..< self.globalOverlayContainers.count).reversed() {
             let overlayContainer = self.globalOverlayContainers[i]
-            
+
             let containerTransition: ContainedViewLayoutTransition
             if overlayContainer.supernode == nil {
                 containerTransition = .immediate
             } else {
                 containerTransition = transition
             }
-            
+
             let overlayWantsToBeBelowKeyboard = overlayContainer.controller.overlayWantsToBeBelowKeyboard
             let overlayLayout: ContainerViewLayout
             if overlayWantsToBeBelowKeyboard {
@@ -652,15 +652,15 @@ open class NavigationController: UINavigationController, ContainableController, 
             } else {
                 overlayLayout = globalOverlayLayout
             }
-            
+
             containerTransition.updateFrame(node: overlayContainer, frame: CGRect(origin: CGPoint(), size: overlayLayout.size))
             overlayContainer.update(layout: overlayLayout, transition: containerTransition)
-            
+
             modalStyleOverlayTransitionFactor = max(modalStyleOverlayTransitionFactor, overlayContainer.controller.modalStyleOverlayTransitionFactor)
-            
+
             if overlayContainer.isReady && !overlayContainer.isRemoved {
                 let wasNotAdded = overlayContainer.supernode == nil
-                
+
                 if overlayWantsToBeBelowKeyboard {
                     if overlayContainer.supernode !== self.globalOverlayBelowKeyboardContainerParent {
                         if let previousGlobalOverlayBelowKeyboardContainer = previousGlobalOverlayBelowKeyboardContainer {
@@ -678,7 +678,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                         }
                     }
                 }
-                
+
                 if wasNotAdded {
                     overlayContainer.transitionIn()
                     notifyGlobalOverlayControllersUpdated = true
@@ -690,10 +690,10 @@ open class NavigationController: UINavigationController, ContainableController, 
                     }
                 }
             }
-            
+
             let controllerAdditionalSideInsets = overlayContainer.controller.additionalSideInsets
             additionalSideInsets = UIEdgeInsets(top: 0.0, left: max(additionalSideInsets.left, controllerAdditionalSideInsets.left), bottom: 0.0, right: max(additionalSideInsets.right, controllerAdditionalSideInsets.right))
-            
+
             if overlayContainer.supernode != nil {
                 if overlayContainer.controller.overlayWantsToBeBelowKeyboard {
                     previousGlobalOverlayBelowKeyboardContainer = overlayContainer
@@ -716,23 +716,23 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-                
+
         var previousOverlayContainer: NavigationOverlayContainer?
         for i in (0 ..< self.overlayContainers.count).reversed() {
             let overlayContainer = self.overlayContainers[i]
-            
+
             let containerTransition: ContainedViewLayoutTransition
             if overlayContainer.supernode == nil {
                 containerTransition = .immediate
             } else {
                 containerTransition = transition
             }
-            
+
             containerTransition.updateFrame(node: overlayContainer, frame: CGRect(origin: CGPoint(), size: overlayContainerLayout.size))
             overlayContainer.update(layout: overlayContainerLayout, transition: containerTransition)
-            
+
             modalStyleOverlayTransitionFactor = max(modalStyleOverlayTransitionFactor, overlayContainer.controller.modalStyleOverlayTransitionFactor)
-            
+
             if overlayContainer.supernode == nil && overlayContainer.isReady {
                 if let previousOverlayContainer = previousOverlayContainer {
                     self.displayNode.insertSubnode(overlayContainer, belowSubnode: previousOverlayContainer)
@@ -747,10 +747,10 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
                 overlayContainer.transitionIn()
             }
-            
+
             let controllerAdditionalSideInsets = overlayContainer.controller.additionalSideInsets
             additionalSideInsets = UIEdgeInsets(top: 0.0, left: max(additionalSideInsets.left, controllerAdditionalSideInsets.left), bottom: 0.0, right: max(additionalSideInsets.right, controllerAdditionalSideInsets.right))
-            
+
             if overlayContainer.supernode != nil {
                 previousOverlayContainer = overlayContainer
                 let controllerStatusBarStyle = overlayContainer.controller.statusBar.statusBarStyle
@@ -769,12 +769,12 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-                
+
         if self.currentTopVisibleOverlayContainerStatusBar !== topVisibleOverlayContainerWithStatusBar {
             animateStatusBarStyleTransition = true
             self.currentTopVisibleOverlayContainerStatusBar = topVisibleOverlayContainerWithStatusBar
         }
-        
+
         var previousModalContainer: NavigationModalContainer?
         var topVisibleModalContainerWithStatusBar: NavigationModalContainer?
         var visibleModalCount = 0
@@ -783,24 +783,24 @@ open class NavigationController: UINavigationController, ContainableController, 
         let isLandscape = layout.orientation == .landscape
         var hasVisibleStandaloneModal = false
         var topModalDismissProgress: CGFloat = 0.0
-        
+
         for i in (0 ..< navigationLayout.modal.count).reversed() {
             let modalContainer = self.modalContainers[i]
-            
+
             var isStandaloneModal = false
             if let controller = modalContainer.container.controllers.first {
                 if [ViewControllerNavigationPresentation.standaloneModal, .standaloneFlatModal].contains(controller.navigationPresentation) {
                     isStandaloneModal = true
                 }
             }
-            
+
             let containerTransition: ContainedViewLayoutTransition
             if modalContainer.supernode == nil {
                 containerTransition = .immediate
             } else {
                 containerTransition = transition
             }
-            
+
             let effectiveModalTransition: CGFloat
             if visibleModalCount == 0 || (navigationLayout.modal[i].isFlat && !navigationLayout.modal[i].flatReceivesModalTransition) {
                 effectiveModalTransition = 0.0
@@ -809,7 +809,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             } else {
                 effectiveModalTransition = 1.0
             }
-            
+
             if navigationLayout.modal[i].isFlat, let lastController = navigationLayout.modal[i].controllers.last {
                 lastController.modalStyleOverlayTransitionFactorUpdated = { [weak self] (transition: ContainedViewLayoutTransition) in
                     guard let strongSelf = self else {
@@ -820,15 +820,15 @@ open class NavigationController: UINavigationController, ContainableController, 
                 modalStyleOverlayTransitionFactor = max(modalStyleOverlayTransitionFactor, lastController.modalStyleOverlayTransitionFactor)
                 topFlatModalHasProgress = modalStyleOverlayTransitionFactor > 0.0
             }
-                        
+
             containerTransition.updateFrame(node: modalContainer, frame: CGRect(origin: CGPoint(), size: layout.size))
             modalContainer.update(layout: modalContainer.isFlat ? globalOverlayLayout : layout, controllers: navigationLayout.modal[i].controllers, coveredByModalTransition: effectiveModalTransition, transition: containerTransition)
-            
+
             if modalContainer.supernode == nil && modalContainer.isReady {
                 if let previousModalContainer {
                     assert(previousModalContainer.supernode != nil)
                 }
-                
+
                 if let previousModalContainer, previousModalContainer.supernode != nil {
                     self.displayNode.insertSubnode(modalContainer, belowSubnode: previousModalContainer)
                 } else if let inCallStatusBar = self.inCallStatusBar {
@@ -842,7 +842,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
                 modalContainer.animateIn(transition: transition)
             }
-            
+
             if modalContainer.supernode != nil {
                 if !hasVisibleStandaloneModal && !isStandaloneModal && !modalContainer.isFlat {
                     visibleModalCount += 1
@@ -853,7 +853,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
                 if previousModalContainer == nil {
                     topModalIsFlat = modalContainer.isFlat
-                    
+
                     topModalDismissProgress = modalContainer.dismissProgress
                     if case .compact = layout.metrics.widthClass {
                         modalContainer.keyboardViewManager = self.keyboardViewManager
@@ -862,7 +862,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                         modalContainer.keyboardViewManager = nil
                         modalContainer.canHaveKeyboardFocus = true
                     }
-                    
+
                     if modalContainer.isFlat {
                         let controllerStatusBarStyle = modalContainer.container.statusBarStyle
                         switch controllerStatusBarStyle {
@@ -882,7 +882,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 } else {
                     modalContainer.keyboardViewManager = nil
                     modalContainer.canHaveKeyboardFocus = false
-                    
+
                     if modalContainer.isFlat {
                         let controllerStatusBarStyle = modalContainer.container.statusBarStyle
                         switch controllerStatusBarStyle {
@@ -906,15 +906,15 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-        
+
         if self.isMaximizing && layout.size.width < layout.size.height {
             modalStyleOverlayTransitionFactor = 1.0
             topFlatModalHasProgress = true
         }
-        
+
         layout.additionalInsets.left = max(layout.intrinsicInsets.left, additionalSideInsets.left)
         layout.additionalInsets.right = max(layout.intrinsicInsets.right, additionalSideInsets.right)
-        
+
         if case .flat = navigationLayout.root, let minimizedContainer = self.minimizedContainer {
             if minimizedContainer.supernode !== self.displayNode {
                 if let rootContainer = self.rootContainer, case let .flat(flatContainer) = rootContainer {
@@ -928,7 +928,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-        
+
         switch navigationLayout.root {
         case let .flat(controllers):
             if let rootContainer = self.rootContainer {
@@ -1002,7 +1002,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                     self.displayNode.insertSubnode(flatContainer, at: 0)
                 }
                 self.rootContainer = .flat(flatContainer)
-                
+
                 let updatedLayout = layout.withUpdatedSize(updatedSize).withUpdatedIntrinsicInsets(updatedIntrinsicInsets)
                 flatContainer.frame = CGRect(origin: CGPoint(), size: updatedSize)
                 flatContainer.update(layout: updatedLayout, canBeClosed: false, controllers: controllers, transition: .immediate)
@@ -1031,7 +1031,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                     splitContainer.update(layout: layout, masterControllers: masterControllers, detailControllers: detailControllers, detailsPlaceholderNode: self.detailsPlaceholderNode, transition: .immediate)
                     flatContainer.statusBarStyleUpdated = nil
                     flatContainer.removeFromSupernode()
-                    
+
                     if let minimizedContainer = self.minimizedContainer {
                         minimizedContainer.removeFromSupernode()
                         self.minimizedContainer = nil
@@ -1066,7 +1066,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 splitContainer.update(layout: layout, masterControllers: masterControllers, detailControllers: detailControllers, detailsPlaceholderNode: self.detailsPlaceholderNode, transition: .immediate)
             }
         }
-        
+
         if let rootContainer = self.rootContainer {
             switch rootContainer {
             case let .flat(container):
@@ -1076,14 +1076,14 @@ open class NavigationController: UINavigationController, ContainableController, 
                 self.globalScrollToTopNode?.isHidden = true
             }
         }
-        
+
         if self._keepModalDismissProgress {
             modalStyleOverlayTransitionFactor = 0.0
             self._keepModalDismissProgress = false
         }
-        
+
         topModalDismissProgress = max(topModalDismissProgress, modalStyleOverlayTransitionFactor)
-        
+
         switch layout.metrics.widthClass {
         case .compact:
             if visibleModalCount != 0 || !modalStyleOverlayTransitionFactor.isZero {
@@ -1113,7 +1113,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                         additionalModalFrameProgress = 1.0
                     }
                 }
-                
+
                 let rootModalFrame: NavigationModalFrame
                 let modalFrameTransition: ContainedViewLayoutTransition = transition
                 var forceStatusBarAnimation = false
@@ -1174,7 +1174,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                         maxScale = (layout.size.width - 16.0 * 2.0 * 2.0) / layout.size.width
                         maxOffset = (topInset + 10.0 - (layout.size.height - layout.size.height * maxScale) / 2.0)
                     }
-                    
+
                     let scale = 1.0 * visibleRootModalDismissProgress + (1.0 - visibleRootModalDismissProgress) * maxScale
                     let offset = (1.0 - visibleRootModalDismissProgress) * maxOffset
                     transition.updateSublayerTransformScaleAndOffset(node: rootContainerNode, scale: scale, offset: CGPoint(x: 0.0, y: offset), beginWithCurrentState: true)
@@ -1215,28 +1215,28 @@ open class NavigationController: UINavigationController, ContainableController, 
                 ContainedViewLayoutTransition.immediate.updateSublayerTransformScaleAndOffset(node: rootContainerNode, scale: 1.0, offset: CGPoint())
             }
         }
-        
+
         if let minimizedContainer = self.minimizedContainer {
             minimizedContainer.frame = CGRect(origin: .zero, size: layout.size)
             minimizedContainer.updateLayout(layout, transition: transition)
         }
-        
+
         if self.inCallStatusBar != nil {
             statusBarStyle = .White
         }
-        
+
         if let topVisibleOverlayContainerWithStatusBar = topVisibleOverlayContainerWithStatusBar {
             statusBarStyle = topVisibleOverlayContainerWithStatusBar.controller.statusBar.statusBarStyle
         }
-        
+
         if let topVisibleModalContainerWithStatusBar = topVisibleModalContainerWithStatusBar {
             statusBarStyle = topVisibleModalContainerWithStatusBar.container.statusBarStyle
         }
-        
+
         if self.currentStatusBarExternalHidden {
             statusBarHidden = true
         }
-        
+
         if let minimizedContainer = self.minimizedContainer, minimizedContainer.isExpanded {
             if case .Hide = minimizedContainer.statusBarStyle {
                 statusBarHidden = true
@@ -1246,7 +1246,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 statusBarStyle = minimizedContainer.statusBarStyle
             }
         }
-        
+
         let resolvedStatusBarStyle: NavigationStatusBarStyle
         switch statusBarStyle {
         case .Ignore, .Hide:
@@ -1260,21 +1260,21 @@ open class NavigationController: UINavigationController, ContainableController, 
         case .White:
             resolvedStatusBarStyle = .white
         }
-        
+
         if self.validStatusBarStyle != resolvedStatusBarStyle || self.validStatusBarHidden != statusBarHidden {
             self.validStatusBarStyle = resolvedStatusBarStyle
             self.validStatusBarHidden = statusBarHidden
-            
+
             var statusBarTransition = transition
             if animateStatusBarStyleTransition && !statusBarTransition.isAnimated {
                 statusBarTransition = .animated(duration: 0.2, curve: .easeInOut)
             }
             self.updateStatusBar?(statusBarTransition)
         }
-        
+
         var topHasOpaque = false
         var foundControllerInFocus = false
-        
+
         for container in self.globalOverlayContainers.reversed() {
             let controller = container.controller
             if topHasOpaque {
@@ -1286,7 +1286,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 controller.displayNode.accessibilityElementsHidden = false
             }
         }
-        
+
         for container in self.overlayContainers.reversed() {
             if foundControllerInFocus {
                 container.controller.isInFocus = false
@@ -1294,7 +1294,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 foundControllerInFocus = true
                 container.controller.isInFocus = true
             }
-            
+
             let controller = container.controller
             if topHasOpaque {
                 controller.displayNode.accessibilityElementsHidden = true
@@ -1305,7 +1305,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 controller.displayNode.accessibilityElementsHidden = false
             }
         }
-        
+
         for container in self.modalContainers.reversed() {
             if foundControllerInFocus {
                 container.container.isInFocus = false
@@ -1313,7 +1313,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 foundControllerInFocus = true
                 container.container.isInFocus = true
             }
-            
+
             if let controller = container.container.controllers.last {
                 if topHasOpaque {
                     controller.displayNode.accessibilityElementsHidden = true
@@ -1325,7 +1325,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-        
+
         if let rootContainer = self.rootContainer {
             switch rootContainer {
             case let .flat(container):
@@ -1335,7 +1335,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                     foundControllerInFocus = true
                     container.isInFocus = true
                 }
-                
+
                 if let controller = container.controllers.last {
                     if topHasOpaque {
                         controller.displayNode.accessibilityElementsHidden = true
@@ -1353,10 +1353,10 @@ open class NavigationController: UINavigationController, ContainableController, 
                     foundControllerInFocus = true
                     split.isInFocus = true
                 }
-                
+
                 var masterTopHasOpaque = topHasOpaque
                 var detailTopHasOpaque = topHasOpaque
-                
+
                 if let controller = split.masterControllers.last {
                     if masterTopHasOpaque {
                         controller.displayNode.accessibilityElementsHidden = true
@@ -1379,20 +1379,20 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-        
+
         self.isUpdatingContainers = false
-        
+
         if notifyGlobalOverlayControllersUpdated {
             self.internalGlobalOverlayControllersUpdated()
         }
-        
+
         self.updateSupportedOrientations?()
-        
+
         let updatedPrefersOnScreenNavigationHidden = self.collectPrefersOnScreenNavigationHidden()
         if initialPrefersOnScreenNavigationHidden != updatedPrefersOnScreenNavigationHidden {
             self.currentWindow?.invalidatePrefersOnScreenNavigationHidden()
         }
-        
+
         if let externalCompletion {
             if transition.isAnimated {
                 transition.attachAnimation(view: self.view, id: "updateContainers", completion: { _ in
@@ -1403,11 +1403,11 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     private func controllerRemoved(_ controller: ViewController) {
         self.filterController(controller, animated: false)
     }
-    
+
     private func scrollToTop(_ subject: NavigationSplitContainerScrollToTop) {
         if let _ = self.inCallStatusBar {
             self.inCallNavigate?()
@@ -1431,39 +1431,39 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public func updateToInterfaceOrientation(_ orientation: UIInterfaceOrientation) {
-        
+
     }
-    
+
     open override func loadView() {
         self._displayNode = NavigationControllerNode(controller: self)
-        
+
         self.view = self.displayNode.view
         self.view.clipsToBounds = true
         self.view.autoresizingMask = []
-        
+
         self.displayNode.backgroundColor = self.theme.emptyAreaColor
-        
+
         if #available(iOSApplicationExtension 11.0, iOS 11.0, *) {
             self.navigationBar.prefersLargeTitles = false
         }
         self.navigationBar.removeFromSuperview()
-        
+
         let globalScrollToTopNode = ScrollToTopNode(action: { [weak self] in
             self?.scrollToTop(.master)
         })
         self.displayNode.addSubnode(globalScrollToTopNode)
         self.globalScrollToTopNode = globalScrollToTopNode
-        
+
         let globalOverlayBelowKeyboardContainerParent = GlobalOverlayContainerParent()
         self.displayNode.addSubnode(globalOverlayBelowKeyboardContainerParent)
         self.globalOverlayBelowKeyboardContainerParent = globalOverlayBelowKeyboardContainerParent
-        
+
         let globalOverlayContainerParent = GlobalOverlayContainerParent()
         self.displayNode.addSubnode(globalOverlayContainerParent)
         self.globalOverlayContainerParent = globalOverlayContainerParent
-        
+
         if let inCallStatusBar = self.inCallStatusBar, inCallStatusBar.supernode == nil {
             if let globalScrollToTopNode = self.globalScrollToTopNode {
                 self.displayNode.insertSubnode(inCallStatusBar, belowSubnode: globalScrollToTopNode)
@@ -1472,23 +1472,23 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-        
+
     public func pushViewController(_ controller: ViewController) {
         self.pushViewController(controller, completion: {})
     }
-    
+
     public func pushViewController(_ controller: ViewController, animated: Bool = true, completion: @escaping () -> Void) {
         var controllers = self.viewControllers
         controllers.append(controller)
         self.setViewControllers(controllers, animated: animated, completion: completion)
     }
-        
+
     open override func pushViewController(_ viewController: UIViewController, animated: Bool) {
         var controllers = self.viewControllers
         controllers.append(viewController)
         self.setViewControllers(controllers, animated: animated)
     }
-    
+
     public func replaceTopController(_ controller: ViewController, animated: Bool, ready: Promise<Bool>? = nil) {
         ready?.set(.single(true))
         var controllers = self.viewControllers
@@ -1496,7 +1496,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         controllers.append(controller)
         self.setViewControllers(controllers, animated: animated)
     }
-    
+
     public func filterController(_ controller: ViewController, animated: Bool) {
         let controllers = self.viewControllers.filter({ $0 !== controller })
         if controllers.count != self.viewControllers.count {
@@ -1507,7 +1507,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             self.ignoreInputHeight = false
         }
     }
-    
+
     public func replaceController(_ controller: ViewController, with other: ViewController, animated: Bool) {
         var controllers = self._viewControllers
         for i in 0 ..< controllers.count {
@@ -1518,7 +1518,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         self.setViewControllers(controllers, animated: animated)
     }
-    
+
     public func replaceControllersAndPush(controllers: [UIViewController], controller: ViewController, animated: Bool, options: NavigationAnimationOptions = [], ready: ValuePromise<Bool>? = nil, completion: @escaping () -> Void = {}) {
         ready?.set(true)
         let action = { [weak self] in
@@ -1540,13 +1540,13 @@ open class NavigationController: UINavigationController, ContainableController, 
             action()
         }
     }
-    
+
     public func replaceControllers(controllers: [UIViewController], animated: Bool, options: NavigationAnimationOptions = [], ready: ValuePromise<Bool>? = nil, completion: @escaping () -> Void = {}) {
         ready?.set(true)
         self.setViewControllers(controllers, animated: animated)
         completion()
     }
-    
+
     public func replaceAllButRootController(_ controller: ViewController, animated: Bool, animationOptions: NavigationAnimationOptions = [], ready: ValuePromise<Bool>? = nil, completion: @escaping () -> Void = {}) {
         ready?.set(true)
         var controllers = self.viewControllers
@@ -1565,7 +1565,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         self.setViewControllers(controllers, animated: animated)
     }
-    
+
     override open func popToViewController(_ viewController: UIViewController, animated: Bool) -> [UIViewController]? {
         var poppedControllers: [UIViewController] = []
         var found = false
@@ -1588,7 +1588,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             return nil
         }
     }
-    
+
     open override func popViewController(animated: Bool) -> UIViewController? {
         var controller: UIViewController?
         var controllers = self.viewControllers
@@ -1599,11 +1599,11 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         return controller
     }
-    
+
     open override func setViewControllers(_ viewControllers: [UIViewController], animated: Bool) {
         self.setViewControllers(viewControllers, animated: animated, completion: {})
     }
-    
+
     public func setViewControllers(_ viewControllers: [UIViewController], animated: Bool, completion: @escaping () -> Void) {
         let requestedViewControllers = viewControllers
         var viewControllers: [UIViewController] = []
@@ -1614,7 +1614,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 assert(true)
             }
         }
-        
+
         for i in 0 ..< viewControllers.count {
             guard let controller = viewControllers[i] as? ViewController else {
                 continue
@@ -1626,7 +1626,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 var found = false
                 for previousIndex in (0 ..< self.viewControllers.count).reversed() {
                     let previousController = self.viewControllers[previousIndex]
-                    
+
                     if let previousController = previousController as? ViewController, let previousCustomNavigationDataSummary = previousController.customNavigationDataSummary {
                         controller.customNavigationDataSummary = customNavigationData.combine(summary: previousCustomNavigationDataSummary)
                         found = true
@@ -1638,7 +1638,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                 }
             }
         }
-        
+
         self._viewControllers = viewControllers.map { controller in
             let controller = controller as! ViewController
             controller.navigation_setNavigationController(self)
@@ -1654,22 +1654,22 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         self._viewControllersPromise.set(self.viewControllers)
     }
-        
+
     public func minimizeViewController(_ viewController: MinimizableController, topEdgeOffset: CGFloat? = nil, damping: CGFloat? = nil, velocity: CGFloat? = nil, beforeMaximize: @escaping (NavigationController, @escaping () -> Void) -> Void, setupContainer: (MinimizedContainer?) -> MinimizedContainer?, animated: Bool) {
         let transition: ContainedViewLayoutTransition = animated ? .animated(duration: 0.4, curve: .customSpring(damping: damping ?? 124.0, initialVelocity: velocity ?? 0.0)) : .immediate
-        
+
         let minimizedContainer = setupContainer(self.minimizedContainer)
         if self.minimizedContainer !== minimizedContainer {
             self.minimizedContainer?.removeFromSupernode()
             self.minimizedContainer = minimizedContainer
-            
+
             self.updateContainersNonReentrant(transition: transition)
         }
         viewController.isMinimized = true
         self.filterController(viewController, animated: true)
         minimizedContainer?.addController(viewController, topEdgeOffset: topEdgeOffset, beforeMaximize: beforeMaximize, transition: transition)
     }
-    
+
     private var isMaximizing = false
     public func maximizeViewController(_ viewController: MinimizableController, animated: Bool) {
         guard let minimizedContainer = self.minimizedContainer else {
@@ -1686,37 +1686,37 @@ open class NavigationController: UINavigationController, ContainableController, 
             var viewControllers = self.viewControllers
             viewControllers.append(viewController)
             self.setViewControllers(viewControllers, animated: false)
-            
+
             viewController.isMinimized = false
-            
+
             self.isMaximizing = false
-            
+
             if dismissed, let minimizedContainer = self.minimizedContainer {
                 self.minimizedContainer = nil
                 minimizedContainer.removeFromSupernode()
             }
         })
     }
-    
+
     public func dismissMinimizedControllers(animated: Bool) {
         guard let minimizedContainer = self.minimizedContainer else {
             return
         }
         self.minimizedContainer = nil
-        
+
         minimizedContainer.dismissAll(completion: { [weak minimizedContainer] in
             minimizedContainer?.removeFromSupernode()
         })
         self.updateContainersNonReentrant(transition: animated ? .animated(duration: 0.4, curve: .spring) : .immediate)
     }
-    
+
     public var _keepModalDismissProgress = false
     public func presentOverlay(controller: ViewController, inGlobal: Bool = false, blockInteraction: Bool = false) {
         let container = NavigationOverlayContainer(controller: controller, blocksInteractionUntilReady: blockInteraction, controllerRemoved: { [weak self] controller in
             guard let strongSelf = self else {
                 return
             }
-            
+
             for i in 0 ..< strongSelf.globalOverlayContainers.count {
                 let overlayContainer = strongSelf.globalOverlayContainers[i]
                 if overlayContainer.controller === controller {
@@ -1767,7 +1767,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             self.updateContainers(layout: layout, transition: .immediate)
         }
     }
-    
+
     func updateExternalStatusBarHidden(_ value: Bool, transition: ContainedViewLayoutTransition) {
         if self.currentStatusBarExternalHidden != value {
             self.currentStatusBarExternalHidden = value
@@ -1776,7 +1776,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public func updatePossibleControllerDropContent(content: NavigationControllerDropContent?) {
         if let rootContainer = self.rootContainer {
             switch rootContainer {
@@ -1789,7 +1789,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public func acceptPossibleControllerDropContent(content: NavigationControllerDropContent) -> Bool {
         if let rootContainer = self.rootContainer {
             switch rootContainer {
@@ -1805,11 +1805,11 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         return false
     }
-    
+
     override open func present(_ viewControllerToPresent: UIViewController, animated flag: Bool, completion: (() -> Void)? = nil) {
         preconditionFailure()
     }
-    
+
     override open func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
         if let presentingViewController = self.presentingViewController {
             presentingViewController.dismiss(animated: false, completion: nil)
@@ -1834,7 +1834,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public final var currentWindow: WindowHost? {
         if let window = self.view.window as? WindowHost {
             return window
@@ -1847,7 +1847,7 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         return nil
     }
-    
+
     private func scheduleLayoutTransitionRequest(_ transition: ContainedViewLayoutTransition) {
         let requestId = self.scheduledLayoutTransitionRequestId
         self.scheduledLayoutTransitionRequestId += 1
@@ -1862,13 +1862,13 @@ open class NavigationController: UINavigationController, ContainableController, 
         })
         self.view.setNeedsLayout()
     }
-    
+
     public func requestLayout(transition: ContainedViewLayoutTransition) {
         if self.isViewLoaded, let validLayout = self.validLayout {
             self.containerLayoutUpdated(validLayout, transition: transition)
         }
     }
-    
+
     public func setForceInCallStatusBar(_ forceInCallStatusBar: CallStatusBarNode?, transition: ContainedViewLayoutTransition = .animated(duration: 0.3, curve: .easeInOut)) {
         if let forceInCallStatusBar = forceInCallStatusBar {
             let inCallStatusBar: StatusBar
@@ -1881,7 +1881,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                     self?.scrollToTop(.master)
                 }
                 self.inCallStatusBar = inCallStatusBar
-                
+
                 var bottomOverlayContainer: NavigationOverlayContainer?
                 for overlayContainer in self.overlayContainers {
                     if overlayContainer.supernode != nil {
@@ -1889,7 +1889,7 @@ open class NavigationController: UINavigationController, ContainableController, 
                         break
                     }
                 }
-                
+
                 if self._displayNode != nil {
                     if let bottomOverlayContainer = bottomOverlayContainer {
                         self.displayNode.insertSubnode(inCallStatusBar, belowSubnode: bottomOverlayContainer)
@@ -1922,7 +1922,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public var overlayControllers: [ViewController] {
         return self.overlayContainers.compactMap { container in
             if container.isReady {
@@ -1932,7 +1932,7 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     public var globalOverlayControllers: [ViewController] {
         return self.globalOverlayContainers.compactMap { container in
             if container.isReady {
@@ -1942,16 +1942,16 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
     }
-    
+
     private func internalGlobalOverlayControllersUpdated() {
         self.globalOverlayControllersUpdated?()
         self.currentWindow?.invalidatePrefersOnScreenNavigationHidden()
     }
-    
+
     private func internalOverlayControllersUpdated() {
         self.currentWindow?.invalidatePrefersOnScreenNavigationHidden()
     }
-    
+
     private func collectPrefersOnScreenNavigationHidden() -> Bool {
         var hidden = false
         if let overlayController = self.topOverlayController {
@@ -1959,17 +1959,17 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
         return hidden
     }
-    
+
     private func notifyAccessibilityScreenChanged() {
         UIAccessibility.post(notification: UIAccessibility.Notification.screenChanged, argument: nil)
     }
-    
+
     public func updateRootContainerTransitionOffset(_ offset: CGFloat, transition: ContainedViewLayoutTransition) {
         guard let rootContainer = self.rootContainer, case let .flat(container) = rootContainer else {
             return
         }
         transition.updateTransform(node: container, transform: CGAffineTransformMakeTranslation(offset, 0.0))
-        
+
         if let minimizedContainer = self.minimizedContainer {
             transition.updateTransform(node: minimizedContainer, transform: CGAffineTransformMakeTranslation(offset, 0.0))
         }

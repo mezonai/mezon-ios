@@ -38,7 +38,7 @@ final class DirectMessagesViewController: ViewController {
         let interaction = DirectMessagesInteraction(
             onSelectDirectMessage: { [weak self] ch in
                 guard let self else { return }
-                let vc = ChatViewController(clanId: 0, channel: ch, context: self.context)
+                let vc = ChatViewController(clanId: 0, channel: ch, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(vc, animated: true)
             },
             onAddFriendTapped: {},
@@ -68,45 +68,142 @@ final class DirectMessagesViewController: ViewController {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
 
-    /// Mirrors RN: badgeService.incrementDm(channelId, 1, false) for incoming DM/group messages
-    @objc private func handleNewMessageReceived(_ notification: Notification) {
-        guard let channelId = notification.userInfo?["channelId"] as? Int64,
-              let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+    }
 
-        let senderId: String
-        if let s = notification.userInfo?["senderId"] as? String { senderId = s }
-        else if let n = notification.userInfo?["senderId"] as? Int64 { senderId = String(n) }
-        else { return }
+    @objc private func handleDirectMessagesThemeChange() {
+        guard isNodeLoaded else { return }
+        directMessagesNode.applyTheme()
+    }
 
-        let ts: UInt32
-        if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
-        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(t) }
-        else { ts = UInt32(Date().timeIntervalSince1970) }
-
-        guard clanId == 0 else { return }
-        guard senderId != context.currentUser?.id else { return }
-
-        var updated = false
-        for i in 0..<directMessages.count {
-            if directMessages[i].channelID == channelId {
-                directMessages[i].countMessUnread += 1
-                var header = directMessages[i].lastSentMessage
-                header.timestampSeconds = ts
-                directMessages[i].lastSentMessage = header
-                updated = true
-            }
+    @objc private func handleSocketStatusForDMBadges(_ notification: Notification) {
+        guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+        Task { @MainActor in
+            await self.applyDmListChannelBadgeCountFromSocket()
         }
-        if updated {
-            directMessages.sort { ch1, ch2 in
+    }
+
+
+    @MainActor
+    private func applyDmListChannelBadgeCountFromSocket() async {
+        guard context.account.socket.isConnected else { return }
+        guard !directMessages.isEmpty else { return }
+        do {
+            let rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: 0)
+            guard !rows.isEmpty else { return }
+            var updated = directMessages
+            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
+            updated.sort { ch1, ch2 in
                 let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
                 let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
                 return t1 > t2
             }
-            directMessagesPipe.putNext(directMessages)
-            needsReloadPipe.putNext(())
+            setDirectMessages(updated)
+            persistDmChannelListToPostbox()
+        } catch {
+            AppLogger.network.debug("[DM] ListChannelBadgeCount: \(error)")
         }
+    }
+
+    private static func int64UserInfo(_ value: Any?) -> Int64? {
+        if let n = value as? Int64 { return n }
+        if let n = value as? Int { return Int64(n) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
+
+    @objc private func handleNewMessageReceived(_ notification: Notification) {
+        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+              let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
+        guard clanId == 0 else { return }
+
+        let wsMessage: Mezon_Api_ChannelMessage? = {
+            guard let data = notification.userInfo?["serializedChannelMessage"] as? Data else { return nil }
+            return try? Mezon_Api_ChannelMessage(serializedBytes: data)
+        }()
+
+        var needsReload = false
+
+        if let m = wsMessage {
+            let isMutation = m.code == 1 || m.code == 2
+            let isDmOrGroup =
+                m.mode == MezonConstants.ChannelStreamMode.dm.rawValue
+                || m.mode == MezonConstants.ChannelStreamMode.group.rawValue
+            if isDmOrGroup, !isMutation, Self.applyUpdateDmLastSentMessage(m, to: &directMessages) {
+                needsReload = true
+            }
+        }
+
+        let senderId: String? = {
+            if let m = wsMessage { return String(m.senderID) }
+            let v = notification.userInfo?["senderId"]
+            if let s = v as? String { return s }
+            if let n = v as? Int64 { return String(n) }
+            if let n = v as? Int { return String(n) }
+            if let n = v as? NSNumber { return n.stringValue }
+            return nil
+        }()
+        let ts: UInt32 = {
+            if let m = wsMessage, m.createTimeSeconds > 0 { return m.createTimeSeconds }
+            if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { return t }
+            if let t = notification.userInfo?["timestampSeconds"] as? Int { return UInt32(t) }
+            return UInt32(Date().timeIntervalSince1970)
+        }()
+
+        if let senderId, senderId != context.currentUser?.id,
+           (notification.userInfo?["incrementDmBadge"] as? Bool) == true {
+            for i in 0..<directMessages.count where directMessages[i].channelID == channelId {
+                directMessages[i].countMessUnread += 1
+                if wsMessage == nil {
+                    var header = directMessages[i].lastSentMessage
+                    header.timestampSeconds = ts
+                    directMessages[i].lastSentMessage = header
+                }
+                needsReload = true
+            }
+        }
+
+        guard needsReload else { return }
+        directMessages.sort { ch1, ch2 in
+            let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
+            let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
+            return t1 > t2
+        }
+        directMessagesPipe.putNext(directMessages)
+        needsReloadPipe.putNext(())
+        persistDmChannelListToPostbox()
+    }
+
+
+    private static func lastSentHeader(from m: Mezon_Api_ChannelMessage) -> Mezon_Api_ChannelMessageHeader {
+        var h = Mezon_Api_ChannelMessageHeader()
+        h.id = m.messageID
+        h.timestampSeconds = m.createTimeSeconds
+        h.senderID = m.senderID
+        h.content = m.content
+        return h
+    }
+
+    @discardableResult
+    private static func applyUpdateDmLastSentMessage(_ m: Mezon_Api_ChannelMessage, to list: inout [Mezon_Api_ChannelDescription]) -> Bool {
+        let cid = m.channelID
+        guard let idx = list.firstIndex(where: { $0.channelID == cid }) else { return false }
+        list[idx].lastSentMessage = lastSentHeader(from: m)
+        return true
+    }
+
+    private func persistDmChannelListToPostbox() {
+        context.account.postbox.setPreferenceData(
+            key: PreferencesKeys.dmChannelList,
+            value: encodeDMChannelList(directMessages)
+        )
     }
 
     @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
@@ -129,6 +226,7 @@ final class DirectMessagesViewController: ViewController {
         if updated {
             directMessagesPipe.putNext(directMessages)
             needsReloadPipe.putNext(())
+            persistDmChannelListToPostbox()
         }
     }
 
@@ -161,7 +259,15 @@ final class DirectMessagesViewController: ViewController {
             guard let token = await self.context.getToken() else { self.setIsLoading(false); return }
             defer { self.setIsLoading(false) }
             do {
-                let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                if self.context.account.socket.isConnected {
+                    do {
+                        let badgeRows = try await self.context.account.socket.fetchListChannelBadgeCount(clanId: 0)
+                        ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
+                    } catch {
+                        AppLogger.network.debug("[DM] ListChannelBadgeCount after listDM: \(error)")
+                    }
+                }
                 let sorted = channels.sorted { ch1, ch2 in
                     let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
                     let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
@@ -169,10 +275,7 @@ final class DirectMessagesViewController: ViewController {
                 }
                 self.setDirectMessages(sorted)
                 self.setIsEmpty(sorted.isEmpty)
-                self.context.account.postbox.setPreferenceData(
-                    key: PreferencesKeys.dmChannelList,
-                    value: self.encodeDMChannelList(sorted)
-                )
+                self.persistDmChannelListToPostbox()
             } catch {
                 self.setErrorMessage(error.localizedDescription)
                 AppLogger.network.error("fetchDirectMessages: \(error)")

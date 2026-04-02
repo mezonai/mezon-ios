@@ -249,7 +249,7 @@ final class ReactionPillNode: ASDisplayNode {
         )
         addSubnode(countNode)
 
-        let url = MezonConfig.emojiImageURL(emojiId: reaction.emojiId)
+        let url = MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 32)
         if let url = url {
             emojiFallbackNode.isHidden = true
             loadEmojiImage(url: url)

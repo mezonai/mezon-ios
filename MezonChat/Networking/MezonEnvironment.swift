@@ -99,4 +99,14 @@ enum MezonEnvironment {
         return .prod
         #endif
     }()
+
+
+    private static func infoPlistString(_ key: String) -> String? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    static var tenorAPIKey: String? { infoPlistString("TENOR_API_KEY") }
+    static var tenorClientKey: String? { infoPlistString("TENOR_CLIENT_KEY") }
 }

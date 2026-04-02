@@ -58,15 +58,12 @@ final class SessionRefreshManager {
         onReady: @escaping () -> Void
     ) {
         Task { @MainActor in
-            print("[SessionRefreshManager] refreshOnAppLaunch started")
             var onReadyCalled = false
             func safeOnReady(source: String) {
                 guard !onReadyCalled else {
-                    print("[SessionRefreshManager] safeOnReady(\(source)) — already called, skip")
                     return
                 }
                 onReadyCalled = true
-                print("[SessionRefreshManager] safeOnReady(\(source)) — calling onReady()")
                 onReady()
             }
 
@@ -81,14 +78,12 @@ final class SessionRefreshManager {
             while retriesLeft > 0 {
                 do {
                     let newSession = try await refresh(session: session)
-                    print("[SessionRefreshManager] refresh SUCCESS")
                     onSuccess(newSession)
                     safeOnReady(source: "success")
                     return
                 } catch let error as MezonError {
                     retriesLeft -= 1
                     AppLogger.app.warning("Session refresh failed (retries left: \(retriesLeft)): \(error)")
-                    print("[SessionRefreshManager] refresh MezonError: \(error)")
 
                     if retriesLeft == 0 {
                         safeOnReady(source: "MezonError")
@@ -108,14 +103,12 @@ final class SessionRefreshManager {
                 } catch let error as SessionError {
                     retriesLeft -= 1
                     AppLogger.app.warning("Session refresh guard error: \(error)")
-                    print("[SessionRefreshManager] refresh SessionError: \(error)")
                     safeOnReady(source: "SessionError")
                     if retriesLeft == 0 { onExpired() }
                     return
                 } catch {
                     retriesLeft -= 1
                     AppLogger.app.warning("Unexpected refresh error: \(error)")
-                    print("[SessionRefreshManager] refresh unexpected error: \(error)")
                     safeOnReady(source: "catch")
                 }
             }

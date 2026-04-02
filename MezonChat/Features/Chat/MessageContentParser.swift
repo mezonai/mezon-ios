@@ -28,18 +28,25 @@ struct ParsedContent {
 
     var isOnlyEmoji: Bool {
         guard !tokens.isEmpty else { return false }
-        let allEmoji = tokens.allSatisfy {
+        let emojiTokens = tokens.filter {
             if case .emoji = $0.kind { return true }
             return false
         }
-        guard allEmoji else { return false }
-        var remaining = text
-        for token in tokens.sorted(by: { $0.start > $1.start }) {
-            let s = remaining.index(remaining.startIndex, offsetBy: token.start, limitedBy: remaining.endIndex) ?? remaining.endIndex
-            let e = remaining.index(remaining.startIndex, offsetBy: token.end, limitedBy: remaining.endIndex) ?? remaining.endIndex
-            if s < e { remaining.removeSubrange(s..<e) }
+        guard emojiTokens.count == tokens.count else { return false }
+        let len = text.utf16.count
+        var gaps: [String] = []
+        var cursor = 0
+        for token in emojiTokens.sorted(by: { $0.start < $1.start }) {
+            guard token.start >= 0, token.end <= len, token.start < token.end else { return false }
+            if cursor < token.start {
+                gaps.append(text.mezon_utf16Substring(from: cursor, to: token.start))
+            }
+            cursor = max(cursor, token.end)
         }
-        return remaining.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if cursor < len {
+            gaps.append(text.mezon_utf16Substring(from: cursor, to: len))
+        }
+        return gaps.allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 }
 
@@ -87,8 +94,9 @@ enum MessageContentParser {
         } else if !mentionsData.isEmpty {
             let mentionTokens = parseMentionsFromProto(mentionsData)
             let validMentions = mentionTokens.filter { token in
-                let idx = text.index(text.startIndex, offsetBy: token.start, limitedBy: text.endIndex)
-                guard let i = idx, i < text.endIndex else { return false }
+                guard token.start >= 0, token.end <= text.utf16.count else { return false }
+                let i = String.Index(utf16Offset: token.start, in: text)
+                guard i < text.endIndex else { return false }
                 return text[i] == "@"
             }
             tokens.append(contentsOf: validMentions)
@@ -104,7 +112,7 @@ enum MessageContentParser {
 
         tokens.sort { $0.start < $1.start }
 
-        let maxLen = text.count
+        let maxLen = text.utf16.count
         tokens = tokens.filter { $0.start >= 0 && $0.end <= maxLen && $0.start < $0.end }
 
         return ParsedContent(text: text, tokens: tokens, embeds: embeds)

@@ -21,13 +21,15 @@ final class NetworkMonitor {
             let connected = path.status == .satisfied
             DispatchQueue.main.async {
                 guard let self else { return }
-                guard self.isConnected != connected else { return }
+                let changed = self.isConnected != connected
                 self.isConnected = connected
-                NotificationCenter.default.post(
-                    name: NetworkMonitor.statusDidChangeNotification,
-                    object: nil,
-                    userInfo: ["isConnected": connected]
-                )
+                if changed {
+                    NotificationCenter.default.post(
+                        name: NetworkMonitor.statusDidChangeNotification,
+                        object: nil,
+                        userInfo: ["isConnected": connected]
+                    )
+                }
             }
         }
         newMonitor.start(queue: queue)

@@ -133,8 +133,6 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         self.onDimTapped = onDimTapped
         super.init()
 
-        print("[MemberProfile] id=\(user.id) username=\(user.username) displayName=\(user.displayName) createTimeSeconds=\(user.createTimeSeconds) updateTimeSeconds=\(user.updateTimeSeconds) online=\(user.online) avatarURL=\(user.avatarURL)")
-
         let t = UIColor.theme
 
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
@@ -257,8 +255,8 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
     @objc private func dimTapped() { onDimTapped() }
     private func messageTapped() { onSendMessageTapped() }
-    private func callTapped() { /* TODO: call action */ }
-    private func addFriendTapped() { /* TODO: add friend action */ }
+    private func callTapped() {  }
+    private func addFriendTapped() {  }
 
     private var panStartY: CGFloat = 0
 
@@ -382,7 +380,6 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
         loadingIndicator.center = CGPoint(x: screenW / 2, y: containerHeight / 2)
     }
-
 
 
     func animateIn() {

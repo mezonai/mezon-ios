@@ -16,7 +16,7 @@ final class MessageTopicNode: ASDisplayNode {
     func configure(topicData: TopicData) {
         let t = UIColor.theme
 
-        containerNode.backgroundColor = t.secondary
+        containerNode.backgroundColor = t.border
         containerNode.cornerRadius = 6
         containerNode.clipsToBounds = true
 

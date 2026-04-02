@@ -35,7 +35,7 @@ final class ChannelItemCellNode: ASCellNode {
         let unread = channel.countMessUnread
 
         let iconColor =
-            cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+            isUnread ? t.channelUnread : t.channelNormal
         if chType.isSystemImage {
             var iconName = chType.icon
             if chType == .text && channel.channelPrivate == 1 {
@@ -62,7 +62,7 @@ final class ChannelItemCellNode: ASCellNode {
 
         let nameStr = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
         let nameColor =
-            cellSelected ? t.channelUnread : (isUnread ? t.channelUnread : t.channelNormal)
+            isUnread ? t.channelUnread : t.channelNormal
         let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
@@ -95,7 +95,7 @@ final class ChannelItemCellNode: ASCellNode {
 
         unreadDot.backgroundColor = .white
         unreadDot.cornerRadius = 3.swh
-        unreadDot.isHidden = !(unread > 0 && !cellSelected)
+        unreadDot.isHidden = !(isUnread && !cellSelected)
 
         selectionNode.isHidden = !cellSelected
         let theme = ThemeManager.shared.current
@@ -161,8 +161,19 @@ final class ChannelItemCellNode: ASCellNode {
 
         inset.style.minHeight = ASDimensionMake(36.sh)
         let contentWithBackground = ASBackgroundLayoutSpec(child: inset, background: selectionNode)
+
+        let finalContent: ASLayoutElement
+        if !unreadDot.isHidden {
+            unreadDot.style.layoutPosition = CGPoint(x: -4.sw, y: 15.sh)
+            let absDot = ASAbsoluteLayoutSpec(children: [unreadDot])
+            let overlay = ASOverlayLayoutSpec(child: contentWithBackground, overlay: absDot)
+            finalContent = overlay
+        } else {
+            finalContent = contentWithBackground
+        }
+
         return ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw),
-            child: contentWithBackground)
+            child: finalContent)
     }
 }

@@ -72,7 +72,7 @@ final class MezonSocket: NSObject {
     private var urlSession: URLSession?
     private var token: String?
     private var wsHostOverride: String?
-    private var isConnected = false
+    private(set) var isConnected = false
     private var reconnectAttempts = 0
     private var hasTriedRefreshSinceConnect = false
     private let maxReconnectAttempts = 5
@@ -174,10 +174,25 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
-    func sendTyping(clanId: Int64, channelId: Int64) {
+    func sendMessageTyping(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        senderId: Int64,
+        senderUsername: String,
+        senderDisplayName: String,
+        topicId: Int64
+    ) {
         var typing = Mezon_Realtime_MessageTypingEvent()
         typing.clanID = clanId
         typing.channelID = channelId
+        typing.mode = mode
+        typing.isPublic = isPublic
+        typing.senderID = senderId
+        typing.senderUsername = senderUsername
+        typing.senderDisplayName = senderDisplayName.isEmpty ? senderUsername : senderDisplayName
+        typing.topicID = topicId
         var envelope = Mezon_Realtime_Envelope()
         envelope.messageTypingEvent = typing
         send(envelope)
@@ -255,160 +270,113 @@ final class MezonSocket: NSObject {
     private func routeEnvelope(_ envelope: Mezon_Realtime_Envelope) {
         switch envelope.message {
         case .channelMessage(let m):
-            AppLogger.app.info("[MezonSocket] channelMessage clanId=\(m.clanID) channelId=\(m.channelID)")
             onMessageReceived?(m)
+        case .channelMessageSend:
+            break
+        case .channelMessageUpdate:
+            break
         case .channelMessageRemove(let m):
             onMessageRemoved?(m)
-            AppLogger.app.debug("[MezonSocket] channelMessageRemove channelId=\(m.channelID) messageId=\(m.messageID)")
         case .messageTypingEvent(let m):
             onTyping?(m)
         case .messageReactionEvent(let m):
             onReaction?(m)
-            AppLogger.app.debug("[MezonSocket] reaction messageId=\(m.messageID)")
         case .channelPresenceEvent(let m):
             onPresence?(m)
-            AppLogger.app.debug("[MezonSocket] channelPresence joins=\(m.joins.count) leaves=\(m.leaves.count)")
         case .notifications(let m):
             m.notifications.forEach { onNotification?($0) }
-            AppLogger.app.debug("[MezonSocket] notification count=\(m.notifications.count)")
         case .statusPresenceEvent(let m):
             onStatusPresence?(m)
-            AppLogger.app.debug("[MezonSocket] statusPresence joins=\(m.joins.count) leaves=\(m.leaves.count)")
         case .lastSeenMessageEvent(let m):
             onLastSeen?(m)
-            AppLogger.app.debug("[MezonSocket] lastSeen channelId=\(m.channelID)")
         case .lastPinMessageEvent(let m):
             onLastPin?(m)
-            AppLogger.app.debug("[MezonSocket] lastPin channelId=\(m.channelID)")
         case .unpinMessageEvent(let m):
             onUnpinMessage?(m)
-            AppLogger.app.debug("[MezonSocket] unpin channelId=\(m.channelID)")
         case .messageButtonClicked(let m):
             onMessageButton?(m)
-            AppLogger.app.debug("[MezonSocket] messageButtonClicked messageId=\(m.messageID)")
         case .channelCreatedEvent(let m):
             onChannelCreated?(m)
-            AppLogger.app.debug("[MezonSocket] channelCreated clanId=\(m.clanID) channelId=\(m.channelID)")
         case .channelDeletedEvent(let m):
             onChannelDeleted?(m)
-            AppLogger.app.debug("[MezonSocket] channelDeleted clanId=\(m.clanID) channelId=\(m.channelID)")
         case .channelUpdatedEvent(let m):
             onChannelUpdated?(m)
-            AppLogger.app.debug("[MezonSocket] channelUpdated channelId=\(m.channelID)")
         case .categoryEvent(let m):
             onCategoryEvent?(m)
-            AppLogger.app.debug("[MezonSocket] categoryEvent clanId=\(m.clanID)")
         case .notiUserChannel(let m):
             onNotiUserChannel?(m)
-            AppLogger.app.debug("[MezonSocket] notiUserChannel")
         case .userChannelAddedEvent(let m):
             onUserChannelAdded?(m)
-            AppLogger.app.debug("[MezonSocket] userChannelAdded clanId=\(m.clanID)")
         case .userChannelRemovedEvent(let m):
             onUserChannelRemoved?(m)
-            AppLogger.app.debug("[MezonSocket] userChannelRemoved channelId=\(m.channelID)")
         case .unmuteEvent(let m):
             onMarkAsRead?(m)
-            AppLogger.app.debug("[MezonSocket] unmuteEvent channelId=\(m.channelID)")
         case .clanUpdatedEvent(let m):
             onClanUpdated?(m)
-            AppLogger.app.debug("[MezonSocket] clanUpdated clanId=\(m.clanID)")
         case .clanProfileUpdatedEvent(let m):
             onClanProfileUpdated?(m)
-            AppLogger.app.debug("[MezonSocket] clanProfileUpdated clanId=\(m.clanID)")
         case .clanDeletedEvent(let m):
             onClanDeleted?(m)
-            AppLogger.app.debug("[MezonSocket] clanDeleted clanId=\(m.clanID)")
         case .userClanRemovedEvent(let m):
             onUserClanRemoved?(m)
-            AppLogger.app.debug("[MezonSocket] userClanRemoved clanId=\(m.clanID)")
         case .addClanUserEvent(let m):
             onUserClanAdded?(m)
-            AppLogger.app.debug("[MezonSocket] addClanUser clanId=\(m.clanID)")
         case .voiceJoinedEvent(let m):
             onVoiceJoined?(m)
-            AppLogger.app.debug("[MezonSocket] voiceJoined clanId=\(m.clanID)")
         case .voiceLeavedEvent(let m):
             onVoiceLeaved?(m)
-            AppLogger.app.debug("[MezonSocket] voiceLeaved clanId=\(m.clanID)")
         case .voiceEndedEvent(let m):
             onVoiceEnded?(m)
-            AppLogger.app.debug("[MezonSocket] voiceEnded voiceChannelId=\(m.voiceChannelID)")
         case .streamingJoinedEvent(let m):
             onStreamingJoined?(m)
-            AppLogger.app.debug("[MezonSocket] streamingJoined streamingChannelId=\(m.streamingChannelID)")
         case .streamingLeavedEvent(let m):
             onStreamingLeaved?(m)
-            AppLogger.app.debug("[MezonSocket] streamingLeaved clanId=\(m.clanID)")
         case .webrtcSignalingFwd(let m):
             onWebRTC?(m)
-            AppLogger.app.debug("[MezonSocket] webrtcSignaling receiverId=\(m.receiverID)")
         case .customStatusEvent(let m):
             onCustomStatus?(m)
-            AppLogger.app.debug("[MezonSocket] customStatus userId=\(m.userID)")
         case .userStatusEvent(let m):
             onUserStatus?(m)
-            AppLogger.app.debug("[MezonSocket] userStatus userId=\(m.userID)")
         case .userProfileUpdatedEvent(let m):
             onUserProfileUpdated?(m)
-            AppLogger.app.debug("[MezonSocket] userProfileUpdated userId=\(m.userID)")
         case .removeFriend(let m):
             onRemoveFriend?(m)
-            AppLogger.app.debug("[MezonSocket] removeFriend userId=\(m.userID)")
         case .blockFriend(let m):
             onBlockFriend?(m)
-            AppLogger.app.debug("[MezonSocket] blockFriend userId=\(m.userID)")
         case .tokenSentEvent(let m):
             onTokenSent?(m)
-            AppLogger.app.debug("[MezonSocket] tokenSent amount=\(m.amount)")
         case .giveCoffeeEvent(let m):
             onGiveCoffee?(m)
-            AppLogger.app.debug("[MezonSocket] giveCoffee senderId=\(m.senderID)")
         case .roleEvent(let m):
             onRoleEvent?(m)
-            AppLogger.app.debug("[MezonSocket] roleEvent userId=\(m.userID)")
         case .roleAssignEvent(let m):
             onRoleAssign?(m)
-            AppLogger.app.debug("[MezonSocket] roleAssign clanId=\(m.clanID)")
         case .permissionSetEvent(let m):
             onPermissionSet?(m)
-            AppLogger.app.debug("[MezonSocket] permissionSet channelId=\(m.channelID)")
         case .permissionChangedEvent(let m):
             onPermissionChanged?(m)
-            AppLogger.app.debug("[MezonSocket] permissionChanged channelId=\(m.channelID)")
         case .stickerCreateEvent(let m):
             onStickerCreated?(m)
-            AppLogger.app.debug("[MezonSocket] stickerCreate clanId=\(m.clanID)")
         case .stickerUpdateEvent(let m):
             onStickerUpdated?(m)
-            AppLogger.app.debug("[MezonSocket] stickerUpdate stickerID=\(m.stickerID)")
         case .stickerDeleteEvent(let m):
             onStickerDeleted?(m)
-            AppLogger.app.debug("[MezonSocket] stickerDelete stickerID=\(m.stickerID)")
         case .eventEmoji(let m):
             onEmojiEvent?(m)
-            AppLogger.app.debug("[MezonSocket] emojiEvent clanId=\(m.clanID)")
         case .canvasEvent(let m):
             onCanvasEvent?(m)
-            AppLogger.app.debug("[MezonSocket] canvasEvent channelId=\(m.channelID)")
         case .webhookEvent(let m):
             onWebhookEvent?(m)
-            AppLogger.app.debug("[MezonSocket] webhookEvent name=\(m.webhookName)")
         case .sdTopicEvent(let m):
             onSdTopicEvent?(m)
-            AppLogger.app.debug("[MezonSocket] sdTopicEvent channelId=\(m.channelID)")
         case .ping:
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()
             send(pong)
-            AppLogger.app.debug("[MezonSocket] ping → pong")
         case .listDataSocket(let m):
             let cid = envelope.cid
             if let cb = pendingDataSocketCallbacks.removeValue(forKey: cid) {
                 cb(m)
-                AppLogger.app.debug("[MezonSocket] listDataSocket response cid=\(cid) apiName=\(m.apiName)")
-            } else {
-                AppLogger.app.debug("[MezonSocket] listDataSocket no pending callback for cid=\(cid)")
             }
         default:
             break
@@ -429,7 +397,6 @@ final class MezonSocket: NSObject {
             envelope.cid = id
             envelope.listDataSocket = request
             send(envelope)
-            AppLogger.app.info("[MezonSocket] listDataSocket sent cid=\(id) apiName=\(request.apiName)")
 
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
@@ -450,10 +417,8 @@ final class MezonSocket: NSObject {
         let useRefresh = tokenProvider != nil && !hasTriedRefreshSinceConnect
         if useRefresh {
             hasTriedRefreshSinceConnect = true
-            AppLogger.app.info("MezonSocket reconnecting with refreshed token (attempt \(self.reconnectAttempts))")
         }
         let delay = Double(min(reconnectAttempts * 2, 30))
-        AppLogger.app.info("MezonSocket reconnecting in \(delay)s (attempt \(self.reconnectAttempts))")
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor in
                 await self?.performReconnect(useTokenRefresh: useRefresh)
@@ -469,7 +434,6 @@ final class MezonSocket: NSObject {
             do {
                 tokenToUse = try await provider()
                 reconnectAttempts = 0
-                AppLogger.app.info("MezonSocket using fresh token from tokenProvider")
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, code == 401 || code == 403 {
                     AppLogger.app.warning("MezonSocket token refresh failed with \(code) — session expired")
@@ -488,6 +452,31 @@ final class MezonSocket: NSObject {
         connect(token: token, wsHostOverride: wsHostOverride)
         onReconnect?()
     }
+
+    func fetchListChannelBadgeCount(clanId: Int64) async throws -> [Mezon_Api_ChannelDescription] {
+        guard isConnected else {
+            throw MezonError.socketError("Socket not connected")
+        }
+        var socketReq = Mezon_Realtime_ListDataSocket()
+        socketReq.apiName = "ListChannelBadgeCount"
+        var inner = Mezon_Api_ListChannelBadgeCountRequest()
+        inner.clanID = clanId
+        socketReq.listChannelBadgeCountReq = inner
+        let response = try await listDataSocket(socketReq)
+        guard response.hasChannelBadgeCount else { return [] }
+        return response.channelBadgeCount.channeldesc
+    }
+
+    func fetchListClanBadgeCount() async throws -> [Mezon_Api_ClanBadgeCount] {
+        guard isConnected else {
+            throw MezonError.socketError("Socket not connected")
+        }
+        var socketReq = Mezon_Realtime_ListDataSocket()
+        socketReq.apiName = "ListClanBadgeCount"
+        let response = try await listDataSocket(socketReq)
+        guard response.hasClanBadgeCount else { return [] }
+        return response.clanBadgeCount.listBadge
+    }
 }
 
 extension MezonSocket: URLSessionWebSocketDelegate {
@@ -500,9 +489,8 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.isConnected = true
             self.reconnectAttempts = 0
             self.hasTriedRefreshSinceConnect = false
-            AppLogger.app.info("MezonSocket connected")
-            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
             self.onConnected?()
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
         }
     }
 
@@ -516,11 +504,53 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.isConnected = false
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
             self.onDisconnect?()
-            AppLogger.app.info("MezonSocket disconnected (code: \(closeCode.rawValue))")
 
             if closeCode != .normalClosure {
                 self.scheduleReconnect()
             }
+        }
+    }
+}
+
+enum ChannelUnreadBadgeSync {
+    static func mergeSocketBadgeRows(into channels: inout [Mezon_Api_ChannelDescription], badgeRows: [Mezon_Api_ChannelDescription]) {
+        guard !badgeRows.isEmpty else { return }
+        var byId: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for row in badgeRows {
+            byId[row.channelID] = row
+        }
+        for i in channels.indices {
+            guard let b = byId[channels[i].channelID] else { continue }
+            channels[i].countMessUnread = b.countMessUnread
+            if b.hasLastSeenMessage {
+                channels[i].lastSeenMessage = b.lastSeenMessage
+            }
+            if b.hasLastSentMessage {
+                var inc = b.lastSentMessage
+                if channels[i].hasLastSentMessage {
+                    let ex = channels[i].lastSentMessage
+                    if inc.content.isEmpty, !ex.content.isEmpty {
+                        inc.content = ex.content
+                        if inc.senderID == 0 { inc.senderID = ex.senderID }
+                        if inc.id == 0 { inc.id = ex.id }
+                    }
+                    inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
+                }
+                channels[i].lastSentMessage = inc
+            }
+        }
+    }
+
+    static func applyClanBadgeRows(to clans: inout [Mezon_Api_ClanDesc], rows: [Mezon_Api_ClanBadgeCount]) {
+        guard !rows.isEmpty else { return }
+        var byId: [Int64: Mezon_Api_ClanBadgeCount] = [:]
+        for r in rows {
+            byId[r.clanID] = r
+        }
+        for i in clans.indices {
+            guard let row = byId[clans[i].clanID] else { continue }
+            clans[i].badgeCount = row.badge
+            clans[i].hasUnreadMessage_p = row.hasUnread_p
         }
     }
 }

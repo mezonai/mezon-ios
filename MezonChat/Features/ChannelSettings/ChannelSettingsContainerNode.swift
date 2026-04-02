@@ -33,7 +33,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private func setupUI() {
         let t = UIColor.theme
 
-        // Header
+
         let header = UIView()
         view.addSubview(header)
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -81,7 +81,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             saveBtn.centerYAnchor.constraint(equalTo: header.centerYAnchor),
         ])
 
-        // Content
+
         scrollView.showsVerticalScrollIndicator = false
         view.addSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -104,11 +104,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             stackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -32.sw),
         ])
 
-        // Inputs
+
         stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.name), input: nameField))
         stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.topic), input: topicView, isTextArea: true))
 
-        // Actions Group 1
+
         let group1 = createGroup(actions: [
             .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog"),
             .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission"),
@@ -124,13 +124,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         footerLabel.numberOfLines = 0
         stackView.addArrangedSubview(footerLabel)
 
-        // Actions Group 2
+
         let group2 = createGroup(actions: [
             .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon"),
         ])
         stackView.addArrangedSubview(group2)
 
-        // Delete Row
+
         let deleteBtn = createActionRow(title: L(L10n.Channel.delete), icon: "ChannelSetting/DeleteIcon", isDestructive: true)
         deleteBtn.backgroundColor = .mezonBorder
         deleteBtn.layer.cornerRadius = 12
@@ -162,7 +162,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             tv.textContainerInset = UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
             tv.textColor = UIColor.theme.textStrong
             tv.font = .systemFont(ofSize: 16.sf)
-            tv.heightAnchor.constraint(equalToConstant: 200.sh).isActive = true
+            tv.heightAnchor.constraint(equalToConstant: 150.sh).isActive = true
             tv.isScrollEnabled = false
         }
         v.addArrangedSubview(input)
@@ -203,7 +203,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.border
+                sep.backgroundColor = UIColor.theme.tertiary
                 stack.addArrangedSubview(sep)
                 sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
             }
@@ -216,7 +216,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         v.backgroundColor = .clear
 
         let iconView = UIImageView()
-        iconView.image = UIImage(named: icon)?.withRenderingMode(.alwaysOriginal)
+        iconView.image = UIImage(named: icon)?.withRenderingMode(isDestructive ? .alwaysTemplate : .alwaysOriginal)
         iconView.contentMode = .scaleAspectFit
         iconView.tintColor = isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(iconView)
@@ -230,7 +230,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         let l = UILabel()
         l.text = title
-        l.font = .systemFont(ofSize: 16.sf, weight: .medium)
+        l.font = .systemFont(ofSize: 14.sf, weight: .medium)
         l.textColor = isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(l)
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -247,12 +247,12 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             NSLayoutConstraint.activate([
                 arrow.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16.sw),
                 arrow.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-                arrow.widthAnchor.constraint(equalToConstant: 12.swh),
-                arrow.heightAnchor.constraint(equalToConstant: 12.swh),
+                arrow.widthAnchor.constraint(equalToConstant: 16.swh),
+                arrow.heightAnchor.constraint(equalToConstant: 16.swh),
             ])
         }
 
-        v.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
+        v.heightAnchor.constraint(equalToConstant: 60.sh).isActive = true
         return v
     }
 

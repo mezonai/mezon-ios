@@ -131,21 +131,10 @@ extension MezonEngine {
             }
         }
 
+
         private func fetchBadgeCount(clanId: Int64, token: String) async {
-            do {
-                var req = Mezon_Realtime_ListDataSocket()
-                req.apiName = "ListClanBadgeCount"
-                req.listClanBadgeCountReq.clanID = clanId
-                let result = try await engine.account.socket.listDataSocket(req)
-                let response = result.clanBadgeCount
-                var count = response.badgeCount.littleEndian
-                let data = withUnsafeBytes(of: &count) { Data($0) }
-                postbox.setPreferenceData(key: PreferencesKeys.clanBadgeCount(clanId: clanId), value: data)
-                clanBadgeCountUpdated.putNext((clanId: clanId, count: response.badgeCount))
-                AppLogger.network.debug("[ClanData] badge count for clan \(clanId): \(response.badgeCount)")
-            } catch {
-                AppLogger.network.warning("[ClanData] fetchBadgeCount failed: \(error)")
-            }
+
+
         }
 
         private func fetchDefaultNotification(clanId: Int64, token: String) async {
@@ -173,7 +162,6 @@ extension MezonEngine {
             }
         }
 
-        // MARK: - Read from Postbox (cached data)
 
         func getClanUsers(clanId: Int64) -> Mezon_Api_ClanUserList? {
             guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)) else { return nil }
@@ -219,6 +207,14 @@ extension MezonEngine {
         func getAllChannelsByUser() -> Mezon_Api_ChannelDescList? {
             guard let data = postbox.getPreferenceData(key: PreferencesKeys.allChannelsByUser) else { return nil }
             return try? Mezon_Api_ChannelDescList(serializedBytes: data)
+        }
+
+        func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
+            try await network.getInviteInfo(code: code, token: token)
+        }
+
+        func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
+            try await network.joinClanWithInvite(code: code, token: token)
         }
     }
 }

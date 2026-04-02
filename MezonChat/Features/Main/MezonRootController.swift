@@ -4,6 +4,7 @@ import AsyncDisplayKit
 final class MezonRootController: NavigationController {
     private let context: AccountContext
     private static let tabBarBundle = Bundle.main
+    private let navigationDisposable = MetaDisposable()
 
     private(set) var rootTabController: TabBarController?
     private(set) var homeController: HomeViewController?
@@ -78,7 +79,271 @@ final class MezonRootController: NavigationController {
         self.rootTabController = tabBarController
 
         pushViewController(tabBarController, animated: false)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleQRSelectClanRoot(_:)), name: .mezonQRSelectClan, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
+
+        processPendingNavigation()
     }
+
+    private func processPendingNavigation() {
+        guard var pending = AppDelegate.pendingNavigation else { return }
+        AppDelegate.pendingNavigation = nil
+        if pending["navigationInstanceId"] == nil {
+            pending["navigationInstanceId"] = UUID().uuidString
+        }
+
+        if let clanIdStr = pending["clanId"] as? String, let clanId = Int64(clanIdStr), clanId != 0 {
+            let isDM = pending["isDM"] as? Bool ?? false
+            if !isDM {
+                context.currentClanId = clanId
+                AppLogger.network.info("[FCM] processPendingNavigation: pre-set currentClanId=\(clanId) for socket join")
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await self.context.waitForSessionReady()
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+                _ = await group.next()
+                group.cancelAll()
+            }
+            if let sid = pending["navigationInstanceId"] as? String,
+               sid == AppDelegate.lastHandledNavigationInstanceId {
+                AppLogger.network.info("[FCM] processPendingNavigation: skip delayed post, already handled instance \(sid)")
+                return
+            }
+            NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
+        }
+    }
+
+
+    @objc private func handleQRSelectClanRoot(_ notification: Notification) {
+        rootTabController?.selectedIndex = 0
+        popToTabBarController()
+    }
+
+    @objc private func handleQRNavigateToDM(_ notification: Notification) {
+        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        let title = notification.userInfo?["title"] as? String
+        navigateToDM(channelIdStr: channelIdStr, title: title)
+    }
+
+    @objc private func handleNavigateToChannel(_ notification: Notification) {
+        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        AppDelegate.recordNavigationInstanceHandled(userInfo: notification.userInfo)
+        let clanIdStr = notification.userInfo?["clanId"] as? String
+        let isDM = notification.userInfo?["isDM"] as? Bool ?? false
+        let title = notification.userInfo?["title"] as? String
+
+        AppDelegate.pendingNavigation = nil
+
+        if isDM {
+            navigateToDM(channelIdStr: channelIdStr, title: title)
+        } else {
+            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+        }
+    }
+
+    private func isChatAlreadyVisible(channelId: Int64) -> Bool {
+        return viewControllers.contains(where: { vc in
+            guard let chatVC = vc as? ChatViewController else { return false }
+            return chatVC.channel.channelID == channelId
+        })
+    }
+
+    private func popToTabBarController() {
+        if let tabBarVC = viewControllers.first(where: { $0 is TabBarController }) {
+            popToViewController(tabBarVC, animated: false)
+        }
+    }
+
+    private func navigateToDM(channelIdStr: String, title: String?) {
+        guard let channelIdInt = Int64(channelIdStr) else { return }
+        if isChatAlreadyVisible(channelId: channelIdInt) { return }
+
+        popToTabBarController()
+
+        let resolvedChannel: Mezon_Api_ChannelDescription = {
+            if let found = directMessagesController?.directMessages.first(where: { $0.channelID == channelIdInt }) {
+                return found
+            }
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channelIdInt) {
+                return cached
+            }
+            var minimal = Mezon_Api_ChannelDescription()
+            minimal.channelID = channelIdInt
+            minimal.type = MezonConstants.ChannelType.group.rawValue
+            return minimal
+        }()
+
+        pushViewController(ChatViewController(clanId: 0, channel: resolvedChannel, context: context), animated: false)
+
+        Task { @MainActor [weak self] in
+            guard let self, let token = await self.context.getToken() else { return }
+            do {
+                _ = try await self.context.account.network.listDirectMessageChannels(token: token)
+                self.directMessagesController?.fetchDirectMessages()
+            } catch {
+                AppLogger.network.error("[FCM] Failed to fetch DM channels in background: \(error)")
+            }
+        }
+    }
+
+    private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
+        guard let channelIdInt = Int64(channelIdStr) else { return }
+        if isChatAlreadyVisible(channelId: channelIdInt) { return }
+
+        rootTabController?.selectedIndex = 0
+
+        popToTabBarController()
+
+        guard let homeVC = homeController else { return }
+
+        let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
+
+        if let (cachedClanId, cachedChannel) = context.account.postbox.getChannelDescription(channelId: channelIdInt) {
+            let resolvedClanId = notificationClanId ?? cachedClanId
+            switchClanIfNeeded(homeVC: homeVC, toClanId: resolvedClanId)
+            homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            var parentName: String?
+            if cachedChannel.parentID != 0 {
+                parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == cachedChannel.parentID })?.channelLabel
+            }
+            let chatVC = ChatViewController(clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName)
+            pushViewController(chatVC, animated: false)
+            fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
+            return
+        }
+
+        if let ch = homeVC.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
+            let resolvedClanId = notificationClanId ?? (ch.clanID != 0 ? ch.clanID : homeVC.channelListVC.clanId)
+            homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            var parentName: String?
+            if ch.parentID != 0 {
+                parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
+            }
+            let chatVC = ChatViewController(clanId: resolvedClanId, channel: ch, context: context, parentName: parentName)
+            pushViewController(chatVC, animated: false)
+            return
+        }
+
+        let targetClanId: Int64 = notificationClanId ?? homeVC.channelListVC.clanId
+
+        if let notificationClanId, notificationClanId != homeVC.clanListVC.selectedClanId,
+           let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == notificationClanId }) {
+            homeVC.clanListVC.select(clan: clan)
+            homeVC.channelListVC.configure(clanId: notificationClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
+
+            let loaded = homeVC.channelListVC.channelsLoadedSignal
+                |> filter { $0 }
+                |> take(1)
+                |> timeout(5.0, queue: Queue.mainQueue(), alternate: .single(true))
+                |> deliverOnMainQueue
+
+            navigationDisposable.set(loaded.start(next: { [weak self] _ in
+                guard let self, let homeVC = self.homeController else { return }
+                if self.isChatAlreadyVisible(channelId: channelIdInt) { return }
+
+                if let ch = homeVC.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
+                    homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+                    var parentName: String?
+                    if ch.parentID != 0 {
+                        parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
+                    }
+                    let chatVC = ChatViewController(clanId: targetClanId, channel: ch, context: self.context, parentName: parentName)
+                    self.pushViewController(chatVC, animated: false)
+                } else {
+                    homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+                    var minimal = Mezon_Api_ChannelDescription()
+                    minimal.channelID = channelIdInt
+                    minimal.clanID = targetClanId
+                    let chatVC = ChatViewController(clanId: targetClanId, channel: minimal, context: self.context)
+                    self.pushViewController(chatVC, animated: false)
+                }
+            }))
+        } else {
+
+            switchClanIfNeeded(homeVC: homeVC, toClanId: targetClanId)
+            homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            var minimal = Mezon_Api_ChannelDescription()
+            minimal.channelID = channelIdInt
+            minimal.clanID = targetClanId
+            let chatVC = ChatViewController(clanId: targetClanId, channel: minimal, context: self.context)
+            pushViewController(chatVC, animated: false)
+            fetchClanChannelsInBackground(clanId: targetClanId, selectChannelId: channelIdInt)
+        }
+    }
+
+    private func switchClanIfNeeded(homeVC: HomeViewController, toClanId: Int64) {
+        guard toClanId != 0, toClanId != homeVC.clanListVC.selectedClanId else { return }
+        if let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == toClanId }) {
+            homeVC.clanListVC.select(clan: clan)
+            homeVC.channelListVC.configure(clanId: toClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
+        } else {
+
+
+            context.currentClanId = toClanId
+
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                for _ in 0..<50 {
+                    if self.context.account.socket.isConnected { break }
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                }
+                if self.context.account.socket.isConnected {
+                    self.context.account.socket.joinClanChat(clanId: toClanId)
+                }
+                guard let token = await self.context.getToken() else { return }
+                self.context.engine.clanData.fetchAllClanData(clanId: toClanId, token: token)
+            }
+            AppLogger.network.info("[FCM] switchClanIfNeeded: clan \(toClanId) not in clans list yet, set currentClanId + fetchAllClanData")
+        }
+    }
+
+    private func fetchClanChannelsInBackground(clanId: Int64, selectChannelId: Int64? = nil) {
+        guard clanId != 0 else { return }
+        Task { @MainActor [weak self] in
+            guard let self, let token = await self.context.getToken() else { return }
+            do {
+                let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
+                self.context.account.postbox.setPreferenceData(
+                    key: PreferencesKeys.channelList(clanId: clanId),
+                    value: self.encodeChannelList(channels)
+                )
+                if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
+                    homeVC.channelListVC.updateChannels(channels)
+                    if let selectChannelId {
+                        homeVC.channelListVC.selectWithoutNavigation(channelId: selectChannelId)
+                    }
+                }
+            } catch {
+                AppLogger.network.error("[FCM] fetchClanChannels background failed: \(error)")
+            }
+        }
+    }
+
+    private func encodeChannelList(_ channels: [Mezon_Api_ChannelDescription]) -> Data {
+        var result = Data()
+        var count = UInt32(channels.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for ch in channels {
+            if let d = try? ch.serializedData() {
+                var len = UInt32(d.count)
+                result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+                result.append(d)
+            }
+        }
+        return result
+    }
+
+    deinit { navigationDisposable.dispose() }
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
         let actualTheme = theme ?? ThemeManager.shared.current

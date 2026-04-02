@@ -39,6 +39,7 @@ enum L10n {
         static let share          = "common.share"
         static let download       = "common.download"
         static let forward        = "common.forward"
+        static let forwarded      = "common.forwarded"
         static let saveChanges    = "common.saveChanges"
         static let enable         = "common.enable"
         static let reset          = "common.reset"
@@ -65,6 +66,38 @@ enum L10n {
         static let appVersion        = "settings.appVersion"
         static let appearance        = "settings.appearance"
         static let logout            = "settings.logout"
+    }
+
+    enum QRScanner {
+        static let title = "qrScanner.title"
+        static let cameraPermissionTitle = "qrScanner.cameraPermissionTitle"
+        static let cameraPermissionMessage = "qrScanner.cameraPermissionMessage"
+        static let gallery = "qrScanner.gallery"
+        static let invalidQR = "qrScanner.invalidQR"
+        static let loginConfirm = "qrScanner.loginConfirm"
+        static let joinGroup = "qrScanner.joinGroup"
+        static let transferTo = "qrScanner.transferTo"
+        static let processing = "qrScanner.processing"
+        static let logInOnNewDevice = "qrScanner.logInOnNewDevice"
+        static let neverScanLoginQR = "qrScanner.neverScanLoginQR"
+        static let youAreIn = "qrScanner.youAreIn"
+        static let youAreLoggedInDesktop = "qrScanner.youAreLoggedInDesktop"
+        static let startTalking = "qrScanner.startTalking"
+        static let inviteToJoinClan = "qrScanner.inviteToJoinClan"
+        static let joinClan = "qrScanner.joinClan"
+        static let noThanks = "qrScanner.noThanks"
+        static let userProfile = "qrScanner.userProfile"
+        static let message = "qrScanner.message"
+        static let myQRCode = "qrScanner.myQRCode"
+        static let qrProfile = "qrScanner.qrProfile"
+        static let qrTransfer = "qrScanner.qrTransfer"
+        static let poweredBy = "qrScanner.poweredBy"
+        static let shareWithOthers = "qrScanner.shareWithOthers"
+        static let scanProfileHelp = "qrScanner.scanProfileHelp"
+        static let scanTransferHelp = "qrScanner.scanTransferHelp"
+        static let scanInstruction = "qrScanner.scanInstruction"
+        static let chooseFromGallery = "qrScanner.chooseFromGallery"
+        static let sharePersonalQR = "qrScanner.sharePersonalQR"
     }
 
     enum Language {
@@ -112,11 +145,11 @@ enum L10n {
         static let resendInSeconds    = "login.resendInSeconds"
         static let selectCountry      = "login.selectCountry"
     }
-    
+
     enum Welcome {
-        static let title          = "welcome.title"
-        static let subtitle       = "welcome.subtitle"
-        static let startNow       = "welcome.startNow"
+        static let title = "welcome.title"
+        static let subtitle = "welcome.subtitle"
+        static let startNow = "welcome.startNow"
     }
 
     enum Notifications {
@@ -214,11 +247,20 @@ enum L10n {
         static let todayAt        = "channelMessages.todayAt"
         static let yesterdayAt   = "channelMessages.yesterdayAt"
         static let writeMessage   = "channelMessages.writeMessage"
+        static let userIsTyping        = "channelMessages.userIsTyping"
+        static let usersAreTyping      = "channelMessages.usersAreTyping"
+        static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
     }
 
     enum DirectMessage {
         static let you        = "directMessage.you"
         static let addFriend = "directMessage.addFriend"
+
+        static let groupCreated   = "directMessage.groupCreated"
+        static let previewFile    = "directMessage.previewFile"
+        static let previewLink    = "directMessage.previewLink"
+        static let previewLocation = "directMessage.previewLocation"
+        static let previewContact = "directMessage.previewContact"
     }
 
     enum MessageAction {
@@ -278,6 +320,7 @@ extension L10n {
         "common.share":         "Share",
         "common.download":      "Download",
         "common.forward":       "Forward",
+        "common.forwarded":     "Forwarded",
         "common.saveChanges":   "Save Changes",
         "common.enable":        "Enable",
         "common.reset":         "Reset",
@@ -342,7 +385,7 @@ extension L10n {
         "login.loginTooFast":   "Please wait before trying again",
         "login.resendInSeconds": "Resend in %ds",
         "login.selectCountry":  "Select country code",
-        
+
         "welcome.title":        "Welcome to Mezon",
         "welcome.subtitle":     "The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.",
         "welcome.startNow":     "Get started",
@@ -425,9 +468,17 @@ extension L10n {
         "channelMessages.todayAt": "Today at %@",
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
+        "channelMessages.userIsTyping": "%@ is typing…",
+        "channelMessages.usersAreTyping": "%@ are typing…",
+        "channelMessages.severalPeopleTyping": "Several people are typing…",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
+        "directMessage.groupCreated": "Group created",
+        "directMessage.previewFile": "File",
+        "directMessage.previewLink": "Link",
+        "directMessage.previewLocation": "Location",
+        "directMessage.previewContact": "Contact",
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
@@ -457,10 +508,34 @@ extension L10n {
         "profile.userIdCopied": "User ID copied",
         "profile.currency": "đồng",
 
-        "error.networkError":           "Network Error",
-        "error.connectionFailed":       "Connection failed. Please try again.",
-        "error.somethingWentWrong":     "Something went wrong",
-        "error.sessionExpiredTitle":    "Session Expired",
+        "qrScanner.joinGroup": "Join Group",
+        "qrScanner.transferTo": "Transfer to user: %@",
+        "qrScanner.processing": "Processing...",
+        "qrScanner.logInOnNewDevice": "Log in on a new device?",
+        "qrScanner.neverScanLoginQR": "Never scan a login QR code from another user.",
+        "qrScanner.youAreIn": "You are in",
+        "qrScanner.youAreLoggedInDesktop": "You are now logged in on Desktop",
+        "qrScanner.startTalking": "Start Talking",
+        "qrScanner.inviteToJoinClan": "INVITE TO JOIN A CLAN",
+        "qrScanner.joinClan": "Join",
+        "qrScanner.noThanks": "No, Thanks",
+        "qrScanner.message": "Message",
+        "qrScanner.userProfile": "USER PROFILE",
+        "qrScanner.myQRCode": "My QR Code",
+        "qrScanner.qrProfile": "QR Profile",
+        "qrScanner.qrTransfer": "QR Transfer",
+        "qrScanner.poweredBy": "Powered by Mezon",
+        "qrScanner.shareWithOthers": "Share with others",
+        "qrScanner.scanProfileHelp": "Scan this QR code to chat with me or view my profile",
+        "qrScanner.scanTransferHelp": "Scan this QR code to transfer funds",
+        "qrScanner.scanInstruction": "Move camera to QR to scan or",
+        "qrScanner.chooseFromGallery": "Choose from Photo Library",
+        "qrScanner.sharePersonalQR": "Share personal QR code ˄",
+
+        "error.networkError": "Network Error",
+        "error.connectionFailed": "Connection failed. Please try again.",
+        "error.somethingWentWrong": "Something went wrong",
+        "error.sessionExpiredTitle": "Session Expired",
         "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
@@ -487,6 +562,7 @@ extension L10n {
         "common.share":         "Chia sẻ",
         "common.download":      "Tải xuống",
         "common.forward":       "Chuyển tiếp",
+        "common.forwarded":     "Đã chuyển tiếp",
         "common.saveChanges":   "Lưu thay đổi",
         "common.enable":        "Bật",
         "common.reset":         "Đặt lại",
@@ -551,7 +627,7 @@ extension L10n {
         "login.loginTooFast":   "Vui lòng đợi trước khi thử lại",
         "login.resendInSeconds": "Gửi lại sau %ds",
         "login.selectCountry":  "Chọn mã vùng",
-        
+
         "welcome.title":        "Chào mừng đến với Mezon",
         "welcome.subtitle":     "Nền tảng Kết nối, Làm việc,\nvà Giải trí",
         "welcome.startNow":     "Bắt đầu nào",
@@ -634,9 +710,17 @@ extension L10n {
         "channelMessages.todayAt": "Hôm nay lúc %@",
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
+        "channelMessages.userIsTyping": "%@ đang nhập…",
+        "channelMessages.usersAreTyping": "%@ đang nhập…",
+        "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
+        "directMessage.groupCreated": "Nhóm đã được tạo",
+        "directMessage.previewFile": "Tệp",
+        "directMessage.previewLink": "Liên kết",
+        "directMessage.previewLocation": "Vị trí",
+        "directMessage.previewContact": "Danh bạ",
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
@@ -666,12 +750,44 @@ extension L10n {
         "profile.userIdCopied": "Đã sao chép User ID",
         "profile.currency": "đồng",
 
-        "error.networkError":           "Lỗi kết nối mạng",
-        "error.connectionFailed":       "Kết nối thất bại. Vui lòng thử lại.",
-        "error.somethingWentWrong":     "Đã xảy ra lỗi",
-        "error.sessionExpiredTitle":    "Phiên đăng nhập hết hạn",
+        "qrScanner.title": "Quét mã QR",
+        "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",
+        "qrScanner.cameraPermissionMessage":
+            "Vui lòng cho phép truy cập camera trong Cài đặt để quét mã QR.",
+        "qrScanner.gallery": "Thư viện",
+        "qrScanner.invalidQR": "Mã QR không hợp lệ",
+        "qrScanner.loginConfirm": "Bạn có muốn đăng nhập với %@?",
+        "qrScanner.joinGroup": "Tham gia nhóm",
+        "qrScanner.transferTo": "Chuyển tiền cho %@",
+        "qrScanner.processing": "Đang xử lý...",
+        "qrScanner.logInOnNewDevice": "Đăng nhập trên thiết bị mới?",
+        "qrScanner.neverScanLoginQR": "Không bao giờ quét mã QR đăng nhập từ người dùng khác.",
+        "qrScanner.youAreIn": "Bạn đã đăng nhập",
+        "qrScanner.youAreLoggedInDesktop": "Bạn đã đăng nhập trên máy tính",
+        "qrScanner.startTalking": "Bắt đầu trò chuyện",
+        "qrScanner.inviteToJoinClan": "LỜI MỜI THAM GIA CLAN",
+        "qrScanner.joinClan": "Tham gia",
+        "qrScanner.noThanks": "Không, cảm ơn",
+        "qrScanner.message": "Nhắn tin",
+        "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",
+        "qrScanner.myQRCode": "Mã QR của tôi",
+        "qrScanner.qrProfile": "Mã QR Hồ sơ",
+        "qrScanner.qrTransfer": "Mã QR Chuyển tiền",
+        "qrScanner.poweredBy": "Được cung cấp bởi Mezon",
+        "qrScanner.shareWithOthers": "Chia sẻ với mọi người",
+        "qrScanner.scanProfileHelp": "Quét mã QR này để trò chuyện với tôi hoặc xem hồ sơ của tôi",
+        "qrScanner.scanTransferHelp": "Quét mã QR này để chuyển khoản",
+        "qrScanner.scanInstruction": "Di chuyển camera đến mã QR để quét hoặc",
+        "qrScanner.chooseFromGallery": "Chọn từ Thư viện ảnh",
+        "qrScanner.sharePersonalQR": "Chia sẻ mã QR cá nhân ˄",
+
+        "error.networkError": "Lỗi kết nối mạng",
+        "error.connectionFailed": "Kết nối thất bại. Vui lòng thử lại.",
+        "error.somethingWentWrong": "Đã xảy ra lỗi",
+        "error.sessionExpiredTitle": "Phiên đăng nhập hết hạn",
         "error.sessionExpiredOrNetwork": "Phiên hết hạn hoặc lỗi mạng",
-        "error.sessionExpiredContent":  "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
-        "error.sessionExpiredConfirm":  "Đăng nhập lại",
+        "error.sessionExpiredContent":
+            "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
+        "error.sessionExpiredConfirm": "Đăng nhập lại",
     ]
 }

@@ -8,7 +8,7 @@ private let dispatcher = displayLinkDispatcher
 public enum ImageCorner: Equatable {
     case Corner(CGFloat)
     case Tail(CGFloat, UIImage)
-    
+
     public var extendedInsets: CGSize {
         switch self {
             case .Tail:
@@ -17,7 +17,7 @@ public enum ImageCorner: Equatable {
                 return CGSize()
         }
     }
-    
+
     public var withoutTail: ImageCorner {
         switch self {
             case .Corner:
@@ -26,7 +26,7 @@ public enum ImageCorner: Equatable {
                 return .Corner(radius)
         }
     }
-    
+
     public var radius: CGFloat {
         switch self {
             case let .Corner(radius):
@@ -69,13 +69,13 @@ public struct ImageCorners: Equatable {
         case circular
         case continuous
     }
-    
+
     public let topLeft: ImageCorner
     public let topRight: ImageCorner
     public let bottomLeft: ImageCorner
     public let bottomRight: ImageCorner
     public let curve: Curve
-    
+
     public var isEmpty: Bool {
         if self.topLeft != .Corner(0.0) {
             return false
@@ -91,7 +91,7 @@ public struct ImageCorners: Equatable {
         }
         return true
     }
-    
+
     public init(radius: CGFloat, curve: Curve = .circular) {
         self.topLeft = .Corner(radius)
         self.topRight = .Corner(radius)
@@ -99,7 +99,7 @@ public struct ImageCorners: Equatable {
         self.bottomRight = .Corner(radius)
         self.curve = curve
     }
-    
+
     public init(topLeft: ImageCorner, topRight: ImageCorner, bottomLeft: ImageCorner, bottomRight: ImageCorner, curve: Curve = .circular) {
         self.topLeft = topLeft
         self.topRight = topRight
@@ -107,18 +107,18 @@ public struct ImageCorners: Equatable {
         self.bottomRight = bottomRight
         self.curve = curve
     }
-    
+
     public init() {
         self.init(topLeft: .Corner(0.0), topRight: .Corner(0.0), bottomLeft: .Corner(0.0), bottomRight: .Corner(0.0), curve: .circular)
     }
-    
+
     public var extendedEdges: UIEdgeInsets {
         let left = self.bottomLeft.extendedInsets.width
         let right = self.bottomRight.extendedInsets.width
-        
+
         return UIEdgeInsets(top: 0.0, left: left, bottom: 0.0, right: right)
     }
-    
+
     public func withRemovedTails() -> ImageCorners {
         return ImageCorners(topLeft: self.topLeft.withoutTail, topRight: self.topRight.withoutTail, bottomLeft: self.bottomLeft.withoutTail, bottomRight: self.bottomRight.withoutTail, curve: self.curve)
     }
@@ -135,13 +135,13 @@ public class ImageNode: ASDisplayNode {
     private let enableEmpty: Bool
     public var enableAnimatedTransition: Bool
     public var animateFirstTransition = true
-    
+
     private let _contentReady = Promise<Bool>()
     private var didSetReady: Bool = false
     public var contentReady: Signal<Bool, NoError> {
         return self._contentReady.get()
     }
-    
+
     public var ready: Signal<Bool, NoError> {
         if let hasImage = self.hasImage {
             return hasImage.get()
@@ -149,9 +149,9 @@ public class ImageNode: ASDisplayNode {
             return .single(true)
         }
     }
-    
+
     public var contentUpdated: ((UIImage?) -> Void)?
-    
+
     public init(enableHasImage: Bool = false, enableEmpty: Bool = false, enableAnimatedTransition: Bool = false) {
         if enableHasImage {
             self.hasImage = ValuePromise(false, ignoreRepeated: true)
@@ -162,11 +162,11 @@ public class ImageNode: ASDisplayNode {
         self.enableAnimatedTransition = enableAnimatedTransition
         super.init()
     }
-    
+
     deinit {
         self.disposable.dispose()
     }
-    
+
     public func setSignal(_ signal: Signal<UIImage?, NoError>) {
         var reportedHasImage = false
         var wasSynchronous = true
@@ -216,15 +216,15 @@ public class ImageNode: ASDisplayNode {
         }))
         wasSynchronous = false
     }
-    
+
     public override func clearContents() {
         super.clearContents()
-        
+
         self.contents = nil
         self.disposable.set(nil)
         self.contentUpdated?(nil)
     }
-    
+
     public var image: UIImage? {
         if let contents = self.contents {
             return UIImage(cgImage: contents as! CGImage)

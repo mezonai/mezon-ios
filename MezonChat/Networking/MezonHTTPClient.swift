@@ -4,6 +4,7 @@ import SwiftProtobuf
 final class MezonHTTPClient {
 
     static let shared = MezonHTTPClient()
+    var bearerUnauthorizedRecovery: (() async throws -> String?)?
 
     private let urlSession: URLSession
     private var authBaseURL: URL = MezonConfig.authBaseURL
@@ -89,6 +90,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func confirmLogin(loginId: String, token: String) async throws -> MezonSession {
+        struct Body: Encodable {
+            let login_id: String
+        }
+        return try await post(
+            path: "/v2/account/authenticate/confirmlogin",
+            body: Body(login_id: loginId),
+            auth: .bearer(token)
+        )
+    }
+
     func getAccount(token: String) async throws -> Mezon_Api_Account {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(
@@ -125,6 +137,25 @@ final class MezonHTTPClient {
         )
     }
 
+    func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
+        let req = try buildRequest(
+            method: "GET", path: "/v2/invite/\(code)", queryItems: [],
+            body: Optional<EmptyBody>.none,
+            auth: .serverKey
+        )
+        return try await execute(req, allowBearerRetry: false)
+    }
+
+    func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
+        var req = Mezon_Api_InviteUserRequest()
+        req.inviteID = Int64(code) ?? 0
+        return try await postProto(
+            path: "/mezon.api.Mezon/InviteUser",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
         var req = Mezon_Api_ListChannelDescsRequest()
         req.clanID      = clanId
@@ -139,6 +170,31 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.channeldesc
+    }
+
+
+    func listCategoryDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_CategoryDesc] {
+        var req = Mezon_Api_ListCategoryDescsRequest()
+        req.clanID = clanId
+        req.limit = 100
+        let response: Mezon_Api_CategoryDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListCategoryDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.categorydesc
+    }
+
+
+    func listFavoriteChannelIds(clanId: Int64, token: String) async throws -> [Int64] {
+        var req = Mezon_Api_ListFavoriteChannelRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListFavoriteChannelResponse = try await postProto(
+            path: "/mezon.api.Mezon/GetListFavoriteChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channelIds
     }
 
     func listDirectMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
@@ -258,6 +314,7 @@ final class MezonHTTPClient {
         req.mentionEveryone = mentionEveryone
         req.avatar = avatar
         req.topicID = topicId
+
         return try await postProto(
             path: "/mezon.api.Mezon/SendChannelMessage",
             message: req,
@@ -436,15 +493,6 @@ final class MezonHTTPClient {
         )
     }
 
-    func listClanBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
-        var req = Mezon_Api_ListClanBadgeCountRequest()
-        req.clanID = clanId
-        return try await postProto(
-            path: "/mezon.api.Mezon/ListClanBadgeCount",
-            message: req,
-            auth: .bearer(token)
-        )
-    }
 
     func getNotificationClan(clanId: Int64, token: String) async throws -> Mezon_Api_NotificationUserChannel {
         var req = Mezon_Api_DefaultNotificationClan()
@@ -584,6 +632,26 @@ final class MezonHTTPClient {
         )
     }
 
+
+    func getListEmojisByUserId(token: String) async throws -> Mezon_Api_EmojiListedResponse {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetListEmojisByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+
+    func getListStickersByUserId(token: String) async throws -> Mezon_Api_StickerListedResponse {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetListStickersByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func searchMessage(
         filters: [Mezon_Api_FilterParam] = [],
         from: Int32 = 1,
@@ -605,7 +673,7 @@ final class MezonHTTPClient {
 
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
-        return try await execute(req)
+        return try await execute(req, allowBearerRetry: true)
     }
 
     func getProto<Response: SwiftProtobuf.Message>(path: String, token: String) async throws -> Response {
@@ -620,13 +688,14 @@ final class MezonHTTPClient {
         auth: AuthMethod
     ) async throws -> Response {
         let req = try buildRequest(method: "POST", path: path, queryItems: queryItems, body: body, auth: auth)
-        return try await execute(req)
+        return try await execute(req, allowBearerRetry: true)
     }
 
     func postProto<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
         message: Request,
-        auth: AuthMethod
+        auth: AuthMethod,
+        allowBearerRetry: Bool = true
     ) async throws -> Response {
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
@@ -647,13 +716,27 @@ final class MezonHTTPClient {
         guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
         AppLogger.network.debug("← \(http.statusCode) \(url.path) (\(data.count) bytes)")
 
-        guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
-                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+        if (200..<300).contains(http.statusCode) {
+            return try Response(serializedBytes: data)
         }
 
-        return try Response(serializedBytes: data)
+        if allowBearerRetry,
+            http.statusCode == 401 || http.statusCode == 403,
+            case .bearer = auth,
+            let recovery = bearerUnauthorizedRecovery,
+           let newToken = try await recovery() {
+            AppLogger.network.info("[HTTP] \(http.statusCode) on proto \(url.path); retrying with refreshed session token")
+            return try await postProto(
+                path: path,
+                message: message,
+                auth: .bearer(newToken),
+                allowBearerRetry: false
+            )
+        }
+
+        let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+            ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
     enum AuthMethod {
@@ -688,7 +771,7 @@ final class MezonHTTPClient {
         return request
     }
 
-    private func execute<T: Decodable>(_ request: URLRequest) async throws -> T {
+    private func execute<T: Decodable>(_ request: URLRequest, allowBearerRetry: Bool = true) async throws -> T {
         AppLogger.network.debug("→ \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "")")
         let (data, response) = try await urlSession.data(for: request)
 
@@ -697,14 +780,25 @@ final class MezonHTTPClient {
         }
         AppLogger.network.debug("← \(http.statusCode) \(request.url?.path ?? "")")
 
-        guard (200..<300).contains(http.statusCode) else {
-            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
-                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-            throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+        if (200..<300).contains(http.statusCode) {
+            if T.self == EmptyResponse.self { return EmptyResponse() as! T }
+            return try JSONDecoder().decode(T.self, from: data)
         }
 
-        if T.self == EmptyResponse.self { return EmptyResponse() as! T }
-        return try JSONDecoder().decode(T.self, from: data)
+        if allowBearerRetry,
+            http.statusCode == 401 || http.statusCode == 403,
+            request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
+            let recovery = bearerUnauthorizedRecovery,
+           let newToken = try await recovery() {
+            AppLogger.network.info("[HTTP] \(http.statusCode) on \(request.url?.path ?? ""); retrying JSON request with refreshed token")
+            var retry = request
+            retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+            return try await execute(retry, allowBearerRetry: false)
+        }
+
+        let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+            ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 }
 
