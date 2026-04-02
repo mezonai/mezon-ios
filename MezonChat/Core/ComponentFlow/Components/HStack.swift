@@ -38,7 +38,7 @@ public final class HStack<ChildEnvironment: Equatable>: CombinedComponent {
         return { context in
             var remainingWidth: CGFloat = context.availableSize.width
             var updatedChildren: [_UpdatedChildComponent] = []
-            
+
             for item in context.component.items {
                 let child = children[item.id].update(
                     component: item.component, environment: {
@@ -50,7 +50,7 @@ public final class HStack<ChildEnvironment: Equatable>: CombinedComponent {
                 updatedChildren.append(child)
                 remainingWidth -= context.component.spacing + child.size.width
             }
-            
+
             var size = CGSize(width: 0.0, height: 0.0)
             switch context.component.alignment {
             case .left:
@@ -59,7 +59,7 @@ public final class HStack<ChildEnvironment: Equatable>: CombinedComponent {
                     size.height = max(size.height, child.size.height)
                 }
                 size.width += context.component.spacing * CGFloat(updatedChildren.count - 1)
-                
+
                 var nextX = 0.0
                 for child in updatedChildren {
                     context.add(child
@@ -75,7 +75,7 @@ public final class HStack<ChildEnvironment: Equatable>: CombinedComponent {
                 for child in updatedChildren {
                     size.height = max(size.height, child.size.height)
                 }
-                
+
                 var nextLeftX = 0.0
                 var nextRightX = size.width
                 for i in 0 ..< updatedChildren.count {
@@ -90,7 +90,7 @@ public final class HStack<ChildEnvironment: Equatable>: CombinedComponent {
                         nextRightX -= child.size.width
                         nextRightX -= context.component.spacing
                     }
-                    
+
                     context.add(child
                         .position(child.size.centered(in: childFrame).center)
                         .appear(.default(scale: true, alpha: true))

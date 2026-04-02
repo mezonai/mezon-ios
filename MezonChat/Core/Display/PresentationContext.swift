@@ -2,11 +2,11 @@ import UIKit
 
 public struct PresentationSurfaceLevel: RawRepresentable {
     public var rawValue: Int32
-    
+
     public init(rawValue: Int32) {
         self.rawValue = rawValue
     }
-    
+
     public static let root = PresentationSurfaceLevel(rawValue: 0)
 }
 
@@ -32,10 +32,10 @@ public final class PresentationContext {
             }
         }
     }
-    
+
     var updateIsInteractionBlocked: ((Bool) -> Void)?
     var updateHasBlocked: ((Bool) -> Void)?
-    
+
     var updateHasOpaqueOverlay: ((Bool) -> Void)?
     private(set) var hasOpaqueOverlay: Bool = false {
         didSet {
@@ -44,7 +44,7 @@ public final class PresentationContext {
             }
         }
     }
-    
+
     var statusBar: (style: UIStatusBarStyle, isHidden: Bool)? {
         for (controller, _) in self.controllers.reversed() {
             if let controller = controller as? ViewController {
@@ -67,24 +67,24 @@ public final class PresentationContext {
         return nil
     }
     var updateStatusBar: ((ContainedViewLayoutTransition) -> Void)?
-    
+
     private var layout: ContainerViewLayout?
-    
+
     private var ready: Bool {
         return self.view != nil && self.layout != nil
     }
-    
+
     public private(set) var controllers: [(ContainableController, PresentationSurfaceLevel)] = [] {
         didSet {
             self.controllersUpdated(self.controllers)
         }
     }
     public var controllersUpdated: ([(ContainableController, PresentationSurfaceLevel)]) -> Void = { _ in }
-    
+
     private var presentationDisposables = DisposableSet()
-    
+
     public var topLevelSubview: () -> UIView? = { nil }
-    
+
     var isCurrentlyOpaque: Bool {
         for (controller, _) in self.controllers {
             if controller.isOpaqueWhenInOverlay && controller.isViewLoaded {
@@ -95,7 +95,7 @@ public final class PresentationContext {
         }
         return false
     }
-    
+
     var currentlyBlocksBackgroundWhenInOverlay: Bool {
         for (controller, _) in self.controllers {
             if controller.isOpaqueWhenInOverlay || controller.blocksBackgroundWhenInOverlay {
@@ -104,7 +104,7 @@ public final class PresentationContext {
         }
         return false
     }
-    
+
     private func topLevelSubview(for level: PresentationSurfaceLevel) -> UIView? {
         var topController: ContainableController?
         for (controller, controllerLevel) in self.controllers.reversed() {
@@ -123,10 +123,10 @@ public final class PresentationContext {
             return self.topLevelSubview()
         }
     }
-    
+
     private var nextBlockInteractionToken = 0
     private var blockInteractionTokens = Set<Int>()
-    
+
     private func addBlockInteraction() -> Int {
         let token = self.nextBlockInteractionToken
         self.nextBlockInteractionToken += 1
@@ -137,7 +137,7 @@ public final class PresentationContext {
         }
         return token
     }
-    
+
     private func removeBlockInteraction(_ token: Int) {
         let wasEmpty = self.blockInteractionTokens.isEmpty
         self.blockInteractionTokens.remove(token)
@@ -145,21 +145,21 @@ public final class PresentationContext {
             self.updateIsInteractionBlocked?(false)
         }
     }
-    
+
     private func layoutForController(containerLayout: ContainerViewLayout, controller: ContainableController) -> (ContainerViewLayout, CGRect) {
         return (containerLayout, CGRect(origin: CGPoint(), size: containerLayout.size))
     }
-    
+
     public init() {
     }
-    
+
     public func present(_ controller: ContainableController, on level: PresentationSurfaceLevel, blockInteraction: Bool = false, completion: @escaping () -> Void) {
         let controllerReady = controller.ready.get()
         |> filter({ $0 })
         |> take(1)
         |> deliverOnMainQueue
         |> timeout(2.0, queue: Queue.mainQueue(), alternate: .single(true))
-        
+
         if let _ = self.view, let initialLayout = self.layout {
             if let controller = controller as? ViewController {
                 if controller.lockOrientation {
@@ -169,7 +169,7 @@ public final class PresentationContext {
                     } else {
                         orientations = .landscape
                     }
-                    
+
                     controller.supportedOrientations = ViewControllerSupportedOrientations(regularSize: orientations, compactSize: orientations)
                 }
             }
@@ -195,7 +195,7 @@ public final class PresentationContext {
                     if strongSelf.controllers.contains(where: { $0.0 === controller }) {
                         return
                     }
-                    
+
                     var insertIndex: Int?
                     for i in (0 ..< strongSelf.controllers.count).reversed() {
                         if strongSelf.controllers[i].1.rawValue > level.rawValue {
@@ -205,7 +205,7 @@ public final class PresentationContext {
                     strongSelf.controllers.insert((controller, level), at: insertIndex ?? strongSelf.controllers.count)
                     if let view = strongSelf.view, let layout = strongSelf.layout {
                         let (updatedControllerLayout, updatedControllerFrame) = strongSelf.layoutForController(containerLayout: layout, controller: controller)
-                        
+
                         (controller as? UIViewController)?.navigation_setDismiss({ [weak controller] in
                             if let strongSelf = self, let controller = controller {
                                 strongSelf.dismiss(controller)
@@ -246,11 +246,11 @@ public final class PresentationContext {
             self.updateViews()
         }
     }
-    
+
     deinit {
         self.presentationDisposables.dispose()
     }
-    
+
     private func dismiss(_ controller: ContainableController) {
         if let index = self.controllers.firstIndex(where: { $0.0 === controller }) {
             self.controllers.remove(at: index)
@@ -260,11 +260,11 @@ public final class PresentationContext {
             self.updateViews()
         }
     }
-    
+
     public func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         let wasReady = self.ready
         self.layout = layout
-        
+
         if wasReady != self.ready {
             self.readyChanged(wasReady: wasReady)
         } else if self.ready {
@@ -275,7 +275,7 @@ public final class PresentationContext {
             }
         }
     }
-    
+
     private func readyChanged(wasReady: Bool) {
         if !wasReady {
             self.addViews()
@@ -283,7 +283,7 @@ public final class PresentationContext {
             self.removeViews()
         }
     }
-    
+
     private func addViews() {
         if let view = self.view, let layout = self.layout {
             for (controller, _) in self.controllers {
@@ -308,7 +308,7 @@ public final class PresentationContext {
             self.updateViews()
         }
     }
-    
+
     private func removeViews() {
         for (controller, _) in self.controllers {
             controller.driveAppearanceTransition(appearing: false, animated: false)
@@ -316,7 +316,7 @@ public final class PresentationContext {
             controller.finishAppearanceTransition()
         }
     }
-    
+
     private func updateViews() {
         self.hasOpaqueOverlay = self.currentlyBlocksBackgroundWhenInOverlay
         var topHasOpaque = false
@@ -330,14 +330,14 @@ public final class PresentationContext {
                 controller.displayNode.accessibilityElementsHidden = false
             }
         }
-        
+
         self.updateStatusBar?(.animated(duration: 0.2, curve: .easeInOut))
     }
-    
+
     private func notifyAccessibilityScreenChanged() {
         UIAccessibility.post(notification: UIAccessibility.Notification.screenChanged, argument: nil)
     }
-    
+
     public func hitTest(view: UIView, point: CGPoint, with event: UIEvent?) -> UIView? {
         for (controller, _) in self.controllers.reversed() {
             if controller.isViewLoaded {
@@ -348,7 +348,7 @@ public final class PresentationContext {
         }
         return nil
     }
-    
+
     func updateToInterfaceOrientation(_ orientation: UIInterfaceOrientation) {
         if self.ready {
             for (controller, _) in self.controllers {
@@ -356,7 +356,7 @@ public final class PresentationContext {
             }
         }
     }
-    
+
     func combinedSupportedOrientations(currentOrientationToLock: UIInterfaceOrientationMask) -> ViewControllerSupportedOrientations {
         var mask = ViewControllerSupportedOrientations(regularSize: .all, compactSize: .all)
         for (controller, _) in self.controllers {
@@ -364,7 +364,7 @@ public final class PresentationContext {
         }
         return mask
     }
-    
+
     func combinedDeferScreenEdgeGestures() -> UIRectEdge {
         var edges: UIRectEdge = []
         for (controller, _) in self.controllers {
@@ -372,7 +372,7 @@ public final class PresentationContext {
         }
         return edges
     }
-    
+
     func combinedPrefersOnScreenNavigationHidden() -> Bool {
         var hidden: Bool = false
         for (controller, _) in self.controllers {

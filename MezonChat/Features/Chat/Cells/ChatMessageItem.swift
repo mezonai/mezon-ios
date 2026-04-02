@@ -110,7 +110,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             showSwipeReplyIcon()
 
         case .changed:
-            let offset = min(0, translation.x) // only allow left
+            let offset = min(0, translation.x)
             let clampedOffset = max(offset, -Self.swipeThreshold - 20)
             bubbleNode?.view.transform = CGAffineTransform(translationX: clampedOffset, y: 0)
             updateSwipeReplyIcon(offset: clampedOffset)

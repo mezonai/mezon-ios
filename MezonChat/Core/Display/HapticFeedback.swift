@@ -32,33 +32,33 @@ private final class HapticFeedbackImpl {
                     .heavy: UIImpactFeedbackGenerator(style: .heavy)]
         }
     }()
-   
+
     private lazy var selectionGenerator: UISelectionFeedbackGenerator? = {
         return UISelectionFeedbackGenerator()
     }()
-    
+
     private lazy var notificationGenerator: UINotificationFeedbackGenerator? = {
         return UINotificationFeedbackGenerator()
     }()
-    
+
     func prepareTap() {
         if let selectionGenerator = self.selectionGenerator {
             selectionGenerator.prepare()
         }
     }
-    
+
     func tap() {
         if let selectionGenerator = self.selectionGenerator {
             selectionGenerator.selectionChanged()
         }
     }
-    
+
     func prepareImpact(_ style: ImpactHapticFeedbackStyle) {
         if let impactGenerator = self.impactGenerator[style] {
             impactGenerator.prepare()
         }
     }
-    
+
     func impact(_ style: ImpactHapticFeedbackStyle) {
         if let impactGenerator = self.impactGenerator[style] {
             if #available(iOSApplicationExtension 13.0, iOS 13.0, *) {
@@ -77,7 +77,7 @@ private final class HapticFeedbackImpl {
             }
         }
     }
-    
+
     func success() {
         if let notificationGenerator = self.notificationGenerator {
             notificationGenerator.notificationOccurred(.success)
@@ -85,13 +85,13 @@ private final class HapticFeedbackImpl {
             AudioServicesPlaySystemSound(1520)
         }
     }
-    
+
     func prepareError() {
         if let notificationGenerator = self.notificationGenerator {
             notificationGenerator.prepare()
         }
     }
-    
+
     func error() {
         if let notificationGenerator = self.notificationGenerator {
             notificationGenerator.notificationOccurred(.error)
@@ -99,22 +99,22 @@ private final class HapticFeedbackImpl {
             AudioServicesPlaySystemSound(1521)
         }
     }
-    
+
     func warning() {
         AudioServicesPlaySystemSound(1102)
 
     }
-    
+
     @objc dynamic func f() {
     }
 }
 
 public final class HapticFeedback {
     private var impl: AnyObject?
-    
+
     public init() {
     }
-    
+
     deinit {
         let impl = self.impl
         DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 1.0, execute: {
@@ -125,7 +125,7 @@ public final class HapticFeedback {
             }
         })
     }
-    
+
     @available(iOSApplicationExtension 10.0, iOS 10.0, *)
     private func withImpl(_ f: (HapticFeedbackImpl) -> Void) {
         if self.impl == nil {
@@ -133,7 +133,7 @@ public final class HapticFeedback {
         }
         f(self.impl as! HapticFeedbackImpl)
     }
-    
+
     public func prepareTap() {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -141,7 +141,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func tap() {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -149,7 +149,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func prepareImpact(_ style: ImpactHapticFeedbackStyle = .medium) {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -157,7 +157,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func impact(_ style: ImpactHapticFeedbackStyle = .medium) {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -165,7 +165,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func success() {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -173,7 +173,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func prepareError() {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -181,7 +181,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func error() {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -189,7 +189,7 @@ public final class HapticFeedback {
             }
         }
     }
-    
+
     public func warning() {
         if #available(iOSApplicationExtension 10.0, iOS 10.0, *) {
             self.withImpl { impl in
@@ -203,14 +203,14 @@ public final class HapticFeedback {
 public final class ContinuousHaptic {
     private let engine: CHHapticEngine
     private let player: CHHapticPatternPlayer
-    
+
     public init(duration: Double) throws {
         self.engine = try CHHapticEngine()
-        
+
         var events: [CHHapticEvent] = []
         for i in 0 ... 10 {
             let t = CGFloat(i) / 10.0
-            
+
             let intensity = CHHapticEventParameter(parameterID: .hapticIntensity, value: Float((1.0 - t) * 0.1 + t * 1.0))
             let sharpness = CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.3)
             let eventDuration: Double
@@ -229,7 +229,7 @@ public final class ContinuousHaptic {
         try self.engine.start()
         try self.player.start(atTime: 0)
     }
-    
+
     deinit {
         self.engine.stop(completionHandler: nil)
     }

@@ -4,17 +4,17 @@ import AsyncDisplayKit
 
 public class StatusBarSurface {
     var statusBars: [StatusBar] = []
-    
+
     func addStatusBar(_ statusBar: StatusBar) {
         self.removeStatusBar(statusBar)
         self.statusBars.append(statusBar)
     }
-    
+
     func insertStatusBar(_ statusBar: StatusBar, atIndex index: Int) {
         self.removeStatusBar(statusBar)
         self.statusBars.insert(statusBar, at: index)
     }
-    
+
     func removeStatusBar(_ statusBar: StatusBar) {
         for i in 0 ..< self.statusBars.count {
             if self.statusBars[i] === statusBar {
@@ -27,13 +27,13 @@ public class StatusBarSurface {
 
 open class CallStatusBarNode: ASDisplayNode {
     open func update(size: CGSize) {
-        
+
     }
 }
 
 private final class StatusBarView: UITracingLayerView {
     weak var node: StatusBar?
-    
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if let node = self.node {
             return node.hitTest(point, with: event)
@@ -44,7 +44,7 @@ private final class StatusBarView: UITracingLayerView {
 
 public final class StatusBar: ASDisplayNode {
     private var _statusBarStyle: StatusBarStyle = .Black
-    
+
     public var statusBarStyle: StatusBarStyle {
         get {
             return self._statusBarStyle
@@ -55,24 +55,24 @@ public final class StatusBar: ASDisplayNode {
             }
         }
     }
-    
+
     public func updateStatusBarStyle(_ statusBarStyle: StatusBarStyle, animated: Bool) {
         if self._statusBarStyle != statusBarStyle {
             self._statusBarStyle = statusBarStyle
             self.alphaUpdated?(animated ? .animated(duration: 0.3, curve: .easeInOut) : .immediate)
         }
     }
-    
+
     public var ignoreInCall: Bool = false
-    
+
     var inCallNavigate: (() -> Void)?
-    
+
     private var proxyNode: StatusBarProxyNode?
     private var removeProxyNodeScheduled = false
-    
+
     let offsetNode = ASDisplayNode()
     var callStatusBarNode: CallStatusBarNode? = nil
-    
+
     public var verticalOffset: CGFloat = 0.0 {
         didSet {
             if !self.verticalOffset.isEqual(to: oldValue) {
@@ -80,32 +80,32 @@ public final class StatusBar: ASDisplayNode {
             }
         }
     }
-    
+
     public var alphaUpdated: ((ContainedViewLayoutTransition) -> Void)?
-    
+
     public func updateAlpha(_ alpha: CGFloat, transition: ContainedViewLayoutTransition) {
         self.alpha = alpha
         self.alphaUpdated?(transition)
     }
-    
+
     public override init() {
         self.offsetNode.isUserInteractionEnabled = false
-        
+
         super.init()
-        
+
         self.setViewBlock({
             return StatusBarView()
         })
-        
+
         (self.view as! StatusBarView).node = self
-        
+
         self.addSubnode(self.offsetNode)
-        
+
         self.clipsToBounds = true
-        
+
         self.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.tapGesture(_:))))
     }
-    
+
     func updateState(statusBar: UIView?, withSafeInsets: Bool, inCallNode: CallStatusBarNode?, animated: Bool) {
         if let statusBar = statusBar {
             self.removeProxyNodeScheduled = false
@@ -124,7 +124,7 @@ public final class StatusBar: ASDisplayNode {
             }
         } else {
             self.removeProxyNodeScheduled = true
-            
+
             DispatchQueue.main.async(execute: { [weak self] in
                 if let strongSelf = self {
                     if strongSelf.removeProxyNodeScheduled {
@@ -136,7 +136,7 @@ public final class StatusBar: ASDisplayNode {
                 }
             })
         }
-        
+
         var ignoreInCall = self.ignoreInCall
         switch self.statusBarStyle {
             case .Black, .White:
@@ -144,12 +144,12 @@ public final class StatusBar: ASDisplayNode {
             default:
                 ignoreInCall = true
         }
-        
+
         var resolvedCallStatusBarNode: CallStatusBarNode? = inCallNode
         if ignoreInCall {
             resolvedCallStatusBarNode = nil
         }
-        
+
         if (resolvedCallStatusBarNode != nil) != (self.callStatusBarNode != nil) {
             if let resolvedCallStatusBarNode = resolvedCallStatusBarNode {
                 self.addSubnode(resolvedCallStatusBarNode)
@@ -158,10 +158,10 @@ public final class StatusBar: ASDisplayNode {
                 callStatusBarNode.removeFromSupernode()
             }
         }
-        
+
         self.callStatusBarNode = resolvedCallStatusBarNode
     }
-    
+
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if self.bounds.contains(point) && self.callStatusBarNode != nil {
             return self.view
@@ -169,7 +169,7 @@ public final class StatusBar: ASDisplayNode {
             return nil
         }
     }
-    
+
     @objc func tapGesture(_ recognizer: UITapGestureRecognizer) {
         if case .ended = recognizer.state, self.callStatusBarNode != nil {
             self.inCallNavigate?()

@@ -65,16 +65,16 @@ public func runOn<T, E>(_ queue: Queue) -> (Signal<T, E>) -> Signal<T, E> {
             } else {
                 var cancelled = false
                 let disposable = MetaDisposable()
-                
+
                 disposable.set(ActionDisposable {
                     cancelled = true
                 })
-                
+
                 queue.async {
                     if cancelled {
                         return
                     }
-                    
+
                     disposable.set(signal.start(next: { next in
                         subscriber.putNext(next)
                     }, error: { error in
@@ -83,7 +83,7 @@ public func runOn<T, E>(_ queue: Queue) -> (Signal<T, E>) -> Signal<T, E> {
                         subscriber.putCompletion()
                     }))
                 }
-                
+
                 return disposable
             }
         }
@@ -95,12 +95,12 @@ public func runOn<T, E>(_ threadPool: ThreadPool) -> (Signal<T, E>) -> Signal<T,
         return Signal { subscriber in
             let cancelled = false
             let disposable = MetaDisposable()
-            
+
             let task = ThreadPoolTask { state in
                 if cancelled || state.cancelled.with({ $0 }) {
                     return
                 }
-                
+
                 disposable.set(signal.start(next: { next in
                     subscriber.putNext(next)
                 }, error: { error in
@@ -109,13 +109,13 @@ public func runOn<T, E>(_ threadPool: ThreadPool) -> (Signal<T, E>) -> Signal<T,
                     subscriber.putCompletion()
                 }))
             }
-            
+
             disposable.set(ActionDisposable {
                 task.cancel()
             })
-            
+
             threadPool.addTask(task)
-            
+
             return disposable
         }
     }

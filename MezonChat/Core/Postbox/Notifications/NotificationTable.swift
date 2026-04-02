@@ -4,8 +4,8 @@ final class NotificationTable: Table {
 
     private var cache: [String: [NotificationRecord]] = [:]
     private var pendingWrites: Set<String> = []
-    
-    // Key format: "\(clanId)_\(category)"
+
+
     private func cacheKey(clanId: Int64, category: Int32) -> String {
         return "\(clanId)_\(category)"
     }
@@ -41,7 +41,7 @@ final class NotificationTable: Table {
 
         let rows = db.query(
             """
-            SELECT id, subject, content, code, sender_id, create_time_seconds, 
+            SELECT id, subject, content, code, sender_id, create_time_seconds,
                    persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category, message_id
             FROM notifications
             WHERE clan_id = ? AND category = ?
@@ -92,7 +92,7 @@ final class NotificationTable: Table {
     func appendNotificationRecord(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
         let key = cacheKey(clanId: clanId, category: category)
         var existing = cache[key] ?? []
-        // merge existing and new, keeping them sorted, removing duplicates
+
         var seen = Set(existing.map { $0.id })
         for n in notifications {
             if !seen.contains(n.id) {
@@ -109,14 +109,14 @@ final class NotificationTable: Table {
         db.beginTransaction()
 
         for key in pendingWrites {
-            // parse clanId and category from string key "\(clanId)_\(category)"
+
             let parts = key.components(separatedBy: "_")
-            guard parts.count == 2, 
-                  let clanId = Int64(parts[0]), 
+            guard parts.count == 2,
+                  let clanId = Int64(parts[0]),
                   let category = Int32(parts[1]),
                   let list = cache[key] else { continue }
 
-            // Delete existing records for this exact index scope
+
             db.run("DELETE FROM notifications WHERE clan_id = ? AND category = ?") { s in
                 sqlite3_bind_int64(s, 1, clanId)
                 sqlite3_bind_int(s, 2, category)
@@ -125,7 +125,7 @@ final class NotificationTable: Table {
             for item in list {
                 db.run("""
                     INSERT INTO notifications(
-                        id, subject, content, code, sender_id, create_time_seconds, 
+                        id, subject, content, code, sender_id, create_time_seconds,
                         persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category, message_id
                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in

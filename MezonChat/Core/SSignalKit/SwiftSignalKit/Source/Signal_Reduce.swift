@@ -4,7 +4,7 @@ public func reduceLeft<T, E>(value: T, f: @escaping(T, T) -> T) -> (_ signal: Si
     return { signal in
         return Signal<T, E> { subscriber in
             var currentValue = value
-            
+
             return signal.start(next: { next in
                 currentValue = f(currentValue, next)
             }, error: { error in
@@ -24,7 +24,7 @@ public func reduceLeft<T, E>(value: T, f: @escaping(T, T, (T) -> Void) -> T) -> 
             let emit: (T) -> Void = { next in
                 subscriber.putNext(next)
             }
-            
+
             return signal.start(next: { next in
                 currentValue = f(currentValue, next, emit)
                 }, error: { error in
@@ -46,25 +46,25 @@ private final class ReduceQueueState<T, E> : Disposable {
     var lock = os_unfair_lock()
     var executingSignal = false
     var terminated = false
-    
+
     var disposable: Disposable = EmptyDisposable
     let currentDisposable = MetaDisposable()
     let subscriber: Subscriber<T, E>
-    
+
     var queuedValues: [T] = []
     var generator: (T, T) -> Signal<(T, Passthrough<T>), E>
     var value: T
-    
+
     init(subscriber: Subscriber<T, E>, value: T, generator: @escaping(T, T) -> Signal<(T, Passthrough<T>), E>) {
         self.subscriber = subscriber
         self.generator = generator
         self.value = value
     }
-    
+
     func beginWithDisposable(_ disposable: Disposable) {
         self.disposable = disposable
     }
-    
+
     func enqueueNext(_ next: T) {
         var startSignal = false
         var currentValue: T
@@ -77,7 +77,7 @@ private final class ReduceQueueState<T, E> : Disposable {
             startSignal = true
         }
         os_unfair_lock_unlock(&self.lock)
-        
+
         if startSignal {
             let disposable = generator(currentValue, next).start(next: { next in
                 self.updateValue(next.0)
@@ -95,19 +95,19 @@ private final class ReduceQueueState<T, E> : Disposable {
             self.currentDisposable.set(disposable)
         }
     }
-    
+
     func updateValue(_ value: T) {
         os_unfair_lock_lock(&self.lock)
         self.value = value
         os_unfair_lock_unlock(&self.lock)
     }
-    
+
     func headCompleted() {
         while true {
             let leftFunction = Atomic(value: false)
-            
+
             var nextSignal: Signal<(T, Passthrough<T>), E>! = nil
-            
+
             var terminated = false
             var currentValue: T!
             os_unfair_lock_lock(&self.lock)
@@ -121,7 +121,7 @@ private final class ReduceQueueState<T, E> : Disposable {
                 terminated = self.terminated
             }
             os_unfair_lock_unlock(&self.lock)
-            
+
             if terminated {
                 self.subscriber.putNext(currentValue)
                 self.subscriber.putCompletion()
@@ -141,16 +141,16 @@ private final class ReduceQueueState<T, E> : Disposable {
                         self.headCompleted()
                     }
                 })
-                
+
                 currentDisposable.set(disposable)
             }
-            
+
             if leftFunction.swap(true) == false {
                 break
             }
         }
     }
-    
+
     func beginCompletion() {
         var executingSignal = false
         let currentValue: T
@@ -159,13 +159,13 @@ private final class ReduceQueueState<T, E> : Disposable {
         self.terminated = true
         currentValue = self.value
         os_unfair_lock_unlock(&self.lock)
-        
+
         if !executingSignal {
             self.subscriber.putNext(currentValue)
             self.subscriber.putCompletion()
         }
     }
-    
+
     func dispose() {
         self.currentDisposable.dispose()
         self.disposable.dispose()

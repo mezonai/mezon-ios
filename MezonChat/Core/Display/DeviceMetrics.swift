@@ -8,16 +8,16 @@ public enum DeviceType {
 public enum DeviceMetrics: CaseIterable, Equatable {
     public struct Performance {
         public let isGraphicallyCapable: Bool
-        
+
         init() {
             var length: Int = 4
             var cpuCount: UInt32 = 0
             sysctlbyname("hw.ncpu", &cpuCount, &length, nil, 0)
-            
+
             self.isGraphicallyCapable = cpuCount >= 4
         }
     }
-    
+
     case iPhone4
     case iPhone5
     case iPhone6
@@ -48,7 +48,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
     case iPadPro3rdGen
     case iPadMini6thGen
     case unknown(screenSize: CGSize, statusBarHeight: CGFloat, onScreenNavigationHeight: CGFloat?, screenCornerRadius: CGFloat)
-    
+
     public static let performance = Performance()
 
     public static var allCases: [DeviceMetrics] {
@@ -84,13 +84,13 @@ public enum DeviceMetrics: CaseIterable, Equatable {
             .iPadMini6thGen
         ]
     }
-    
+
     public init(screenSize: CGSize, scale: CGFloat, statusBarHeight: CGFloat, onScreenNavigationHeight: CGFloat?) {
         var screenSize = screenSize
         if screenSize.width > screenSize.height {
             screenSize = CGSize(width: screenSize.height, height: screenSize.width)
         }
-        
+
         let additionalSize = CGSize(width: screenSize.width, height: screenSize.height + 20.0)
         for device in DeviceMetrics.allCases {
             if let _ = onScreenNavigationHeight, device.onScreenNavigationHeight(inLandscape: false, systemOnScreenNavigationHeight: nil) == nil {
@@ -103,7 +103,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                     continue
                 }
             }
-            
+
             let width = device.screenSize.width
             let height = device.screenSize.height
             if ((screenSize.width.isEqual(to: width) && screenSize.height.isEqual(to: height)) || (additionalSize.width.isEqual(to: width) && additionalSize.height.isEqual(to: height))) {
@@ -117,7 +117,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return
             }
         }
-        
+
         let screenCornerRadius: CGFloat
         if screenSize.width >= 1024.0 || screenSize.height >= 1024.0 {
             screenCornerRadius = 0.0
@@ -126,10 +126,10 @@ public enum DeviceMetrics: CaseIterable, Equatable {
         } else {
             screenCornerRadius = 0.0
         }
-        
+
         self = .unknown(screenSize: screenSize, statusBarHeight: statusBarHeight, onScreenNavigationHeight: onScreenNavigationHeight, screenCornerRadius: screenCornerRadius)
     }
-    
+
     public var type: DeviceType {
         switch self {
             case .iPad, .iPad102Inch, .iPadPro10Inch, .iPadPro11Inch, .iPadPro, .iPadPro3rdGen:
@@ -140,7 +140,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return .phone
         }
     }
-    
+
     public var screenSize: CGSize {
         switch self {
             case .iPhone4:
@@ -201,7 +201,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return screenSize
         }
     }
-    
+
     public var screenCornerRadius: CGFloat {
         switch self {
             case .iPhoneX, .iPhoneXSMax:
@@ -226,7 +226,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return 0.0
         }
     }
-    
+
     func safeInsets(inLandscape: Bool) -> UIEdgeInsets {
         switch self {
             case .iPhoneX, .iPhoneXSMax, .iPhoneXr, .iPhone14ProZoomed, .iPhone14ProMaxZoomed:
@@ -241,7 +241,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return UIEdgeInsets.zero
         }
     }
-    
+
     public func onScreenNavigationHeight(inLandscape: Bool, systemOnScreenNavigationHeight: CGFloat?) -> CGFloat? {
         switch self {
         case .iPhoneX, .iPhoneXSMax, .iPhoneXr, .iPhone12Mini, .iPhone12, .iPhone12ProMax, .iPhone13Mini, .iPhone13, .iPhone13Pro, .iPhone13ProMax, .iPhone14Pro, .iPhone14ProMax, .iPhone16Pro, .iPhone16ProMax, .iPhoneAir:
@@ -268,7 +268,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
             return nil
         }
     }
-    
+
     func statusBarHeight(for size: CGSize) -> CGFloat? {
         let value = self.statusBarHeight
         if self.type == .tablet {
@@ -281,7 +281,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
             }
         }
     }
-    
+
     var statusBarHeight: CGFloat {
         switch self {
             case .iPhone14Pro, .iPhone14ProMax:
@@ -302,7 +302,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return 20.0
         }
     }
-    
+
     public func keyboardHeight(inLandscape: Bool) -> CGFloat {
         var keyboardHeight = _keyboardHeight(inLandscape: inLandscape)
         if #available(iOS 26.0, *) {
@@ -312,7 +312,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
         }
         return keyboardHeight
     }
-    
+
     private func _keyboardHeight(inLandscape: Bool) -> CGFloat {
         if inLandscape {
             switch self {
@@ -360,7 +360,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
             }
         }
     }
-    
+
     func predictiveInputHeight(inLandscape: Bool) -> CGFloat {
         if inLandscape {
             switch self {
@@ -386,11 +386,11 @@ public enum DeviceMetrics: CaseIterable, Equatable {
             }
         }
     }
-    
+
     public func standardInputHeight(inLandscape: Bool) -> CGFloat {
         return self.keyboardHeight(inLandscape: inLandscape) + predictiveInputHeight(inLandscape: inLandscape)
     }
-    
+
     public var hasTopNotch: Bool {
         switch self {
             case .iPhoneX, .iPhoneXSMax, .iPhoneXr, .iPhone12Mini, .iPhone12, .iPhone12ProMax:
@@ -399,7 +399,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return false
         }
     }
-    
+
     public var hasDynamicIsland: Bool {
         switch self {
             case .iPhone14Pro, .iPhone14ProZoomed, .iPhone14ProMax, .iPhone14ProMaxZoomed, .iPhone16Pro, .iPhone16ProMax, .iPhoneAir:
@@ -408,7 +408,7 @@ public enum DeviceMetrics: CaseIterable, Equatable {
                 return false
         }
     }
-    
+
     public var showAppBadge: Bool {
         if case .iPhoneX = self {
             return false

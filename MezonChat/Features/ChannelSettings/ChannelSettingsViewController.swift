@@ -54,13 +54,12 @@ final class ChannelSettingsViewController: BaseViewController {
                     categoryId: self.categoryId,
                     token: token
                 )
-                
+
                 await MainActor.run {
                     self.navigationController?.popViewController(animated: true)
                 }
             } catch {
-                print("Failed to save channel settings: \(error)")
-                // TODO: Show error alert
+
             }
         }
     }

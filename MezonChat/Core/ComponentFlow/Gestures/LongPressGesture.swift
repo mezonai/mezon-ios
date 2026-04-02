@@ -13,7 +13,7 @@ public extension Gesture {
 
             init(pressDuration: Double, action: @escaping (LongPressGestureState) -> Void) {
                 self.action = action
-                
+
                 super.init(target: nil, action: nil)
                 self.minimumPressDuration = pressDuration
                 self.addTarget(self, action: #selector(self.onAction))

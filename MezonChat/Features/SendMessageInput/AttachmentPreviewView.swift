@@ -69,7 +69,7 @@ final class AttachmentPreviewView: UIView {
     func removeImage(at index: Int) {
         guard index >= 0, index < images.count else { return }
         images.remove(at: index)
-        // Re-index video indices
+
         var newIndices: Set<Int> = []
         for vi in videoIndices where vi != index {
             newIndices.insert(vi > index ? vi - 1 : vi)
@@ -91,7 +91,6 @@ final class AttachmentPreviewView: UIView {
     }
 }
 
-// MARK: - UICollectionView DataSource & Delegate
 
 extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
 
@@ -116,7 +115,6 @@ extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDel
     }
 }
 
-// MARK: - AttachmentThumbCell
 
 private final class AttachmentThumbCell: UICollectionViewCell {
 

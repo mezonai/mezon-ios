@@ -17,7 +17,7 @@ public protocol ListViewItemHeader: AnyObject {
     var stickOverInsets: Bool { get }
 
     func combinesWith(other: ListViewItemHeader) -> Bool
-    
+
     func node(synchronousLoad: Bool) -> ListViewItemHeaderNode
     func updateNode(_ node: ListViewItemHeaderNode, previous: ListViewItemHeader?, next: ListViewItemHeader?)
 }
@@ -35,48 +35,48 @@ open class ListViewItemHeaderNode: ASDisplayNode {
     private var isFlashingOnScrolling = false
     weak var attachedToItemNode: ListViewItemNode?
     public var contributesToEdgeEffect: Bool = false
-    
+
     var offsetByHeaderNodeId: ListViewItemNode.HeaderId?
     var naturalOriginY: CGFloat?
-    
+
     public var item: ListViewItemHeader?
-    
+
     func updateInternalStickLocationDistanceFactor(_ factor: CGFloat, animated: Bool) {
         self.internalStickLocationDistanceFactor = factor
     }
-    
+
     final func updateFlashingOnScrollingInternal(_ isFlashingOnScrolling: Bool, animated: Bool) {
         if self.isFlashingOnScrolling != isFlashingOnScrolling {
             self.isFlashingOnScrolling = isFlashingOnScrolling
             self.updateFlashingOnScrolling(isFlashingOnScrolling, animated: animated)
         }
     }
-    
+
     open func updateFlashingOnScrolling(_ isFlashingOnScrolling: Bool, animated: Bool) {
     }
-    
+
     open func getEffectiveAlpha() -> CGFloat {
         return self.alpha
     }
-    
+
     public init(layerBacked: Bool = false, isRotated: Bool = false, seeThrough: Bool = false) {
         self.isRotated = isRotated
-        
+
         super.init()
-            
+
         self.isLayerBacked = layerBacked
     }
-    
+
     open func updateStickDistanceFactor(_ factor: CGFloat, distance: CGFloat, transition: ContainedViewLayoutTransition) {
     }
-    
+
     final func addScrollingOffset(_ scrollingOffset: CGFloat) {
     }
-    
+
     public func animate(_ timestamp: Double) -> Bool {
         return false
     }
-    
+
     open func animateRemoved(duration: Double) {
         self.alpha = 0.0
         self.layer.animateAlpha(from: 1.0, to: 0.0, duration: duration, removeOnCompletion: false)
@@ -87,9 +87,9 @@ open class ListViewItemHeaderNode: ASDisplayNode {
         self.layer.animateAlpha(from: 0.0, to: self.alpha, duration: 0.2)
         self.layer.animateScale(from: 0.2, to: 1.0, duration: 0.2)
     }
-    
+
     private var cachedLayout: (CGSize, CGFloat, CGFloat)?
-    
+
     public func updateLayoutInternal(size: CGSize, leftInset: CGFloat, rightInset: CGFloat, transition: ContainedViewLayoutTransition) {
         var update = false
         if let cachedLayout = self.cachedLayout {
@@ -104,13 +104,13 @@ open class ListViewItemHeaderNode: ASDisplayNode {
             self.updateLayout(size: size, leftInset: leftInset, rightInset: rightInset, transition: transition)
         }
     }
-    
+
     open func updateLayout(size: CGSize, leftInset: CGFloat, rightInset: CGFloat, transition: ContainedViewLayoutTransition) {
     }
-    
+
     open func updateAbsoluteRect(_ rect: CGRect, within containerSize: CGSize) {
     }
-    
+
     public func updateFrame(_ frame: CGRect, within containerSize: CGSize, updateFrame: Bool = true) {
         if updateFrame {
             self.frame = frame

@@ -12,11 +12,11 @@ open class SparseNode: ASDisplayNode {
                 return result
             }
         }
-        
+
         if !self.bounds.inset(by: self.hitTestSlop).contains(point) {
             return nil
         }
-        
+
         let result = super.hitTest(point, with: event)
         if result != self.view {
             return result
@@ -36,7 +36,7 @@ open class SparseContainerView: UIView {
                 return result
             }
         }
-        
+
         let result = super.hitTest(point, with: event)
         if result != self {
             return result

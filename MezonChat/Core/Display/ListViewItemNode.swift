@@ -17,7 +17,7 @@ var testSpringScrollingResistance: CGFloat = 0.6721
 public struct ListViewItemAnimationOptions {
     public let short: Bool
     public let invertOffsetDirection: Bool
-    
+
     public init(short: Bool = false, invertOffsetDirection: Bool = false) {
         self.short = short
         self.invertOffsetDirection = invertOffsetDirection
@@ -29,7 +29,7 @@ struct ListViewItemSpring {
     let damping: CGFloat
     let mass: CGFloat
     var velocity: CGFloat = 0.0
-    
+
     init(stiffness: CGFloat, damping: CGFloat, mass: CGFloat) {
         self.stiffness = stiffness
         self.damping = damping
@@ -40,17 +40,17 @@ struct ListViewItemSpring {
 public struct ListViewItemNodeLayout {
     public let contentSize: CGSize
     public let insets: UIEdgeInsets
-    
+
     public init() {
         self.contentSize = CGSize()
         self.insets = UIEdgeInsets()
     }
-    
+
     public init(contentSize: CGSize, insets: UIEdgeInsets) {
         self.contentSize = contentSize
         self.insets = insets
     }
-    
+
     public var size: CGSize {
         return CGSize(width: self.contentSize.width + self.insets.left + self.insets.right, height: self.contentSize.height + self.insets.top + self.insets.bottom)
     }
@@ -67,7 +67,7 @@ public struct ListViewItemLayoutParams: Equatable {
     public let rightInset: CGFloat
     public let availableHeight: CGFloat
     public let isStandalone: Bool
-    
+
     public init(width: CGFloat, leftInset: CGFloat, rightInset: CGFloat, availableHeight: CGFloat, isStandalone: Bool = false) {
         self.width = width
         self.leftInset = leftInset
@@ -80,7 +80,7 @@ public struct ListViewItemLayoutParams: Equatable {
 private final class ControlledTransitionContext {
     let transition: ControlledTransition
     let beginAt: Double
-    
+
     init(transition: ControlledTransition, beginAt: Double) {
         self.transition = transition
         self.beginAt = beginAt
@@ -100,9 +100,9 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
 
     let rotated: Bool
     public internal(set) final var index: Int?
-    
+
     public var isHighlightedInOverlay: Bool = false
-    
+
     public private(set) var accessoryItemNode: ListViewAccessoryItemNode?
 
     func setAccessoryItemNode(_ accessoryItemNode: ListViewAccessoryItemNode?, leftInset: CGFloat, rightInset: CGFloat) {
@@ -111,11 +111,11 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             self.layoutAccessoryItemNode(accessoryItemNode, leftInset: leftInset, rightInset: rightInset)
         }
     }
-    
+
     open func addAccessoryItemNode(_ accessoryItemNode: ListViewAccessoryItemNode) {
         self.addSubnode(accessoryItemNode)
     }
-    
+
     final var headerAccessoryItemNode: ListViewAccessoryItemNode? {
         didSet {
             if let headerAccessoryItemNode = self.headerAccessoryItemNode {
@@ -123,11 +123,11 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             }
         }
     }
-    
+
     open var extractedBackgroundNode: ASDisplayNode? {
         return nil
     }
-    
+
     private final var animations: [(String, ListViewAnimation)] = []
     private final var pendingControlledTransitions: [ControlledTransition] = []
     private final var controlledTransitions: [ControlledTransitionContext] = []
@@ -139,45 +139,45 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
 
     open func attachedHeaderNodesUpdated() {
     }
-    
+
     open var preferredAnimationCurve: (CGFloat) -> CGFloat {
         return listViewAnimationCurveSystem
     }
-    
+
     public final var wantsTrailingItemSpaceUpdates: Bool = false
-    
+
     public final var scrollPositioningInsets: UIEdgeInsets = UIEdgeInsets()
-    
+
     public final var canBeUsedAsScrollToItemAnchor: Bool = true
-    
+
     open var visibility: ListViewItemNodeVisibility = .none
-    
+
     open var canBeSelected: Bool {
         return true
     }
-    
+
     open func visibleForSelection(at point: CGPoint) -> Bool {
         return true
     }
-    
+
     open var canBeLongTapped: Bool {
         return false
     }
-    
+
     open var preventsTouchesToOtherItems: Bool {
         return false
     }
-    
+
     open func touchesToOtherItemsPrevented() {
-        
+
     }
-    
+
     open func tapped() {
     }
-    
+
     open func longTapped() {
     }
-    
+
     public final var insets: UIEdgeInsets = UIEdgeInsets() {
         didSet {
             let effectiveInsets = self.insets
@@ -196,7 +196,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             self.frame = CGRect(origin: self.frame.origin, size: CGSize(width: value.width, height: value.height + effectiveInsets.top + effectiveInsets.bottom))
         }
     }
-    
+
     private var contentOffset: CGFloat = 0.0 {
         didSet {
             let effectiveInsets = self.insets
@@ -204,7 +204,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             self.bounds = CGRect(origin: CGPoint(x: bounds.origin.x, y: -effectiveInsets.top + self.contentOffset + self.transitionOffset), size: bounds.size)
         }
     }
-    
+
     public var transitionOffset: CGFloat = 0.0 {
         didSet {
             let effectiveInsets = self.insets
@@ -212,51 +212,51 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             self.bounds = CGRect(origin: CGPoint(x: bounds.origin.x, y: -effectiveInsets.top + self.contentOffset + self.transitionOffset), size: bounds.size)
         }
     }
-    
+
     public var layout: ListViewItemNodeLayout {
         var insets = self.insets
         var contentSize = self.contentSize
-        
+
         if let animation = self.animationForKey("insets") {
             insets = animation.to as! UIEdgeInsets
         }
-        
+
         if let animation = self.animationForKey("apparentHeight") {
             contentSize.height = (animation.to as! CGFloat) - insets.top - insets.bottom
         }
-        
+
         return ListViewItemNodeLayout(contentSize: contentSize, insets: insets)
     }
-    
+
     public var displayResourcesReady: Signal<Void, NoError> {
         return .complete()
     }
-    
+
     public init(layerBacked: Bool, rotated: Bool = false, seeThrough: Bool = false) {
         self.rotated = rotated
-        
+
         super.init()
-        
+
         self.isLayerBacked = layerBacked
     }
-    
+
     open var apparentHeight: CGFloat = 0.0
     public private(set) var apparentHeightTransition: (CGFloat, CGFloat)?
     private var _bounds: CGRect = CGRect()
     private var _position: CGPoint = CGPoint()
-    
+
     open override var frame: CGRect {
         get {
             return CGRect(origin: CGPoint(x: self._position.x - self._bounds.width / 2.0, y: self._position.y - self._bounds.height / 2.0), size: self._bounds.size)
         } set(value) {
             let previousSize = self._bounds.size
-            
+
             super.frame = value
             self._bounds.size = value.size
             self._position = CGPoint(x: value.midX, y: value.midY)
             let effectiveInsets = self.insets
             self._contentSize = CGSize(width: value.size.width, height: value.size.height - effectiveInsets.top - effectiveInsets.bottom)
-            
+
             if previousSize != value.size {
                 if let headerAccessoryItemNode = self.headerAccessoryItemNode {
                     self.layoutHeaderAccessoryItemNode(headerAccessoryItemNode)
@@ -264,18 +264,18 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             }
         }
     }
-    
+
     open override var bounds: CGRect {
         get {
             return self._bounds
         } set(value) {
             let previousSize = self._bounds.size
-            
+
             super.bounds = value
             self._bounds = value
             let effectiveInsets = self.insets
             self._contentSize = CGSize(width: value.size.width, height: value.size.height - effectiveInsets.top - effectiveInsets.bottom)
-            
+
             if previousSize != value.size {
                 if let headerAccessoryItemNode = self.headerAccessoryItemNode {
                     self.layoutHeaderAccessoryItemNode(headerAccessoryItemNode)
@@ -283,13 +283,13 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             }
         }
     }
-    
+
     public var contentBounds: CGRect {
         let bounds = self.bounds
         let effectiveInsets = self.insets
         return CGRect(origin: CGPoint(x: 0.0, y: bounds.origin.y + effectiveInsets.top), size: CGSize(width: bounds.size.width, height: bounds.size.height - effectiveInsets.top - effectiveInsets.bottom))
     }
-    
+
     open override var position: CGPoint {
         get {
             return self._position
@@ -298,13 +298,13 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             self._position = value
         }
     }
-    
+
     public final var apparentFrame: CGRect {
         var frame = self.frame
         frame.size.height = self.apparentHeight
         return frame
     }
-    
+
     public final var apparentContentFrame: CGRect {
         var frame = self.frame
         let insets = self.insets
@@ -312,41 +312,41 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
         frame.size.height = self.apparentHeight - insets.top - insets.bottom
         return frame
     }
-    
+
     public final var apparentBounds: CGRect {
         var bounds = self.bounds
         bounds.size.height = self.apparentHeight
         return bounds
     }
-    
+
     open func layoutAccessoryItemNode(_ accessoryItemNode: ListViewAccessoryItemNode, leftInset: CGFloat, rightInset: CGFloat) {
     }
-    
+
     open func layoutHeaderAccessoryItemNode(_ accessoryItemNode: ListViewAccessoryItemNode) {
     }
-    
+
     open func reuse() {
     }
-    
+
     final func addScrollingOffset(_ scrollingOffset: CGFloat) {
     }
-    
+
     func initializeDynamicsFromSibling(_ itemView: ListViewItemNode, additionalOffset: CGFloat) {
     }
-    
+
     public func animate(timestamp: Double, invertOffsetDirection: inout Bool) -> Bool {
         var continueAnimations = false
-        
+
         var i = 0
         var animationCount = self.animations.count
         while i < animationCount {
             let (_, animation) = self.animations[i]
             animation.applyAt(timestamp)
-            
+
             if animation.invertOffsetDirection {
                 invertOffsetDirection = true
             }
-            
+
             if animation.completeAt(timestamp) {
                 self.animations.remove(at: i)
                 animationCount -= 1
@@ -354,10 +354,10 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             } else {
                 continueAnimations = true
             }
-            
+
             i += 1
         }
-        
+
         i = 0
         var transitionCount = self.controlledTransitions.count
         while i < transitionCount {
@@ -365,7 +365,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             var fraction = (timestamp - transition.beginAt) / transition.transition.animator.duration
             fraction = max(0.0, min(1.0, fraction))
             transition.transition.animator.setAnimationProgress(CGFloat(fraction))
-            
+
             if timestamp >= transition.beginAt + transition.transition.animator.duration {
                 transition.transition.animator.finishAnimation()
                 self.controlledTransitions.remove(at: i)
@@ -374,22 +374,22 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             } else {
                 continueAnimations = true
             }
-            
+
             i += 1
         }
-        
+
         if let accessoryItemNode = self.accessoryItemNode {
             if (accessoryItemNode.animate(timestamp)) {
                 continueAnimations = true
             }
         }
-        
+
         return continueAnimations
     }
-    
+
     open func layoutForParams(_ params: ListViewItemLayoutParams, item: ListViewItem, previousItem: ListViewItem?, nextItem: ListViewItem?) {
     }
-    
+
     public func animationForKey(_ key: String) -> ListViewAnimation? {
         for (animationKey, animation) in self.animations {
             if animationKey == key {
@@ -398,7 +398,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
         }
         return nil
     }
-    
+
     public final func setAnimationForKey(_ key: String, animation: ListViewAnimation?) {
         for i in 0 ..< self.animations.count {
             let (currentKey, currentAnimation) = self.animations[i]
@@ -412,41 +412,41 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             self.animations.append((key, animation))
         }
     }
-    
+
     public final func removeAllAnimations() {
         let previousAnimations = self.animations
         self.animations.removeAll()
-        
+
         for (_, animation) in previousAnimations {
             animation.cancel()
         }
-        
+
         self.accessoryItemNode?.removeAllAnimations()
-        
+
         for transition in self.controlledTransitions {
             transition.transition.animator.finishAnimation()
         }
         self.controlledTransitions.removeAll()
     }
-    
+
     func addPendingControlledTransition(transition: ControlledTransition) {
         self.pendingControlledTransitions.append(transition)
     }
-    
+
     func beginPendingControlledTransitions(beginAt: Double, forceRestart: Bool) {
         for transition in self.pendingControlledTransitions {
             self.addControlledTransition(transition: transition, beginAt: beginAt, forceRestart: forceRestart)
         }
         self.pendingControlledTransitions.removeAll()
     }
-    
+
     func addControlledTransition(transition: ControlledTransition, beginAt: Double, forceRestart: Bool) {
         for controlledTransition in self.controlledTransitions {
             transition.merge(with: controlledTransition.transition, forceRestart: forceRestart)
         }
         self.controlledTransitions.append(ControlledTransitionContext(transition: transition, beginAt: beginAt))
     }
-    
+
     public func addInsetsAnimationToValue(_ value: UIEdgeInsets, duration: Double, beginAt: Double) {
         let animation = ListViewAnimation(from: self.insets, to: value, duration: duration, curve: self.preferredAnimationCurve, beginAt: beginAt, update: { [weak self] _, currentValue in
             if let strongSelf = self {
@@ -455,7 +455,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
         })
         self.setAnimationForKey("insets", animation: animation)
     }
-    
+
     public func addHeightAnimation(_ value: CGFloat, duration: Double, beginAt: Double, update: ((CGFloat, CGFloat) -> Void)? = nil) {
         let animation = ListViewAnimation(from: self.bounds.height, to: value, duration: duration, curve: self.preferredAnimationCurve, beginAt: beginAt, update: { [weak self] progress, currentValue in
             if let strongSelf = self {
@@ -468,7 +468,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
         })
         self.setAnimationForKey("height", animation: animation)
     }
-    
+
     func copyHeightAndApparentHeightAnimations(to otherNode: ListViewItemNode) {
         if let animation = self.animationForKey("apparentHeight") {
             let updatedAnimation = ListViewAnimation(copying: animation, update: { [weak otherNode] (progress: CGFloat, currentValue: CGFloat) -> Void in
@@ -479,7 +479,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             })
             otherNode.setAnimationForKey("height", animation: updatedAnimation)
         }
-        
+
         if let animation = self.animationForKey("apparentHeight") {
             let updatedAnimation = ListViewAnimation(copying: animation, update: { [weak otherNode] (progress: CGFloat, currentValue: CGFloat) -> Void in
                 if let strongSelf = otherNode {
@@ -489,7 +489,7 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             otherNode.setAnimationForKey("apparentHeight", animation: updatedAnimation)
         }
     }
-    
+
     public func addApparentHeightAnimation(_ value: CGFloat, duration: Double, beginAt: Double, invertOffsetDirection: Bool = false, update: ((CGFloat, CGFloat) -> Void)? = nil) {
         self.apparentHeightTransition = (self.apparentHeight, value)
         let animation = ListViewAnimation(from: self.apparentHeight, to: value, duration: duration, invertOffsetDirection: invertOffsetDirection, curve: self.preferredAnimationCurve, beginAt: beginAt, update: { [weak self] progress, currentValue in
@@ -505,28 +505,28 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
         })
         self.setAnimationForKey("apparentHeight", animation: animation)
     }
-    
+
     public func modifyApparentHeightAnimation(_ value: CGFloat, beginAt: Double) {
         if let previousAnimation = self.animationForKey("apparentHeight") {
             var duration = previousAnimation.startTime + previousAnimation.duration - beginAt
             if abs(self.apparentHeight - value) < CGFloat.ulpOfOne {
                 duration = 0.0
             }
-            
+
             let animation = ListViewAnimation(from: self.apparentHeight, to: value, duration: duration, curve: self.preferredAnimationCurve, beginAt: beginAt, update: { [weak self] _, currentValue in
                 if let strongSelf = self {
                     strongSelf.apparentHeight = currentValue
                 }
             })
-            
+
             self.setAnimationForKey("apparentHeight", animation: animation)
         }
     }
-    
+
     public func removeApparentHeightAnimation() {
         self.setAnimationForKey("apparentHeight", animation: nil)
     }
-    
+
     public func addTransitionOffsetAnimation(_ value: CGFloat, duration: Double, beginAt: Double) {
         let animation = ListViewAnimation(from: self.transitionOffset, to: value, duration: duration, curve: self.preferredAnimationCurve, beginAt: beginAt, update: { [weak self] _, currentValue in
             if let strongSelf = self {
@@ -535,63 +535,63 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
         })
         self.setAnimationForKey("transitionOffset", animation: animation)
     }
-    
+
     open func insertionAnimationDuration() -> Double? {
         return nil
     }
-    
+
     open func updateAnimationDuration() -> Double? {
         return nil
     }
-    
+
     open func animateInsertion(_ currentTimestamp: Double, duration: Double, options: ListViewItemAnimationOptions) {
     }
-    
+
     open func animateAdded(_ currentTimestamp: Double, duration: Double) {
     }
-    
+
     open func animateRemoved(_ currentTimestamp: Double, duration: Double) {
     }
-    
+
     open func setHighlighted(_ highlighted: Bool, at point: CGPoint, animated: Bool) {
     }
-    
+
     open func selected() {
     }
-    
+
     open func secondaryAction(at point: CGPoint) {
     }
-    
+
     open func isReorderable(at point: CGPoint) -> Bool {
         return false
     }
-    
+
     open func animateFrameTransition(_ progress: CGFloat, _ currentValue: CGFloat) {
-        
+
     }
-    
+
     open func shouldAnimateHorizontalFrameTransition() -> Bool {
         return false
     }
-    
+
     open func headers() -> [ListViewItemHeader]? {
         return nil
     }
-    
+
     open func updateTrailingItemSpace(_ height: CGFloat, transition: ContainedViewLayoutTransition) {
-        
+
     }
-    
+
     override open func accessibilityElementDidBecomeFocused() {
         (self.supernode as? ListView)?.ensureItemNodeVisible(self, animated: false, overflow: 22.0, allowIntersection: true)
     }
-    
+
     public func updateFrame(_ frame: CGRect, within containerSize: CGSize, updateFrame: Bool = true, transition: ControlledTransition? = nil) {
         if updateFrame {
             if let transition {
                 let previousFrame = self.frame
                 self.frame = frame
-                
+
                 transition.legacyAnimator.transition.animatePositionAdditive(layer: self.layer, offset: CGPoint(x: previousFrame.minX - frame.minX, y: previousFrame.minY - frame.minY))
             } else {
                 self.frame = frame
@@ -605,17 +605,17 @@ open class ListViewItemNode: ASDisplayNode, AccessibilityFocusableNode {
             extractedBackgroundNode.frame = frame.offsetBy(dx: 0.0, dy: -self.insets.top)
         }
     }
-    
+
     open func updateAbsoluteRect(_ rect: CGRect, within containerSize: CGSize) {
     }
-    
+
     open func applyAbsoluteOffset(value: CGPoint, animationCurve: ContainedViewLayoutTransitionCurve, duration: Double) {
         if let extractedBackgroundNode = self.extractedBackgroundNode {
             let transition: ContainedViewLayoutTransition = .animated(duration: duration, curve: animationCurve)
             transition.animatePositionAdditive(node: extractedBackgroundNode, offset: CGPoint(x: -value.x, y: -value.y))
         }
     }
-    
+
     open func snapshotForReordering() -> UIView? {
         return self.view.snapshotContentTree(keepTransform: true)
     }

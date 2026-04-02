@@ -111,7 +111,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let containerNode = ASDisplayNode()
     private let handleNode = ASDisplayNode()
     private let scrollNode = ASScrollNode()
-    
+
     private let channelName: String
     private let clanName: String
     private let clanAvatarURL: String
@@ -172,10 +172,10 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         let contentW = layout.size.width
         let safeBottom = layout.intrinsicInsets.bottom
-        
+
         let groupsH: CGFloat = (1 * 48.sh + 12.sh) + (2 * 48.sh + 12.sh) + (2 * 48.sh + 12.sh) + (1 * 48.sh + 12.sh) + (2 * 48.sh + 40.sh)
         let totalContentH = 48.swh + 16.sh + 24.sh + groupsH + safeBottom
-        
+
         let maxContainerH = layout.size.height * 0.9
         containerHeight = min(totalContentH + 40.sh, maxContainerH)
 
@@ -217,7 +217,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
             let groupView = buildGroup(actions: group, width: width - 32.sw)
             stack.addArrangedSubview(groupView)
         }
-        
+
         stack.layoutIfNeeded()
         let stackH = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).height
         stack.frame.size.height = stackH

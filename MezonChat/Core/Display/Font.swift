@@ -8,7 +8,7 @@ public struct Font {
         case monospace
         case round
         case camera
-        
+
         var key: String {
             switch self {
             case .regular:
@@ -24,28 +24,28 @@ public struct Font {
             }
         }
     }
-    
+
     public struct Traits: OptionSet {
         public var rawValue: Int32
-        
+
         public init(rawValue: Int32) {
             self.rawValue = rawValue
         }
-        
+
         public init() {
             self.rawValue = 0
         }
-        
+
         public static let italic = Traits(rawValue: 1 << 0)
         public static let monospacedNumbers = Traits(rawValue: 1 << 1)
     }
-    
+
     public enum Width {
         case standard
         case condensed
         case compressed
         case expanded
-        
+
         @available(iOS 16.0, *)
         var width: UIFont.Width {
             switch self {
@@ -59,7 +59,7 @@ public struct Font {
                 return .expanded
             }
         }
-        
+
         var key: String {
             switch self {
             case .standard:
@@ -73,7 +73,7 @@ public struct Font {
             }
         }
     }
-    
+
     public enum Weight {
         case regular
         case thin
@@ -82,7 +82,7 @@ public struct Font {
         case semibold
         case bold
         case heavy
-        
+
         var isBold: Bool {
             switch self {
                 case .medium, .semibold, .bold, .heavy:
@@ -91,7 +91,7 @@ public struct Font {
                     return false
             }
         }
-        
+
         var weight: UIFont.Weight {
             switch self {
                 case .thin:
@@ -110,7 +110,7 @@ public struct Font {
                     return .regular
             }
         }
-        
+
         var key: String {
             switch self {
             case .regular:
@@ -130,17 +130,17 @@ public struct Font {
             }
         }
     }
-    
+
     private final class Cache {
         private var lock: pthread_rwlock_t
         private var fonts: [String: UIFont] = [:]
-        
+
         init() {
             self.lock = pthread_rwlock_t()
             let status = pthread_rwlock_init(&self.lock, nil)
             assert(status == 0)
         }
-        
+
         func get(_ key: String) -> UIFont? {
             let font: UIFont?
             pthread_rwlock_rdlock(&self.lock)
@@ -148,7 +148,7 @@ public struct Font {
             pthread_rwlock_unlock(&self.lock)
             return font
         }
-        
+
         func set(_ font: UIFont, key: String) {
             pthread_rwlock_wrlock(&self.lock)
             self.fonts[key] = font
@@ -157,10 +157,10 @@ public struct Font {
     }
 
     private static let cache = Cache()
-    
+
     public static func with(size: CGFloat, design: Design = .regular, weight: Weight = .regular, width: Width = .standard, traits: Traits = []) -> UIFont {
         let key = "\(size)_\(design.key)_\(weight.key)_\(width.key)_\(traits.rawValue)"
-        
+
         if let cachedFont = self.cache.get(key) {
             return cachedFont
         }
@@ -210,16 +210,16 @@ public struct Font {
                     ])
                 }
             }
-            
+
             let font: UIFont
             if let updatedDescriptor = updatedDescriptor {
                 font = UIFont(descriptor: updatedDescriptor, size: size)
             } else {
                 font = UIFont(descriptor: descriptor, size: size)
             }
-            
+
             self.cache.set(font, key: key)
-            
+
             return font
         } else {
             let font: UIFont
@@ -273,25 +273,25 @@ public struct Font {
                         font = UIFont(name: encodeText(string: "TGDbnfsb.Sfhvmbs", key: -1), size: size) ?? UIFont.systemFont(ofSize: size, weight: weight.weight)
                     }
             }
-            
+
             self.cache.set(font, key: key)
-            
+
             return font
         }
     }
-    
+
     public static func regular(_ size: CGFloat) -> UIFont {
         return UIFont.systemFont(ofSize: size)
     }
-    
+
     public static func medium(_ size: CGFloat) -> UIFont {
         return UIFont.systemFont(ofSize: size, weight: UIFont.Weight.medium)
     }
-    
+
     public static func semibold(_ size: CGFloat) -> UIFont {
         return UIFont.systemFont(ofSize: size, weight: UIFont.Weight.semibold)
     }
-    
+
     public static func bold(_ size: CGFloat) -> UIFont {
         if #available(iOS 8.2, *) {
             return UIFont.boldSystemFont(ofSize: size)
@@ -299,15 +299,15 @@ public struct Font {
             return CTFontCreateWithName("HelveticaNeue-Bold" as CFString, size, nil)
         }
     }
-    
+
     public static func heavy(_ size: CGFloat) -> UIFont {
         return self.with(size: size, design: .regular, weight: .heavy, traits: [])
     }
-    
+
     public static func light(_ size: CGFloat) -> UIFont {
         return UIFont.systemFont(ofSize: size, weight: UIFont.Weight.light)
     }
-    
+
     public static func semiboldItalic(_ size: CGFloat) -> UIFont {
         if let descriptor = UIFont.systemFont(ofSize: size).fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) {
             return UIFont(descriptor: descriptor, size: size)
@@ -315,23 +315,23 @@ public struct Font {
             return UIFont.italicSystemFont(ofSize: size)
         }
     }
-    
+
     public static func monospace(_ size: CGFloat) -> UIFont {
         return UIFont(name: "Menlo-Regular", size: size - 1.0) ?? UIFont.systemFont(ofSize: size)
     }
-    
+
     public static func semiboldMonospace(_ size: CGFloat) -> UIFont {
         return UIFont(name: "Menlo-Bold", size: size - 1.0) ?? UIFont.systemFont(ofSize: size)
     }
-    
+
     public static func italicMonospace(_ size: CGFloat) -> UIFont {
         return UIFont(name: "Menlo-Italic", size: size - 1.0) ?? UIFont.systemFont(ofSize: size)
     }
-    
+
     public static func semiboldItalicMonospace(_ size: CGFloat) -> UIFont {
         return UIFont(name: "Menlo-BoldItalic", size: size - 1.0) ?? UIFont.systemFont(ofSize: size)
     }
-    
+
     public static func italic(_ size: CGFloat) -> UIFont {
         return UIFont.italicSystemFont(ofSize: size)
     }

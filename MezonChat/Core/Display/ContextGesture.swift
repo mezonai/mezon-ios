@@ -10,11 +10,11 @@ public enum ContextGestureTransition {
 
 private class TimerTargetWrapper: NSObject {
     let f: () -> Void
-    
+
     init(_ f: @escaping () -> Void) {
         self.f = f
     }
-    
+
     @objc func timerEvent() {
         self.f()
     }
@@ -73,7 +73,7 @@ private final class InternalGestureRecognizerDelegate: NSObject, UIGestureRecogn
 
 public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDelegate {
     private let internalDelegate = InternalGestureRecognizerDelegate()
-    
+
     public var beginDelay: Double = 0.12
     public var activateOnTap: Bool = false
     private var currentProgress: CGFloat = 0.0
@@ -81,7 +81,7 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
     private var animator: DisplayLinkAnimator?
     private var isValidated: Bool = false
     private var wasActivated: Bool = false
-    
+
     public var shouldBegin: ((CGPoint) -> Bool)?
     public var activationProgress: ((CGFloat, ContextGestureTransition) -> Void)?
     public var activated: ((ContextGesture, CGPoint) -> Void)?
@@ -89,18 +89,18 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
     public var externalEnded: (((UIView?, CGPoint)?) -> Void)?
     public var activatedAfterCompletion: ((CGPoint, Bool) -> Void)?
     public var cancelGesturesOnActivation: (() -> Void)?
-    
+
     override public init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
-        
+
         self.delegate = self.internalDelegate
     }
-    
+
     override public func reset() {
         super.reset()
-        
+
         self.endPressedAppearance()
-        
+
         self.currentProgress = 0.0
         self.delayTimer?.invalidate()
         self.delayTimer = nil
@@ -111,28 +111,28 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
         self.animator = nil
         self.wasActivated = false
     }
-    
+
     override public func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
-        
+
         guard let touch = touches.first else {
             return
         }
         let location = touch.location(in: self.view)
-        
+
         if let shouldBegin = self.shouldBegin {
             if !shouldBegin(location) {
                 self.state = .failed
                 return
             }
         }
-        
+
         let windowLocation = touch.location(in: nil)
         if windowLocation.x < 8.0 {
             self.state = .failed
             return
         }
-        
+
         if self.delayTimer == nil {
             let delayTimer = Foundation.Timer(timeInterval: self.beginDelay, target: TimerTargetWrapper { [weak self] in
                 guard let strongSelf = self, let _ = strongSelf.delayTimer else {
@@ -177,10 +177,10 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
             RunLoop.main.add(delayTimer, forMode: .common)
         }
     }
-    
+
     override public func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesMoved(touches, with: event)
-        
+
         if let touch = touches.first {
             if #available(iOS 9.0, *) {
                 let maxForce: CGFloat = max(2.5, min(3.0, touch.maximumPossibleForce))
@@ -188,7 +188,7 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
                     if !self.isValidated {
                         self.isValidated = true
                     }
-                    
+
                     switch self.state {
                     case .possible:
                         self.delayTimer?.invalidate()
@@ -207,14 +207,14 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
                     }
                 }
             }
-            
+
             self.externalUpdated?(self.view, touch.location(in: self.view))
         }
     }
-    
+
     override public func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesEnded(touches, with: event)
-        
+
         if let touch = touches.first {
             if !self.currentProgress.isZero, self.isValidated {
                 self.currentProgress = 0.0
@@ -228,37 +228,37 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
                     self.activatedAfterCompletion?(touch.location(in: self.view), true)
                 }
             }
-            
+
             self.externalEnded?((self.view, touch.location(in: self.view)))
         }
-        
+
         self.delayTimer?.invalidate()
         self.animator?.invalidate()
-        
+
         self.state = .failed
     }
-    
+
     override public func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesCancelled(touches, with: event)
-        
+
         if let _ = touches.first, !self.currentProgress.isZero, self.isValidated {
             let previousProgress = self.currentProgress
             self.currentProgress = 0.0
             self.activationProgress?(0.0, .ended(previousProgress))
         }
-        
+
         self.delayTimer?.invalidate()
         self.animator?.invalidate()
-        
+
         self.state = .failed
     }
-    
+
     public func cancel() {
         if !self.currentProgress.isZero, self.isValidated {
             let previousProgress = self.currentProgress
             self.currentProgress = 0.0
             self.activationProgress?(0.0, .ended(previousProgress))
-            
+
             self.delayTimer?.invalidate()
             self.animator?.invalidate()
             self.state = .failed
@@ -266,7 +266,7 @@ public final class ContextGesture: UIGestureRecognizer, UIGestureRecognizerDeleg
             self.state = .failed
         }
     }
-    
+
     public func endPressedAppearance() {
         if !self.currentProgress.isZero, self.isValidated {
             let previousProgress = self.currentProgress

@@ -214,8 +214,7 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
-    /// Retry refresh session up to maxForegroundRecoverRetries times.
-    /// Returns true if refreshed successfully, false if session expired (modal shown).
+
     private func refreshSessionWithRetry() async -> Bool {
         for attempt in 1...maxForegroundRecoverRetries {
             do {
@@ -281,7 +280,7 @@ final class AccountContextImpl: AccountContext {
             },
             onReady: { [weak self] in
                 guard let self else { return }
-                // Fallback: mark ready on timeout even if refresh hasn't completed
+
                 self.markSessionReady()
                 onReady(self)
             }
@@ -541,6 +540,9 @@ final class AccountContextImpl: AccountContext {
                     account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
                 }
                 AppLogger.network.info("[Auth] fetched allUserClans(\(users.users.count)) allChannelsByUser(\(channels.channeldesc.count))")
+                Task { [weak self] in
+                    await self?.engine.prefetchMediaPanelCaches(token: token)
+                }
             } catch {
                 AppLogger.network.warning("[Auth] fetchAllUserClansAndChannels failed: \(error)")
             }
@@ -567,7 +569,11 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func rejoinCurrentChannel() {
-        guard let channel = currentChannel else { return }
+        guard let channel = currentChannel else {
+            AppLogger.app.info("[MezonSocket] rejoinCurrentChannel: no currentChannel set, skipping")
+            return
+        }
+        AppLogger.app.info("[MezonSocket] rejoinCurrentChannel: clanId=\(self.currentClanId) channelId=\(channel.channelID)")
         account.socket.joinClanChat(clanId: currentClanId)
         let channelType: Int32 = currentClanId == 0
             ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
@@ -583,8 +589,6 @@ final class AccountContextImpl: AccountContext {
         )
     }
 
-    /// RN `ChatContext` `onchannelmessage`: `badgeService.incrementDm` for `STREAM_MODE_DM` / `STREAM_MODE_GROUP` when not viewing that thread, not self, not `ChatUpdate`/`ChatRemove`.
-    /// Uses `ActiveChannelTracker` (cleared when chat VC is not on-screen) so tab switches / pushed modals do not leave a stale `currentChannel`.
     private static func shouldIncrementDmBadgeForSocketMessage(
         _ message: Mezon_Api_ChannelMessage,
         channelId: Int64,

@@ -282,7 +282,7 @@ public func generateRectsImage(color: UIColor, rects: [CGRect], inset: CGFloat, 
     if rects.isEmpty {
         return (CGPoint(), nil)
     }
-    
+
     var topLeft = rects[0].origin
     var bottomRight = CGPoint(x: rects[0].maxX, y: rects[0].maxY)
     for i in 1 ..< rects.count {
@@ -291,17 +291,17 @@ public func generateRectsImage(color: UIColor, rects: [CGRect], inset: CGFloat, 
         bottomRight.x = max(bottomRight.x, rects[i].maxX)
         bottomRight.y = max(bottomRight.y, rects[i].maxY)
     }
-    
+
     var drawingInset = inset
     if stroke {
         drawingInset += 2.0
     }
-    
+
     topLeft.x -= drawingInset
     topLeft.y -= drawingInset
     bottomRight.x += drawingInset * 2.0
     bottomRight.y += drawingInset * 2.0
-    
+
     let capturedTopLeft = topLeft
     return (topLeft, generateImage(CGSize(width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y), rotatedContext: { size, context in
         drawRectsImageContent(size: size, context: context, color: color, rects: rects, inset: inset, outerRadius: outerRadius, innerRadius: innerRadius, stroke: stroke, strokeWidth: strokeWidth, useModernPathCalculation: useModernPathCalculation, topLeft: capturedTopLeft)
@@ -311,14 +311,14 @@ public func generateRectsImage(color: UIColor, rects: [CGRect], inset: CGFloat, 
 public final class LinkHighlightingNode: ASDisplayNode {
     public private(set) var rects: [CGRect] = []
     public let imageNode: ASImageNode
-    
+
     public var innerRadius: CGFloat = 4.0
     public var outerRadius: CGFloat = 4.0
     public var inset: CGFloat = 2.0
     public var useModernPathCalculation: Bool = false
     public var borderOnly: Bool = false
     public var strokeWidth: CGFloat = 1.0
-    
+
     private var _color: UIColor
     public var color: UIColor {
         get {
@@ -330,42 +330,42 @@ public final class LinkHighlightingNode: ASDisplayNode {
             }
         }
     }
-    
+
     public init(color: UIColor) {
         self._color = color
-        
+
         self.imageNode = ASImageNode()
         self.imageNode.isUserInteractionEnabled = false
         self.imageNode.displaysAsynchronously = false
-        
+
         super.init()
-        
+
         self.addSubnode(self.imageNode)
     }
-    
+
     public func updateRects(_ rects: [CGRect], color: UIColor? = nil) {
         var updated = false
         if self.rects != rects {
             updated = true
             self.rects = rects
         }
-        
+
         if let color, !color.isEqual(self.color) {
             updated = true
             self.color = color
         }
-        
+
         if updated {
             self.updateImage()
         }
     }
-    
+
     private func updateImage() {
         if self.rects.isEmpty {
             self.imageNode.image = nil
         }
         let (offset, image) = generateRectsImage(color: self.color, rects: self.rects, inset: self.inset, outerRadius: self.outerRadius, innerRadius: self.innerRadius, stroke: self.borderOnly, strokeWidth: self.strokeWidth, useModernPathCalculation: self.useModernPathCalculation)
-        
+
         if let image = image {
             self.imageNode.image = image
             self.imageNode.frame = CGRect(origin: offset, size: image.size)
@@ -384,7 +384,7 @@ public final class LinkHighlightingNode: ASDisplayNode {
             return nil
         }
     }
-    
+
     public func asyncLayout() -> (UIColor, [CGRect], CGFloat, CGFloat, CGFloat) -> () -> Void {
         let currentRects = self.rects
         let currentColor = self._color
@@ -392,13 +392,13 @@ public final class LinkHighlightingNode: ASDisplayNode {
         let currentOuterRadius = self.outerRadius
         let currentInset = self.inset
         let useModernPathCalculation = self.useModernPathCalculation
-        
+
         return { [weak self] color, rects, innerRadius, outerRadius, inset in
             var updatedImage: (CGPoint, UIImage?)?
             if currentRects != rects || !currentColor.isEqual(color) || currentInnerRadius != innerRadius || currentOuterRadius != outerRadius || currentInset != inset {
                 updatedImage = generateRectsImage(color: color, rects: rects, inset: inset, outerRadius: outerRadius, innerRadius: innerRadius, useModernPathCalculation: useModernPathCalculation)
             }
-            
+
             return {
                 if let strongSelf = self {
                     strongSelf._color = color
@@ -406,7 +406,7 @@ public final class LinkHighlightingNode: ASDisplayNode {
                     strongSelf.innerRadius = innerRadius
                     strongSelf.outerRadius = outerRadius
                     strongSelf.inset = inset
-                    
+
                     if let (offset, maybeImage) = updatedImage, let image = maybeImage {
                         strongSelf.imageNode.image = image
                         strongSelf.imageNode.frame = CGRect(origin: offset, size: image.size)

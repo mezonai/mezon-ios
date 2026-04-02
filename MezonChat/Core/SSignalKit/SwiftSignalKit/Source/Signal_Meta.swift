@@ -4,31 +4,31 @@ private final class SignalQueueState<T, E>: Disposable {
     var lock = pthread_mutex_t()
     var executingSignal = false
     var terminated = false
-    
+
     var disposable: Disposable = EmptyDisposable
     let currentDisposable = MetaDisposable()
     var subscriber: Subscriber<T, E>?
-    
+
     var queuedSignals: [Signal<T, E>] = []
     let queueMode: Bool
     let throttleMode: Bool
-    
+
     init(subscriber: Subscriber<T, E>, queueMode: Bool, throttleMode: Bool) {
         pthread_mutex_init(&self.lock, nil)
-        
+
         self.subscriber = subscriber
         self.queueMode = queueMode
         self.throttleMode = throttleMode
     }
-    
+
     deinit {
         pthread_mutex_destroy(&self.lock)
     }
-    
+
     func beginWithDisposable(_ disposable: Disposable) {
         self.disposable = disposable
     }
-    
+
     func enqueueSignal(_ signal: Signal<T, E>) {
         var startSignal = false
         pthread_mutex_lock(&self.lock)
@@ -42,7 +42,7 @@ private final class SignalQueueState<T, E>: Disposable {
             startSignal = true
         }
         pthread_mutex_unlock(&self.lock)
-        
+
         if startSignal {
             let disposable = signal.start(next: { next in
                 assert(self.subscriber != nil)
@@ -56,13 +56,13 @@ private final class SignalQueueState<T, E>: Disposable {
             self.currentDisposable.set(disposable)
         }
     }
-    
+
     func headCompleted() {
         while true {
             let leftFunction = Atomic(value: false)
-            
+
             var nextSignal: Signal<T, E>! = nil
-            
+
             var terminated = false
             pthread_mutex_lock(&self.lock)
             self.executingSignal = false
@@ -78,7 +78,7 @@ private final class SignalQueueState<T, E>: Disposable {
                 terminated = self.terminated
             }
             pthread_mutex_unlock(&self.lock)
-            
+
             if terminated {
                 self.subscriber?.putCompletion()
             } else if nextSignal != nil {
@@ -93,28 +93,28 @@ private final class SignalQueueState<T, E>: Disposable {
                         self.headCompleted()
                     }
                 })
-                
+
                 currentDisposable.set(disposable)
             }
-            
+
             if leftFunction.swap(true) == false {
                 break
             }
         }
     }
-    
+
     func beginCompletion() {
         var executingSignal = false
         pthread_mutex_lock(&self.lock)
         executingSignal = self.executingSignal
         self.terminated = true
         pthread_mutex_unlock(&self.lock)
-        
+
         if !executingSignal {
             self.subscriber?.putCompletion()
         }
     }
-    
+
     func dispose() {
         self.currentDisposable.dispose()
         self.disposable.dispose()
@@ -192,7 +192,7 @@ public func mapToSignalPromotingError<T, R, E>(_ f: @escaping(T) -> Signal<R, E>
         return Signal<Signal<R, E>, E> { subscriber in
             return signal.start(next: { next in
                 subscriber.putNext(f(next))
-            }, completed: { 
+            }, completed: {
                 subscriber.putCompletion()
             })
         } |> switchToLatest
@@ -215,7 +215,7 @@ public func then<T, E>(_ nextSignal: Signal<T, E>) -> (Signal<T, E>) -> Signal<T
     return { signal -> Signal<T, E> in
         return Signal<T, E> { subscriber in
             let disposable = DisposableSet()
-            
+
             disposable.add(signal.start(next: { next in
                 subscriber.putNext(next)
             }, error: { error in
@@ -229,7 +229,7 @@ public func then<T, E>(_ nextSignal: Signal<T, E>) -> (Signal<T, E>) -> Signal<T
                     subscriber.putCompletion()
                 }))
             }))
-            
+
             return disposable
         }
     }
@@ -253,12 +253,9 @@ public func debug_measureTimeToFirstEvent<T, E>(label: String) -> (Signal<T, E>)
         if "".isEmpty {
             var isFirst = true
             return Signal { subscriber in
-                let startTimestamp = CFAbsoluteTimeGetCurrent()
                 return signal.start(next: { value in
                     if isFirst {
                         isFirst = false
-                        let deltaTime = (CFAbsoluteTimeGetCurrent() - startTimestamp) * 1000.0
-                        print("measureTimeToFirstEvent(\(label): \(deltaTime) ms")
                     }
                     subscriber.putNext(value)
                 }, error: subscriber.putError, completed: subscriber.putCompletion)

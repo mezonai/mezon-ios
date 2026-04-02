@@ -82,7 +82,7 @@ final class DirectMessagesViewController: ViewController {
         }
     }
 
-    /// RN `direct/fetchDirectMessage` + `listChannelBadgeCount({ clanId: '0' })`.
+
     @MainActor
     private func applyDmListChannelBadgeCountFromSocket() async {
         guard context.account.socket.isConnected else { return }
@@ -111,7 +111,7 @@ final class DirectMessagesViewController: ViewController {
         return nil
     }
 
-    /// RN `channelMetaActions.updateDmLastSentMessage` + `addDirectByMessageWS` (last line) + `badgeService.incrementDm`.
+
     @objc private func handleNewMessageReceived(_ notification: Notification) {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
               let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
@@ -174,7 +174,7 @@ final class DirectMessagesViewController: ViewController {
         persistDmChannelListToPostbox()
     }
 
-    /// RN `mapMessageToConversation` / `updateDmLastSentMessage` — header from socket `ChannelMessage`.
+
     private static func lastSentHeader(from m: Mezon_Api_ChannelMessage) -> Mezon_Api_ChannelMessageHeader {
         var h = Mezon_Api_ChannelMessageHeader()
         h.id = m.messageID

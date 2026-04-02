@@ -89,7 +89,7 @@ public func afterDisposed<T, E, R>(_ f: @escaping() -> R) -> (Signal<T, E>) -> S
             disposable.add(ActionDisposable {
                 let _ = f()
             })
-            
+
             return disposable
         }
     }

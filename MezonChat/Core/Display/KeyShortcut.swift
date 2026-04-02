@@ -5,19 +5,19 @@ public struct KeyShortcut: Hashable {
     let input: String
     let modifiers: UIKeyModifierFlags
     let action: () -> Void
-    
+
     public init(title: String = "", input: String = "", modifiers: UIKeyModifierFlags = [], action: @escaping () -> Void = {}) {
         self.title = title
         self.input = input
         self.modifiers = modifiers
         self.action = action
     }
-    
+
     public func hash(into hasher: inout Hasher) {
         hasher.combine(self.input)
         hasher.combine(self.modifiers.rawValue)
     }
-    
+
     public static func ==(lhs: KeyShortcut, rhs: KeyShortcut) -> Bool {
         return lhs.hashValue == rhs.hashValue
     }
@@ -32,7 +32,7 @@ extension KeyShortcut {
         }
         return command
     }
-    
+
     func isEqual(to command: UIKeyCommand) -> Bool {
         return self.input == command.input && self.modifiers == command.modifierFlags
     }

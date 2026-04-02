@@ -12,7 +12,7 @@ final class ChildWindowHostView: UIView, WindowHost {
     var cancelInteractiveKeyboardGesturesImpl: (() -> Void)?
     var forEachControllerImpl: (((ContainableController) -> Void) -> Void)?
     var getAccessibilityElementsImpl: (() -> [Any]?)?
-    
+
     override var frame: CGRect {
         didSet {
             if self.frame.size != oldValue.size {
@@ -20,45 +20,45 @@ final class ChildWindowHostView: UIView, WindowHost {
             }
         }
     }
-    
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        
+
         self.layoutSubviewsEvent?()
     }
-    
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         return self.hitTestImpl?(point, event)
     }
-    
+
     func invalidateDeferScreenEdgeGestures() {
         self.invalidateDeferScreenEdgeGestureImpl?()
     }
-    
+
     func invalidatePrefersOnScreenNavigationHidden() {
         self.invalidatePrefersOnScreenNavigationHiddenImpl?()
     }
-    
+
     func invalidateSupportedOrientations() {
         self.invalidateSupportedOrientationsImpl?()
     }
-    
+
     func cancelInteractiveKeyboardGestures() {
         self.cancelInteractiveKeyboardGesturesImpl?()
     }
-    
+
     func forEachController(_ f: (ContainableController) -> Void) {
         self.forEachControllerImpl?(f)
     }
-    
+
     func present(_ controller: ContainableController, on level: PresentationSurfaceLevel, blockInteraction: Bool, completion: @escaping () -> Void) {
         self.presentController?(controller, level, blockInteraction, completion)
     }
-    
+
     func presentInGlobalOverlay(_ controller: ContainableController) {
         self.presentController?(controller, .root, true, {})
     }
-    
+
     func addGlobalPortalHostView(sourceView: PortalSourceView) {
     }
 }
@@ -66,7 +66,7 @@ final class ChildWindowHostView: UIView, WindowHost {
 public func childWindowHostView(parent: UIView) -> WindowHostView {
     let view = ChildWindowHostView()
     view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    
+
     let hostView = WindowHostView(containerView: view, eventView: view, isRotating: {
         return false
     }, systemUserInterfaceStyle: .single(.light), currentInterfaceOrientation: {
@@ -76,11 +76,11 @@ public func childWindowHostView(parent: UIView) -> WindowHostView {
     }, updatePrefersOnScreenNavigationHidden: { value in
     }, updateStatusBar: { _, _, _ in
     })
-    
+
     view.updateSize = { [weak hostView] size in
         hostView?.updateSize?(size, 0.0, .portrait)
     }
-    
+
     view.layoutSubviewsEvent = { [weak hostView] in
         hostView?.layoutSubviews?()
     }
@@ -92,30 +92,30 @@ public func childWindowHostView(parent: UIView) -> WindowHostView {
     view.hitTestImpl = { [weak hostView] point, event in
         return hostView?.hitTest?(point, event)
     }
-    
+
     view.invalidateDeferScreenEdgeGestureImpl = { [weak hostView] in
         hostView?.invalidateDeferScreenEdgeGesture?()
     }
-    
+
     view.invalidatePrefersOnScreenNavigationHiddenImpl = { [weak hostView] in
         hostView?.invalidatePrefersOnScreenNavigationHidden?()
     }
-    
+
     view.invalidateSupportedOrientationsImpl = { [weak hostView] in
         hostView?.invalidateSupportedOrientations?()
     }
-    
+
     view.cancelInteractiveKeyboardGesturesImpl = { [weak hostView] in
         hostView?.cancelInteractiveKeyboardGestures?()
     }
-    
+
     view.forEachControllerImpl = { [weak hostView] f in
         hostView?.forEachController?(f)
     }
-    
+
     view.getAccessibilityElementsImpl = { [weak hostView] in
         return hostView?.getAccessibilityElements?()
     }
-    
+
     return hostView
 }

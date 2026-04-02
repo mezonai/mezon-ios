@@ -112,7 +112,7 @@ enum L10n {
         static let resendInSeconds    = "login.resendInSeconds"
         static let selectCountry      = "login.selectCountry"
     }
-    
+
     enum Welcome {
         static let title          = "welcome.title"
         static let subtitle       = "welcome.subtitle"
@@ -222,7 +222,7 @@ enum L10n {
     enum DirectMessage {
         static let you        = "directMessage.you"
         static let addFriend = "directMessage.addFriend"
-        /// RN `MessagePreviewLastest` empty group / attachment labels (`attachments.*` keys on mobile).
+
         static let groupCreated   = "directMessage.groupCreated"
         static let previewFile    = "directMessage.previewFile"
         static let previewLink    = "directMessage.previewLink"
@@ -351,7 +351,7 @@ extension L10n {
         "login.loginTooFast":   "Please wait before trying again",
         "login.resendInSeconds": "Resend in %ds",
         "login.selectCountry":  "Select country code",
-        
+
         "welcome.title":        "Welcome to Mezon",
         "welcome.subtitle":     "The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.",
         "welcome.startNow":     "Get started",
@@ -568,7 +568,7 @@ extension L10n {
         "login.loginTooFast":   "Vui lòng đợi trước khi thử lại",
         "login.resendInSeconds": "Gửi lại sau %ds",
         "login.selectCountry":  "Chọn mã vùng",
-        
+
         "welcome.title":        "Chào mừng đến với Mezon",
         "welcome.subtitle":     "Nền tảng Kết nối, Làm việc,\nvà Giải trí",
         "welcome.startNow":     "Bắt đầu nào",

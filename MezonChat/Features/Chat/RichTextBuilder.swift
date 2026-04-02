@@ -1,5 +1,16 @@
 import UIKit
 
+
+extension String {
+
+    func mezon_utf16Substring(from start: Int, to end: Int) -> String {
+        guard start < end, start >= 0, end <= utf16.count else { return "" }
+        let si = String.Index(utf16Offset: start, in: self)
+        let ei = String.Index(utf16Offset: end, in: self)
+        return String(self[si..<ei])
+    }
+}
+
 extension NSAttributedString.Key {
     static let mezonLink = NSAttributedString.Key("mezon.link")
     static let mezonMention = NSAttributedString.Key("mezon.mention")
@@ -26,7 +37,22 @@ enum RichTextBuilder {
         let codeBgColor: UIColor
         let codeFont: UIFont
         let boldFont: UIFont
+
+        let headingFonts: [UIFont]
         let emojiSize: CGFloat
+
+        let emojiImgproxyFitSide: Int
+
+        private static func defaultHeadingFonts() -> [UIFont] {
+            [
+                .systemFont(ofSize: 24.sf, weight: .bold),
+                .systemFont(ofSize: 22.sf, weight: .bold),
+                .systemFont(ofSize: 20.sf, weight: .bold),
+                .systemFont(ofSize: 18.sf, weight: .bold),
+                .systemFont(ofSize: 16.sf, weight: .bold),
+                .systemFont(ofSize: 14.sf, weight: .bold)
+            ]
+        }
 
         static func fromTheme() -> Style {
             let t = UIColor.theme
@@ -42,7 +68,9 @@ enum RichTextBuilder {
                 codeBgColor: t.tertiary,
                 codeFont: UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular),
                 boldFont: .systemFont(ofSize: 14.sf, weight: .bold),
-                emojiSize: 20.sf
+                headingFonts: Self.defaultHeadingFonts(),
+                emojiSize: 20.sf,
+                emojiImgproxyFitSide: 50
             )
         }
     }
@@ -56,7 +84,9 @@ enum RichTextBuilder {
                 mentionBgColor: s.mentionBgColor, roleMentionColor: s.roleMentionColor,
                 roleMentionBgColor: s.roleMentionBgColor, linkColor: s.linkColor,
                 codeBgColor: s.codeBgColor, codeFont: s.codeFont, boldFont: s.boldFont,
-                emojiSize: 48.sf
+                headingFonts: s.headingFonts,
+                emojiSize: 48.sf,
+                emojiImgproxyFitSide: 100
             )
         }
         let text = content.text
@@ -66,28 +96,33 @@ enum RichTextBuilder {
         }
 
         guard !content.tokens.isEmpty else {
-            return NSAttributedString(string: text, attributes: bodyAttributes(s))
+            return attributedPlainTextWithMarkdownHeadings(text, style: s)
         }
 
         let result = NSMutableAttributedString()
-        var lastIndex = text.startIndex
+        var lastUTF16 = 0
+        let utf16Len = text.utf16.count
 
-        for token in content.tokens {
-            let tokenStart = text.index(text.startIndex, offsetBy: token.start, limitedBy: text.endIndex) ?? text.endIndex
-            let tokenEnd = text.index(text.startIndex, offsetBy: token.end, limitedBy: text.endIndex) ?? text.endIndex
+        for token in content.tokens.sorted(by: { $0.start < $1.start }) {
+            guard token.start >= 0, token.end <= utf16Len, token.start < token.end else { continue }
 
-            guard tokenStart <= tokenEnd, tokenStart <= text.endIndex else { continue }
-
-            if lastIndex < tokenStart {
-                let plainText = String(text[lastIndex..<tokenStart])
-                result.append(NSAttributedString(string: plainText, attributes: bodyAttributes(s)))
+            if lastUTF16 < token.start {
+                let plainText = text.mezon_utf16Substring(from: lastUTF16, to: token.start)
+                if !plainText.isEmpty {
+                    result.append(attributedPlainTextWithMarkdownHeadings(plainText, style: s))
+                }
             }
 
-            let rawText = tokenEnd <= text.endIndex ? String(text[tokenStart..<tokenEnd]) : ""
+            let rawText = text.mezon_utf16Substring(from: token.start, to: token.end)
 
             switch token.kind {
             case .emoji(let emojiId):
-                let attachment = EmojiTextAttachment(emojiId: emojiId, emojiSize: s.emojiSize)
+                let attachment = EmojiTextAttachment(
+                    emojiId: emojiId,
+                    emojiSize: s.emojiSize,
+                    baselineFont: s.bodyFont,
+                    imgproxyFitSide: s.emojiImgproxyFitSide
+                )
                 result.append(NSAttributedString(attachment: attachment))
 
             case .mention(let userId, let roleId, _):
@@ -160,12 +195,14 @@ enum RichTextBuilder {
                 result.append(NSAttributedString(string: rawText, attributes: attrs))
             }
 
-            lastIndex = tokenEnd
+            lastUTF16 = token.end
         }
 
-        if lastIndex < text.endIndex {
-            let remaining = String(text[lastIndex...])
-            result.append(NSAttributedString(string: remaining, attributes: bodyAttributes(s)))
+        if lastUTF16 < utf16Len {
+            let remaining = text.mezon_utf16Substring(from: lastUTF16, to: utf16Len)
+            if !remaining.isEmpty {
+                result.append(attributedPlainTextWithMarkdownHeadings(remaining, style: s))
+            }
         }
 
         return result
@@ -188,6 +225,8 @@ enum RichTextBuilder {
         var segments: [RichTextSegment] = []
         var lastIndex = 0
 
+        let utf16Len = text.utf16.count
+
         for token in codeBlockTokens {
             if token.start > lastIndex {
                 let beforeContent = sliceContent(content, from: lastIndex, to: token.start)
@@ -197,9 +236,8 @@ enum RichTextBuilder {
                 }
             }
 
-            var codeText = String(text[
-                text.index(text.startIndex, offsetBy: token.start)..<text.index(text.startIndex, offsetBy: min(token.end, text.count))
-            ])
+            let end = min(token.end, utf16Len)
+            var codeText = text.mezon_utf16Substring(from: token.start, to: end)
             if codeText.hasPrefix("```") && codeText.hasSuffix("```") {
                 codeText = String(codeText.dropFirst(3).dropLast(3))
             }
@@ -216,8 +254,8 @@ enum RichTextBuilder {
             lastIndex = token.end
         }
 
-        if lastIndex < text.count {
-            let afterContent = sliceContent(content, from: lastIndex, to: text.count)
+        if lastIndex < utf16Len {
+            let afterContent = sliceContent(content, from: lastIndex, to: utf16Len)
             let attrText = build(from: afterContent, style: s)
             if attrText.length > 0 {
                 segments.append(.text(attrText))
@@ -229,14 +267,15 @@ enum RichTextBuilder {
 
     private static func sliceContent(_ content: ParsedContent, from: Int, to: Int) -> ParsedContent {
         let text = content.text
-        let start = text.index(text.startIndex, offsetBy: from)
-        let end = text.index(text.startIndex, offsetBy: min(to, text.count))
-        let slicedText = String(text[start..<end])
+        let utf16Len = text.utf16.count
+        let clampedFrom = max(0, min(from, utf16Len))
+        let clampedTo = max(clampedFrom, min(to, utf16Len))
+        let slicedText = text.mezon_utf16Substring(from: clampedFrom, to: clampedTo)
 
         let slicedTokens = content.tokens.compactMap { token -> ContentToken? in
             if case .codeBlock = token.kind { return nil }
-            guard token.start >= from && token.end <= to else { return nil }
-            return ContentToken(start: token.start - from, end: token.end - from, kind: token.kind)
+            guard token.start >= clampedFrom && token.end <= clampedTo else { return nil }
+            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind)
         }
 
         return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [])
@@ -248,61 +287,89 @@ enum RichTextBuilder {
             .foregroundColor: s.bodyColor
         ]
     }
+
+
+    private static func attributedPlainTextWithMarkdownHeadings(_ plain: String, style s: Style) -> NSAttributedString {
+        guard !plain.isEmpty else { return NSAttributedString() }
+        let lines = plain.components(separatedBy: "\n")
+        var hasHeadingLine = false
+        for line in lines {
+            if headingMatch(in: line) != nil {
+                hasHeadingLine = true
+                break
+            }
+        }
+        if !hasHeadingLine {
+            return NSAttributedString(string: plain, attributes: bodyAttributes(s))
+        }
+        let out = NSMutableAttributedString()
+        for (idx, line) in lines.enumerated() {
+            let isLast = idx == lines.count - 1
+            let newline = isLast ? "" : "\n"
+            if let match = headingMatch(in: line) {
+                var attrs = bodyAttributes(s)
+                attrs[.font] = headingFont(level: match.level, fonts: s.headingFonts, fallback: s.bodyFont)
+                out.append(NSAttributedString(string: match.text + newline, attributes: attrs))
+            } else {
+                out.append(NSAttributedString(string: line + newline, attributes: bodyAttributes(s)))
+            }
+        }
+        return out
+    }
+
+    private struct HeadingLineMatch {
+        let level: Int
+        let text: String
+    }
+
+    private static func headingMatch(in line: String) -> HeadingLineMatch? {
+        let ns = line as NSString
+        guard let re = try? NSRegularExpression(pattern: "^(#{1,6})\\s+(.+)$", options: []),
+              let m = re.firstMatch(in: line, options: [], range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges == 3 else { return nil }
+        let hashR = m.range(at: 1)
+        let textR = m.range(at: 2)
+        guard hashR.location != NSNotFound, textR.location != NSNotFound else { return nil }
+        let level = ns.substring(with: hashR).count
+        let headingBody = ns.substring(with: textR).trimmingCharacters(in: .whitespacesAndNewlines)
+        return HeadingLineMatch(level: level, text: headingBody)
+    }
+
+    private static func headingFont(level: Int, fonts: [UIFont], fallback: UIFont) -> UIFont {
+        let idx = max(0, min(level - 1, 5))
+        guard idx < fonts.count else { return fallback }
+        return fonts[idx]
+    }
+
 }
 
 final class EmojiTextAttachment: NSTextAttachment {
-    static let imageDidLoad = Notification.Name("EmojiTextAttachment.imageDidLoad")
 
     let emojiId: String
     let emojiSize: CGFloat
+    let imgproxyFitSide: Int
 
-    init(emojiId: String, emojiSize: CGFloat) {
+
+    private static let horizontalMargin: CGFloat = 2
+
+    init(emojiId: String, emojiSize: CGFloat, baselineFont: UIFont, imgproxyFitSide: Int) {
         self.emojiId = emojiId
         self.emojiSize = emojiSize
+        self.imgproxyFitSide = imgproxyFitSide
         super.init(data: nil, ofType: nil)
-        let font = UIFont.systemFont(ofSize: 15.sf)
-        let yOffset = (font.ascender + font.descender - emojiSize) / 2
-        self.bounds = CGRect(x: 0, y: yOffset, width: emojiSize, height: emojiSize)
+        let yOffset = (baselineFont.ascender + baselineFont.descender - emojiSize) / 2
+        let w = emojiSize + Self.horizontalMargin * 2
+        self.bounds = CGRect(x: 0, y: yOffset, width: w, height: emojiSize)
+
+
         self.image = makePlaceholder()
-        loadEmojiImage()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private func loadEmojiImage() {
-        guard let url = MezonConfig.emojiImageURL(emojiId: emojiId) else { return }
-        let key = url.absoluteString
-
-        if let cached = ImageCache.shared.image(forKey: key) {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.image = self.resized(cached)
-                NotificationCenter.default.post(name: EmojiTextAttachment.imageDidLoad, object: self)
-            }
-            return
-        }
-
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let self, let data, !data.isEmpty else { return }
-            guard let img = UIImage.decodeImage(from: data) else { return }
-            ImageCache.shared.setImage(img, data: data, forKey: key)
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.image = self.resized(img)
-                NotificationCenter.default.post(name: EmojiTextAttachment.imageDidLoad, object: self)
-            }
-        }.resume()
-    }
-
-    private func resized(_ img: UIImage) -> UIImage {
-        let sz = CGSize(width: emojiSize, height: emojiSize)
-        return UIGraphicsImageRenderer(size: sz).image { _ in
-            img.draw(in: CGRect(origin: .zero, size: sz))
-        }
-    }
-
     private func makePlaceholder() -> UIImage {
-        let sz = CGSize(width: emojiSize, height: emojiSize)
+        let w = emojiSize + Self.horizontalMargin * 2
+        let sz = CGSize(width: w, height: emojiSize)
         return UIGraphicsImageRenderer(size: sz).image { ctx in
             UIColor.clear.setFill()
             ctx.fill(CGRect(origin: .zero, size: sz))

@@ -13,11 +13,12 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     var onImageTapped: ((Int) -> Void)?
 
-    // Cached layout
+
     private var cachedImageFrames: [CGRect] = []
     private var cachedTotalSize: CGSize = .zero
     private var isSingleImage = false
     private var isSticker = false
+    private var isGifSticker = false
     private var isMultiple = false
 
     override init() {
@@ -25,7 +26,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     func configure(media: [ParsedAttachment]) {
-        // Clear previous
+
         imageNodes.forEach { $0.removeFromSupernode(); $0.reset() }
         imageNodes.removeAll()
         videoOverlayNodes.forEach { $0.removeFromSupernode() }
@@ -43,8 +44,11 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         guard !media.isEmpty else { return }
 
-        if media.count == 1, media[0].isSticker {
+
+        let isGifType = media.count == 1 && media[0].filetype == "image/gif"
+        if media.count == 1, media[0].isSticker || isGifType {
             isSticker = true
+            isGifSticker = isGifType && !media[0].isSticker
             isSingleImage = false
             isMultiple = false
             let node = ASDisplayNode()
@@ -127,8 +131,23 @@ final class MessageMediaContentNode: ASDisplayNode {
         cachedImageFrames = []
 
         if isSticker {
-            let stickerSize: CGFloat = 120
-            cachedTotalSize = CGSize(width: stickerSize, height: stickerSize)
+            if isGifSticker {
+                let att = attachments[0]
+                let hasSize = (att.width ?? 0) > 0 && (att.height ?? 0) > 0
+                if hasSize {
+                    var w = CGFloat(att.width!)
+                    var h = CGFloat(att.height!)
+                    let maxH = UIScreen.main.bounds.height * 0.4
+                    let ratio = min(maxWidth / w, maxH / h, 1.0)
+                    w = max(floor(w * ratio), 80)
+                    h = max(floor(h * ratio), 60)
+                    cachedTotalSize = CGSize(width: w, height: h)
+                } else {
+                    cachedTotalSize = CGSize(width: 200, height: 200)
+                }
+            } else {
+                cachedTotalSize = CGSize(width: 120, height: 120)
+            }
             return cachedTotalSize
         }
 
@@ -145,7 +164,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             cachedImageFrames = [CGRect(x: 0, y: 0, width: w, height: h)]
             cachedTotalSize = CGSize(width: w, height: h)
 
-            // Apply transform
+
             if let node = imageNodes.first {
                 let args = TransformImageArguments(
                     corners: ImageCorners(radius: 8.swh),
@@ -179,7 +198,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 }
             }
 
-            // Apply transform args
+
             for (i, node) in items.enumerated() {
                 let args = TransformImageArguments(
                     corners: ImageCorners(radius: 8.swh),
@@ -215,7 +234,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             node.frame = cachedImageFrames[i]
         }
 
-        // Video overlays
+
         if isSingleImage {
             if let overlay = videoOverlayNodes.first, !overlay.isHidden {
                 let imgFrame = cachedImageFrames.first ?? bounds
@@ -242,7 +261,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 }
             }
 
-            // Overlay count on last image
+
             if let countNode = overlayCountNode, let bg = overlayBgNode,
                let lastFrame = cachedImageFrames.last {
                 bg.frame = lastFrame
@@ -256,7 +275,6 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
     }
 
-    // MARK: - Loading
 
     private func loadStickerImage(url: String, into node: ASDisplayNode) {
         guard let imageURL = URL(string: url), !url.isEmpty else { return }
@@ -359,7 +377,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         playIcon.contentMode = .scaleAspectFit
         container.addSubnode(playIcon)
 
-        // Manual centering in layout
+
         container.layoutSpecBlock = { _, _ in
             playIcon.style.preferredSize = CGSize(width: 22, height: 22)
             return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: playIcon)

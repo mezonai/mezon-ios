@@ -38,16 +38,16 @@ private func withImageBytes(image: UIImage, _ f: (UnsafePointer<UInt8>, Int, Int
         free(bytes)
     }
     memset(bytes, 0, length)
-    
+
     let bitmapInfo = DeviceGraphicsContextSettings.shared.transparentBitmapInfo
-    
+
     guard let context = CGContext(data: bytes, width: Int(scaledSize.width), height: Int(scaledSize.height), bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: deviceColorSpace, bitmapInfo: bitmapInfo.rawValue) else {
         return
     }
-    
+
     context.scaleBy(x: selectedScale, y: selectedScale)
     context.draw(image.cgImage!, in: CGRect(origin: CGPoint(), size: image.size))
-    
+
     f(bytes, Int(scaledSize.width), Int(scaledSize.height), bytesPerRow)
 }
 
@@ -58,29 +58,29 @@ public func generateGrayscaleAlphaMaskImage(image: UIImage) -> UIImage? {
     let length = bytesPerRow * Int(scaledSize.height)
     let bytes = malloc(length)!.assumingMemoryBound(to: UInt8.self)
     memset(bytes, 0, length)
-    
+
     guard let provider = CGDataProvider(dataInfo: bytes, data: bytes, size: length, releaseData: { bytes, _, _ in
         free(bytes)
     })
         else {
             return nil
     }
-    
+
     let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
-    
+
     guard let context = CGContext(data: bytes, width: Int(scaledSize.width), height: Int(scaledSize.height), bitsPerComponent: 8, bytesPerRow: bytesPerRow, space: grayscaleColorSpace, bitmapInfo: bitmapInfo.rawValue) else {
         return nil
     }
-    
+
     context.scaleBy(x: selectedScale, y: selectedScale)
-    
+
     withImageBytes(image: image, { pixels, width, height, imageBytesPerRow in
         var src = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: pixels), height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: imageBytesPerRow)
-        
+
         let permuteMap: [UInt8] = [3, 2, 1, 0]
         vImagePermuteChannels_ARGB8888(&src, &src, permuteMap, vImage_Flags(kvImageDoNotTile))
         vImageUnpremultiplyData_ARGB8888(&src, &src, vImage_Flags(kvImageDoNotTile))
-        
+
         for y in 0 ..< Int(scaledSize.height) {
             let srcRowBytes = pixels.advanced(by: y * imageBytesPerRow)
             let dstRowBytes = bytes.advanced(by: y * bytesPerRow)
@@ -90,12 +90,12 @@ public func generateGrayscaleAlphaMaskImage(image: UIImage) -> UIImage? {
             }
         }
     })
-    
+
     guard let image = CGImage(width: Int(scaledSize.width), height: Int(scaledSize.height), bitsPerComponent: 8, bitsPerPixel: 8, bytesPerRow: bytesPerRow, space: grayscaleColorSpace, bitmapInfo: bitmapInfo, provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
         else {
             return nil
     }
-    
+
     return UIImage(cgImage: image, scale: selectedScale, orientation: .up)
 }
 
@@ -132,11 +132,11 @@ public func generateFilledCircleImage(diameter: CGFloat, color: UIColor?, stroke
             context.setFillColor(backgroundColor.cgColor)
             context.fill(CGRect(origin: CGPoint(), size: size))
         }
-        
+
         if let strokeColor = strokeColor, let strokeWidth = strokeWidth {
             context.setFillColor(strokeColor.cgColor)
             context.fillEllipse(in: CGRect(origin: CGPoint(), size: size))
-            
+
             if let color = color {
                 context.setFillColor(color.cgColor)
             } else {
@@ -163,11 +163,11 @@ public func generateFilledRoundedRectImage(size: CGSize, cornerRadius: CGFloat, 
             context.setFillColor(backgroundColor.cgColor)
             context.fill(CGRect(origin: CGPoint(), size: size))
         }
-        
+
         if let strokeColor = strokeColor, let strokeWidth = strokeWidth {
             context.setFillColor(strokeColor.cgColor)
             context.fillEllipse(in: CGRect(origin: CGPoint(), size: size))
-            
+
             if let color = color {
                 context.setFillColor(color.cgColor)
             } else {
@@ -216,7 +216,7 @@ public func generateCircleImage(diameter: CGFloat, lineWidth: CGFloat, color: UI
             context.setFillColor(backgroundColor.cgColor)
             context.fill(CGRect(origin: CGPoint(), size: size))
         }
-        
+
         if let color = color {
             context.setStrokeColor(color.cgColor)
         } else {
@@ -247,7 +247,7 @@ public func generateStretchableFilledCircleImage(diameter: CGFloat, color: UICol
     } else {
         cap = intRadius
     }
-    
+
     return generateFilledCircleImage(diameter: diameter, color: color, strokeColor: strokeColor, strokeWidth: strokeWidth, backgroundColor: backgroundColor)?.stretchableImage(withLeftCapWidth: cap, topCapHeight: cap)
 }
 
@@ -258,7 +258,7 @@ public func generateVerticallyStretchableFilledCircleImage(radius: CGFloat, colo
             context.setFillColor(backgroundColor.cgColor)
             context.fill(CGRect(origin: CGPoint(), size: size))
         }
-        
+
         if let color = color {
             context.setFillColor(color.cgColor)
         } else {
@@ -273,7 +273,7 @@ public func generateVerticallyStretchableFilledCircleImage(radius: CGFloat, colo
 public func generateSmallHorizontalStretchableFilledCircleImage(diameter: CGFloat, color: UIColor?, backgroundColor: UIColor? = nil) -> UIImage? {
     return generateImage(CGSize(width: diameter + 1.0, height: diameter), contextGenerator: { size, context in
         context.clear(CGRect(origin: CGPoint(), size: size))
-        
+
         if let subImage = generateImage(CGSize(width: diameter + 1.0, height: diameter), contextGenerator: { size, context in
             context.clear(CGRect(origin: CGPoint(), size: size))
             context.setFillColor(UIColor.black.cgColor)
@@ -285,14 +285,14 @@ public func generateSmallHorizontalStretchableFilledCircleImage(diameter: CGFloa
                 context.setFillColor(backgroundColor.cgColor)
                 context.fill(CGRect(origin: CGPoint(), size: size))
             }
-            
+
             if let color = color {
                 context.setFillColor(color.cgColor)
             } else {
                 context.setFillColor(UIColor.clear.cgColor)
                 context.setBlendMode(.copy)
             }
-            
+
             context.clip(to: CGRect(origin: CGPoint(), size: size), mask: subImage.cgImage!)
             context.fill(CGRect(origin: CGPoint(), size: size))
         }
@@ -303,7 +303,7 @@ public func generateTintedImage(image: UIImage?, color: UIColor, backgroundColor
     guard let image = image else {
         return nil
     }
-    
+
     let imageSize = image.size
 
     UIGraphicsBeginImageContextWithOptions(imageSize, backgroundColor != nil, image.scale)
@@ -312,7 +312,7 @@ public func generateTintedImage(image: UIImage?, color: UIColor, backgroundColor
             context.setFillColor(backgroundColor.cgColor)
             context.fill(CGRect(origin: CGPoint(), size: imageSize))
         }
-        
+
         let imageRect = CGRect(origin: CGPoint(), size: imageSize)
         context.saveGState()
         context.translateBy(x: imageRect.midX, y: imageRect.midY)
@@ -323,10 +323,10 @@ public func generateTintedImage(image: UIImage?, color: UIColor, backgroundColor
         context.fill(imageRect)
         context.restoreGState()
     }
-    
+
     let tintedImage = UIGraphicsGetImageFromCurrentImageContext()!
     UIGraphicsEndImageContext()
-    
+
     return tintedImage
 }
 
@@ -334,7 +334,7 @@ public func generateGradientTintedImage(image: UIImage?, colors: [UIColor], dire
     guard let image = image else {
         return nil
     }
-    
+
     let imageSize = image.size
 
     UIGraphicsBeginImageContextWithOptions(imageSize, false, image.scale)
@@ -373,19 +373,19 @@ public func generateGradientTintedImage(image: UIImage?, colors: [UIColor], dire
                 start = CGPoint(x: imageRect.width, y: 0.0)
                 end = CGPoint(x: 0.0, y: imageRect.height)
             }
-            
+
             context.drawLinearGradient(gradient, start: start, end: end, options: CGGradientDrawingOptions())
         } else if !colors.isEmpty {
             context.setFillColor(colors[0].cgColor)
             context.fill(imageRect)
         }
-        
+
         context.restoreGState()
     }
-    
+
     let tintedImage = UIGraphicsGetImageFromCurrentImageContext()!
     UIGraphicsEndImageContext()
-    
+
     return tintedImage
 }
 
@@ -404,20 +404,20 @@ public func generateGradientImage(size: CGSize, scale: CGFloat = 0.0, colors: [U
     if let context = UIGraphicsGetCurrentContext() {
         let gradientColors = colors.map { $0.cgColor } as CFArray
         let colorSpace = DeviceGraphicsContextSettings.shared.colorSpace
-        
+
         var locations = locations
         let gradient = CGGradient(colorsSpace: colorSpace, colors: gradientColors, locations: &locations)!
-        
+
         if isInverted {
             context.drawLinearGradient(gradient, start: direction == .horizontal ? CGPoint(x: size.width, y: 0.0) : CGPoint(x: 0.0, y: size.height), end: CGPoint(x: 0.0, y: 0.0), options: CGGradientDrawingOptions())
         } else {
             context.drawLinearGradient(gradient, start: CGPoint(x: 0.0, y: 0.0), end: direction == .horizontal ? CGPoint(x: size.width, y: 0.0) : CGPoint(x: 0.0, y: size.height), options: CGGradientDrawingOptions())
         }
     }
-    
+
     let image = UIGraphicsGetImageFromCurrentImageContext()!
     UIGraphicsEndImageContext()
-    
+
     return image
 }
 
@@ -427,7 +427,7 @@ public func generateGradientFilledCircleImage(diameter: CGFloat, colors: NSArray
         context.clear(bounds)
         context.addEllipse(in: bounds)
         context.clip()
-        
+
         var locations: [CGFloat] = []
         for i in 0 ..< colors.count {
             let t = CGFloat(i) / CGFloat(colors.count - 1)
@@ -435,7 +435,7 @@ public func generateGradientFilledCircleImage(diameter: CGFloat, colors: NSArray
         }
         let colorSpace = DeviceGraphicsContextSettings.shared.colorSpace
         let gradient = CGGradient(colorsSpace: colorSpace, colors: colors, locations: &locations)!
-        
+
         let start: CGPoint
         let end: CGPoint
         switch direction {
@@ -452,7 +452,7 @@ public func generateGradientFilledCircleImage(diameter: CGFloat, colors: NSArray
             start = CGPoint(x: size.width, y: 0.0)
             end = CGPoint(x: 0.0, y: size.height)
         }
-        
+
         context.drawLinearGradient(gradient, start: start, end:end, options: CGGradientDrawingOptions())
     })
 }
@@ -461,7 +461,7 @@ public func generateScaledImage(image: UIImage?, size: CGSize, opaque: Bool = tr
     guard let image = image else {
         return nil
     }
-    
+
     return generateImage(size, contextGenerator: { size, context in
         if !opaque {
             context.clear(CGRect(origin: CGPoint(), size: size))
@@ -597,7 +597,7 @@ public class DrawingContext {
     private let context: CGContext
 
     private var hasGeneratedImage = false
-    
+
     public func withContext(_ f: (CGContext) -> ()) {
         let context = self.context
 
@@ -611,16 +611,16 @@ public class DrawingContext {
         context.scaleBy(x: 1.0, y: -1.0)
         context.translateBy(x: -self.size.width / 2.0, y: -self.size.height / 2.0)
     }
-    
+
     public func withFlippedContext(_ f: (CGContext) -> ()) {
         f(self.context)
     }
-    
+
     public init?(size: CGSize, scale: CGFloat = 0.0, opaque: Bool = false, clear: Bool = false, bytesPerRow: Int? = nil, colorSpace: CGColorSpace? = nil) {
         if size.width <= 0.0 || size.height <= 0.0 {
             return nil
         }
-        
+
         assert(!size.width.isZero && !size.height.isZero)
         let size: CGSize = CGSize(width: max(1.0, size.width), height: max(1.0, size.height))
 
@@ -633,7 +633,7 @@ public class DrawingContext {
         self.size = size
         self.scale = actualScale
         self.scaledSize = CGSize(width: size.width * actualScale, height: size.height * actualScale)
-        
+
         self.bytesPerRow = bytesPerRow ?? DeviceGraphicsContextSettings.shared.bytesPerRow(forWidth: Int(scaledSize.width))
         self.length = self.bytesPerRow * Int(scaledSize.height)
 
@@ -665,7 +665,7 @@ public class DrawingContext {
             memset(self.bytes, 0, self.length)
         }
     }
-    
+
     public func generateImage(colorSpace: CGColorSpace? = nil) -> UIImage? {
         if self.scaledSize.width.isZero || self.scaledSize.height.isZero {
             return nil
@@ -719,7 +719,7 @@ public class DrawingContext {
 
         return pixelBuffer
     }
-    
+
     public func colorAt(_ point: CGPoint) -> UIColor {
         let x = Int(point.x * self.scale)
         let y = Int(point.y * self.scale)
@@ -732,7 +732,7 @@ public class DrawingContext {
             return UIColor.clear
         }
     }
-    
+
     public func blt(_ other: DrawingContext, at: CGPoint, mode: DrawingContextBltMode = .Alpha) {
         if abs(other.scale - self.scale) < CGFloat.ulpOfOne {
             let srcX = 0
@@ -742,43 +742,43 @@ public class DrawingContext {
             if dstX < 0 || dstY < 0 {
                 return
             }
-            
+
             let width = min(Int(self.size.width * self.scale) - dstX, Int(other.size.width * self.scale))
             let height = min(Int(self.size.height * self.scale) - dstY, Int(other.size.height * self.scale))
-            
+
             let maxDstX = dstX + width
             let maxDstY = dstY + height
-            
+
             switch mode {
             case .Alpha:
                 while dstY < maxDstY {
                     let srcLine = other.bytes.advanced(by: max(0, srcY) * other.bytesPerRow).assumingMemoryBound(to: UInt32.self)
                     let dstLine = self.bytes.advanced(by: max(0, dstY) * self.bytesPerRow).assumingMemoryBound(to: UInt32.self)
-                    
+
                     var dx = dstX
                     var sx = srcX
                     while dx < maxDstX {
                         let srcPixel = srcLine + sx
                         let dstPixel = dstLine + dx
-                        
+
                         let baseColor = dstPixel.pointee
                         let baseAlpha = (baseColor >> 24) & 0xff
                         let baseR = (baseColor >> 16) & 0xff
                         let baseG = (baseColor >> 8) & 0xff
                         let baseB = baseColor & 0xff
-                        
+
                         let alpha = min(baseAlpha, srcPixel.pointee >> 24)
-                        
+
                         let r = (baseR * alpha) / 255
                         let g = (baseG * alpha) / 255
                         let b = (baseB * alpha) / 255
-                        
+
                         dstPixel.pointee = (alpha << 24) | (r << 16) | (g << 8) | b
-                        
+
                         dx += 1
                         sx += 1
                     }
-                    
+
                     dstY += 1
                     srcY += 1
                 }
@@ -786,25 +786,25 @@ public class DrawingContext {
                 while dstY < maxDstY {
                     let srcLine = other.bytes.advanced(by: max(0, srcY) * other.bytesPerRow).assumingMemoryBound(to: UInt32.self)
                     let dstLine = self.bytes.advanced(by: max(0, dstY) * self.bytesPerRow).assumingMemoryBound(to: UInt32.self)
-                    
+
                     var dx = dstX
                     var sx = srcX
                     while dx < maxDstX {
                         let srcPixel = srcLine + sx
                         let dstPixel = dstLine + dx
-                        
+
                         let alpha = (srcPixel.pointee >> 0) & 0xff
-                        
+
                         let r = alpha
                         let g = alpha
                         let b = alpha
-                        
+
                         dstPixel.pointee = (alpha << 24) | (r << 16) | (g << 8) | b
-                        
+
                         dx += 1
                         sx += 1
                     }
-                    
+
                     dstY += 1
                     srcY += 1
                 }
@@ -893,7 +893,7 @@ public func readCGFloat(_ index: inout UnsafePointer<UInt8>, end: UnsafePointer<
     while index <= end {
         let c = index.pointee
         index = index.successor()
-        
+
         if c == 46 {
             if seenPoint {
                 throw ParsingError.Generic
@@ -906,11 +906,11 @@ public func readCGFloat(_ index: inout UnsafePointer<UInt8>, end: UnsafePointer<
             throw ParsingError.Generic
         }
     }
-    
+
     if index == begin {
         throw ParsingError.Generic
     }
-    
+
     if let value = NSString(bytes: UnsafeRawPointer(begin), length: index - begin, encoding: String.Encoding.utf8.rawValue)?.floatValue {
         return CGFloat(value)
     } else {
@@ -925,7 +925,7 @@ public func drawSvgPath(_ context: CGContext, path: StaticString, strokeOnMove: 
     while index < end {
         let c = index.pointee
         index = index.successor()
-        
+
         if c == 77 {
             let x = try readCGFloat(&index, end: end, separator: 44)
             let y = try readCGFloat(&index, end: end, separator: 32)
@@ -938,7 +938,7 @@ public func drawSvgPath(_ context: CGContext, path: StaticString, strokeOnMove: 
 
             currentPoint = CGPoint(x: x, y: y)
             context.addLine(to: currentPoint)
-            
+
             if strokeOnMove {
                 context.strokePath()
                 context.move(to: currentPoint)
@@ -960,7 +960,7 @@ public func drawSvgPath(_ context: CGContext, path: StaticString, strokeOnMove: 
             let y2 = try readCGFloat(&index, end: end, separator: 32)
             let x = try readCGFloat(&index, end: end, separator: 44)
             let y = try readCGFloat(&index, end: end, separator: 32)
-            
+
             currentPoint = CGPoint(x: x, y: y)
             context.addCurve(to: currentPoint, control1: CGPoint(x: x1, y: y1), control2: CGPoint(x: x2, y: y2))
 
@@ -994,13 +994,13 @@ public func convertSvgPath(_ path: StaticString) throws -> CGPath {
     var index: UnsafePointer<UInt8> = path.utf8Start
     let end = path.utf8Start.advanced(by: path.utf8CodeUnitCount)
     var currentPoint = CGPoint()
-    
+
     let result = CGMutablePath()
-    
+
     while index < end {
         let c = index.pointee
         index = index.successor()
-        
+
         if c == 77 {
             let x = try readCGFloat(&index, end: end, separator: 44)
             let y = try readCGFloat(&index, end: end, separator: 32)
@@ -1030,7 +1030,7 @@ public func convertSvgPath(_ path: StaticString) throws -> CGPath {
             let y2 = try readCGFloat(&index, end: end, separator: 32)
             let x = try readCGFloat(&index, end: end, separator: 44)
             let y = try readCGFloat(&index, end: end, separator: 32)
-            
+
             currentPoint = CGPoint(x: x, y: y)
             result.addCurve(to: currentPoint, control1: CGPoint(x: x1, y: y1), control2: CGPoint(x: x2, y: y2))
         } else if c == 90 {
@@ -1047,6 +1047,6 @@ public func convertSvgPath(_ path: StaticString) throws -> CGPath {
             throw ParsingError.Generic
         }
     }
-    
+
     return result
 }

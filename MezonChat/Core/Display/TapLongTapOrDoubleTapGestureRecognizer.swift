@@ -36,21 +36,21 @@ private func cancelOtherGestures(gesture: TapLongTapOrDoubleTapGestureRecognizer
 
 private class TapLongTapOrDoubleTapGestureRecognizerTimerTarget: NSObject {
     weak var target: TapLongTapOrDoubleTapGestureRecognizer?
-    
+
     init(target: TapLongTapOrDoubleTapGestureRecognizer) {
         self.target = target
-        
+
         super.init()
     }
-    
+
     @objc func longTapEvent() {
         self.target?.longTapEvent()
     }
-    
+
     @objc func tapEvent() {
         self.target?.tapEvent()
     }
-    
+
     @objc func holdEvent() {
         self.target?.holdEvent()
     }
@@ -83,33 +83,33 @@ private final class InternalGestureRecognizerDelegate: NSObject, UIGestureRecogn
 
 public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, UIGestureRecognizerDelegate {
     private let internalDelegate = InternalGestureRecognizerDelegate()
-    
+
     private var touchLocationAndTimestamp: (CGPoint, Double)?
     private var touchCount: Int = 0
     private var tapCount: Int = 0
-    
+
     private var timer: Foundation.Timer?
     public private(set) var lastRecognizedGestureAndLocation: (TapLongTapOrDoubleTapGesture, CGPoint)?
-    
+
     public var tapActionAtPoint: ((CGPoint) -> TapLongTapOrDoubleTapGestureRecognizerAction)?
     public var longTap: ((CGPoint, TapLongTapOrDoubleTapGestureRecognizer) -> Void)?
     public var secondaryTap: ((CGPoint, TapLongTapOrDoubleTapGestureRecognizer) -> Void)?
-    
+
     private var recognizedLongTap: Bool = false
     public var externalUpdated: ((UIView?, CGPoint) -> Void)?
     public var externalEnded: (((UIView?, CGPoint)?) -> Void)?
     public var highlight: ((CGPoint?) -> Void)?
-    
+
     public var hapticFeedback: HapticFeedback?
-    
+
     private var highlightPoint: CGPoint?
-    
+
     override public init(target: Any?, action: Selector?) {
         super.init(target: target, action: action)
-        
+
         self.delegate = self.internalDelegate
     }
-    
+
     override public func reset() {
         self.timer?.invalidate()
         self.timer = nil
@@ -118,22 +118,22 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
         self.touchCount = 0
         self.hapticFeedback = nil
         self.recognizedLongTap = false
-        
+
         if self.highlightPoint != nil {
             self.highlightPoint = nil
             self.highlight?(nil)
         }
-        
+
         self.externalUpdated = nil
         self.externalEnded = nil
-        
+
         super.reset()
     }
-    
+
     public func cancel() {
         self.state = .cancelled
     }
-    
+
     fileprivate func longTapEvent() {
         self.timer?.invalidate()
         self.timer = nil
@@ -154,7 +154,7 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
         }
         self.state = .ended
     }
-    
+
     fileprivate func tapEvent() {
         self.timer?.invalidate()
         self.timer = nil
@@ -165,7 +165,7 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
         }
         self.state = .ended
     }
-    
+
     fileprivate func holdEvent() {
         self.timer?.invalidate()
         self.timer = nil
@@ -177,34 +177,34 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
         }
         self.state = .began
     }
-    
+
     override public func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         self.lastRecognizedGestureAndLocation = nil
-        
+
         super.touchesBegan(touches, with: event)
-        
+
         self.touchCount += touches.count
-        
+
         let isSecondary: Bool
         if #available(iOS 13.4, *) {
             isSecondary = event.buttonMask == .secondary
         } else {
             isSecondary = false
         }
-        
+
         if let touch = touches.first {
             let touchLocation = touch.location(in: self.view)
-            
+
             if !isSecondary, self.highlightPoint != touchLocation {
                 self.highlightPoint = touchLocation
                 self.highlight?(touchLocation)
             }
-            
+
             if let hitResult = self.view?.hitTest(touch.location(in: self.view), with: event), let _ = hitResult as? UIButton {
                 self.state = .failed
                 return
             }
-            
+
             self.tapCount += 1
             if self.tapCount == 2 && self.touchCount == 1 {
                 self.timer?.invalidate()
@@ -214,12 +214,12 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
             } else {
                 let touchLocationAndTimestamp = (touch.location(in: self.view), CACurrentMediaTime())
                 self.touchLocationAndTimestamp = touchLocationAndTimestamp
-                
+
                 var tapAction: TapLongTapOrDoubleTapGestureRecognizerAction = .waitForDoubleTap
                 if let tapActionAtPoint = self.tapActionAtPoint {
                     tapAction = tapActionAtPoint(touchLocationAndTimestamp.0)
                 }
-                
+
                 switch tapAction {
                     case .keepWithSingleTap:
                         break
@@ -240,27 +240,27 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
             }
         }
     }
-    
+
     override public func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesMoved(touches, with: event)
-        
+
         guard let touch = touches.first else {
             return
         }
-        
+
         if let (gesture, _) = self.lastRecognizedGestureAndLocation, case .hold = gesture {
             let location = touch.location(in: self.view)
             self.lastRecognizedGestureAndLocation = (.hold, location)
             self.state = .changed
             return
         }
-        
+
         if self.recognizedLongTap, let externalUpdated = self.externalUpdated {
             let location = touch.location(in: self.view)
             externalUpdated(self.view, location)
             return
         }
-        
+
         if let touch = touches.first, let (touchLocation, _) = self.touchLocationAndTimestamp {
             let location = touch.location(in: self.view)
             let distance = CGPoint(x: location.x - touchLocation.x, y: location.y - touchLocation.y)
@@ -269,38 +269,38 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
             }
         }
     }
-    
+
     override public func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesEnded(touches, with: event)
-        
+
         self.touchCount -= touches.count
-        
+
         let isSecondary: Bool
         if #available(iOS 13.4, *) {
             isSecondary = event.buttonMask == .secondary
         } else {
             isSecondary = false
         }
-        
+
         if self.highlightPoint != nil {
             self.highlightPoint = nil
             self.highlight?(nil)
         }
-        
+
         self.timer?.invalidate()
-        
+
         if let (gesture, location) = self.lastRecognizedGestureAndLocation, case .hold = gesture {
             self.lastRecognizedGestureAndLocation = (.hold, location)
             self.state = .ended
             return
         }
-        
+
         if let (gesture, location) = self.lastRecognizedGestureAndLocation, case .longTap = gesture, self.recognizedLongTap {
             self.externalEnded?((self.view, location))
             self.state = .cancelled
             return
         }
-        
+
         if self.tapCount == 1 {
             if isSecondary, let (touchLocation, _) = self.touchLocationAndTimestamp {
                 self.secondaryTap?(touchLocation, self)
@@ -310,7 +310,7 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
                 if let tapActionAtPoint = self.tapActionAtPoint, let (touchLocation, _) = self.touchLocationAndTimestamp {
                     tapAction = tapActionAtPoint(touchLocation)
                 }
-                
+
                 switch tapAction {
                     case .waitForSingleTap, .keepWithSingleTap:
                         if let (touchLocation, _) = self.touchLocationAndTimestamp {
@@ -336,19 +336,19 @@ public final class TapLongTapOrDoubleTapGestureRecognizer: UIGestureRecognizer, 
             }
         }
     }
-    
+
     override public func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesCancelled(touches, with: event)
-        
+
         self.touchCount -= touches.count
-        
+
         if self.highlightPoint != nil {
             self.highlightPoint = nil
             self.highlight?(nil)
         }
-        
+
         self.externalEnded?(nil)
-        
+
         self.state = .cancelled
     }
 }

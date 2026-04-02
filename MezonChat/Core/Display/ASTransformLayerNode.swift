@@ -7,21 +7,21 @@ class ASTransformLayer: CATransformLayer {
         get {
             return nil
         } set(value) {
-            
+
         }
     }
-    
+
     override var backgroundColor: CGColor? {
         get {
             return nil
         } set(value) {
-            
+
         }
     }
-    
+
     override func setNeedsLayout() {
     }
-    
+
     override func layoutSublayers() {
     }
 }
@@ -44,7 +44,7 @@ open class ASTransformLayerNode: ASDisplayNode {
 open class ASTransformViewNode: ASDisplayNode {
     public override init() {
         super.init()
-        
+
         self.setViewBlock({
             return ASTransformView()
         })
@@ -60,7 +60,7 @@ open class ASTransformNode: ASDisplayNode {
             })
         } else {
             super.init()
-        
+
             self.setViewBlock({
                 return ASTransformView()
             })

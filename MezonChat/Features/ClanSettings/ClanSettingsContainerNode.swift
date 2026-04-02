@@ -60,15 +60,15 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 
     private func buildContent() {
-        // 1. Header
+
         let header = createHeader()
         stackView.addArrangedSubview(header)
 
-        // 2. Clan Identity (Avatar & Name)
+
         let identity = createIdentityView()
         stackView.addArrangedSubview(identity)
 
-        // 3. Settings Group
+
         let settingsHeader = createSectionHeader(title: L(L10n.Common.settings))
         stackView.addArrangedSubview(settingsHeader)
 
@@ -84,7 +84,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         let settingsGroup = createGroup(actions: settingsActions)
         stackView.addArrangedSubview(settingsGroup)
 
-        // 4. User Management Group
+
         let userMgmtHeader = createSectionHeader(title: L(L10n.ClanSetting.userManagement))
         stackView.addArrangedSubview(userMgmtHeader)
 
@@ -310,7 +310,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
         btn.addAction(
-            UIAction { _ in print("Setting tapped: \(action.title)") }, for: .touchUpInside)
+            UIAction { _ in }, for: .touchUpInside)
 
         return v
     }
@@ -336,5 +336,5 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
 private struct SettingAction {
     let title: String
-    let icon: String  // SF Symbol name
+    let icon: String
 }

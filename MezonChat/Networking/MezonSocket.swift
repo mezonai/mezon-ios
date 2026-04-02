@@ -489,8 +489,8 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.isConnected = true
             self.reconnectAttempts = 0
             self.hasTriedRefreshSinceConnect = false
-            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
             self.onConnected?()
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
         }
     }
 

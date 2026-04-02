@@ -10,7 +10,7 @@ private func combineLatestAny<E, R>(_ signals: [Signal<Any, E>], combine: @escap
     return Signal { subscriber in
         let state = Atomic(value: SignalCombineState(values: initialValues, completed: Set(), error: false))
         let disposable = DisposableSet()
-        
+
         if initialValues.count == signals.count {
             var values: [Any] = []
             for i in 0 ..< initialValues.count {
@@ -18,7 +18,7 @@ private func combineLatestAny<E, R>(_ signals: [Signal<Any, E>], combine: @escap
             }
             subscriber.putNext(combine(values))
         }
-        
+
         let count = signals.count
         for iterationIndex in 0 ..< count {
             let index = iterationIndex
@@ -68,10 +68,10 @@ private func combineLatestAny<E, R>(_ signals: [Signal<Any, E>], combine: @escap
                     subscriber.putCompletion()
                 }
             })
-            
+
             disposable.add(signalDisposable)
         }
-        
+
         return disposable
     }
 }
@@ -248,7 +248,7 @@ public func combineLatest<T, E>(queue: Queue? = nil, _ signals: [Signal<T, E>]) 
     if signals.count == 0 {
         return single([T](), E.self)
     }
-    
+
     return combineLatestAny(signals.map({signalOfAny($0)}), combine: { values in
         var combined: [T] = []
         for value in values {

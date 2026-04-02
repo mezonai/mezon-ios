@@ -79,7 +79,7 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
                 node.toggleControlsVisibility = { [weak self] in self?.toggleControlsVisibility?() }
                 node.dismiss = { [weak self] in self?.dismiss?() }
                 node.itemInfo = items[index]
-                // Add to scrollView so paging works
+
                 scrollView.addSubview(node.view)
                 itemNodes[index] = node
             }

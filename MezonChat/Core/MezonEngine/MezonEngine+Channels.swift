@@ -32,7 +32,7 @@ extension MezonEngine {
                 categoryId: categoryId,
                 token: token
             )
-            
+
             self.postbox.write { tx in
                 tx.updateChannelDescription(clanId: clanId, channelId: channelId, name: name, topic: topic)
             }

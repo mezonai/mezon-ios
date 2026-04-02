@@ -3,8 +3,8 @@ import UIKit
 import AVFoundation
 
 enum ImageResizeMode {
-    case fit   // aspect-fit (contain) — show full image
-    case fill  // aspect-fill (cover) — fill bounding box, crop overflow
+    case fit
+    case fill
 }
 
 final class ImageCache {
@@ -14,7 +14,7 @@ final class ImageCache {
     private let memoryCache: NSCache<NSString, UIImage> = {
         let c = NSCache<NSString, UIImage>()
         c.countLimit = 200
-        c.totalCostLimit = 400 * 1024 * 1024 // 400MB
+        c.totalCostLimit = 400 * 1024 * 1024
         return c
     }()
 

@@ -32,18 +32,18 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     var toggleOverlayVisibility: (() -> Void)?
 
     init(url: URL, posterURL: String) {
-        // Player Layer wrapper
+
         self.playerNode = ASDisplayNode { () -> CALayer in
             let layer = AVPlayerLayer()
             layer.videoGravity = .resizeAspect
             return layer
         }
 
-        // Poster image
+
         self.posterNode = TransformImageNode()
         self.posterNode.contentAnimations = [.firstUpdate]
 
-        // --- Center Overlay ---
+
         self.centerOverlayNode = ASDisplayNode()
         self.centerOverlayNode.isUserInteractionEnabled = true
 
@@ -51,7 +51,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.seekBackwardButton = ASButtonNode()
         self.seekForwardButton = ASButtonNode()
 
-        // --- Bottom Scrubber Bar ---
+
         self.scrubberBarNode = ASDisplayNode()
         self.scrubberBarNode.backgroundColor = UIColor.black.withAlphaComponent(0.5)
 
@@ -61,13 +61,13 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         super.init()
 
-        // Assemble hierarchy
+
         self.addSubnode(playerNode)
         self.addSubnode(posterNode)
         self.addSubnode(centerOverlayNode)
         self.addSubnode(scrubberBarNode)
 
-        // Center overlay buttons
+
         setupCenterButton(centerPlayPauseButton, iconName: "play.fill", pointSize: 44)
         setupCenterButton(seekBackwardButton, iconName: "gobackward.15", pointSize: 28)
         setupCenterButton(seekForwardButton, iconName: "goforward.15", pointSize: 28)
@@ -80,7 +80,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         seekBackwardButton.addTarget(self, action: #selector(seekBackwardTapped), forControlEvents: .touchUpInside)
         seekForwardButton.addTarget(self, action: #selector(seekForwardTapped), forControlEvents: .touchUpInside)
 
-        // Bottom scrubber bar
+
         scrubberBarNode.addSubnode(bottomPlayPauseButton)
         scrubberBarNode.addSubnode(currentTimeLabel)
         scrubberBarNode.addSubnode(durationLabel)
@@ -90,7 +90,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         bottomPlayPauseButton.imageNode.imageModificationBlock = ASImageNodeTintColorModificationBlock(.white)
         bottomPlayPauseButton.addTarget(self, action: #selector(playPauseTapped), forControlEvents: .touchUpInside)
 
-        // Slider
+
         self.timeSlider.minimumTrackTintColor = .white
         self.timeSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.3)
         self.timeSlider.thumbTintColor = .white
@@ -104,13 +104,13 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchUpInside)
         self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchUpOutside)
 
-        // Initial state
+
         updatePlayPauseIcons(isPlaying: false)
 
-        // Initialize Player
+
         setupPlayer(url: url)
 
-        // Load poster
+
         posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit))
     }
 
@@ -124,7 +124,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         resetControlsTimer()
     }
 
-    // MARK: - Center Button Setup
 
     private func setupCenterButton(_ button: ASButtonNode, iconName: String, pointSize: CGFloat) {
         let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .bold)
@@ -135,7 +134,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         button.clipsToBounds = true
     }
 
-    // MARK: - Player Setup
 
     private var statusObserver: NSKeyValueObservation?
 
@@ -149,7 +147,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             self.playerLayer = layer
         }
 
-        // Time observer
+
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             self?.updateTime(time)
@@ -157,7 +155,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         NotificationCenter.default.addObserver(self, selector: #selector(playerDidFinishPlaying), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
 
-        // Duration observation
+
         statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
             if item.status == .readyToPlay {
                 let duration = item.duration.seconds
@@ -200,7 +198,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         showControls()
     }
 
-    // MARK: - Actions
 
     @objc private func playPauseTapped() {
         guard let p = player else { return }
@@ -221,7 +218,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600))
         resetControlsTimer()
 
-        // Brief scale animation for feedback
+
         animateButtonTap(seekBackwardButton)
     }
 
@@ -287,7 +284,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let seconds = Double(timeSlider.value)
         player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { [weak self] _ in
             if self?.player?.rate == 0 {
-                // Keep paused state, don't auto-play
+
             }
         }
         if player?.rate != 0 {
@@ -295,7 +292,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    // MARK: - UI Updates
 
     private func updateTime(_ time: CMTime) {
         guard !isScrubbing else { return }
@@ -311,12 +307,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     private func updatePlayPauseIcons(isPlaying: Bool) {
-        // Center overlay button
+
         let centerConfig = UIImage.SymbolConfiguration(pointSize: 44, weight: .bold)
         let centerIconName = isPlaying ? "pause.fill" : "play.fill"
         centerPlayPauseButton.setImage(UIImage(systemName: centerIconName, withConfiguration: centerConfig), for: .normal)
 
-        // Bottom bar button
+
         let bottomConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
         let bottomIconName = isPlaying ? "pause.fill" : "play.fill"
         bottomPlayPauseButton.setImage(UIImage(systemName: bottomIconName, withConfiguration: bottomConfig), for: .normal)
@@ -333,7 +329,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         return String(format: "%d:%02d", m, s)
     }
 
-    // MARK: - Controls Visibility
 
     private func showControls() {
         areControlsVisible = true
@@ -363,7 +358,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    // MARK: - Layout
 
     override func layout() {
         super.layout()
@@ -377,7 +371,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let apply = posterNode.asyncLayout()(args)
         apply()
 
-        // --- Center Overlay Controls ---
+
         let centerButtonSize: CGFloat = 64
         let sideButtonSize: CGFloat = 48
         let buttonSpacing: CGFloat = 48
@@ -399,7 +393,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         seekForwardButton.frame = CGRect(x: sideButtonSize + buttonSpacing + centerButtonSize + buttonSpacing, y: sideY, width: sideButtonSize, height: sideButtonSize)
         seekForwardButton.cornerRadius = sideButtonSize / 2
 
-        // --- Bottom Scrubber Bar ---
+
         let safeBottom = view.safeAreaInsets.bottom
         let barHeight: CGFloat = 50 + safeBottom
         scrubberBarNode.frame = CGRect(x: 0, y: b.height - barHeight, width: b.width, height: barHeight)
@@ -419,7 +413,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        // Prioritize center overlay buttons
+
         if areControlsVisible {
             let centerPoint = self.view.convert(point, to: centerOverlayNode.view)
             if let hitView = centerOverlayNode.view.hitTest(centerPoint, with: event) {

@@ -81,7 +81,6 @@
 #if DEBUG
     pthread_mutex_lock(&_lock);
     if (!_isDisposed) {
-        NSLog(@"Leaked disposable from %s:%d", _file, _line);
         assert(false);
     }
     pthread_mutex_unlock(&_lock);

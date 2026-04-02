@@ -7,13 +7,13 @@ public func findTaggedComponentViewImpl(view: UIView, tag: Any) -> UIView? {
             return view
         }
     }
-    
+
     for subview in view.subviews {
         if let result = findTaggedComponentViewImpl(view: subview, tag: tag) {
             return result
         }
     }
-    
+
     return nil
 }
 
@@ -28,15 +28,15 @@ public final class ComponentHostView<EnvironmentType>: UIView {
     private var currentSize: CGSize?
     public private(set) var componentView: UIView?
     private(set) var isUpdating: Bool = false
-    
+
     public init() {
         super.init(frame: CGRect())
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     public func update(transition: ComponentTransition, component: AnyComponent<EnvironmentType>, @EnvironmentBuilder environment: () -> Environment<EnvironmentType>, forceUpdate: Bool = false, containerSize: CGSize) -> CGSize {
         let size = self._update(transition: transition, component: component, maybeEnvironment: environment, updateEnvironment: true, forceUpdate: forceUpdate, containerSize: containerSize)
         self.currentSize = size
@@ -49,7 +49,7 @@ public final class ComponentHostView<EnvironmentType>: UIView {
 
         precondition(containerSize.width.isFinite)
         precondition(containerSize.height.isFinite)
-        
+
         let componentView: UIView
         if let current = self.componentView {
             componentView = current
@@ -69,7 +69,7 @@ public final class ComponentHostView<EnvironmentType>: UIView {
             EnvironmentBuilder._environment = nil
             context.erasedEnvironment = environmentResult
         }
-        
+
         let isEnvironmentUpdated = context.erasedEnvironment.calculateIsUpdated()
 
         if !forceUpdate, !isEnvironmentUpdated, let currentComponent = self.currentComponent, let currentContainerSize = self.currentContainerSize, let currentSize = self.currentSize {
@@ -98,12 +98,12 @@ public final class ComponentHostView<EnvironmentType>: UIView {
         if isEnvironmentUpdated {
             context.erasedEnvironment._isUpdated = false
         }
-        
+
         self.isUpdating = false
 
         return updatedSize
     }
-    
+
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if self.alpha.isZero {
             return nil
@@ -116,7 +116,7 @@ public final class ComponentHostView<EnvironmentType>: UIView {
                 return result
             }
         }
-        
+
         let result = super.hitTest(point, with: event)
         if result != self {
             return result
@@ -124,12 +124,12 @@ public final class ComponentHostView<EnvironmentType>: UIView {
             return nil
         }
     }
-    
+
     public func findTaggedView(tag: Any) -> UIView? {
         guard let componentView = self.componentView else {
             return nil
         }
-        
+
         return findTaggedComponentViewImpl(view: componentView, tag: tag)
     }
 }
@@ -141,20 +141,20 @@ public final class ComponentView<EnvironmentType> {
     public private(set) var view: UIView?
     private(set) var isUpdating: Bool = false
     public weak var parentState: ComponentState?
-    
+
     public init() {
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     public func update(transition: ComponentTransition, component: AnyComponent<EnvironmentType>, @EnvironmentBuilder environment: () -> Environment<EnvironmentType>, forceUpdate: Bool = false, containerSize: CGSize) -> CGSize {
         let size = self._update(transition: transition, component: component, maybeEnvironment: environment, updateEnvironment: true, forceUpdate: forceUpdate, containerSize: containerSize)
         self.currentSize = size
         return size
     }
-    
+
     public func updateEnvironment(transition: ComponentTransition, @EnvironmentBuilder environment: () -> Environment<EnvironmentType>) -> CGSize? {
         guard let currentComponent = self.currentComponent, let currentContainerSize = self.currentContainerSize else {
             return nil
@@ -170,7 +170,7 @@ public final class ComponentView<EnvironmentType> {
 
         precondition(containerSize.width.isFinite)
         precondition(containerSize.height.isFinite)
-        
+
         let componentView: UIView
         if let current = self.view {
             componentView = current
@@ -189,15 +189,15 @@ public final class ComponentView<EnvironmentType> {
             EnvironmentBuilder._environment = nil
             context.erasedEnvironment = environmentResult
         }
-        
+
         var isStateUpdated = false
         if componentState.isUpdated {
             isStateUpdated = true
             componentState.isUpdated = false
         }
-        
+
         let isEnvironmentUpdated = context.erasedEnvironment.calculateIsUpdated()
-        
+
         if !forceUpdate, !isEnvironmentUpdated, !isStateUpdated, let currentComponent = self.currentComponent, let currentContainerSize = self.currentContainerSize, let currentSize = self.currentSize {
             if currentContainerSize == containerSize && currentComponent == component {
                 self.isUpdating = false
@@ -228,12 +228,12 @@ public final class ComponentView<EnvironmentType> {
         if isStateUpdated {
             context.erasedState.isUpdated = false
         }
-        
+
         self.isUpdating = false
 
         return updatedSize
     }
-    
+
     public func findTaggedView(tag: Any) -> UIView? {
         guard let view = self.view else {
             return nil

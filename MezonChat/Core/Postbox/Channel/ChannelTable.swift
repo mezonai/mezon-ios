@@ -58,7 +58,7 @@ final class ChannelTable: Table {
                 cachedRows[record.clanId] = channels
             }
         }
-        
+
         guard let data = record.postboxEncode() else { return }
         db.run("UPDATE channels SET data = ? WHERE id = ? AND clan_id = ?") { s in
             data.withUnsafeBytes { buf in
@@ -68,7 +68,7 @@ final class ChannelTable: Table {
             sqlite3_bind_int64(s, 3, record.clanId)
         }
         cachedRows.removeValue(forKey: record.clanId)
-        
+
         metaCache[record.id] = record
     }
 

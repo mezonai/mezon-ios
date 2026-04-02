@@ -6,43 +6,43 @@ final class TooltipControllerNode: ASDisplayNode {
     private let baseFontSize: CGFloat
     private let balancedTextLayout: Bool
     private let alignment: TooltipController.Alignment
-    
+
     private let dismiss: (Bool) -> Void
-    
+
     private var validLayout: ContainerViewLayout?
-    
+
     private let containerNode: ContextMenuContainerNode
     private let imageNode: ASImageNode
     private let textNode: ImmediateTextNode
     private var contentNode: TooltipControllerCustomContentNode?
-    
+
     private let dismissByTapOutside: Bool
-    
+
     var sourceRect: CGRect?
     var arrowOnBottom: Bool = true
-    
+
     var padding: CGFloat = 8.0
     var innerPadding: UIEdgeInsets = UIEdgeInsets()
-    
+
     private var dismissedByTouchOutside = false
     private var dismissByTapOutsideSource = false
-    
+
     init(content: TooltipControllerContent, baseFontSize: CGFloat, balancedTextLayout: Bool, alignment: TooltipController.Alignment, isBlurred: Bool, dismiss: @escaping (Bool) -> Void, dismissByTapOutside: Bool, dismissByTapOutsideSource: Bool) {
         self.baseFontSize = baseFontSize
         self.balancedTextLayout = balancedTextLayout
         self.alignment = alignment
-        
+
         self.dismissByTapOutside = dismissByTapOutside
         self.dismissByTapOutsideSource = dismissByTapOutsideSource
-        
+
         self.containerNode = ContextMenuContainerNode(isBlurred: isBlurred, isDark: true)
         if !isBlurred {
             self.containerNode.containerNode.backgroundColor = UIColor(white: 0.0, alpha: 0.8)
         }
-        
+
         self.imageNode = ASImageNode()
         self.imageNode.image = content.image
-        
+
         self.textNode = ImmediateTextNode()
         if case let .attributedText(text) = content {
             self.textNode.attributedText = text
@@ -52,22 +52,22 @@ final class TooltipControllerNode: ASDisplayNode {
         self.textNode.isUserInteractionEnabled = false
         self.textNode.displaysAsynchronously = false
         self.textNode.maximumNumberOfLines = 0
-        
+
         self.dismiss = dismiss
-        
+
         if case let .custom(contentNode) = content {
             self.contentNode = contentNode
         }
-        
+
         super.init()
-        
+
         self.containerNode.containerNode.addSubnode(self.imageNode)
         self.containerNode.containerNode.addSubnode(self.textNode)
         self.contentNode.flatMap { self.containerNode.containerNode.addSubnode($0) }
-        
+
         self.addSubnode(self.containerNode)
     }
-    
+
     func updateText(_ text: String, transition: ContainedViewLayoutTransition) {
         if transition.isAnimated, let copyLayer = self.textNode.layer.snapshotContentTree() {
             copyLayer.frame = self.textNode.layer.frame
@@ -82,14 +82,14 @@ final class TooltipControllerNode: ASDisplayNode {
             self.containerLayoutUpdated(layout, transition: transition)
         }
     }
-    
+
     func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         self.validLayout = layout
-        
+
         let maxWidth = layout.size.width - 20.0 - self.padding * 2.0
-        
+
         let contentSize: CGSize
-        
+
         if let contentNode = self.contentNode {
             contentSize = contentNode.updateLayout(size: layout.size)
             contentNode.frame = CGRect(origin: CGPoint(), size: contentSize)
@@ -100,27 +100,27 @@ final class TooltipControllerNode: ASDisplayNode {
                 imageSize = image.size
                 imageSizeWithInset = CGSize(width: image.size.width + 12.0, height: image.size.height)
             }
-            
+
             var textSize = self.textNode.updateLayout(CGSize(width: maxWidth, height: CGFloat.greatestFiniteMagnitude))
             textSize.width = ceil(textSize.width / 2.0) * 2.0
             textSize.height = ceil(textSize.height / 2.0) * 2.0
-           
+
             contentSize = CGSize(width: imageSizeWithInset.width + textSize.width + 12.0 + self.innerPadding.left + self.innerPadding.right, height: textSize.height + 34.0 + self.innerPadding.top + self.innerPadding.bottom)
-            
+
             let textFrame = CGRect(origin: CGPoint(x: 6.0 + self.innerPadding.left + imageSizeWithInset.width, y: 17.0 + self.innerPadding.top), size: textSize)
             if transition.isAnimated, textFrame.size != self.textNode.frame.size {
                 transition.animatePositionAdditive(node: self.textNode, offset: CGPoint(x: textFrame.minX - self.textNode.frame.minX, y: 0.0))
             }
-            
+
             let imageFrame = CGRect(origin: CGPoint(x: self.innerPadding.left + 10.0, y: floor((contentSize.height - imageSize.height) / 2.0)), size: imageSize)
             self.imageNode.frame = imageFrame
             self.textNode.frame = textFrame
         }
-            
+
         let sourceRect: CGRect = self.sourceRect ?? CGRect(origin: CGPoint(x: layout.size.width / 2.0, y: layout.size.height / 2.0), size: CGSize())
-        
+
         let insets = layout.insets(options: [.statusBar, .input])
-        
+
         let verticalOrigin: CGFloat
         var arrowOnBottom = true
         if sourceRect.minY - 54.0 > insets.top {
@@ -130,33 +130,33 @@ final class TooltipControllerNode: ASDisplayNode {
             arrowOnBottom = false
         }
         self.arrowOnBottom = arrowOnBottom
-        
+
         let horizontalOrigin: CGFloat = floor(min(max(self.padding, sourceRect.midX - contentSize.width / 2.0), layout.size.width - contentSize.width - self.padding))
-        
+
         transition.updateFrame(node: self.containerNode, frame: CGRect(origin: CGPoint(x: horizontalOrigin, y: verticalOrigin), size: contentSize))
         self.containerNode.relativeArrowPosition = (sourceRect.midX - horizontalOrigin, arrowOnBottom)
-        
+
         self.containerNode.updateLayout(transition: transition)
     }
-    
+
     func animateIn() {
         self.containerNode.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.25)
         self.contentNode?.animateIn()
     }
-    
+
     func animateOut(completion: @escaping () -> Void) {
         self.containerNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3, removeOnCompletion: false, completion: { _ in
             completion()
         })
     }
-    
+
     func hide() {
         self.containerNode.alpha = 0.0
     }
-    
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let pointInside = self.containerNode.frame.contains(point)
-        
+
         if let event {
             var eventIsPresses = false
             if #available(iOSApplicationExtension 9.0, iOS 9.0, *) {
