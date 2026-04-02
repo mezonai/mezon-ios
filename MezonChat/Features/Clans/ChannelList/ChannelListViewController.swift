@@ -763,7 +763,7 @@ final class ChannelListViewController: ViewController {
     func selectWithoutNavigation(channelId: Int64) {
         setSelectedChannelId(channelId)
         if let ch = allChannels.first(where: { $0.channelID == channelId }) {
-            setSelectedChannel(ch)
+            selectedChannel = ch
         }
         context.account.postbox.setPreferenceData(
             key: PreferencesKeys.selectedChannelId(clanId: clanId),

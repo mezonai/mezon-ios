@@ -159,6 +159,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private(set) var isEmojiPickerVisible = false
     private var lastKeyboardHeight: CGFloat = 260
+    var keyboardOverlayHeightEstimate: CGFloat { lastKeyboardHeight }
     var onToggleEmojiPicker: ((Bool, CGFloat) -> Void)?
 
     private lazy var emojiButton: UIButton = {
@@ -410,7 +411,10 @@ final class SendMessageInputViewController: UIViewController {
             let collapsedH = max(lastKeyboardHeight, 260)
             onToggleEmojiPicker?(true, collapsedH)
         } else {
-            textView.becomeFirstResponder()
+            onToggleEmojiPicker?(false, 0)
+            DispatchQueue.main.async { [weak self] in
+                self?.textView.becomeFirstResponder()
+            }
         }
 
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
@@ -523,7 +527,9 @@ final class SendMessageInputViewController: UIViewController {
         onToggleEmojiPicker?(false, 0)
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
         emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
-        textView.becomeFirstResponder()
+        DispatchQueue.main.async { [weak self] in
+            self?.textView.becomeFirstResponder()
+        }
     }
 
     private func addPickedImage(_ image: UIImage) {

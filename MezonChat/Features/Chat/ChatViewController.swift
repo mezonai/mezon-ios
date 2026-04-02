@@ -243,6 +243,7 @@ final class ChatViewController: ViewController {
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
     private var wasEmojiPickerJustDismissed = false
+    private var suppressScrollToBottomForNextKeyboardInset = false
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
@@ -407,9 +408,10 @@ final class ChatViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
 
-        let keyboardHeight = layout.inputHeight ?? 0
         let bottomInset = layout.intrinsicInsets.bottom
-        var keyboardOffset = max(keyboardHeight - bottomInset, 0)
+        let rawInputH = layout.inputHeight ?? 0
+        var rawKeyboardOffset = max(rawInputH - bottomInset, 0)
+        var keyboardOffset = rawKeyboardOffset
 
         if !isKeyboardVisible && keyboardOffset > 0 {
             let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
@@ -418,6 +420,14 @@ final class ChatViewController: ViewController {
             }
         }
 
+        if suppressScrollToBottomForNextKeyboardInset,
+           emojiPickerCollapsedHeight == 0,
+           keyboardOffset < 0.5 {
+            keyboardOffset = max(
+                keyboardOffset,
+                sendInputViewController.keyboardOverlayHeightEstimate
+            )
+        }
 
         let emojiOffset = emojiPickerCollapsedHeight
         let bottomOffset = max(keyboardOffset, emojiOffset)
@@ -447,13 +457,16 @@ final class ChatViewController: ViewController {
         )
 
         let totalInputArea = totalBottomH + bottomOffset
-        if bottomOffset > 0 && currentKeyboardOffset == 0 && !wasEmojiPickerJustDismissed {
+        if bottomOffset > 0 && currentKeyboardOffset == 0 && !wasEmojiPickerJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
             let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
             if totalInputArea > previousTotalInputArea + 20 {
                 scrollToBottomIfNeeded()
             }
         }
         wasEmojiPickerJustDismissed = false
+        if suppressScrollToBottomForNextKeyboardInset, rawKeyboardOffset > 0.5 {
+            suppressScrollToBottomForNextKeyboardInset = false
+        }
         inputBarHeight = sendComposerH
         currentKeyboardOffset = bottomOffset
 
@@ -693,6 +706,7 @@ final class ChatViewController: ViewController {
             }
             self.hasCompletedInitialFetch = true
             self.fetchMessages(token: token)
+            await self.waitForSocketConnected()
             self.joinChat()
             self.fetchNotificationSetting(token: token)
             self.fetchChannelPermissions(token: token)
@@ -1527,6 +1541,19 @@ final class ChatViewController: ViewController {
         }.sorted { $0.emojiId < $1.emojiId }
     }
 
+    private func waitForSocketConnected() async {
+        if context.account.socket.isConnected { return }
+        AppLogger.network.info("[Chat] waitForSocketConnected: waiting for socket connection...")
+        for _ in 0..<50 {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            if context.account.socket.isConnected {
+                AppLogger.network.info("[Chat] waitForSocketConnected: socket connected")
+                return
+            }
+        }
+        AppLogger.network.warning("[Chat] waitForSocketConnected: timed out after 10s, proceeding anyway")
+    }
+
     private func joinChat() {
         guard context.account.socket.isConnected else {
             AppLogger.network.info("[Chat] joinChat: socket not connected yet, clanId=\(self.clanId) channelId=\(self.channel.channelID) — will retry on socket reconnect")
@@ -1631,6 +1658,7 @@ final class ChatViewController: ViewController {
 
     private func handleEmojiPickerToggle(visible: Bool, collapsedHeight: CGFloat) {
         if visible {
+            suppressScrollToBottomForNextKeyboardInset = false
             let screenH = UIScreen.main.bounds.height
             let expandedH = max(screenH * 0.85, collapsedHeight + 200)
             emojiPickerView.collapsedHeight = collapsedHeight
@@ -1643,6 +1671,7 @@ final class ChatViewController: ViewController {
             emojiPickerView.applyTheme()
             emojiPickerView.refreshMediaPanelCache()
         } else {
+            suppressScrollToBottomForNextKeyboardInset = true
             emojiPickerCollapsedHeight = 0
             emojiPickerHeightConstraint?.constant = 0
             emojiPickerView.isHidden = true
@@ -1650,10 +1679,17 @@ final class ChatViewController: ViewController {
         }
 
         if let layout = lastLayout {
-            containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
+            let transition: ContainedViewLayoutTransition = visible
+                ? .animated(duration: 0.25, curve: .easeInOut)
+                : .immediate
+            containerLayoutUpdated(layout, transition: transition)
         }
-        UIView.animate(withDuration: 0.25) {
-            self.view.layoutIfNeeded()
+        if visible {
+            UIView.animate(withDuration: 0.25) {
+                self.view.layoutIfNeeded()
+            }
+        } else {
+            view.layoutIfNeeded()
         }
     }
 
