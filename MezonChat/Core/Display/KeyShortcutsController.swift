@@ -7,20 +7,20 @@ public protocol KeyShortcutResponder {
 public class KeyShortcutsController: UIResponder {
     private var effectiveShortcuts: [KeyShortcut]?
     private var viewControllerEnumerator: (@escaping (ContainableController) -> Bool) -> Void
-    
+
     public static var isAvailable: Bool {
         return true
     }
-    
+
     public init(enumerator: @escaping (@escaping (ContainableController) -> Bool) -> Void) {
         self.viewControllerEnumerator = enumerator
         super.init()
     }
-    
+
     public override var keyCommands: [UIKeyCommand]? {
         var convertedCommands: [UIKeyCommand] = []
         var shortcuts: [KeyShortcut] = []
-        
+
         self.viewControllerEnumerator({ viewController -> Bool in
             guard let viewController = viewController as? KeyShortcutResponder else {
                 return true
@@ -29,20 +29,20 @@ public class KeyShortcutsController: UIResponder {
             shortcuts.append(contentsOf: viewController.keyShortcuts)
             return true
         })
-        
+
         convertedCommands.append(contentsOf: shortcuts.map { $0.uiKeyCommand })
-        
+
         self.effectiveShortcuts = shortcuts
-        
+
         return convertedCommands
     }
-    
+
     @objc func handleKeyCommand(_ command: UIKeyCommand) {
         if let shortcut = findShortcut(for: command) {
             shortcut.action()
         }
     }
-    
+
     private func findShortcut(for command: UIKeyCommand) -> KeyShortcut? {
         if let shortcuts = self.effectiveShortcuts {
             for shortcut in shortcuts {
@@ -53,7 +53,7 @@ public class KeyShortcutsController: UIResponder {
         }
         return nil
     }
-    
+
     public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if let keyCommand = sender as? UIKeyCommand, let _ = findShortcut(for: keyCommand) {
             return true
@@ -61,7 +61,7 @@ public class KeyShortcutsController: UIResponder {
             return super.canPerformAction(action, withSender: sender)
         }
     }
-    
+
     public override func target(forAction action: Selector, withSender sender: Any?) -> Any? {
         if let keyCommand = sender as? UIKeyCommand, let _ = findShortcut(for: keyCommand) {
             return self
@@ -69,7 +69,7 @@ public class KeyShortcutsController: UIResponder {
             return super.target(forAction: action, withSender: sender)
         }
     }
-    
+
     public override var canBecomeFirstResponder: Bool {
         return true
     }

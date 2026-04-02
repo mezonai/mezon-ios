@@ -236,11 +236,10 @@ final class DmListItemCell: UITableViewCell {
         return "Chat"
     }
 
-    /// Zero-width space so the second line keeps height when there is no text (RN still mounts `MessagePreviewLastest` with empty props).
+
     private static let previewLayoutPlaceholder = "\u{200B}"
 
-    /// RN `MessagePreviewLastest` + `DmListItem`: parse `last_sent_message.content` (JSON with optional nested `content`), `t`, `embed`, links.
-    /// Real `content` / `sender_id` are filled from socket via `updateDmLastSentMessage` (see `DirectMessagesViewController`).
+
     private func lastMessagePreview(channel: Mezon_Api_ChannelDescription, currentUserId: String?) -> (String, String) {
         let msg = channel.lastSentMessage
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -251,8 +250,7 @@ final class DmListItemCell: UITableViewCell {
             || msg.id != 0
             || msg.senderID != 0
 
-        // RN `MessagePreviewLastest`: when no `last_sent_message` at all,
-        // show "Group created" for groups or empty placeholder for DMs.
+
         if !hasHeaderPayload {
             let ts = max(
                 channel.updateTimeSeconds,
@@ -286,8 +284,7 @@ final class DmListItemCell: UITableViewCell {
 
         let time = formatRelativeTime(timestamp: msg.timestampSeconds)
 
-        // RN `MessagePreviewLastest` parses content from `last_sent_message.content`.
-        // Content may be: JSON object, double-encoded JSON string, or nested {"content": ...}.
+
         let preview: String
         if let payload = Self.messageContentPayload(from: msg.content) {
             if Self.isRNEmptyMessageContent(payload) {
@@ -316,7 +313,7 @@ final class DmListItemCell: UITableViewCell {
         return p.isEmpty ? previewLayoutPlaceholder : p
     }
 
-    /// RN `MessagePreviewLastest`: inner body JSON, optional nested `content`, or double-encoded JSON string at root.
+
     private static func messageContentPayload(from raw: String) -> [String: Any]? {
         guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
         guard let any = try? JSONSerialization.jsonObject(with: data) else { return nil }
@@ -324,7 +321,7 @@ final class DmListItemCell: UITableViewCell {
         if let dict = any as? [String: Any] {
             return unwrapContentNested(in: dict)
         }
-        // Some gateways store a JSON string that must be parsed again.
+
         if let s = any as? String {
             let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let innerData = trimmed.data(using: .utf8),
@@ -367,7 +364,7 @@ final class DmListItemCell: UITableViewCell {
         return nil
     }
 
-    /// `content.t` may decode as String, NSNumber, etc. depending on JSON / ObjC bridging.
+
     private static func messageTextT(from content: [String: Any]) -> String {
         guard let v = content["t"] else { return "" }
         if let s = v as? String { return s.trimmingCharacters(in: .whitespacesAndNewlines) }

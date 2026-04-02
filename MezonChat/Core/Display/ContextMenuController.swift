@@ -5,7 +5,7 @@ import AsyncDisplayKit
 public final class ContextMenuControllerPresentationArguments {
     public let sourceNodeAndRect: () -> (ASDisplayNode, CGRect, ASDisplayNode, CGRect)?
     public let bounce: Bool
-    
+
     public init(sourceNodeAndRect: @escaping () -> (ASDisplayNode, CGRect, ASDisplayNode, CGRect)?, bounce: Bool = true) {
         self.sourceNodeAndRect = sourceNodeAndRect
         self.bounce = bounce
@@ -25,7 +25,7 @@ public struct ContextMenuControllerArguments {
     public var blurred: Bool
     public var skipCoordnateConversion: Bool
     public var isDark: Bool
-    
+
     public init(actions: [ContextMenuAction], catchTapsOutside: Bool, hasHapticFeedback: Bool, blurred: Bool, skipCoordnateConversion: Bool, isDark: Bool) {
         self.actions = actions
         self.catchTapsOutside = catchTapsOutside

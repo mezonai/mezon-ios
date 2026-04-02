@@ -35,7 +35,7 @@ extension CGFloat: Interpolatable {
             return floorToPixels(term)
         }
     }
-    
+
     static func interpolate(from fromValue: CGFloat, to toValue: CGFloat, at t: CGFloat) -> CGFloat {
         let invT: CGFloat = 1.0 - t
         let term: CGFloat = toValue * t + fromValue * invT
@@ -61,7 +61,7 @@ extension CGRect: Interpolatable {
             return floorToPixels(CGRect(x: toValue.origin.x * t + fromValue.origin.x * (1.0 - t), y: toValue.origin.y * t + fromValue.origin.y * (1.0 - t), width: toValue.size.width * t + fromValue.size.width * (1.0 - t), height: toValue.size.height * t + fromValue.size.height * (1.0 - t)))
         }
     }
-    
+
     static func interpolate(from fromValue: CGRect, to toValue: CGRect, at t: CGFloat) -> CGRect {
         return CGRect(origin: CGPoint.interpolate(from: fromValue.origin, to: toValue.origin, at: t), size: CGSize.interpolate(from: fromValue.size, to: toValue.size, at: t))
     }
@@ -75,7 +75,7 @@ extension CGPoint: Interpolatable {
             return floorToPixels(CGPoint(x: toValue.x * t + fromValue.x * (1.0 - t), y: toValue.y * t + fromValue.y * (1.0 - t)))
         }
     }
-    
+
     static func interpolate(from fromValue: CGPoint, to toValue: CGPoint, at t: CGFloat) -> CGPoint {
         return CGPoint(x: toValue.x * t + fromValue.x * (1.0 - t), y: toValue.y * t + fromValue.y * (1.0 - t))
     }
@@ -136,7 +136,7 @@ public final class ListViewAnimation {
     private let interpolator: (Interpolatable, Interpolatable, CGFloat) -> Interpolatable
     private let update: (CGFloat, Interpolatable) -> Void
     private let completed: (Bool) -> Void
-    
+
     public init<T: Interpolatable>(from: T, to: T, duration: Double, invertOffsetDirection: Bool = false, curve: @escaping (CGFloat) -> CGFloat, beginAt: Double, update: @escaping (CGFloat, T) -> Void, completed: @escaping (Bool) -> Void = { _ in }) {
         self.from = from
         self.to = to
@@ -150,7 +150,7 @@ public final class ListViewAnimation {
         }
         self.completed = completed
     }
-    
+
     init<T: Interpolatable>(copying: ListViewAnimation, update: @escaping (CGFloat, T) -> Void, completed: @escaping (Bool) -> Void = { _ in }) {
         self.from = copying.from
         self.to = copying.to
@@ -164,7 +164,7 @@ public final class ListViewAnimation {
         }
         self.completed = completed
     }
-    
+
     public func completeAt(_ timestamp: Double) -> Bool {
         if timestamp >= self.startTime + self.duration {
             self.completed(true)
@@ -173,11 +173,11 @@ public final class ListViewAnimation {
             return false
         }
     }
-    
+
     public func cancel() {
         self.completed(false)
     }
-    
+
     private func valueAt(_ t: CGFloat) -> Interpolatable {
         if t <= 0.0 {
             return self.from
@@ -187,7 +187,7 @@ public final class ListViewAnimation {
             return self.interpolator(self.from, self.to, t)
         }
     }
-    
+
     public func applyAt(_ timestamp: Double) {
         var t = CGFloat((timestamp - self.startTime) / self.duration)
         let ct: CGFloat

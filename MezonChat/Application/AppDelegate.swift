@@ -57,7 +57,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
         NetworkMonitor.shared.start()
         NetworkBannerView.install(on: nativeWindow)
-        // SocketStatusBannerView.install(on: nativeWindow)
+
 
         let statusBarHost = SceneStatusBarHost(scene: windowScene)
         let mainWindow = Window1(hostView: hostView, statusBarHost: statusBarHost)
@@ -184,7 +184,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             if let n = userInfo["channel_id"] { return "\(n)" }
             return nil
         }()
-        
+
         var clanId: String?
         var isDM = false
         if let link = userInfo["link"] as? String {
@@ -196,7 +196,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 }
             }
         }
-        
+
         if clanId == nil || clanId == "0" {
             if let s = userInfo["clan_id"] as? String, !s.isEmpty, s != "0" { clanId = s }
             else if let n = userInfo["clan_id"] { let s = "\(n)"; if s != "0" && !s.isEmpty { clanId = s } }
@@ -205,7 +205,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 else if let n = userInfo["clanId"] { clanId = "\(n)" }
             }
         }
-        
+
         return (channelId, clanId, isDM)
     }
 
@@ -220,7 +220,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
 
-        // Skip toast if user is already viewing this channel
+
         let isViewingChannel: Bool = {
             guard let chId = channelId, let chIdInt = Int64(chId) else { return false }
             return ActiveChannelTracker.currentChannelId == chIdInt
@@ -274,7 +274,6 @@ extension Notification.Name {
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         guard let fcmToken else { return }
-        print("[FCM] Token: \(fcmToken)")
         AppLogger.network.info("[FCM] Token received: \(fcmToken.prefix(20))...")
 
         Task { @MainActor in

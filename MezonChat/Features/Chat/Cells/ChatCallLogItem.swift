@@ -23,7 +23,7 @@ final class MessageCallLogNode: ASDisplayNode {
         containerNode.cornerRadius = 10
         containerNode.clipsToBounds = true
 
-        // Title
+
         let title = Self.titleText(callLog: callLog, isMe: isMe, senderName: senderName)
         let isFailed = Self.isFailedCall(callLog.callLogType, isMe: isMe)
         titleNode.attributedText = NSAttributedString(
@@ -35,7 +35,7 @@ final class MessageCallLogNode: ASDisplayNode {
         )
         titleNode.maximumNumberOfLines = 2
 
-        // Icon
+
         let (iconName, iconColor) = Self.iconInfo(callLog: callLog, isMe: isMe)
         iconNode.image = UIImage(systemName: iconName)?.withConfiguration(
             UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
@@ -43,7 +43,7 @@ final class MessageCallLogNode: ASDisplayNode {
         iconNode.tintColor = iconColor
         iconNode.contentMode = .scaleAspectFit
 
-        // Description
+
         let desc: String
         if callLog.callLogType == .finishCall && !contentText.isEmpty {
             desc = contentText
@@ -97,7 +97,6 @@ final class MessageCallLogNode: ASDisplayNode {
         descriptionNode.frame = CGRect(x: pad + iconSz + 6, y: y + (descRowH - cachedDescSize.height) / 2, width: cachedDescSize.width, height: cachedDescSize.height)
     }
 
-    // MARK: - Helpers
 
     private static func titleText(callLog: CallLogData, isMe: Bool, senderName: String) -> String {
         switch callLog.callLogType {

@@ -15,7 +15,7 @@ final class MediaPickerViewController: UIViewController {
     private let cachingImageManager = PHCachingImageManager()
     private var fetchResult: PHFetchResult<PHAsset>?
     private var selectedAssets: [PHAsset] = []
-    private var selectedOrder: [String: Int] = [:]  // localIdentifier -> order
+    private var selectedOrder: [String: Int] = [:]
 
     private let thumbnailSize: CGSize = {
         let scale = UIScreen.main.scale
@@ -146,7 +146,7 @@ final class MediaPickerViewController: UIViewController {
         cachingImageManager.stopCachingImagesForAllAssets()
     }
 
-    /// Export selected assets and deliver via onPicked. Called on any dismiss path.
+
     private func sendResultsIfNeeded() {
         guard !didSendResults, !selectedAssets.isEmpty else { return }
         didSendResults = true
@@ -418,7 +418,7 @@ final class MediaPickerViewController: UIViewController {
             guard let layoutAttributes = collectionView.collectionViewLayout
                     .layoutAttributesForElements(in: rect) else { continue }
             for attr in layoutAttributes {
-                let assetIndex = attr.indexPath.item - 1  // offset for camera cell
+                let assetIndex = attr.indexPath.item - 1
                 if assetIndex >= 0, assetIndex < fetchResult.count {
                     assets.append(fetchResult.object(at: assetIndex))
                 }
@@ -589,7 +589,7 @@ final class MediaPickerViewController: UIViewController {
 extension MediaPickerViewController: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        (fetchResult?.count ?? 0) + 1  // +1 for camera cell
+        (fetchResult?.count ?? 0) + 1
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
@@ -631,7 +631,7 @@ extension MediaPickerViewController: UICollectionViewDataSource, UICollectionVie
             cell.configure(image: image, isVideo: asset.mediaType == .video,
                            duration: asset.duration, selectionOrder: order)
             if isDegraded {
-                // PHCachingImageManager will call again with the full quality image
+
             }
         }
 
@@ -664,7 +664,6 @@ extension MediaPickerViewController: UICollectionViewDataSource, UICollectionVie
     }
 }
 
-// MARK: - UIImagePickerControllerDelegate (Camera capture)
 
 extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 
@@ -672,7 +671,7 @@ extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigati
         picker.dismiss(animated: true)
         guard let image = info[.originalImage] as? UIImage else { return }
 
-        // Save to temp file
+
         let tempDir = FileManager.default.temporaryDirectory
         let filename = "camera-\(UUID().uuidString).jpg"
         let fileURL = tempDir.appendingPathComponent(filename)
@@ -690,7 +689,6 @@ extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigati
     }
 }
 
-// MARK: - MediaPickerCell
 
 private final class MediaPickerCell: UICollectionViewCell {
 
@@ -778,9 +776,9 @@ private final class MediaPickerCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    // Disable default highlight flash
+
     override var isHighlighted: Bool {
-        didSet {}  // no-op: prevent default dimming
+        didSet {}
     }
 
     override func layoutSubviews() {
@@ -828,7 +826,6 @@ private final class MediaPickerCell: UICollectionViewCell {
     }
 }
 
-// MARK: - Presentation helper
 
 extension MediaPickerViewController {
 
@@ -841,10 +838,10 @@ extension MediaPickerViewController {
             sheet.detents = [.medium(), .large()]
             sheet.preferredCornerRadius = 16
             sheet.prefersScrollingExpandsWhenScrolledToEdge = true
-            // Keep background dimmed so tap-outside dismisses the sheet
+
         }
 
-        // Walk up to find a VC that can actually present
+
         var presenter: UIViewController = viewController
         while let presented = presenter.presentedViewController {
             presenter = presented
@@ -860,7 +857,6 @@ extension MediaPickerViewController {
     }
 }
 
-// MARK: - CameraPreviewCell
 
 private final class CameraPreviewCell: UICollectionViewCell {
 
@@ -960,7 +956,6 @@ private final class CameraPreviewCell: UICollectionViewCell {
     }
 }
 
-// MARK: - AlbumDropdownView
 
 private final class AlbumDropdownView: UIView {
 
@@ -1011,7 +1006,7 @@ private final class AlbumDropdownView: UIView {
         self.selectedIndex = selectedIndex
         tableView.reloadData()
 
-        // Set intrinsic height based on content
+
         let contentHeight = min(CGFloat(albums.count) * 54, 300)
         for c in constraints where c.firstAttribute == .height {
             c.constant = contentHeight
@@ -1045,7 +1040,6 @@ extension AlbumDropdownView: UITableViewDataSource, UITableViewDelegate {
     }
 }
 
-// MARK: - AlbumCell
 
 private final class AlbumCell: UITableViewCell {
 

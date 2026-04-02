@@ -8,9 +8,9 @@ class NotificationService: UNNotificationServiceExtension {
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
         self.contentHandler = contentHandler
         bestAttemptContent = (request.content.mutableCopy() as? UNMutableNotificationContent)
-        
+
         if let bestAttemptContent = bestAttemptContent {
-            // Increment badge count
+
             let groupId = "group.mezon.mobile"
             if let shared = UserDefaults(suiteName: groupId) {
                 let newCount = shared.integer(forKey: "badgeCount") + 1
@@ -18,7 +18,7 @@ class NotificationService: UNNotificationServiceExtension {
                 bestAttemptContent.badge = NSNumber(value: newCount)
             }
 
-            // Try to attach image if available
+
             if let imageURLString = findImageURL(in: bestAttemptContent.userInfo),
                let imageURL = URL(string: imageURLString) {
                 downloadImage(from: imageURL) { attachment in
@@ -32,7 +32,7 @@ class NotificationService: UNNotificationServiceExtension {
             }
         }
     }
-    
+
     override func serviceExtensionTimeWillExpire() {
         if let contentHandler = contentHandler, let bestAttemptContent = bestAttemptContent {
             contentHandler(bestAttemptContent)

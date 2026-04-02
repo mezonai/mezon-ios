@@ -157,7 +157,6 @@ final class MessageActionSheetController: ViewController {
         }
     }
 
-    // MARK: - Actions
 
     private static func availableActions(display: ChatMessageDisplay, isOwnMessage: Bool) -> [MessageAction] {
         if display.isFailed {
@@ -436,7 +435,7 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
             btn.clipsToBounds = true
             btn.tag = idx
 
-            if let url = MezonConfig.emojiImageURL(emojiId: emoji.id) {
+            if let url = MezonConfig.emojiResourceURL(emojiId: emoji.id, imgproxyFitSide: 40) {
                 loadEmojiImage(url: url, into: btn)
             }
 
@@ -526,7 +525,7 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         var labelX: CGFloat
 
         if isWarning {
-            // Circular background for warning icons
+
             let circleSize: CGFloat = 32
             let circleX: CGFloat = 12
             let circleY = y + (height - circleSize) / 2

@@ -10,20 +10,20 @@ public final class NavigationBackgroundNode: ASDisplayNode {
     public var color: UIColor {
         return self._color
     }
-    
+
     private var enableBlur: Bool
     private var enableSaturation: Bool
     private var customBlurRadius: CGFloat?
 
     public var effectView: UIVisualEffectView?
     private let backgroundNode: ASDisplayNode
-    
+
     public var backgroundView: UIView {
         return self.backgroundNode.view
     }
 
     private var validLayout: (CGSize, CGFloat)?
-    
+
     public var backgroundCornerRadius: CGFloat {
         if let (_, cornerRadius) = self.validLayout {
             return cornerRadius
@@ -49,15 +49,15 @@ public final class NavigationBackgroundNode: ASDisplayNode {
 
     public override func didLoad() {
         super.didLoad()
-        
+
         if self.scheduledUpdate {
             self.scheduledUpdate = false
             self.updateBackgroundBlur(forceKeepBlur: false)
         }
     }
-    
+
     private var scheduledUpdate = false
-    
+
     private func updateBackgroundBlur(forceKeepBlur: Bool) {
         guard self.isNodeLoaded else {
             self.scheduledUpdate = true
@@ -114,7 +114,7 @@ public final class NavigationBackgroundNode: ASDisplayNode {
     public func updateColor(color: UIColor, enableBlur: Bool? = nil, enableSaturation: Bool? = nil, forceKeepBlur: Bool = false, transition: ContainedViewLayoutTransition) {
         let effectiveEnableBlur = enableBlur ?? self.enableBlur
         let effectiveEnableSaturation = enableSaturation ?? self.enableSaturation
-        
+
         if self._color.isEqual(color) && self.enableBlur == effectiveEnableBlur && self.enableSaturation == effectiveEnableSaturation {
             return
         }
@@ -151,7 +151,7 @@ public final class NavigationBackgroundNode: ASDisplayNode {
             effectView.clipsToBounds = !cornerRadius.isZero
         }
     }
-    
+
     public func update(size: CGSize, cornerRadius: CGFloat = 0.0, animator: ControlledTransitionAnimator) {
         self.validLayout = (size, cornerRadius)
 
@@ -184,7 +184,7 @@ open class BlurredBackgroundView: UIView {
     private let backgroundView: UIView
 
     private var validLayout: (CGSize, CGFloat)?
-    
+
     public var backgroundCornerRadius: CGFloat {
         if let (_, cornerRadius) = self.validLayout {
             return cornerRadius
@@ -208,11 +208,11 @@ open class BlurredBackgroundView: UIView {
             self.updateColor(color: color, transition: .immediate)
         }
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     private func updateBackgroundBlur(forceKeepBlur: Bool) {
         if let color = self._color, self.enableBlur && !sharedIsReduceTransparencyEnabled && ((color.alpha > .ulpOfOne && color.alpha < 0.95) || forceKeepBlur) {
             if self.effectView == nil {
@@ -292,7 +292,7 @@ open class BlurredBackgroundView: UIView {
                 }
             }
         }
-        
+
         if #available(iOS 11.0, *) {
             self.backgroundView.layer.maskedCorners = maskedCorners
         }
@@ -301,13 +301,13 @@ open class BlurredBackgroundView: UIView {
         if let effectView = self.effectView {
             transition.updateCornerRadius(layer: effectView.layer, cornerRadius: cornerRadius)
             effectView.clipsToBounds = !cornerRadius.isZero
-            
+
             if #available(iOS 11.0, *) {
                 effectView.layer.maskedCorners = maskedCorners
             }
         }
     }
-    
+
     public func update(size: CGSize, cornerRadius: CGFloat = 0.0, animator: ControlledTransitionAnimator) {
         self.validLayout = (size, cornerRadius)
 

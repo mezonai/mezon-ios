@@ -6,25 +6,25 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
     private final class Child {
         let value: ViewController
         var layout: ContainerViewLayout
-        
+
         init(value: ViewController, layout: ContainerViewLayout) {
             self.value = value
             self.layout = layout
         }
     }
-    
+
     private final class PendingChild {
         enum TransitionType {
             case push
             case pop
         }
-        
+
         let value: Child
         let transitionType: TransitionType
         let transition: ContainedViewLayoutTransition
         let disposable: MetaDisposable = MetaDisposable()
         var isReady: Bool = false
-        
+
         init(value: Child, transitionType: TransitionType, transition: ContainedViewLayoutTransition, update: @escaping (PendingChild) -> Void) {
             self.value = value
             self.transitionType = transitionType
@@ -46,24 +46,24 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 localIsReady = false
             }
         }
-        
+
         deinit {
             self.disposable.dispose()
         }
     }
-    
+
     private final class TopTransition {
         let type: PendingChild.TransitionType
         let previous: Child
         let coordinator: NavigationTransitionCoordinator
-        
+
         init(type: PendingChild.TransitionType, previous: Child, coordinator: NavigationTransitionCoordinator) {
             self.type = type
             self.previous = previous
             self.coordinator = coordinator
         }
     }
-    
+
     private struct State {
         var layout: ContainerViewLayout?
         var canBeClosed: Bool?
@@ -71,15 +71,15 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         var transition: TopTransition?
         var pending: PendingChild?
     }
-    
+
     private let isFlat: Bool
     public private(set) var controllers: [ViewController] = []
     private var state: State = State(layout: nil, canBeClosed: nil, top: nil, transition: nil, pending: nil)
-    
+
     weak var minimizedContainer: MinimizedContainer?
-    
+
     private var ignoreInputHeight: Bool = false
-    
+
     public private(set) var isReady: Bool = false
     public var isReadyUpdated: (() -> Void)?
     public var controllerRemoved: (ViewController) -> Void
@@ -88,7 +88,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         didSet {
         }
     }
-    
+
     public var canHaveKeyboardFocus: Bool = false {
         didSet {
             if self.canHaveKeyboardFocus != oldValue {
@@ -99,7 +99,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             }
         }
     }
-    
+
     public var isInFocus: Bool = false {
         didSet {
             if self.isInFocus != oldValue {
@@ -107,16 +107,16 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             }
         }
     }
-    
+
     public func inFocusUpdated(isInFocus: Bool) {
         self.state.top?.value.isInFocus = isInFocus
     }
-    
+
     public var overflowInset: CGFloat = 0.0
-    
+
     private var currentKeyboardLeftEdge: CGFloat = 0.0
     private var additionalKeyboardLeftEdgeOffset: CGFloat = 0.0
-    
+
     var statusBarStyle: StatusBarStyle = .Ignore {
         didSet {
         }
@@ -124,24 +124,24 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
     var statusBarStyleUpdated: ((ContainedViewLayoutTransition) -> Void)?
 
     private var panRecognizer: InteractiveTransitionGestureRecognizer?
-    
+
     public init(isFlat: Bool, controllerRemoved: @escaping (ViewController) -> Void) {
         self.isFlat = isFlat
         self.controllerRemoved = controllerRemoved
-        
+
         super.init()
     }
-    
+
     public override func didLoad() {
         super.didLoad()
-        
+
         let panRecognizer = InteractiveTransitionGestureRecognizer(target: self, action: #selector(self.panGesture(_:)), allowedDirections: { [weak self] _ in
             guard let strongSelf = self, strongSelf.controllers.count > 1 else {
                 return []
             }
             return .right
         })
-        
+
         if #available(iOS 13.4, *) {
             panRecognizer.allowedScrollTypesMask = .continuous
         }
@@ -152,14 +152,14 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         self.view.addGestureRecognizer(panRecognizer)
 
     }
-    
+
     func hasNonReadyControllers() -> Bool {
         if let pending = self.state.pending, !pending.isReady {
             return true
         }
         return false
     }
-    
+
     public override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer == self.panRecognizer, let gestureRecognizer = self.panRecognizer, gestureRecognizer.numberOfTouches == 0 {
             let translation = gestureRecognizer.velocity(in: gestureRecognizer.view)
@@ -177,11 +177,11 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             return true
         }
     }
-    
+
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         return false
     }
-    
+
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         if let _ = otherGestureRecognizer as? InteractiveTransitionGestureRecognizer {
             return false
@@ -191,7 +191,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         }
         return false
     }
-    
+
     @objc private func panGesture(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
@@ -201,13 +201,13 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             guard self.state.transition == nil else {
                 return
             }
-            
+
             let beginGesture = self.controllers.count > 1
-            
+
             if beginGesture {
                 let topController = self.controllers[self.controllers.count - 1]
                 let bottomController = self.controllers[self.controllers.count - 2]
-                
+
                 if !topController.attemptNavigation({ [weak self, weak topController] in
                     if let self, let topController {
                         self.requestFilterController(topController)
@@ -215,7 +215,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 }) {
                     return
                 }
-                
+
                 topController.viewWillDisappear(true)
                 let topNode = topController.displayNode
                 var bottomControllerLayout = layout
@@ -232,13 +232,13 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 bottomController.containerLayoutUpdated(bottomControllerLayout, transition: .immediate)
                 bottomController.viewWillAppear(true)
                 let bottomNode = bottomController.displayNode
-                
+
                 let screenCornerRadius = self.minimizedContainer == nil && self.state.canBeClosed != true ? layout.deviceMetrics.screenCornerRadius : 0.0
                 let navigationTransitionCoordinator = NavigationTransitionCoordinator(transition: .Pop, isInteractive: true, isFlat: self.isFlat, container: self, topNode: topNode, topNavigationBar: topController.transitionNavigationBar, bottomNode: bottomNode, bottomNavigationBar: bottomController.transitionNavigationBar, screenCornerRadius: screenCornerRadius, didUpdateProgress: { [weak self, weak bottomController] progress, transition, topFrame, bottomFrame in
                     if let strongSelf = self {
                         if let top = strongSelf.state.top {
                             strongSelf.syncKeyboard(leftEdge: top.value.displayNode.frame.minX, transition: transition)
-                            
+
                             var updatedStatusBarStyle = strongSelf.statusBarStyle
                             if let bottomController = bottomController, progress >= 0.3 {
                                 updatedStatusBarStyle = bottomController.statusBar.statusBarStyle
@@ -264,23 +264,23 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         case .ended, .cancelled:
             if let navigationTransitionCoordinator = self.state.transition?.coordinator, !navigationTransitionCoordinator.animatingCompletion {
                 let velocity = recognizer.velocity(in: self.view).x
-                
+
                 if velocity > 1000 || navigationTransitionCoordinator.progress > 0.2 {
                     self.state.top?.value.viewWillLeaveNavigation()
                     navigationTransitionCoordinator.animateCompletion(velocity, completion: { [weak self] in
                         guard let strongSelf = self, let _ = strongSelf.state.layout, let _ = strongSelf.state.transition, let top = strongSelf.state.top else {
                             return
                         }
-                        
+
                         let topController = top.value
-                        
+
                         if viewTreeContainsFirstResponder(view: top.value.view) {
                             strongSelf.ignoreInputHeight = true
                         }
                         strongSelf.keyboardViewManager?.dismissEditingWithoutAnimation(view: topController.view)
-                        
+
                         strongSelf.state.transition = nil
-                        
+
                         strongSelf.controllerRemoved(top.value)
                         strongSelf.ignoreInputHeight = false
                     })
@@ -290,7 +290,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                             return
                         }
                         strongSelf.state.transition = nil
-                            
+
                         top.value.viewDidAppear(true)
                         transition.previous.value.viewDidDisappear(true)
                     })
@@ -300,11 +300,11 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             break
         }
     }
-    
+
     public func update(layout: ContainerViewLayout, canBeClosed: Bool, controllers: [ViewController], transition: ContainedViewLayoutTransition) {
         self.state.layout = layout
         self.state.canBeClosed = canBeClosed
-        
+
         var controllersUpdated = false
         if self.controllers.count != controllers.count {
             controllersUpdated = true
@@ -319,7 +319,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         if controllersUpdated {
             let previousControllers = self.controllers
             self.controllers = controllers
-            
+
             for i in 0 ..< controllers.count {
                 if i == 0 {
                     if canBeClosed {
@@ -334,7 +334,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     controllers[i].previousItem = .item(controllers[i - 1].navigationItem)
                 }
             }
-        
+
             if controllers.last !== self.state.top?.value {
                 self.state.top?.value.statusBar.alphaUpdated = nil
                 if let controller = controllers.last {
@@ -347,7 +347,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                         }
                     }
                 }
-                
+
                 if controllers.last !== self.state.pending?.value.value {
                     self.state.pending = nil
                     if let last = controllers.last {
@@ -368,9 +368,9 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 }
             }
         }
-        
+
         var statusBarTransition = transition
-        
+
         var ignoreInputHeight = false
         if let pending = self.state.pending {
             if pending.isReady {
@@ -394,14 +394,14 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 }
             }
         }
-        
+
         if controllers.isEmpty && self.state.top != nil {
             let previous = self.state.top
             previous?.value.isInFocus = false
             self.state.top = nil
             self.topTransition(from: previous, to: nil, transitionType: .pop, layout: layout, transition: .immediate)
         }
-        
+
         var updatedStatusBarStyle = self.statusBarStyle
         if let top = self.state.top {
             var updatedLayout = layout
@@ -440,16 +440,16 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             self.statusBarStyleUpdated?(statusBarTransition)
         }
     }
-    
+
     public var shouldAnimateDisappearance: Bool = false
-    
+
     private func topTransition(from fromValue: Child?, to toValue: Child?, transitionType: PendingChild.TransitionType, layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         if case .animated = transition, let fromValue = fromValue, let toValue = toValue {
             if let currentTransition = self.state.transition {
                 currentTransition.coordinator.performCompletion(completion: {
                 })
             }
-            
+
             fromValue.value.viewWillLeaveNavigation()
             fromValue.value.viewWillDisappear(true)
             toValue.value.viewWillAppear(true)
@@ -473,7 +473,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 bottomController = toValue.value
             }
             toValue.value.setIgnoreAppearanceMethodInvocations(false)
-            
+
             let screenCornerRadius = self.minimizedContainer == nil && self.state.canBeClosed != true ? layout.deviceMetrics.screenCornerRadius : 0.0
             let topTransition = TopTransition(type: transitionType, previous: fromValue, coordinator: NavigationTransitionCoordinator(transition: mappedTransitionType, isInteractive: false, isFlat: self.isFlat, container: self, topNode: topController.displayNode, topNavigationBar: topController.transitionNavigationBar, bottomNode: bottomController.displayNode, bottomNavigationBar: bottomController.transitionNavigationBar, screenCornerRadius: screenCornerRadius, didUpdateProgress: { [weak self] _, transition, topFrame, bottomFrame in
                 guard let strongSelf = self else {
@@ -494,18 +494,18 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 }
             }))
             self.state.transition = topTransition
-            
+
             topTransition.coordinator.animateCompletion(0.0, completion: { [weak self, weak topTransition] in
                 guard let strongSelf = self, let topTransition = topTransition, strongSelf.state.transition === topTransition else {
                     return
                 }
-                
+
                 if viewTreeContainsFirstResponder(view: topTransition.previous.value.view) {
                     strongSelf.ignoreInputHeight = true
                 }
                 strongSelf.keyboardViewManager?.dismissEditingWithoutAnimation(view: topTransition.previous.value.view)
                 strongSelf.state.transition = nil
-                
+
                 if strongSelf.shouldAnimateDisappearance {
                     let displayNode = topTransition.previous.value.displayNode
                     displayNode.layer.animateAlpha(from: 1.0, to: 0.0, duration: 0.3, removeOnCompletion: false, completion: { [weak displayNode] _ in
@@ -523,7 +523,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     strongSelf.applyLayout(layout: layout, to: toValue, isMaster: true, transition: .immediate)
                     toValue.value.viewDidAppear(true)
                 }
-                
+
                 strongSelf.ignoreInputHeight = false
             })
         } else {
@@ -531,12 +531,12 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 if viewTreeContainsFirstResponder(view: fromValue.value.view) {
                     self.ignoreInputHeight = true
                 }
-                
+
                 fromValue.value.viewWillLeaveNavigation()
                 fromValue.value.driveAppearanceTransition(appearing: false, animated: false)
-                
+
                 self.keyboardViewManager?.dismissEditingWithoutAnimation(view: fromValue.value.view)
-                
+
                 fromValue.value.setIgnoreAppearanceMethodInvocations(true)
                 fromValue.value.displayNode.removeFromSupernode()
                 fromValue.value.setIgnoreAppearanceMethodInvocations(false)
@@ -555,7 +555,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             self.ignoreInputHeight = false
         }
     }
-    
+
     private func makeChild(layout: ContainerViewLayout, value: ViewController) -> Child {
         var updatedLayout = layout
         if value.view.disableAutomaticKeyboardHandling.isEmpty {
@@ -564,12 +564,12 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         value.containerLayoutUpdated(updatedLayout, transition: .immediate)
         return Child(value: value, layout: updatedLayout)
     }
-    
+
     private func applyLayout(layout: ContainerViewLayout, to child: Child, isMaster: Bool, transition: ContainedViewLayoutTransition) {
         var childFrame = CGRect(origin: CGPoint(), size: layout.size)
-        
+
         var updatedLayout = layout
-        
+
         var shouldSyncKeyboard = false
         if let transition = self.state.transition {
             childFrame.origin.x = child.value.displayNode.frame.origin.x
@@ -590,7 +590,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             if isMaster {
                 shouldSyncKeyboard = true
             }
-            
+
             if updatedLayout.inputHeight != nil && child.value.view.disableAutomaticKeyboardHandling.isEmpty {
                 if !self.canHaveKeyboardFocus || self.ignoreInputHeight {
                     updatedLayout = updatedLayout.withUpdatedInputHeight(nil)
@@ -608,30 +608,30 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             child.value.containerLayoutUpdated(updatedLayout, transition: transition)
         }
     }
-    
+
     public func updateAdditionalKeyboardLeftEdgeOffset(_ offset: CGFloat, transition: ContainedViewLayoutTransition) {
         self.additionalKeyboardLeftEdgeOffset = offset
         self.syncKeyboard(leftEdge: self.currentKeyboardLeftEdge, transition: transition)
     }
-    
+
     private func syncKeyboard(leftEdge: CGFloat, transition: ContainedViewLayoutTransition) {
         self.currentKeyboardLeftEdge = leftEdge
         self.keyboardViewManager?.update(leftEdge: self.additionalKeyboardLeftEdgeOffset + leftEdge, transition: transition)
     }
-    
+
     private func pendingChildIsReady(_ child: PendingChild) {
         if let pending = self.state.pending, pending === child {
             pending.isReady = true
             self.performUpdate(transition: .immediate)
         }
     }
-    
+
     private func performUpdate(transition: ContainedViewLayoutTransition) {
         if let layout = self.state.layout, let canBeClosed = self.state.canBeClosed {
             self.update(layout: layout, canBeClosed: canBeClosed, controllers: self.controllers, transition: transition)
         }
     }
-    
+
     public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if !self.bounds.contains(point) {
             return nil
@@ -641,7 +641,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         }
         return super.hitTest(point, with: event)
     }
-    
+
     func combinedSupportedOrientations(currentOrientationToLock: UIInterfaceOrientationMask) -> ViewControllerSupportedOrientations {
         var supportedOrientations = ViewControllerSupportedOrientations(regularSize: .all, compactSize: .allButUpsideDown)
         if let controller = self.controllers.last {

@@ -14,10 +14,19 @@ enum MezonConfig {
     static var baseImgURL: String    { env.baseImgURL }
     static var profileImgURL: String { env.profileImgURL }
 
+
     static func emojiImageURL(emojiId: String) -> URL? {
         guard !emojiId.isEmpty else { return nil }
         let path = "\(env.baseImgURL)/emojis/\(emojiId).webp"
         return URL(string: path)
+    }
+
+
+    static func emojiResourceURL(emojiId: String, imgproxyFitSide: Int) -> URL? {
+        guard let direct = emojiImageURL(emojiId: emojiId) else { return nil }
+        let side = max(1, imgproxyFitSide)
+        let proxied = ImgproxyURL.createEmoji(from: direct.absoluteString, width: side, height: side)
+        return URL(string: proxied)
     }
 
     static func wsURL(token: String, wsHostOverride: String? = nil) -> URL {

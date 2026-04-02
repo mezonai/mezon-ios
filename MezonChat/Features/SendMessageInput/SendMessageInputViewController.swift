@@ -9,6 +9,14 @@ private struct ComposerMention {
     var range: NSRange
 }
 
+private struct ComposerHashtag {
+    var channelId: Int64
+    var clanId: Int64
+    var parentId: Int64
+    var channelLabel: String
+    var range: NSRange
+}
+
 final class SendMessageInputViewController: UIViewController {
 
     private static let mentionHereUserId: Int64 = 1_775_731_111_020_111_321
@@ -47,8 +55,19 @@ final class SendMessageInputViewController: UIViewController {
     private var allMentionMembers: [MentionMember] = []
     private var allMentionSuggestionItems: [MentionSuggestionItem] = []
     private var activeMentions: [ComposerMention] = []
+    private var activeHashtags: [ComposerHashtag] = []
+
+    private var emojiIdByColonToken: [String: String] = [:]
     private var mentionSuggestionView: MentionSuggestionView?
     private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
+
+    private var allSuggestionEmojis: [CachedClanEmojiRecord] = []
+    private var emojiSuggestionView: EmojiSuggestionView?
+    private var emojiSuggestionHeightConstraint: NSLayoutConstraint?
+
+    private var allHashtagChannelCandidates: [Mezon_Api_ChannelDescription] = []
+    private var hashtagSuggestionView: HashtagSuggestionView?
+    private var hashtagSuggestionHeightConstraint: NSLayoutConstraint?
 
     private lazy var replyBannerView: UIView = {
         let v = UIView()
@@ -136,12 +155,17 @@ final class SendMessageInputViewController: UIViewController {
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
     private static let textViewMinHeight: CGFloat = 40
-    private static let inputBarPadding: CGFloat = 16 // top 8 + bottom 8
+    private static let inputBarPadding: CGFloat = 16
+
+    private(set) var isEmojiPickerVisible = false
+    private var lastKeyboardHeight: CGFloat = 260
+    var onToggleEmojiPicker: ((Bool, CGFloat) -> Void)?
 
     private lazy var emojiButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setImage(UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.addAction(UIAction { [weak self] _ in self?.toggleEmojiPicker() }, for: .touchUpInside)
         return btn
     }()
 
@@ -189,7 +213,20 @@ final class SendMessageInputViewController: UIViewController {
     override func loadView() {
         let v = OverflowHitTestView()
         v.backgroundColor = .clear
-        v.overflowTarget = { [weak self] in self?.mentionSuggestionView }
+        v.overflowTargets = { [weak self] in
+            guard let self else { return [] }
+            var targets: [UIView] = []
+            if let m = self.mentionSuggestionView, !m.isHidden, (self.mentionSuggestionHeightConstraint?.constant ?? 0) > 0.5 {
+                targets.append(m)
+            }
+            if let e = self.emojiSuggestionView, !e.isHidden, (self.emojiSuggestionHeightConstraint?.constant ?? 0) > 0.5 {
+                targets.append(e)
+            }
+            if let h = self.hashtagSuggestionView, !h.isHidden, (self.hashtagSuggestionHeightConstraint?.constant ?? 0) > 0.5 {
+                targets.append(h)
+            }
+            return targets
+        }
         view = v
     }
 
@@ -197,12 +234,33 @@ final class SendMessageInputViewController: UIViewController {
         super.viewDidLoad()
         setupUI()
         setupMentionSuggestion()
+        setupEmojiSuggestion()
+        setupHashtagSuggestion()
         setupBindings()
         setupThemeObserver()
         applyTheme()
         restoreFromCache()
         loadClanMembers()
         bindMentionDataUpdates()
+        reloadEmojiSuggestionList()
+        reloadHashtagChannelCandidates()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)),
+                                               name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleEmojiListDidUpdate),
+                                               name: Self.emojiListDidUpdateNotification, object: nil)
+    }
+
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        if let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
+            let bottomInset = view.safeAreaInsets.bottom
+            lastKeyboardHeight = frame.height - bottomInset
+        }
+        if isEmojiPickerVisible {
+            isEmojiPickerVisible = false
+            let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
+            emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
+        }
     }
 
     private var channelStreamMode: Int32 {
@@ -229,6 +287,11 @@ final class SendMessageInputViewController: UIViewController {
     private var includeHereMention: Bool {
         let m = channelStreamMode
         return includeRoleMentions || m == MezonConstants.ChannelStreamMode.group.rawValue
+    }
+
+
+    private var includeHashtagSuggestions: Bool {
+        channelStreamMode != MezonConstants.ChannelStreamMode.group.rawValue
     }
 
     private func bindMentionDataUpdates() {
@@ -259,6 +322,27 @@ final class SendMessageInputViewController: UIViewController {
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
     }
 
+
+    func sendSticker(_ sticker: CachedClanStickerRecord) {
+        let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let imageUrl = !src.isEmpty ? src : "\(MezonConfig.baseImgURL)/stickers/\(sticker.id).webp"
+
+        var att = Mezon_Api_MessageAttachment()
+        att.url = imageUrl
+        att.filetype = "image/gif"
+        att.filename = "\(sticker.id)"
+
+        sendChannelMessageWithAttachments(text: "", attachments: [att])
+    }
+
+
+    func sendGif(url: String) {
+        var att = Mezon_Api_MessageAttachment()
+        att.url = url
+        att.filetype = "image/gif"
+        sendChannelMessageWithAttachments(text: "", attachments: [att])
+    }
+
     func setReply(_ display: ChatMessageDisplay) {
         replyDisplay = display
         replyLabel.text = "Replying to \(display.senderDisplayName)"
@@ -284,7 +368,16 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
-    func clearText() { text = ""; textPipe.putNext("") }
+    func clearText() {
+        text = ""
+        activeMentions.removeAll()
+        activeHashtags.removeAll()
+        emojiIdByColonToken.removeAll()
+        hideEmojiSuggestions()
+        hideMentionSuggestions()
+        hideHashtagSuggestions()
+        textPipe.putNext("")
+    }
     func updateText(_ newText: String) { text = newText; textPipe.putNext(newText) }
 
     private func openPhotoPicker() {
@@ -305,6 +398,132 @@ final class SendMessageInputViewController: UIViewController {
             self.saveToCache()
             self.updatePreviewVisibility()
         }
+    }
+
+    private func toggleEmojiPicker() {
+        isEmojiPickerVisible.toggle()
+
+        if isEmojiPickerVisible {
+            hideEmojiSuggestions()
+            hideHashtagSuggestions()
+            textView.resignFirstResponder()
+            let collapsedH = max(lastKeyboardHeight, 260)
+            onToggleEmojiPicker?(true, collapsedH)
+        } else {
+            textView.becomeFirstResponder()
+        }
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
+        let iconName = isEmojiPickerVisible ? "keyboard" : "face.smiling"
+        emojiButton.setImage(UIImage(systemName: iconName, withConfiguration: iconConfig), for: .normal)
+    }
+
+
+    private static func normalizedEmojiToken(from shortname: String) -> String {
+        let inner = shortname.split(separator: ":").joined()
+        guard !inner.isEmpty else { return "::" }
+        return ":\(inner):"
+    }
+
+    func insertEmoji(_ emojiId: String, shortname: String) {
+        applyEmojiInsertion(emojiId: emojiId, shortname: shortname, replaceRange: textView.selectedRange)
+    }
+
+
+    private func applyEmojiInsertion(emojiId: String, shortname: String, replaceRange: NSRange) {
+        let token = Self.normalizedEmojiToken(from: shortname)
+        emojiIdByColonToken[token] = emojiId
+
+        let nsBase = (textView.text ?? "") as NSString
+        var leadingSpace = ""
+        if replaceRange.length == 0, replaceRange.location > 0 {
+            let prev = replaceRange.location - 1
+            if prev < nsBase.length {
+                let ch = nsBase.substring(with: NSRange(location: prev, length: 1))
+                if ch != " " && ch != "\n" && ch != "\r" && ch != "\t" {
+                    leadingSpace = " "
+                }
+            }
+        }
+
+        let trailingSpace = " "
+        let insertPlain = leadingSpace + token + trailingSpace
+        let insertLen = (insertPlain as NSString).length
+
+        let t = UIColor.theme
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+        let emojiAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        ]
+
+        let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+        let emojiAttrStr = NSMutableAttributedString()
+        if !leadingSpace.isEmpty {
+            emojiAttrStr.append(NSAttributedString(string: leadingSpace, attributes: normalAttrs))
+        }
+        emojiAttrStr.append(NSAttributedString(string: token, attributes: emojiAttrs))
+        emojiAttrStr.append(NSAttributedString(string: trailingSpace, attributes: normalAttrs))
+        attrText.replaceCharacters(in: replaceRange, with: emojiAttrStr)
+        textView.attributedText = attrText
+
+        let lengthDelta = insertLen - replaceRange.length
+        activeMentions = activeMentions.map { m in
+            if m.range.location >= replaceRange.location + replaceRange.length {
+                return ComposerMention(
+                    userId: m.userId,
+                    roleId: m.roleId,
+                    rolename: m.rolename,
+                    displayName: m.displayName,
+                    range: NSRange(location: m.range.location + lengthDelta, length: m.range.length)
+                )
+            }
+            return m
+        }
+        activeHashtags = activeHashtags.map { h in
+            if h.range.location >= replaceRange.location + replaceRange.length {
+                return ComposerHashtag(
+                    channelId: h.channelId,
+                    clanId: h.clanId,
+                    parentId: h.parentId,
+                    channelLabel: h.channelLabel,
+                    range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
+                )
+            }
+            return h
+        }
+
+        let newCursor = replaceRange.location + insertLen
+        textView.selectedRange = NSRange(location: newCursor, length: 0)
+        textView.typingAttributes = normalAttrs
+
+        text = textView.text ?? ""
+        placeholderLabel.isHidden = !text.isEmpty
+        updateTextViewHeight()
+        hideEmojiSuggestions()
+    }
+
+    private func insertEmojiFromSuggestion(_ emoji: CachedClanEmojiRecord) {
+        guard let ctx = detectEmojiColonContext() else { return }
+        let full = (textView.text ?? "") as NSString
+        let len = full.length
+        let sel = textView.selectedRange
+        let cursor = min(sel.location + sel.length, len)
+        guard ctx.colonUTF16 >= 0, cursor >= ctx.colonUTF16 else { return }
+        let replaceRange = NSRange(location: ctx.colonUTF16, length: cursor - ctx.colonUTF16)
+        applyEmojiInsertion(emojiId: "\(emoji.id)", shortname: emoji.shortname, replaceRange: replaceRange)
+    }
+
+    func hideEmojiPickerIfNeeded() {
+        guard isEmojiPickerVisible else { return }
+        isEmojiPickerVisible = false
+        onToggleEmojiPicker?(false, 0)
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
+        emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
+        textView.becomeFirstResponder()
     }
 
     private func addPickedImage(_ image: UIImage) {
@@ -454,7 +673,7 @@ final class SendMessageInputViewController: UIViewController {
             replyLabel.trailingAnchor.constraint(equalTo: replyBannerView.trailingAnchor, constant: -12),
             replyLabel.centerYAnchor.constraint(equalTo: replyBannerView.centerYAnchor),
 
-            // Attachment preview
+
             attachmentPreviewView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             attachmentPreviewView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             attachmentPreviewView.topAnchor.constraint(equalTo: replyBannerView.bottomAnchor),
@@ -517,6 +736,106 @@ final class SendMessageInputViewController: UIViewController {
             hc,
         ])
         mentionSuggestionView = sv
+    }
+
+    private func setupEmojiSuggestion() {
+        let ev = EmojiSuggestionView()
+        ev.translatesAutoresizingMaskIntoConstraints = false
+        ev.isHidden = true
+        ev.onSelectEmoji = { [weak self] emoji in
+            self?.insertEmojiFromSuggestion(emoji)
+        }
+        view.insertSubview(ev, at: 0)
+
+        let hc = ev.heightAnchor.constraint(equalToConstant: 0)
+        emojiSuggestionHeightConstraint = hc
+        NSLayoutConstraint.activate([
+            ev.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            ev.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ev.bottomAnchor.constraint(equalTo: replyBannerView.topAnchor),
+            hc,
+        ])
+        emojiSuggestionView = ev
+    }
+
+    private func setupHashtagSuggestion() {
+        let hv = HashtagSuggestionView()
+        hv.translatesAutoresizingMaskIntoConstraints = false
+        hv.isHidden = true
+        hv.onSelectChannel = { [weak self] ch in
+            self?.insertHashtag(channel: ch)
+        }
+        view.insertSubview(hv, at: 0)
+
+        let hc = hv.heightAnchor.constraint(equalToConstant: 0)
+        hashtagSuggestionHeightConstraint = hc
+        NSLayoutConstraint.activate([
+            hv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hv.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hv.bottomAnchor.constraint(equalTo: replyBannerView.topAnchor),
+            hc,
+        ])
+        hashtagSuggestionView = hv
+    }
+
+    private func reloadHashtagChannelCandidates() {
+        guard includeHashtagSuggestions else {
+            allHashtagChannelCandidates = []
+            return
+        }
+        if channel.type == MezonConstants.ChannelType.dm.rawValue {
+            allHashtagChannelCandidates = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+        } else {
+            guard let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) else {
+                allHashtagChannelCandidates = []
+                return
+            }
+            allHashtagChannelCandidates = Self.decodeChannelListPref(data)
+        }
+    }
+
+    private static func decodeChannelListPref(_ data: Data) -> [Mezon_Api_ChannelDescription] {
+        guard data.count >= 4 else { return [] }
+        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result: [Mezon_Api_ChannelDescription] = []
+        var offset = 4
+        for _ in 0..<count {
+            guard offset + 4 <= data.count else { break }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            offset += 4
+            guard offset + Int(len) <= data.count else { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+                result.append(m)
+            }
+            offset += Int(len)
+        }
+        return result
+    }
+
+    private func reloadEmojiSuggestionList() {
+        let cache = context.engine.data.cachedEmojiList(clanId: 0)
+        let emojis = cache?.emojis ?? []
+        var seenIds = Set<Int64>()
+        var seenNormShort = Set<String>()
+        var unique: [CachedClanEmojiRecord] = []
+        unique.reserveCapacity(emojis.count)
+        for e in emojis {
+            guard e.id != 0, !e.shortname.isEmpty else { continue }
+            guard seenIds.insert(e.id).inserted else { continue }
+            let norm = e.shortname.split(separator: ":").joined().lowercased()
+            guard !norm.isEmpty, seenNormShort.insert(norm).inserted else { continue }
+            unique.append(e)
+        }
+        allSuggestionEmojis = unique.sorted {
+            $0.shortname.localizedCaseInsensitiveCompare($1.shortname) == .orderedAscending
+        }
+    }
+
+    @objc private func handleEmojiListDidUpdate(_: Notification) {
+        reloadEmojiSuggestionList()
+        if detectEmojiColonContext() != nil {
+            updateEmojiSuggestions()
+        }
     }
 
     private func loadClanMembers() {
@@ -594,6 +913,37 @@ final class SendMessageInputViewController: UIViewController {
         allMentionSuggestionItems = items
     }
 
+
+    private func detectEmojiColonContext() -> (colonUTF16: Int, keyword: String)? {
+        guard !isEmojiPickerVisible else { return nil }
+        let full = (textView.text ?? "") as NSString
+        let len = full.length
+        let sel = textView.selectedRange
+        let cursor = min(sel.location + sel.length, len)
+        guard cursor <= len else { return nil }
+        let textBefore = full.substring(with: NSRange(location: 0, length: cursor)) as NSString
+        guard textBefore.length > 0 else { return nil }
+
+        let colonRange = textBefore.range(of: ":", options: .backwards)
+        if colonRange.location == NSNotFound { return nil }
+        let colonIdx = colonRange.location
+
+        if colonIdx > 0 {
+            let prev = textBefore.character(at: colonIdx - 1)
+            if Self.isEmojiShortnameContinuationUTF16(prev) { return nil }
+        }
+
+        let afterLen = textBefore.length - colonIdx - 1
+        guard afterLen >= 0 else { return nil }
+        let keywordPart = textBefore.substring(with: NSRange(location: colonIdx + 1, length: afterLen))
+        if keywordPart.contains(":") { return nil }
+        let ws = CharacterSet.whitespacesAndNewlines
+        if keywordPart.unicodeScalars.contains(where: { ws.contains($0) }) { return nil }
+        guard !keywordPart.isEmpty else { return nil }
+
+        return (colonIdx, keywordPart)
+    }
+
     private func buildMentionMembers(from clanUsers: Mezon_Api_ClanUserList) {
         var nickMap: [Int64: String] = [:]
         for cu in clanUsers.clanUsers where !cu.clanNick.isEmpty {
@@ -612,6 +962,84 @@ final class SendMessageInputViewController: UIViewController {
                 avatarURL: cu.clanAvatar.isEmpty ? (user.avatarURL.isEmpty ? nil : user.avatarURL) : cu.clanAvatar
             )
         }
+    }
+
+    private enum InlineCompletionDominant {
+        case mention(keyword: String)
+        case hashtag(hashUTF16: Int, keyword: String)
+    }
+
+    private static func isMentionOrHashtagTriggerBoundary(in full: NSString, triggerUTF16 index: Int) -> Bool {
+        guard index > 0 else { return true }
+        let ch = full.character(at: index - 1)
+        return ch == 0x20 || ch == 0x0A || ch == 0x0D || ch == 0x09
+    }
+
+    private static func stringContainsWhitespace(_ s: String) -> Bool {
+        s.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+
+    private func dominantInlineCompletion() -> InlineCompletionDominant? {
+        guard let tr = textView.selectedTextRange else { return nil }
+        let cursor = textView.offset(from: textView.beginningOfDocument, to: tr.start)
+        let full = (textView.text ?? "") as NSString
+        let len = full.length
+        guard cursor >= 0, cursor <= len else { return nil }
+
+        for m in activeMentions {
+            if cursor > m.range.location && cursor <= m.range.location + m.range.length { return nil }
+        }
+        for h in activeHashtags {
+            if cursor > h.range.location && cursor <= h.range.location + h.range.length { return nil }
+        }
+
+        let before = full.substring(with: NSRange(location: 0, length: cursor)) as NSString
+
+        let atR = before.range(of: "@", options: .backwards)
+        let hashR = before.range(of: "#", options: .backwards)
+
+        var atPos = -1
+        var atKeyword = ""
+        if atR.location != NSNotFound {
+            let ai = atR.location
+            if Self.isMentionOrHashtagTriggerBoundary(in: full, triggerUTF16: ai) {
+                let kwLen = cursor - (ai + 1)
+                if kwLen >= 0 {
+                    atKeyword = before.substring(with: NSRange(location: ai + 1, length: kwLen))
+                    atPos = ai
+                }
+            }
+        }
+
+        var hashPos = -1
+        var hashUTF16 = -1
+        var hashKeyword = ""
+        if includeHashtagSuggestions, hashR.location != NSNotFound {
+            let hi = hashR.location
+            if Self.isMentionOrHashtagTriggerBoundary(in: full, triggerUTF16: hi) {
+                let kwLen = cursor - (hi + 1)
+                if kwLen >= 0 {
+                    let kw = before.substring(with: NSRange(location: hi + 1, length: kwLen))
+                    if !Self.stringContainsWhitespace(kw) {
+                        hashPos = hi
+                        hashUTF16 = hi
+                        hashKeyword = kw
+                    }
+                }
+            }
+        }
+
+        if atPos < 0 && hashPos < 0 { return nil }
+        if atPos < 0 { return .hashtag(hashUTF16: hashUTF16, keyword: hashKeyword) }
+        if hashPos < 0 { return .mention(keyword: atKeyword) }
+        if hashPos > atPos { return .hashtag(hashUTF16: hashUTF16, keyword: hashKeyword) }
+        return .mention(keyword: atKeyword)
+    }
+
+    private func detectHashtagFragment() -> (hashUTF16: Int, keyword: String)? {
+        guard case .hashtag(let u16, let kw) = dominantInlineCompletion() else { return nil }
+        return (u16, kw)
     }
 
     private func detectMentionKeyword() -> String? {
@@ -640,11 +1068,38 @@ final class SendMessageInputViewController: UIViewController {
         return keyword
     }
 
-    private func updateMentionSuggestions() {
-        guard let keyword = detectMentionKeyword() else {
+    private func updateInlineSuggestions() {
+        if isEmojiPickerVisible {
             hideMentionSuggestions()
+            hideEmojiSuggestions()
+            hideHashtagSuggestions()
             return
         }
+
+        if detectEmojiColonContext() != nil {
+            hideMentionSuggestions()
+            hideHashtagSuggestions()
+            updateEmojiSuggestions()
+            return
+        }
+        guard let dominant = dominantInlineCompletion() else {
+            hideMentionSuggestions()
+            hideHashtagSuggestions()
+            hideEmojiSuggestions()
+            return
+        }
+        hideEmojiSuggestions()
+        switch dominant {
+        case .mention(let keyword):
+            hideHashtagSuggestions()
+            updateMentionSuggestions(keyword: keyword)
+        case .hashtag(_, let keyword):
+            hideMentionSuggestions()
+            updateHashtagSuggestions(keyword: keyword)
+        }
+    }
+
+    private func updateMentionSuggestions(keyword: String) {
 
         let pool = allMentionSuggestionItems
         let filtered: [MentionSuggestionItem]
@@ -689,6 +1144,8 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func showMentionSuggestions(items: [MentionSuggestionItem]) {
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
         guard let sv = mentionSuggestionView else { return }
         sv.update(items: items)
         sv.applyTheme()
@@ -709,8 +1166,99 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private func updateEmojiSuggestions() {
+        if allSuggestionEmojis.isEmpty {
+            reloadEmojiSuggestionList()
+        }
+        guard let ctx = detectEmojiColonContext() else {
+            hideEmojiSuggestions()
+            return
+        }
+        let lower = ctx.keyword.lowercased()
+        var seenId = Set<Int64>()
+        let filtered = allSuggestionEmojis.filter { emoji in
+            let sn = emoji.shortname.lowercased()
+            let bare = sn.split(separator: ":").joined()
+            guard sn.contains(lower) || bare.contains(lower) else { return false }
+            return seenId.insert(emoji.id).inserted
+        }
+        let capped = Array(filtered.prefix(20))
+        guard !capped.isEmpty else {
+            hideEmojiSuggestions()
+            return
+        }
+        showEmojiSuggestions(items: capped)
+    }
+
+    private func showEmojiSuggestions(items: [CachedClanEmojiRecord]) {
+        hideMentionSuggestions()
+        hideHashtagSuggestions()
+        guard let ev = emojiSuggestionView else { return }
+        ev.update(items: items)
+        ev.applyTheme()
+        let h = ev.preferredHeight
+        emojiSuggestionHeightConstraint?.constant = h
+        ev.isHidden = false
+        UIView.animate(withDuration: 0.15) {
+            self.view.superview?.layoutIfNeeded()
+        }
+    }
+
+    private func hideEmojiSuggestions() {
+        emojiSuggestionHeightConstraint?.constant = 0
+        guard let ev = emojiSuggestionView, !ev.isHidden else { return }
+        ev.isHidden = true
+        UIView.animate(withDuration: 0.15) {
+            self.view.superview?.layoutIfNeeded()
+        }
+    }
+
+    private func updateHashtagSuggestions(keyword: String) {
+        guard includeHashtagSuggestions, !allHashtagChannelCandidates.isEmpty else {
+            hideHashtagSuggestions()
+            return
+        }
+        let lower = keyword.lowercased()
+        let filtered: [Mezon_Api_ChannelDescription]
+        if keyword.isEmpty {
+            filtered = allHashtagChannelCandidates
+        } else {
+            filtered = allHashtagChannelCandidates.filter {
+                $0.channelLabel.lowercased().contains(lower)
+            }
+        }
+        let capped = Array(filtered.prefix(20))
+        guard !capped.isEmpty else {
+            hideHashtagSuggestions()
+            return
+        }
+        showHashtagSuggestions(items: capped)
+    }
+
+    private func showHashtagSuggestions(items: [Mezon_Api_ChannelDescription]) {
+        hideEmojiSuggestions()
+        guard let hv = hashtagSuggestionView else { return }
+        hv.update(items: items)
+        hv.applyTheme()
+        let h = hv.preferredHeight
+        hashtagSuggestionHeightConstraint?.constant = h
+        hv.isHidden = false
+        UIView.animate(withDuration: 0.15) {
+            self.view.superview?.layoutIfNeeded()
+        }
+    }
+
+    private func hideHashtagSuggestions() {
+        hashtagSuggestionHeightConstraint?.constant = 0
+        guard let hv = hashtagSuggestionView, !hv.isHidden else { return }
+        hv.isHidden = true
+        UIView.animate(withDuration: 0.15) {
+            self.view.superview?.layoutIfNeeded()
+        }
+    }
+
     private func insertMention(item: MentionSuggestionItem) {
-        guard detectMentionKeyword() != nil else { return }
+        guard case .mention = dominantInlineCompletion() else { return }
         guard let selectedRange = textView.selectedTextRange else { return }
         let cursorOffset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
 
@@ -755,8 +1303,8 @@ final class SendMessageInputViewController: UIViewController {
         attrText.replaceCharacters(in: replaceRange, with: mentionAttrStr)
         textView.attributedText = attrText
 
-        let mentionNSRange = NSRange(location: atIntIdx, length: mentionText.count)
-        let lengthDelta = insertText.count - replaceRange.length
+        let mentionNSRange = NSRange(location: atIntIdx, length: (mentionText as NSString).length)
+        let lengthDelta = (insertText as NSString).length - replaceRange.length
         activeMentions = activeMentions.map { m in
             if m.range.location >= replaceRange.location + replaceRange.length {
                 return ComposerMention(
@@ -769,11 +1317,23 @@ final class SendMessageInputViewController: UIViewController {
             }
             return m
         }
+        activeHashtags = activeHashtags.map { h in
+            if h.range.location >= replaceRange.location + replaceRange.length {
+                return ComposerHashtag(
+                    channelId: h.channelId,
+                    clanId: h.clanId,
+                    parentId: h.parentId,
+                    channelLabel: h.channelLabel,
+                    range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
+                )
+            }
+            return h
+        }
         var appended = tracked
         appended.range = mentionNSRange
         activeMentions.append(appended)
 
-        let newCursorPos = atIntIdx + insertText.count
+        let newCursorPos = atIntIdx + (insertText as NSString).length
         if let pos = textView.position(from: textView.beginningOfDocument, offset: newCursorPos) {
             textView.selectedTextRange = textView.textRange(from: pos, to: pos)
         }
@@ -783,6 +1343,85 @@ final class SendMessageInputViewController: UIViewController {
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
+        hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
+    }
+
+    private func insertHashtag(channel: Mezon_Api_ChannelDescription) {
+        guard let selectedRange = textView.selectedTextRange else { return }
+        let cursor = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
+        guard let ctx = detectHashtagFragment(), ctx.hashUTF16 >= 0, cursor >= ctx.hashUTF16 else { return }
+
+        let label = channel.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return }
+
+        let replaceRange = NSRange(location: ctx.hashUTF16, length: cursor - ctx.hashUTF16)
+        let token = "#\(label)"
+        let trailingSpace = " "
+        let insertText = token + trailingSpace
+
+        let t = UIColor.theme
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+        let tagAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        ]
+
+        let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+        let tagAttrStr = NSMutableAttributedString(string: token, attributes: tagAttrs)
+        tagAttrStr.append(NSAttributedString(string: trailingSpace, attributes: normalAttrs))
+        attrText.replaceCharacters(in: replaceRange, with: tagAttrStr)
+        textView.attributedText = attrText
+
+        let tagNSRange = NSRange(location: ctx.hashUTF16, length: (token as NSString).length)
+        let lengthDelta = (insertText as NSString).length - replaceRange.length
+        activeMentions = activeMentions.map { m in
+            if m.range.location >= replaceRange.location + replaceRange.length {
+                return ComposerMention(
+                    userId: m.userId,
+                    roleId: m.roleId,
+                    rolename: m.rolename,
+                    displayName: m.displayName,
+                    range: NSRange(location: m.range.location + lengthDelta, length: m.range.length)
+                )
+            }
+            return m
+        }
+        activeHashtags = activeHashtags.map { h in
+            if h.range.location >= replaceRange.location + replaceRange.length {
+                return ComposerHashtag(
+                    channelId: h.channelId,
+                    clanId: h.clanId,
+                    parentId: h.parentId,
+                    channelLabel: h.channelLabel,
+                    range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
+                )
+            }
+            return h
+        }
+        var appended = ComposerHashtag(
+            channelId: channel.channelID,
+            clanId: channel.clanID,
+            parentId: channel.parentID,
+            channelLabel: label,
+            range: NSRange(location: 0, length: 0)
+        )
+        appended.range = tagNSRange
+        activeHashtags.append(appended)
+
+        let newCursorPos = ctx.hashUTF16 + (insertText as NSString).length
+        textView.selectedRange = NSRange(location: newCursorPos, length: 0)
+        textView.typingAttributes = normalAttrs
+
+        text = textView.text ?? ""
+        placeholderLabel.isHidden = !text.isEmpty
+        updateTextViewHeight()
+        hideHashtagSuggestions()
+        hideEmojiSuggestions()
         hideMentionSuggestions()
     }
 
@@ -811,6 +1450,18 @@ final class SendMessageInputViewController: UIViewController {
                     }
                     return m
                 }
+                activeHashtags = activeHashtags.map { h in
+                    if h.range.location > deleteRange.location {
+                        return ComposerHashtag(
+                            channelId: h.channelId,
+                            clanId: h.clanId,
+                            parentId: h.parentId,
+                            channelLabel: h.channelLabel,
+                            range: NSRange(location: h.range.location - deletedLength, length: h.range.length)
+                        )
+                    }
+                    return h
+                }
 
                 textView.attributedText = attrText
                 if let pos = textView.position(from: textView.beginningOfDocument, offset: deleteRange.location) {
@@ -819,85 +1470,91 @@ final class SendMessageInputViewController: UIViewController {
                 self.text = textView.text ?? ""
                 placeholderLabel.isHidden = !self.text.isEmpty
                 updateTextViewHeight()
-                updateMentionSuggestions()
-                return false // handled, don't let the default edit happen
+                updateInlineSuggestions()
+                return false
             }
         }
-        return true // no mention affected, proceed normally
+        return true
+    }
+
+    private func handleHashtagProtection(range: NSRange, replacementText text: String) -> Bool {
+        for (index, tag) in activeHashtags.enumerated() {
+            let tagEnd = tag.range.location + tag.range.length
+            let editEnd = range.location + range.length
+            if range.location < tagEnd && editEnd > tag.range.location {
+                let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+                let deleteRange = tag.range
+                let extendedEnd = min(deleteRange.location + deleteRange.length + 1, attrText.length)
+                let extendedRange = NSRange(location: deleteRange.location, length: extendedEnd - deleteRange.location)
+                attrText.deleteCharacters(in: extendedRange)
+
+                let deletedLength = extendedRange.length
+                activeHashtags.remove(at: index)
+                activeHashtags = activeHashtags.map { h in
+                    if h.range.location > deleteRange.location {
+                        return ComposerHashtag(
+                            channelId: h.channelId,
+                            clanId: h.clanId,
+                            parentId: h.parentId,
+                            channelLabel: h.channelLabel,
+                            range: NSRange(location: h.range.location - deletedLength, length: h.range.length)
+                        )
+                    }
+                    return h
+                }
+                activeMentions = activeMentions.map { m in
+                    if m.range.location > deleteRange.location {
+                        return ComposerMention(
+                            userId: m.userId,
+                            roleId: m.roleId,
+                            rolename: m.rolename,
+                            displayName: m.displayName,
+                            range: NSRange(location: m.range.location - deletedLength, length: m.range.length)
+                        )
+                    }
+                    return m
+                }
+
+                textView.attributedText = attrText
+                if let pos = textView.position(from: textView.beginningOfDocument, offset: deleteRange.location) {
+                    textView.selectedTextRange = textView.textRange(from: pos, to: pos)
+                }
+                self.text = textView.text ?? ""
+                placeholderLabel.isHidden = !self.text.isEmpty
+                updateTextViewHeight()
+                updateInlineSuggestions()
+                return false
+            }
+        }
+        return true
     }
 
     private func buildPlainTextFromAttributed() -> String {
-        return textView.text ?? ""
+        textView.text ?? ""
     }
 
-    private static let trailingPunctuation: Set<Character> = [",", ".", "!", "?", ";", ":"]
-    private static let stopChars: Set<Character> = [" ", "\n", "\r", "\t"]
-    private static let googleMeetPrefix = "https://meet.google.com/"
+    private static let emojiListDidUpdateNotification = Notification.Name("MezonEmojiListDidUpdate")
 
-    private static let youtubeRegex = try! NSRegularExpression(
-        pattern: #"(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|e\/|shorts\/)|youtu\.be\/)"#
-    )
-    private static let facebookRegex = try! NSRegularExpression(
-        pattern: #"(?:facebook\.com\/(?:reel\/|watch\?v=|[\w.]+\/videos\/(?:[\w.]+\/)?))([\w-]+)"#
-    )
-    private static let tiktokRegex = try! NSRegularExpression(
-        pattern: #"(?:tiktok\.com\/@[^/]+\/video\/\d+|vm\.tiktok\.com\/[a-zA-Z0-9]+|tiktok\.com\/t\/[a-zA-Z0-9]+)"#
-    )
 
-    private func detectLinks(in text: String) -> [[String: Any]] {
-        var links: [[String: Any]] = []
-        let chars = Array(text)
-        var i = 0
-
-        while i < chars.count {
-            let remaining = String(chars[i...])
-            guard remaining.hasPrefix("http://") || remaining.hasPrefix("https://") else {
-                i += 1
-                continue
-            }
-
-            let startIndex = i
-            let prefixLen = remaining.hasPrefix("https://") ? 8 : 7
-            i += prefixLen
-
-            while i < chars.count && !Self.stopChars.contains(chars[i]) {
-                i += 1
-            }
-            var endIndex = i
-
-            while endIndex > startIndex + prefixLen && Self.trailingPunctuation.contains(chars[endIndex - 1]) {
-                endIndex -= 1
-            }
-
-            let urlString = String(chars[startIndex..<endIndex])
-            let linkType = Self.classifyLink(urlString)
-
-            var entry: [String: Any] = [
-                "type": linkType,
-                "s": startIndex,
-                "e": endIndex
-            ]
-            if linkType == "lk" || linkType == "lk_yt" || linkType == "lk_fb" || linkType == "lk_tt" {
-                entry["channelId"] = ""
-                entry["clanId"] = ""
-                entry["channelLabel"] = ""
-            }
-            links.append(entry)
-        }
-        return links
+    private static func isEmojiShortnameContinuationUTF16(_ c: unichar) -> Bool {
+        if c == 0x5F { return true }
+        if c >= 0x30 && c <= 0x39 { return true }
+        if c >= 0x41 && c <= 0x5A { return true }
+        if c >= 0x61 && c <= 0x7A { return true }
+        return false
     }
 
-    private static func classifyLink(_ url: String) -> String {
-        if url.hasPrefix(googleMeetPrefix) { return "vk" }
-        let range = NSRange(url.startIndex..., in: url)
-        if youtubeRegex.firstMatch(in: url, range: range) != nil { return "lk_yt" }
-        if facebookRegex.firstMatch(in: url, range: range) != nil { return "lk_fb" }
-        if tiktokRegex.firstMatch(in: url, range: range) != nil { return "lk_tt" }
-        return "lk"
-    }
 
-    private func buildMentionList() -> [Mezon_Api_MessageMention] {
-        return activeMentions.map { m in
+    private func buildMentionList(displayPlain: String) -> [Mezon_Api_MessageMention] {
+        let plain = displayPlain as NSString
+        let len = plain.length
+        var searchStart = 0
+        return activeMentions.compactMap { m in
+            let needle = "@\(m.displayName)"
+            let r = plain.range(of: needle, range: NSRange(location: searchStart, length: len - searchStart))
+            guard r.location != NSNotFound else { return nil }
+            searchStart = NSMaxRange(r)
+
             var mention = Mezon_Api_MessageMention()
             if m.roleId != 0 {
                 mention.roleID = m.roleId
@@ -910,9 +1567,37 @@ final class SendMessageInputViewController: UIViewController {
                     mention.username = member.username
                 }
             }
-            mention.s = Int32(m.range.location)
-            mention.e = Int32(m.range.location + m.range.length)
+            mention.s = Int32(r.location)
+            mention.e = Int32(NSMaxRange(r))
             return mention
+        }
+    }
+
+
+    private func buildHashtagList(displayPlain: String) -> [[String: Any]] {
+        let plain = displayPlain as NSString
+        let len = plain.length
+        var searchStart = 0
+        return activeHashtags.compactMap { h -> [String: Any]? in
+            let needle = "#\(h.channelLabel)"
+            let r = plain.range(of: needle, range: NSRange(location: searchStart, length: len - searchStart))
+            guard r.location != NSNotFound, NSMaxRange(r) <= len else { return nil }
+            searchStart = NSMaxRange(r)
+            var dict: [String: Any] = [
+                "channelId": "\(h.channelId)",
+                "s": r.location,
+                "e": NSMaxRange(r),
+            ]
+            if h.clanId != 0 {
+                dict["clanId"] = "\(h.clanId)"
+            }
+            if h.parentId != 0 {
+                dict["parentId"] = "\(h.parentId)"
+            }
+            if !h.channelLabel.isEmpty {
+                dict["channelLabel"] = h.channelLabel
+            }
+            return dict
         }
     }
 
@@ -953,16 +1638,21 @@ final class SendMessageInputViewController: UIViewController {
         replyLabel.textColor = t.textDisabled
         replyCancelButton.tintColor = t.textDisabled
         mentionSuggestionView?.applyTheme()
+        emojiSuggestionView?.applyTheme()
+        hashtagSuggestionView?.applyTheme()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         applyTheme()
+        reloadEmojiSuggestionList()
+        reloadHashtagChannelCandidates()
     }
 
     deinit {
         disposables.dispose()
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: Self.emojiListDidUpdateNotification, object: nil)
     }
 
 
@@ -1045,7 +1735,24 @@ final class SendMessageInputViewController: UIViewController {
         }
 
         let replyRef: Mezon_Api_MessageRef? = buildReplyRef()
-        let mentionList = buildMentionList()
+        let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
+        let displayText = built.displayText
+        let mentionList = buildMentionList(displayPlain: displayText)
+        let hashtagListForContent = buildHashtagList(displayPlain: displayText)
+
+        var contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": displayText]
+        if !text.isEmpty {
+            if !built.mk.isEmpty {
+                contentJSON["mk"] = built.mk
+            }
+            if !built.ej.isEmpty {
+                contentJSON["ej"] = built.ej
+            }
+            if !hashtagListForContent.isEmpty {
+                contentJSON["hg"] = hashtagListForContent
+            }
+        }
+        let outgoingContentData = (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
 
         if let sender = context.currentUser {
             let referencesData: Data = {
@@ -1072,14 +1779,15 @@ final class SendMessageInputViewController: UIViewController {
 
             let pendingRecord = MessageRecord.pending(
                 localId: localId,
-                text: text,
+                text: displayText,
                 channelId: channelIdStr,
                 clanId: clanId,
                 sender: sender,
                 displayName: resolvedName,
                 avatarURL: resolvedAvatar,
                 referencesData: referencesData,
-                mentionsData: mentionsData
+                mentionsData: mentionsData,
+                contentData: outgoingContentData
             )
             self.context.account.postbox.write { tx in
                 tx.addMessages([pendingRecord])
@@ -1088,6 +1796,8 @@ final class SendMessageInputViewController: UIViewController {
 
         self.text = ""
         self.activeMentions = []
+        self.activeHashtags = []
+        self.emojiIdByColonToken.removeAll()
         textView.attributedText = nil
         textView.text = ""
         textView.typingAttributes = [
@@ -1100,35 +1810,27 @@ final class SendMessageInputViewController: UIViewController {
         clearPickedImages()
         clearReply()
         hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
         onSent?()
 
-        var contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": text]
-        if !text.isEmpty {
-            let links = detectLinks(in: text)
-            if !links.isEmpty {
-                contentJSON["mk"] = links
-            }
-        }
-        let contentStr: String
-        if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
-           let str = String(data: data, encoding: .utf8) {
-            contentStr = str
-        } else {
-            contentStr = "{}"
-        }
+        let contentStr: String = {
+            guard let s = String(data: outgoingContentData, encoding: .utf8), !s.isEmpty else { return "{}" }
+            return s
+        }()
 
         let mode: Int32 = {
             switch channel.type {
             case MezonConstants.ChannelType.thread.rawValue:
-                return MezonConstants.ChannelStreamMode.thread.rawValue // 6
+                return MezonConstants.ChannelStreamMode.thread.rawValue
             case MezonConstants.ChannelType.dm.rawValue:
-                return MezonConstants.ChannelStreamMode.dm.rawValue // 4
+                return MezonConstants.ChannelStreamMode.dm.rawValue
             case MezonConstants.ChannelType.group.rawValue:
-                return MezonConstants.ChannelStreamMode.group.rawValue // 3
+                return MezonConstants.ChannelStreamMode.group.rawValue
             default:
                 return clanId == 0
-                    ? MezonConstants.ChannelStreamMode.group.rawValue // 3
-                    : MezonConstants.ChannelStreamMode.channel.rawValue // 2
+                    ? MezonConstants.ChannelStreamMode.group.rawValue
+                    : MezonConstants.ChannelStreamMode.channel.rawValue
             }
         }()
         let isPublic = channel.channelPrivate == 0
@@ -1148,7 +1850,7 @@ final class SendMessageInputViewController: UIViewController {
                     uploadedAttachments = try await self.uploadAttachments(imagesToUpload, fileURLs: fileURLsToUpload, token: token)
                 }
 
-                let ack = try await self.context.account.network.sendChannelMessage(
+                _ = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
                     mode: mode,
@@ -1180,12 +1882,73 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+
+    private func sendChannelMessageWithAttachments(text: String, attachments: [Mezon_Api_MessageAttachment]) {
+        let replyRef = buildReplyRef()
+        let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
+        let contentStr: String
+        if text.isEmpty {
+            contentStr = "{}"
+        } else if let data = try? JSONSerialization.data(withJSONObject: ["t": text]),
+                  let str = String(data: data, encoding: .utf8) {
+            contentStr = str
+        } else {
+            contentStr = "{}"
+        }
+
+        let mode: Int32 = {
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                return MezonConstants.ChannelStreamMode.thread.rawValue
+            case MezonConstants.ChannelType.dm.rawValue:
+                return MezonConstants.ChannelStreamMode.dm.rawValue
+            case MezonConstants.ChannelType.group.rawValue:
+                return MezonConstants.ChannelStreamMode.group.rawValue
+            default:
+                return clanId == 0
+                    ? MezonConstants.ChannelStreamMode.group.rawValue
+                    : MezonConstants.ChannelStreamMode.channel.rawValue
+            }
+        }()
+        let isPublic = channel.channelPrivate == 0
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+
+        clearReply()
+        onSent?()
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.onError?("No session")
+                return
+            }
+            do {
+                _ = try await self.context.account.network.sendChannelMessage(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    content: contentStr,
+                    mentions: [],
+                    attachments: attachments,
+                    references: references,
+                    anonymous: false,
+                    mentionEveryone: false,
+                    avatar: avatar,
+                    topicId: self.topicId,
+                    token: token
+                )
+            } catch {
+                self.onError?(error.localizedDescription)
+            }
+        }
+    }
+
     private func buildReplyRef() -> Mezon_Api_MessageRef? {
         guard let display = replyDisplay else { return nil }
         var ref = Mezon_Api_MessageRef()
         ref.messageID = 0
         ref.messageRefID = Int64(display.message.id) ?? 0
-        ref.refType = 0 // reply
+        ref.refType = 0
         ref.messageSenderID = Int64(display.message.senderId) ?? 0
         ref.messageSenderUsername = display.senderDisplayName
         ref.messageSenderDisplayName = display.senderDisplayName
@@ -1205,16 +1968,19 @@ extension SendMessageInputViewController: UITextViewDelegate {
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
-        updateMentionSuggestions()
+        updateInlineSuggestions()
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
-        updateMentionSuggestions()
+        updateInlineSuggestions()
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if text == "\n" {
             send()
+            return false
+        }
+        if !handleHashtagProtection(range: range, replacementText: text) {
             return false
         }
         if !handleMentionProtection(range: range, replacementText: text) {
@@ -1234,6 +2000,18 @@ extension SendMessageInputViewController: UITextViewDelegate {
                 }
                 return m
             }
+            activeHashtags = activeHashtags.map { h in
+                if h.range.location >= range.location {
+                    return ComposerHashtag(
+                        channelId: h.channelId,
+                        clanId: h.clanId,
+                        parentId: h.parentId,
+                        channelLabel: h.channelLabel,
+                        range: NSRange(location: h.range.location + insertLen, length: h.range.length)
+                    )
+                }
+                return h
+            }
         } else if text.isEmpty && range.length > 0 {
             activeMentions = activeMentions.map { m in
                 if m.range.location >= range.location + range.length {
@@ -1246,6 +2024,18 @@ extension SendMessageInputViewController: UITextViewDelegate {
                     )
                 }
                 return m
+            }
+            activeHashtags = activeHashtags.map { h in
+                if h.range.location >= range.location + range.length {
+                    return ComposerHashtag(
+                        channelId: h.channelId,
+                        clanId: h.clanId,
+                        parentId: h.parentId,
+                        channelLabel: h.channelLabel,
+                        range: NSRange(location: h.range.location - range.length, length: h.range.length)
+                    )
+                }
+                return h
             }
         } else if !text.isEmpty && range.length > 0 {
             let delta = (text as NSString).length - range.length
@@ -1260,6 +2050,18 @@ extension SendMessageInputViewController: UITextViewDelegate {
                     )
                 }
                 return m
+            }
+            activeHashtags = activeHashtags.map { h in
+                if h.range.location >= range.location + range.length {
+                    return ComposerHashtag(
+                        channelId: h.channelId,
+                        clanId: h.clanId,
+                        parentId: h.parentId,
+                        channelLabel: h.channelLabel,
+                        range: NSRange(location: h.range.location + delta, length: h.range.length)
+                    )
+                }
+                return h
             }
         }
         return true
@@ -1343,10 +2145,11 @@ final class PastableTextView: UITextView {
 }
 
 private final class OverflowHitTestView: UIView {
-    var overflowTarget: (() -> UIView?)?
+
+    var overflowTargets: (() -> [UIView])?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if let target = overflowTarget?(), !target.isHidden {
+        for target in overflowTargets?() ?? [] where !target.isHidden {
             let converted = convert(point, to: target)
             if let hit = target.hitTest(converted, with: event) {
                 return hit

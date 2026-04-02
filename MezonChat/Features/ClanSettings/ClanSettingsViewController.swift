@@ -43,7 +43,7 @@ final class ClanSettingsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Force status bar style if needed, but normally handled by theme
+
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {

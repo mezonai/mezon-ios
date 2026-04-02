@@ -2,7 +2,6 @@ import AsyncDisplayKit
 import Combine
 import UIKit
 
-// MARK: - State
 
 private struct TopicContent: Decodable {
     let t: String?
@@ -78,15 +77,13 @@ struct NotificationsState {
     static let empty = NotificationsState(items: [], isLoading: false, isLoadingMore: false)
 }
 
-// MARK: - Interaction
 
 struct NotificationsInteraction {
-    let onTabSelected: (Int32) -> Void  // passes the category tag
+    let onTabSelected: (Int32) -> Void
     let onLoadMore: () -> Void
     let onItemSelected: (NotificationItem) -> Void
 }
 
-// MARK: - NotificationItemCell
 
 final class NotificationItemCell: UITableViewCell {
 
@@ -178,7 +175,7 @@ final class NotificationItemCell: UITableViewCell {
         contentView.addSubview(separatorLine)
 
         NSLayoutConstraint.activate([
-            // Avatar
+
             avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
             avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
             avatarView.widthAnchor.constraint(equalToConstant: avatarSize),
@@ -187,11 +184,11 @@ final class NotificationItemCell: UITableViewCell {
             avatarPlaceholder.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             avatarPlaceholder.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
 
-            // Time (anchored to trailing)
+
             timeLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
             timeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 
-            // Title
+
             titleLabel.topAnchor.constraint(equalTo: timeLabel.topAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 16),
             titleLabel.trailingAnchor.constraint(
@@ -199,13 +196,13 @@ final class NotificationItemCell: UITableViewCell {
             titleLabel.widthAnchor.constraint(
                 lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8),
 
-            // Vertical accent line
+
             verticalLine.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             verticalLine.bottomAnchor.constraint(equalTo: separatorLine.topAnchor, constant: -16),
             verticalLine.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             verticalLine.widthAnchor.constraint(equalToConstant: 2),
 
-            // Body text
+
             contentLabel.topAnchor.constraint(equalTo: verticalLine.topAnchor),
             contentLabel.leadingAnchor.constraint(
                 equalTo: verticalLine.trailingAnchor, constant: 8),
@@ -216,7 +213,7 @@ final class NotificationItemCell: UITableViewCell {
             contentLabel.bottomAnchor.constraint(
                 lessThanOrEqualTo: separatorLine.topAnchor, constant: -16),
 
-            // Separator Line
+
             separatorLine.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             separatorLine.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
@@ -225,11 +222,10 @@ final class NotificationItemCell: UITableViewCell {
     }
 
     func configure(with item: NotificationItem) {
-        print("configure with item: \(item)")
         titleLabel.text = item.subject
         contentLabel.text = item.content.isEmpty ? nil : item.content
 
-        // Avatar
+
         let avatarURLStr = item.avatarURL
         imageTask?.cancel()
         if !avatarURLStr.isEmpty, let url = URL(string: avatarURLStr) {
@@ -247,7 +243,7 @@ final class NotificationItemCell: UITableViewCell {
                 item.subject.first.map { String($0).uppercased() } ?? "N"
         }
 
-        // Relative time
+
         let date = Date(timeIntervalSince1970: TimeInterval(item.createTimeSeconds))
         let diff = Int(Date().timeIntervalSince(date))
         if diff < 60 {
@@ -260,7 +256,7 @@ final class NotificationItemCell: UITableViewCell {
             timeLabel.text = "\(diff / 86400)d"
         }
 
-        // Theme colors
+
         let t = UIColor.theme
         titleLabel.textColor = t.textStrong
         contentLabel.textColor = t.text
@@ -279,12 +275,10 @@ final class NotificationItemCell: UITableViewCell {
     }
 }
 
-// MARK: - NotificationsContainerNode
 
 @MainActor
 final class NotificationsContainerNode: ASDisplayNode {
 
-    // MARK: Private types
 
     private struct TabInfo {
         let title: String
@@ -292,7 +286,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         let iconName: String
     }
 
-    // MARK: UI
 
     private let headerView = UIView()
     private let titleLabel = UILabel()
@@ -310,7 +303,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         return gl
     }()
 
-    // Empty state
+
     private let emptyStateStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .vertical
@@ -346,7 +339,6 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     private var tabButtons: [UIButton] = []
 
-    // MARK: Data
 
     private var state: NotificationsState = .empty
     private let disposables = DisposableSet()
@@ -360,7 +352,6 @@ final class NotificationsContainerNode: ASDisplayNode {
     ]
     private var selectedTabIndex: Int = 0
 
-    // MARK: Init
 
     init(signal: Signal<NotificationsState, NoError>, interaction: NotificationsInteraction) {
         self.interaction = interaction
@@ -395,19 +386,18 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     deinit { disposables.dispose() }
 
-    // MARK: ASDisplayNode lifecycle
 
     override func didLoad() {
         super.didLoad()
 
         layer.insertSublayer(gradientLayer, at: 0)
 
-        // Title label
+
         titleLabel.text = L(L10n.Notifications.title)
         titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
         titleLabel.textColor = .mezonTextPrimary
 
-        // Add friend button — bordered rounded icon button
+
         var cfg = UIButton.Configuration.plain()
         cfg.cornerStyle = .capsule
         cfg.background.strokeColor = .mezonBorder
@@ -431,7 +421,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
         addFriendButton.accessibilityIdentifier = "notif_add_friend"
 
-        // Tab scroll
+
         tabScrollView.showsHorizontalScrollIndicator = false
         tabScrollView.showsVerticalScrollIndicator = false
 
@@ -443,7 +433,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         tabScrollView.addSubview(tabStackView)
         buildTabButtons()
 
-        // Table view
+
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
         tableView.rowHeight = UITableView.automaticDimension
@@ -453,7 +443,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         tableView.dataSource = self
         tableView.delegate = self
 
-        // Empty state
+
         emptyImageView.image = UIImage(named: "Notifications/emptyNotifications")
         emptyImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
         NSLayoutConstraint.activate([
@@ -467,7 +457,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         emptyStateStack.addArrangedSubview(emptyDescLabel)
         emptyStateStack.addArrangedSubview(emptyImageView)
 
-        // Loading
+
         loadingIndicator.hidesWhenStopped = true
 
         view.addSubview(headerView)
@@ -478,7 +468,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         view.addSubview(emptyStateStack)
         view.addSubview(loadingIndicator)
 
-        // Anchor empty state stack to center of view using AutoLayout
+
         NSLayoutConstraint.activate([
             emptyStateStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             emptyStateStack.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 20),
@@ -489,7 +479,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         applyTheme()
     }
 
-    // MARK: Layout
 
     private var lastLayout: ContainerViewLayout?
 
@@ -567,7 +556,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         applyLayout(transition: .immediate)
     }
 
-    // MARK: Bubble tabs
 
     private func buildTabButtons() {
         tabButtons.removeAll()
@@ -647,7 +635,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     }
 
     @objc private func addFriendTapped() {
-        // TODO: implement add friend action
+
     }
 
     func applyTheme() {
@@ -677,7 +665,6 @@ final class NotificationsContainerNode: ASDisplayNode {
     }
 }
 
-// MARK: - UITableViewDataSource & Delegate
 
 extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate {
 

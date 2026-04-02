@@ -4,11 +4,9 @@ import UIKit
 
 final class NotificationsViewController: ViewController {
 
-    // MARK: - Dependencies
 
     private let context: AccountContext
 
-    // MARK: - State pipes (Signal-based, matching MessagesViewController pattern)
 
     private let itemsPipe = ValuePipe<[NotificationItem]>()
     private let isLoadingPipe = ValuePipe<Bool>()
@@ -98,7 +96,7 @@ final class NotificationsViewController: ViewController {
         let clanId = context.currentClanId
 
         if category == 4 {
-            dataDisposable?.dispose()  // Dispose previous subscription if any
+            dataDisposable?.dispose()
             asyncDetached { [weak self] in
                 guard let self else { return }
                 do {

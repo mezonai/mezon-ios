@@ -11,7 +11,7 @@ open class SimpleLayer: CALayer {
     public var didEnterHierarchy: (() -> Void)?
     public var didExitHierarchy: (() -> Void)?
     public private(set) var isInHierarchy: Bool = false
-    
+
     override open func action(forKey event: String) -> CAAction? {
         if event == kCAOnOrderIn {
             self.isInHierarchy = true
@@ -22,15 +22,15 @@ open class SimpleLayer: CALayer {
         }
         return nullAction
     }
-    
+
     override public init() {
         super.init()
     }
-    
+
     override public init(layer: Any) {
         super.init(layer: layer)
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -39,7 +39,7 @@ open class SimpleLayer: CALayer {
 open class SimpleShapeLayer: CAShapeLayer {
     public var didEnterHierarchy: (() -> Void)?
     public var didExitHierarchy: (() -> Void)?
-    
+
     override open func action(forKey event: String) -> CAAction? {
         if event == kCAOnOrderIn {
             self.didEnterHierarchy?()
@@ -48,15 +48,15 @@ open class SimpleShapeLayer: CAShapeLayer {
         }
         return nullAction
     }
-    
+
     override public init() {
         super.init()
     }
-    
+
     override public init(layer: Any) {
         super.init(layer: layer)
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -65,7 +65,7 @@ open class SimpleShapeLayer: CAShapeLayer {
 open class SimpleGradientLayer: CAGradientLayer {
     public var didEnterHierarchy: (() -> Void)?
     public var didExitHierarchy: (() -> Void)?
-    
+
     override open func action(forKey event: String) -> CAAction? {
         if event == kCAOnOrderIn {
             self.didEnterHierarchy?()
@@ -74,15 +74,15 @@ open class SimpleGradientLayer: CAGradientLayer {
         }
         return nullAction
     }
-    
+
     override public init() {
         super.init()
     }
-    
+
     override public init(layer: Any) {
         super.init(layer: layer)
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
@@ -92,7 +92,7 @@ open class SimpleTransformLayer: CATransformLayer {
     public var didEnterHierarchy: (() -> Void)?
     public var didExitHierarchy: (() -> Void)?
     public private(set) var isInHierarchy: Bool = false
-    
+
     override open func action(forKey event: String) -> CAAction? {
         if event == kCAOnOrderIn {
             self.isInHierarchy = true
@@ -103,15 +103,15 @@ open class SimpleTransformLayer: CATransformLayer {
         }
         return nullAction
     }
-    
+
     override public init() {
         super.init()
     }
-    
+
     override public init(layer: Any) {
         super.init(layer: layer)
     }
-    
+
     required public init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }

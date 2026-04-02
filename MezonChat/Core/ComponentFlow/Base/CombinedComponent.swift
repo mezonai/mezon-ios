@@ -183,7 +183,7 @@ public final class _UpdatedChildComponent {
     var _clipsToBounds: Bool?
     var _allowsGroupOpacity: Bool?
     var _shadow: Shadow?
-    
+
     fileprivate var transitionAppear: ComponentTransition.Appear?
     fileprivate var transitionAppearWithGuide: (ComponentTransition.AppearWithGuide, _AnyChildComponent.Id)?
     fileprivate var transitionDisappear: ComponentTransition.Disappear?
@@ -238,7 +238,7 @@ public final class _UpdatedChildComponent {
         self._removed = removed
         return self
     }
-    
+
     @discardableResult public func anchorPoint(_ anchorPoint: CGPoint) -> _UpdatedChildComponent {
         self._anchorPoint = anchorPoint
         return self
@@ -248,12 +248,12 @@ public final class _UpdatedChildComponent {
         self._position = position
         return self
     }
-    
+
     @discardableResult public func scale(_ scale: CGFloat) -> _UpdatedChildComponent {
         self._scale = scale
         return self
     }
-    
+
     @discardableResult public func opacity(_ opacity: CGFloat) -> _UpdatedChildComponent {
         self._opacity = opacity
         return self
@@ -268,12 +268,12 @@ public final class _UpdatedChildComponent {
         self._clipsToBounds = clipsToBounds
         return self
     }
-    
+
     @discardableResult public func allowsGroupOpacity(_ allowsGroupOpacity: Bool) -> _UpdatedChildComponent {
         self._allowsGroupOpacity = allowsGroupOpacity
         return self
     }
-    
+
     @discardableResult public func shadow(_ shadow: Shadow?) -> _UpdatedChildComponent {
         self._shadow = shadow
         return self
@@ -333,7 +333,7 @@ public extension _EnvironmentChildComponent {
     func update<ComponentType: Component>(_ component: ComponentType, @EnvironmentBuilder environment: () -> Environment<EnvironmentType>, availableSize: CGSize, transition: ComponentTransition) -> _UpdatedChildComponent where ComponentType.EnvironmentType == EnvironmentType {
         return self.update(component: AnyComponent(component), environment: environment, availableSize: availableSize, transition: transition)
     }
-    
+
     func update(_ component: AnyComponent<EnvironmentType>, @EnvironmentBuilder environment: () -> Environment<EnvironmentType>, availableSize: CGSize, transition: ComponentTransition) -> _UpdatedChildComponent {
         return self.update(component: component, environment: environment, availableSize: availableSize, transition: transition)
     }
@@ -438,7 +438,7 @@ public final class CombinedComponentContext<ComponentType: Component> {
     public func add(_ updatedComponent: _UpdatedChildComponent) {
         self.addImpl(updatedComponent, nil)
     }
-    
+
     public func addWithExternalContainer(_ updatedComponent: _UpdatedChildComponent, container: UIView) {
         self.addImpl(updatedComponent, container)
     }
@@ -650,7 +650,7 @@ public extension CombinedComponent {
 
     func update(view: View, availableSize: CGSize, state: State, environment: Environment<EnvironmentType>, transition: ComponentTransition) -> CGSize {
         let context = view.getCombinedComponentContext(Self.self)
-        
+
         let storedBody: Body
         if let current = context.body {
             storedBody = current
@@ -730,7 +730,7 @@ public extension CombinedComponent {
                         }
 
                         updatedChild.view.layer.anchorPoint = updatedChild._anchorPoint ?? CGPoint(x: 0.5, y: 0.5)
-                        
+
                         if let scale = updatedChild._scale {
                             updatedChild.view.bounds = CGRect(origin: CGPoint(), size: updatedChild.size)
                             updatedChild.view.center = updatedChild._position ?? CGPoint()
@@ -747,7 +747,7 @@ public extension CombinedComponent {
                                 }
                             }
                         }
-                        
+
                         updatedChild.view.alpha = updatedChild._opacity ?? 1.0
                         updatedChild.view.clipsToBounds = updatedChild._clipsToBounds ?? false
                         updatedChild.view.layer.cornerRadius = updatedChild._cornerRadius ?? 0.0
@@ -887,7 +887,7 @@ public extension CombinedComponent {
     static func Guide() -> _ChildComponentGuide {
         return _ChildComponentGuide()
     }
-    
+
     static func StoredActionSlot<Arguments>(_ argumentsType: Arguments.Type) -> ActionSlot<Arguments> {
         return ActionSlot<Arguments>()
     }
@@ -897,7 +897,7 @@ public struct Shadow {
     public let color: UIColor
     public let radius: CGFloat
     public let offset: CGSize
-    
+
     public init(
         color: UIColor,
         radius: CGFloat,

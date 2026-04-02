@@ -323,7 +323,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         let contentW = screenW - padH * 2
         var y: CGFloat = 0
 
-        // 1. Clan Avatar & Name
+
         let avatarSize: CGFloat = 64.swh
         let avatarContainer = UIView()
         avatarContainer.frame = CGRect(x: padH, y: y, width: avatarSize, height: avatarSize)
@@ -411,7 +411,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         y += 90.sh
 
-        // 4. List Actions (Grouped as per design)
+
         let groups: [[ClanAction]] = [
             [.markAsRead],
             [.createCategory, .createEvent],
@@ -427,7 +427,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         y += 8.sh
 
-        // 5. Toggle Row
+
         let toggleRow = createToggleRow(action: .showEmptyCategories, width: contentW)
         toggleRow.frame.origin = CGPoint(x: padH, y: y)
         scrollView.addSubview(toggleRow)

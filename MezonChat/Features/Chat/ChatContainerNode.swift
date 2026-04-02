@@ -120,7 +120,7 @@ final class ChatContainerNode: ASDisplayNode {
                 self.state = newState
                 self.updateHeader(state: newState)
                 self.updateLoadingState(newState)
-                // if let msg = newState.errorMessage { Toast.error(msg) }
+
 
                 let isEmpty = newState.messages.isEmpty
 

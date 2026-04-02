@@ -242,7 +242,7 @@ final class EmbedItemNode: ASDisplayNode {
 
         var contentH: CGFloat = 0
 
-        // Author
+
         if let authorNameNode {
             cachedAuthorNameSize = authorNameNode.measure(CGSize(width: contentMaxW - 36, height: 30))
             cachedAuthorIconSize = authorIconNode != nil ? CGSize(width: 28, height: 28) : .zero
@@ -250,19 +250,19 @@ final class EmbedItemNode: ASDisplayNode {
             contentH += rowH + spacing
         }
 
-        // Title
+
         if let titleNode {
             cachedTitleSize = titleNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
             contentH += cachedTitleSize.height + spacing
         }
 
-        // Description
+
         if let descriptionNode {
             cachedDescSize = descriptionNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
             contentH += cachedDescSize.height + spacing
         }
 
-        // Footer
+
         if let footerTextNode {
             cachedFooterTextSize = footerTextNode.measure(CGSize(width: contentMaxW - 30, height: 30))
             cachedFooterIconSize = footerIconNode != nil ? CGSize(width: 24, height: 24) : .zero
@@ -270,16 +270,16 @@ final class EmbedItemNode: ASDisplayNode {
             contentH += rowH + spacing
         }
 
-        if contentH > 0 { contentH -= spacing } // remove last spacing
+        if contentH > 0 { contentH -= spacing }
         cachedContentColumnH = contentH
 
-        // Thumbnail
+
         cachedThumbSize = thumbnailNode != nil ? CGSize(width: Self.thumbnailSize, height: Self.thumbnailSize) : .zero
         let mainRowH = max(contentH, cachedThumbSize.height)
 
         var totalH = inV + mainRowH + inV
 
-        // Image
+
         if let imageNode {
             let imgW = CGFloat(embed.imageWidth ?? 400)
             let imgH = CGFloat(embed.imageHeight ?? 200)
@@ -356,7 +356,7 @@ final class EmbedItemNode: ASDisplayNode {
             y += rowH + spacing
         }
 
-        // Thumbnail (right side)
+
         if let thumbnailNode {
             thumbnailNode.frame = CGRect(x: w - inH - Self.thumbnailSize, y: inV, width: Self.thumbnailSize, height: Self.thumbnailSize)
         }

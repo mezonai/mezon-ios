@@ -3,7 +3,7 @@ import UIKit
 public func findSubstringRanges(in string: String, query: String) -> ([Range<String.Index>], String) {
     var ranges: [Range<String.Index>] = []
     let queryWords = query.split { !$0.isLetter && !$0.isNumber && $0 != "#" && $0 != "@" }.filter { !$0.isEmpty && !["#", "@"].contains($0) }.map { $0.lowercased() }
-    
+
     let text = string.lowercased()
     let searchRange = text.startIndex ..< text.endIndex
     text.enumerateSubstrings(in: searchRange, options: .byWords) { (rawSubstring, rawRange, _, _) in
@@ -23,7 +23,7 @@ public func findSubstringRanges(in string: String, query: String) -> ([Range<Str
         } else {
             substrings.append((rawSubstring, rawRange))
         }
-        
+
         for (substring, range) in substrings {
             for var word in queryWords {
                 var count = 0

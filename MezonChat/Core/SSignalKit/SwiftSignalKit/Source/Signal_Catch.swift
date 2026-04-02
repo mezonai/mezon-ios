@@ -5,12 +5,12 @@ public func `catch`<T, E, R>(_ f: @escaping(E) -> Signal<T, R>) -> (Signal<T, E>
         return Signal<T, R> { subscriber in
             let mainDisposable = MetaDisposable()
             let alternativeDisposable = MetaDisposable()
-            
+
             mainDisposable.set(signal.start(next: { next in
                 subscriber.putNext(next)
             }, error: { error in
                 let anotherSignal = f(error)
-                
+
                 alternativeDisposable.set(anotherSignal.start(next: { next in
                     subscriber.putNext(next)
                 }, error: { error in
@@ -21,7 +21,7 @@ public func `catch`<T, E, R>(_ f: @escaping(E) -> Signal<T, R>) -> (Signal<T, E>
             }, completed: {
                 subscriber.putCompletion()
             }))
-            
+
             return ActionDisposable {
                 mainDisposable.dispose()
                 alternativeDisposable.dispose()
@@ -40,7 +40,7 @@ public func restart<T, E>(_ signal: Signal<T, E>) -> Signal<T, E> {
     return Signal { subscriber in
         let shouldRestart = Atomic(value: true)
         let currentDisposable = MetaDisposable()
-        
+
         let start = recursiveFunction { recurse in
             let currentShouldRestart = shouldRestart.with { value in
                 return value
@@ -56,9 +56,9 @@ public func restart<T, E>(_ signal: Signal<T, E>) -> Signal<T, E> {
                 currentDisposable.set(disposable)
             }
         }
-        
+
         start()
-        
+
         return ActionDisposable {
             currentDisposable.dispose()
             let _ = shouldRestart.swap(false)
@@ -71,7 +71,7 @@ public func recurse<T, E>(_ latestValue: T?) -> (Signal<T, E>) -> Signal<T, E> {
         return Signal { subscriber in
             let shouldRestart = Atomic(value: true)
             let currentDisposable = MetaDisposable()
-            
+
             let start = recursiveFunction { recurse in
                 let currentShouldRestart = shouldRestart.with { value in
                     return value
@@ -87,9 +87,9 @@ public func recurse<T, E>(_ latestValue: T?) -> (Signal<T, E>) -> Signal<T, E> {
                     currentDisposable.set(disposable)
                 }
             }
-            
+
             start()
-            
+
             return ActionDisposable {
                 currentDisposable.dispose()
                 let _ = shouldRestart.swap(false)
@@ -104,7 +104,7 @@ public func retry<T, E>(_ delayIncrement: Double, maxDelay: Double, onQueue queu
             let shouldRetry = Atomic(value: true)
             let currentDelay = Atomic(value: 0.0)
             let currentDisposable = MetaDisposable()
-            
+
             let start = recursiveFunction { recurse in
                 let currentShouldRetry = shouldRetry.with { value in
                     return value
@@ -116,7 +116,7 @@ public func retry<T, E>(_ delayIncrement: Double, maxDelay: Double, onQueue queu
                         let delay = currentDelay.modify { value in
                             return min(maxDelay, value + delayIncrement)
                         }
-                       
+
                         let time: DispatchTime = DispatchTime.now() + Double(delay)
                         queue.queue.asyncAfter(deadline: time, execute: {
                             recurse()
@@ -128,9 +128,9 @@ public func retry<T, E>(_ delayIncrement: Double, maxDelay: Double, onQueue queu
                     currentDisposable.set(disposable)
                 }
             }
-            
+
             start()
-            
+
             return ActionDisposable {
                 currentDisposable.dispose()
                 let _ = shouldRetry.swap(false)
@@ -145,7 +145,7 @@ public func retry<T, E>(retryOnError: @escaping (E) -> Bool, delayIncrement: Dou
             let shouldRetry = Atomic(value: true)
             let currentDelay = Atomic<(Double, Int)>(value: (0.0, 0))
             let currentDisposable = MetaDisposable()
-            
+
             let start = recursiveFunction { recurse in
                 let currentShouldRetry = shouldRetry.with { value in
                     return value
@@ -160,7 +160,7 @@ public func retry<T, E>(retryOnError: @escaping (E) -> Bool, delayIncrement: Dou
                             let (delay, count) = currentDelay.modify { value, count in
                                 return (min(maxDelay, value + delayIncrement), count + 1)
                             }
-                            
+
                             if let maxRetries, count >= maxRetries {
                                 subscriber.putError(error)
                             } else {
@@ -177,9 +177,9 @@ public func retry<T, E>(retryOnError: @escaping (E) -> Bool, delayIncrement: Dou
                     currentDisposable.set(disposable)
                 }
             }
-            
+
             start()
-            
+
             return ActionDisposable {
                 currentDisposable.dispose()
                 let _ = shouldRetry.swap(false)
@@ -192,7 +192,7 @@ public func restartIfError<T, E>(_ signal: Signal<T, E>) -> Signal<T, NoError> {
     return Signal<T, NoError> { subscriber in
         let shouldRetry = Atomic(value: true)
         let currentDisposable = MetaDisposable()
-        
+
         let start = recursiveFunction { recurse in
             let currentShouldRetry = shouldRetry.with { value in
                 return value
@@ -209,9 +209,9 @@ public func restartIfError<T, E>(_ signal: Signal<T, E>) -> Signal<T, NoError> {
                 currentDisposable.set(disposable)
             }
         }
-        
+
         start()
-        
+
         return ActionDisposable {
             currentDisposable.dispose()
             let _ = shouldRetry.swap(false)
@@ -229,7 +229,7 @@ public func restartOrMapError<T, E, E2>(condition: @escaping (E) -> RestartOrMap
         return Signal<T, E2> { subscriber in
             let shouldRetry = Atomic(value: true)
             let currentDisposable = MetaDisposable()
-            
+
             let start = recursiveFunction { recurse in
                 let currentShouldRetry = shouldRetry.with { value in
                     return value
@@ -251,9 +251,9 @@ public func restartOrMapError<T, E, E2>(condition: @escaping (E) -> RestartOrMap
                     currentDisposable.set(disposable)
                 }
             }
-            
+
             start()
-            
+
             return ActionDisposable {
                 currentDisposable.dispose()
                 let _ = shouldRetry.swap(false)

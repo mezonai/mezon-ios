@@ -47,7 +47,7 @@ public func takeLast<T, E>(_ signal: Signal<T, E>) -> Signal<T, E> {
 public struct SignalTakeAction {
     public let passthrough: Bool
     public let complete: Bool
-    
+
     public init(passthrough: Bool, complete: Bool) {
         self.passthrough = passthrough
         self.complete = complete

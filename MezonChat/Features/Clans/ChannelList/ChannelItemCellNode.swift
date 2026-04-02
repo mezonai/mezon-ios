@@ -161,7 +161,7 @@ final class ChannelItemCellNode: ASCellNode {
 
         inset.style.minHeight = ASDimensionMake(36.sh)
         let contentWithBackground = ASBackgroundLayoutSpec(child: inset, background: selectionNode)
-        
+
         let finalContent: ASLayoutElement
         if !unreadDot.isHidden {
             unreadDot.style.layoutPosition = CGPoint(x: -4.sw, y: 15.sh)

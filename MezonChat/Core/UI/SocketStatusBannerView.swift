@@ -73,7 +73,7 @@ final class SocketStatusBannerView: UIView {
         label.text = "Connected"
         showBanner()
 
-        // Auto-hide after 2 seconds
+
         hideTimer?.invalidate()
         hideTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] (_: Foundation.Timer) in
             self?.hideBanner()

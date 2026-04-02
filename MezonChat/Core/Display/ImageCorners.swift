@@ -4,7 +4,7 @@ import CoreGraphics
 
 private enum Corner: Hashable {
     case TopLeft(Int), TopRight(Int), BottomLeft(Int), BottomRight(Int)
-    
+
     var radius: Int {
         switch self {
         case let .TopLeft(radius):
@@ -22,7 +22,7 @@ private enum Corner: Hashable {
 private enum Tail: Hashable {
     case BottomLeft(Int)
     case BottomRight(Int)
-    
+
     var radius: Int {
         switch self {
             case let .BottomLeft(radius):
@@ -39,12 +39,12 @@ private func cornerContext(_ corner: Corner) -> DrawingContext {
     let cached: DrawingContext? = cachedCorners.with {
         return $0[corner]
     }
-    
+
     if let cached = cached {
         return cached
     } else {
         let context = DrawingContext(size: CGSize(width: CGFloat(corner.radius), height: CGFloat(corner.radius)), clear: true)!
-        
+
         context.withContext { c in
             c.clear(CGRect(origin: CGPoint(), size: CGSize(width: CGFloat(corner.radius), height: CGFloat(corner.radius))))
             c.setFillColor(UIColor.black.cgColor)
@@ -63,13 +63,13 @@ private func cornerContext(_ corner: Corner) -> DrawingContext {
                 c.fillEllipse(in: rect)
             }
         }
-        
+
         let _ = cachedCorners.modify { current in
             var current = current
             current[corner] = context
             return current
         }
-        
+
         return context
     }
 }
@@ -81,12 +81,12 @@ public func addCorners(_ context: DrawingContext, arguments: TransformImageArgum
         let corner = cornerContext(.TopLeft(Int(radius)))
         context.blt(corner, at: CGPoint(x: drawingRect.minX, y: drawingRect.minY))
     }
-    
+
     if case let .Corner(radius) = corners.topRight, radius > CGFloat.ulpOfOne {
         let corner = cornerContext(.TopRight(Int(radius)))
         context.blt(corner, at: CGPoint(x: drawingRect.maxX - radius, y: drawingRect.minY))
     }
-    
+
     switch corners.bottomLeft {
         case let .Corner(radius):
             if radius > CGFloat.ulpOfOne {
@@ -112,7 +112,7 @@ public func addCorners(_ context: DrawingContext, arguments: TransformImageArgum
                 }
             }
     }
-    
+
     switch corners.bottomRight {
         case let .Corner(radius):
             if radius > CGFloat.ulpOfOne {

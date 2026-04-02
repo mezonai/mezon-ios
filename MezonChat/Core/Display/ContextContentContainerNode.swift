@@ -4,11 +4,11 @@ import AsyncDisplayKit
 
 public final class ContextContentContainerNode: ASDisplayNode {
     public var contentNode: ContextContentNode?
-    
+
     override public init() {
         super.init()
     }
-    
+
     public func updateLayout(size: CGSize, scaledSize: CGSize, transition: ContainedViewLayoutTransition) {
         guard let contentNode = self.contentNode else {
             return

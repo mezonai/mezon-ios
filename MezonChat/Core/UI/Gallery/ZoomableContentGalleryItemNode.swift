@@ -37,7 +37,7 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         self.scrollNode.view.scrollsToTop = false
         self.scrollNode.view.delaysContentTouches = false
 
-        // Double-tap zoom + single-tap toggle
+
         let tapRecognizer = TapLongTapOrDoubleTapGestureRecognizer(target: self, action: #selector(self.contentTap(_:)))
         tapRecognizer.tapActionAtPoint = { _ in .waitForDoubleTap }
         self.scrollNode.view.addGestureRecognizer(tapRecognizer)
@@ -129,7 +129,6 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         }
     }
 
-    // MARK: - UIScrollViewDelegate
 
     open func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         return self.zoomableContent?.1.view

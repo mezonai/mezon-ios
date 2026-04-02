@@ -6,26 +6,26 @@ private let titleFont = Font.bold(11.0)
 
 public final class CollectionIndexNode: ASDisplayNode {
     public static let searchIndex: String = "_$search$_"
-    
+
     private var currentSize: CGSize?
     private var currentSections: [String] = []
     private var currentColor: UIColor?
     private var titleNodes: [String: (node: ImmediateTextNode, size: CGSize)] = [:]
     private var scrollFeedback: HapticFeedback?
-    
+
     private var currentSelectedIndex: String?
     public var indexSelected: ((String) -> Void)?
-    
+
     override public init() {
         super.init()
     }
-    
+
     override public func didLoad() {
         super.didLoad()
-        
+
         self.view.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(self.panGesture(_:))))
     }
-    
+
     public func update(size: CGSize, color: UIColor, sections: [String], transition: ContainedViewLayoutTransition) {
         if self.currentColor == nil || !color.isEqual(self.currentColor) {
             self.currentColor = color
@@ -34,18 +34,18 @@ public final class CollectionIndexNode: ASDisplayNode {
                 let _ = nodeAndSize.node.updateLayout(CGSize(width: 100.0, height: 100.0))
             }
         }
-        
+
         if self.currentSize == size && self.currentSections == sections {
             return
         }
-        
+
         self.currentSize = size
         self.currentSections = sections
-        
+
         let itemHeight: CGFloat = 15.0
         let verticalInset: CGFloat = 10.0
         let maxHeight = size.height - verticalInset * 2.0
-        
+
         let maxItemCount = min(sections.count, Int(floor(maxHeight / itemHeight)))
         let skipCount: Int
         if sections.isEmpty {
@@ -54,16 +54,16 @@ public final class CollectionIndexNode: ASDisplayNode {
             skipCount = Int(ceil(CGFloat(sections.count) / CGFloat(maxItemCount)))
         }
         let actualCount: CGFloat = ceil(CGFloat(sections.count) / CGFloat(skipCount))
-        
+
         let totalHeight = actualCount * itemHeight
         let verticalOrigin = verticalInset + floor((maxHeight - totalHeight) / 2.0)
-        
+
         var validTitles = Set<String>()
-        
+
         var currentIndex = 0
         var displayIndex = 0
         var addedLastTitle = false
-        
+
         let addTitle: (Int) -> Void = { index in
             let title = sections[index]
             let nodeAndSize: (node: ImmediateTextNode, size: CGSize)
@@ -85,34 +85,34 @@ public final class CollectionIndexNode: ASDisplayNode {
             if animate {
                 transition.animatePosition(node: nodeAndSize.node, from: previousPosition)
             }
-            
+
             currentIndex += skipCount
             displayIndex += 1
         }
-        
+
         while currentIndex < sections.count {
             if currentIndex == sections.count - 1 {
                 addedLastTitle = true
             }
             addTitle(currentIndex)
         }
-        
+
         if !addedLastTitle && sections.count > 0 {
             addTitle(sections.count - 1)
         }
-        
+
         var removeTitles: [String] = []
         for title in self.titleNodes.keys {
             if !validTitles.contains(title) {
                 removeTitles.append(title)
             }
         }
-        
+
         for title in removeTitles {
             self.titleNodes.removeValue(forKey: title)?.node.removeFromSupernode()
         }
     }
-    
+
     override public func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if self.isUserInteractionEnabled, self.bounds.insetBy(dx: -5.0, dy: 0.0).contains(point) {
             return self.view
@@ -120,7 +120,7 @@ public final class CollectionIndexNode: ASDisplayNode {
             return nil
         }
     }
-    
+
     @objc private func panGesture(_ recognizer: UIPanGestureRecognizer) {
         var locationTitleAndPosition: (String, CGFloat)?
         let location = recognizer.location(in: self.view)
@@ -150,7 +150,7 @@ public final class CollectionIndexNode: ASDisplayNode {
                     self.currentSelectedIndex = locationTitle
                     if let locationTitle = locationTitle {
                         self.indexSelected?(locationTitle)
-                        
+
                         if self.scrollFeedback == nil {
                             self.scrollFeedback = HapticFeedback()
                         }

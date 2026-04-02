@@ -204,7 +204,6 @@ final class MessageReplyNode: ASDisplayNode {
     }
 }
 
-// MARK: - Deleted Reply Node
 
 final class MessageDeletedReplyNode: ASDisplayNode {
 

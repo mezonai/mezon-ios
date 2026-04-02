@@ -6,11 +6,11 @@ import AVFoundation
 
 public struct TransformImageNodeContentAnimations: OptionSet {
     public var rawValue: Int32
-    
+
     public init(rawValue: Int32) {
         self.rawValue = rawValue
     }
-    
+
     public static let firstUpdate = TransformImageNodeContentAnimations(rawValue: 1 << 0)
     public static let subsequentUpdates = TransformImageNodeContentAnimations(rawValue: 1 << 1)
 }
@@ -19,12 +19,12 @@ open class TransformImageNode: ASDisplayNode {
     public var imageUpdated: ((UIImage?) -> Void)?
     public var contentAnimations: TransformImageNodeContentAnimations = []
     private var disposable = MetaDisposable()
-    
+
     private var currentTransform: ((TransformImageArguments) -> DrawingContext?)?
     public private(set) var currentArguments: TransformImageArguments?
     public private(set) var image: UIImage?
     private var argumentsPromise = ValuePromise<TransformImageArguments>(ignoreRepeated: true)
-    
+
     private var overlayColor: UIColor?
     private var overlayNode: ASDisplayNode?
 
@@ -45,11 +45,11 @@ open class TransformImageNode: ASDisplayNode {
             }
         }
     }
-    
+
     deinit {
         self.disposable.dispose()
     }
-    
+
     override open func didLoad() {
         super.didLoad()
 
@@ -67,7 +67,7 @@ open class TransformImageNode: ASDisplayNode {
             self.contents = image.cgImage
         }
     }
-    
+
     public func reset() {
         self.disposable.set(nil)
         self.currentArguments = nil
@@ -82,9 +82,9 @@ open class TransformImageNode: ASDisplayNode {
 
     public func setSignal(_ signal: Signal<(TransformImageArguments) -> DrawingContext?, NoError>, attemptSynchronously: Bool = false, dispatchOnDisplayLink: Bool = true) {
         let argumentsPromise = self.argumentsPromise
-        
+
         let data = combineLatest(signal, argumentsPromise.get())
-        
+
         let resultData: Signal<((TransformImageArguments) -> DrawingContext?, TransformImageArguments), NoError>
         if attemptSynchronously {
             resultData = data
@@ -92,7 +92,7 @@ open class TransformImageNode: ASDisplayNode {
             resultData = data
             |> deliverOn(Queue.concurrentDefaultQueue())
         }
-        
+
         let result = resultData
         |> mapToThrottled { transform, arguments -> Signal<((TransformImageArguments) -> DrawingContext?, TransformImageArguments, UIImage?)?, NoError> in
             return deferred {
@@ -103,12 +103,12 @@ open class TransformImageNode: ASDisplayNode {
                 }
             }
         }
-        
+
         self.disposable.set((result |> deliverOnMainQueue).start(next: { [weak self] next in
             let apply: () -> Void = {
                 if let strongSelf = self {
                     var animateFromContents: Any?
-                    
+
                     if strongSelf.contents == nil {
                         if strongSelf.contentAnimations.contains(.firstUpdate) && !attemptSynchronously {
                             strongSelf.layer.animateAlpha(from: 0.0, to: 1.0, duration: 0.15)
@@ -116,7 +116,7 @@ open class TransformImageNode: ASDisplayNode {
                     } else if strongSelf.contentAnimations.contains(.subsequentUpdates) {
                         animateFromContents = strongSelf.contents
                     }
-                    
+
                     var imageUpdate: UIImage?
                     if let (transform, arguments, image) = next {
                         strongSelf.currentTransform = transform
@@ -131,7 +131,7 @@ open class TransformImageNode: ASDisplayNode {
                     if let imageUpdated = strongSelf.imageUpdated {
                         imageUpdated(imageUpdate)
                     }
-                    
+
                     if let animateFromContents {
                         let transition: ContainedViewLayoutTransition = .animated(duration: 0.2, curve: .linear)
                         transition.animateContents(layer: strongSelf.layer, from: animateFromContents)
@@ -148,7 +148,7 @@ open class TransformImageNode: ASDisplayNode {
             }
         }))
     }
-    
+
     public func asyncLayout() -> (TransformImageArguments) -> (() -> Void) {
         let currentTransform = self.currentTransform
         let currentArguments = self.currentArguments
@@ -175,13 +175,13 @@ open class TransformImageNode: ASDisplayNode {
             }
         }
     }
-    
+
     public func asyncLayoutWithAnimation() -> (TransformImageArguments) -> ((ListViewItemUpdateAnimation) -> Void) {
         let currentTransform = self.currentTransform
         let currentArguments = self.currentArguments
         return { [weak self] arguments in
             let updatedImage: UIImage?
-            
+
             if currentArguments != arguments {
                 updatedImage = currentTransform?(arguments)?.generateImage()
             } else {
@@ -203,7 +203,7 @@ open class TransformImageNode: ASDisplayNode {
             }
         }
     }
-    
+
     public class func asyncLayout(_ maybeNode: TransformImageNode?) -> (TransformImageArguments) -> (() -> TransformImageNode) {
         return { arguments in
             let node: TransformImageNode
@@ -218,7 +218,7 @@ open class TransformImageNode: ASDisplayNode {
             }
         }
     }
-    
+
     public func setOverlayColor(_ color: UIColor?, animated: Bool) {
         var updated = false
         if let overlayColor = self.overlayColor, let color = color {
@@ -242,7 +242,7 @@ open class TransformImageNode: ASDisplayNode {
             }
         }
     }
-    
+
     private func applyOverlayColor(animated: Bool) {
         if let overlayColor = self.overlayColor {
             if let contents = self.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {

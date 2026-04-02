@@ -5,7 +5,7 @@ import AsyncDisplayKit
 public protocol GridSection {
     var height: CGFloat { get }
     var hashValue: Int { get }
-    
+
     func isEqual(to: GridSection) -> Bool
     func node() -> ASDisplayNode
 }
@@ -24,15 +24,15 @@ public extension GridItem {
     var aspectRatio: CGFloat {
         return 1.0
     }
-    
+
     var fillsRowWithHeight: (CGFloat, Bool)? {
         return nil
     }
-    
+
     var fillsRowWithDynamicHeight: ((CGFloat) -> CGFloat)? {
         return nil
     }
-    
+
     var customItemSize: CGSize? {
         return nil
     }

@@ -6,7 +6,7 @@ public final class List<ChildEnvironment: Equatable>: CombinedComponent {
         case horizontal
         case vertical
     }
-    
+
     public typealias EnvironmentType = ChildEnvironment
 
     private let items: [AnyComponentWithIdentity<ChildEnvironment>]
@@ -47,7 +47,7 @@ public final class List<ChildEnvironment: Equatable>: CombinedComponent {
                     transition: context.transition
                 )
             }
-            
+
             let maxWidth: CGFloat = updatedChildren.reduce(CGFloat(0.0)) { partialResult, child in
                 return max(partialResult, child.size.width)
             }

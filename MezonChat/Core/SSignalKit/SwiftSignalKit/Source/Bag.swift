@@ -17,19 +17,19 @@ public final class Bag<T> {
     private var nextIndex: Index = 0
     private var items: [T] = []
     private var itemKeys: [Index] = []
-    
+
     public init() {
     }
-    
+
     public func add(_ item: T) -> Index {
         let key = self.nextIndex
         self.nextIndex += 1
         self.items.append(item)
         self.itemKeys.append(key)
-        
+
         return key
     }
-    
+
     public func get(_ index: Index) -> T? {
         var i = 0
         for key in self.itemKeys {
@@ -40,7 +40,7 @@ public final class Bag<T> {
         }
         return nil
     }
-    
+
     public func remove(_ index: Index) {
         var i = 0
         for key in self.itemKeys {
@@ -52,16 +52,16 @@ public final class Bag<T> {
             i += 1
         }
     }
-    
+
     public func removeAll() {
         self.items.removeAll()
         self.itemKeys.removeAll()
     }
-    
+
     public func copyItems() -> [T] {
         return self.items
     }
-    
+
     public func copyItemsWithIndices() -> [(Index, T)] {
         var result: [(Index, T)] = []
         var i = 0
@@ -71,11 +71,11 @@ public final class Bag<T> {
         }
         return result
     }
-    
+
     public var isEmpty: Bool {
         return self.items.isEmpty
     }
-    
+
     public var first: (Index, T)? {
         if !self.items.isEmpty {
             return (self.itemKeys[0], self.items[0])
@@ -128,21 +128,21 @@ public final class SparseBag<T>: Sequence {
 public final class CounterBag {
     private var nextIndex: Int = 1
     private var items = Set<Int>()
-    
+
     public init() {
     }
-    
+
     public func add() -> Int {
         let index = self.nextIndex
         self.nextIndex += 1
         self.items.insert(index)
         return index
     }
-    
+
     public func remove(_ index: Int) {
         self.items.remove(index)
     }
-    
+
     public var isEmpty: Bool {
         return self.items.isEmpty
     }

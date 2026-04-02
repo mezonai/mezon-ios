@@ -19,7 +19,7 @@ private final class SwitchNodeView: UISwitch {
 
 open class SwitchNode: ASDisplayNode {
     public var valueUpdated: ((Bool) -> Void)?
-    
+
     public var frameColor = UIColor(rgb: 0xe0e0e0) {
         didSet {
             if self.isNodeLoaded {
@@ -45,7 +45,7 @@ open class SwitchNode: ASDisplayNode {
             }
         }
     }
-    
+
     private var _isOn: Bool = false
     public var isOn: Bool {
         get {
@@ -59,36 +59,36 @@ open class SwitchNode: ASDisplayNode {
             }
         }
     }
-    
+
     override public init() {
         super.init()
-        
+
         self.setViewBlock({
             return SwitchNodeView()
         })
     }
-    
+
     override open func didLoad() {
         super.didLoad()
-        
+
         self.view.isAccessibilityElement = false
-        
+
         (self.view as! UISwitch).backgroundColor = self.backgroundColor
         (self.view as! UISwitch).tintColor = self.frameColor
         (self.view as! UISwitch).onTintColor = self.contentColor
-        
+
         (self.view as! UISwitch).setOn(self._isOn, animated: false)
-        
+
         (self.view as! UISwitch).addTarget(self, action: #selector(switchValueChanged(_:)), for: .valueChanged)
     }
-    
+
     public func setOn(_ value: Bool, animated: Bool) {
         self._isOn = value
         if self.isNodeLoaded {
             (self.view as! UISwitch).setOn(value, animated: animated)
         }
     }
-    
+
     override open func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
         if #available(iOS 26.0, *) {
             return CGSize(width: 63.0, height: 28.0)
@@ -96,7 +96,7 @@ open class SwitchNode: ASDisplayNode {
             return CGSize(width: 51.0, height: 31.0)
         }
     }
-    
+
     @objc func switchValueChanged(_ view: UISwitch) {
         self._isOn = view.isOn
         self.valueUpdated?(view.isOn)

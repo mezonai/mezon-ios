@@ -61,7 +61,7 @@ class ComponentContext<ComponentType: Component>: AnyComponentContext<ComponentT
     init(component: ComponentType, environment: Environment<ComponentType.EnvironmentType>, state: ComponentType.State) {
         self.component = component
         self.state = state
-        
+
         super.init(environment: environment)
     }
 }
@@ -91,10 +91,10 @@ extension UIView {
 open class ComponentState {
     open var _updated: ((ComponentTransition, Bool) -> Void)?
     var isUpdated: Bool = false
-    
+
     public init() {
     }
-    
+
     public final func updated(transition: ComponentTransition = .immediate, isLocal: Bool = false) {
         self.isUpdated = true
         self._updated?(transition, isLocal)
@@ -124,7 +124,7 @@ public protocol Component: _TypeErasedComponent, Equatable {
     associatedtype EnvironmentType = Empty
     associatedtype View: UIView = UIView
     associatedtype State: ComponentState = EmptyComponentState
-    
+
     func makeView() -> View
     func makeState() -> State
     func update(view: View, availableSize: CGSize, state: State, environment: Environment<EnvironmentType>, transition: ComponentTransition) -> CGSize
@@ -141,7 +141,7 @@ public extension Component {
 
     func _update(view: UIView, availableSize: CGSize, environment: Any, transition: ComponentTransition) -> CGSize {
         let view = view as! Self.View
-        
+
         return self.update(view: view, availableSize: availableSize, state: view.context(component: self).state, environment: environment as! Environment<EnvironmentType>, transition: transition)
     }
 

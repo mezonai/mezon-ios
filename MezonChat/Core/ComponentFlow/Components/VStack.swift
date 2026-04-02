@@ -61,7 +61,7 @@ public final class VStack<ChildEnvironment: Equatable>: CombinedComponent {
                 size.width = max(size.width, child.size.width)
             }
             size.height += context.component.spacing * CGFloat(updatedChildren.count - 1)
-            
+
             var nextY = 0.0
             for child in updatedChildren {
                 let childFrame: CGRect

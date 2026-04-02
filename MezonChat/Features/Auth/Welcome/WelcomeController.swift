@@ -54,7 +54,7 @@ final class WelcomeContainerNode: ASDisplayNode {
     private let imageNode = ASImageNode()
     private let startButton = ASButtonNode()
     private let gradientLayer = CAGradientLayer()
-    // Separate background node so button text is never obscured by the gradient
+
     private let buttonBgNode = ASDisplayNode { CAGradientLayer() }
 
     private let onStartTapped: () -> Void
@@ -78,14 +78,14 @@ final class WelcomeContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
-        // Insert gradient behind everything
+
         gradientLayer.locations = [0, 0.5, 1]
         let attrs = AppTheme.light.attributes
         gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
         gradientLayer.frame = bounds
         view.layer.insertSublayer(gradientLayer, at: 0)
 
-        // Setup button background gradient (behind the button node, text stays visible)
+
         if let gl = buttonBgNode.layer as? CAGradientLayer {
             gl.startPoint = CGPoint(x: 0, y: 0.5)
             gl.endPoint = CGPoint(x: 1, y: 0.5)
@@ -96,7 +96,7 @@ final class WelcomeContainerNode: ASDisplayNode {
             gl.cornerRadius = 12
         }
 
-        // Add subnodes manually so they render above the gradient
+
         addSubnode(buttonBgNode)
         addSubnode(titleNode)
         addSubnode(subtitleNode)
@@ -115,21 +115,21 @@ final class WelcomeContainerNode: ASDisplayNode {
         let hPad: CGFloat = 24
         gradientLayer.frame = CGRect(origin: .zero, size: size)
 
-        // Title
+
         let titleSize = titleNode.measure(
             CGSize(width: width - hPad * 2, height: .greatestFiniteMagnitude))
         let titleY: CGFloat = 160
         titleNode.frame = CGRect(
             x: hPad, y: titleY, width: width - hPad * 2, height: titleSize.height)
 
-        // Subtitle
+
         let subtitleSize = subtitleNode.measure(
             CGSize(width: width - hPad * 2 - 30, height: .greatestFiniteMagnitude))
         let subtitleY = titleY + titleSize.height + 10
         subtitleNode.frame = CGRect(
             x: hPad, y: subtitleY, width: width - hPad * 2, height: subtitleSize.height)
 
-        // Button
+
         let buttonH: CGFloat = 50
         let buttonY = height - 90 - buttonH
         let buttonWidth = width - hPad * 2
@@ -137,7 +137,7 @@ final class WelcomeContainerNode: ASDisplayNode {
         buttonBgNode.frame = buttonFrame
         startButton.frame = buttonFrame
 
-        // Image
+
         let availableTop = subtitleY + subtitleSize.height - 80
         let availableBottom = buttonY - 20
         let imageSize: CGFloat = min(width - 40, availableBottom - availableTop)

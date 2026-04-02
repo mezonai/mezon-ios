@@ -20,7 +20,7 @@ struct ChannelRecord: PostboxCoding, Equatable {
     var members: [ChannelMemberRecord]
     var isBanned: Bool
     var expiredBanTime: Int32
-    
+
     let protoData: Data?
 
     init(proto: Mezon_Api_ChannelDescription) {
@@ -62,14 +62,14 @@ struct ChannelRecord: PostboxCoding, Equatable {
     func updating(label: String? = nil, topic: String? = nil) -> ChannelRecord {
         let newLabel = label ?? self.label
         let newTopic = topic ?? self.topic
-        
+
         var updatedProtoData = self.protoData
         if let data = self.protoData, var proto = try? Mezon_Api_ChannelDescription(serializedBytes: data) {
             proto.channelLabel = newLabel
             proto.topic = newTopic
             updatedProtoData = try? proto.serializedData()
         }
-        
+
         return ChannelRecord(
             id: self.id,
             clanId: self.clanId,
@@ -91,15 +91,15 @@ struct ChannelRecord: PostboxCoding, Equatable {
         var updatedCategoryName = self.categoryName
         var updatedParentId = self.parentId
         var updatedType = self.type
-        
+
         if !proto.channelLabel.isEmpty { updatedLabel = proto.channelLabel }
         if !proto.topic.isEmpty { updatedTopic = proto.topic }
         if proto.categoryID != 0 { updatedCategoryId = proto.categoryID }
         if !proto.categoryName.isEmpty { updatedCategoryName = proto.categoryName }
         if proto.parentID != 0 { updatedParentId = proto.parentID }
         if proto.type != 0 { updatedType = Int32(proto.type) }
-        
-        // Also update protoData to reflect the merge
+
+
         var updatedProto = self.toProto()
         if !proto.channelLabel.isEmpty { updatedProto.channelLabel = proto.channelLabel }
         if !proto.topic.isEmpty { updatedProto.topic = proto.topic }
@@ -107,7 +107,7 @@ struct ChannelRecord: PostboxCoding, Equatable {
         if !proto.categoryName.isEmpty { updatedProto.categoryName = proto.categoryName }
         if proto.parentID != 0 { updatedProto.parentID = proto.parentID }
         if proto.type != 0 { updatedProto.type = proto.type }
-        
+
         return ChannelRecord(
             id: self.id,
             clanId: self.clanId,

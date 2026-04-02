@@ -16,8 +16,8 @@ enum SearchTab: Int, CaseIterable {
 }
 
 enum SearchFilterOption {
-    case from   // ">" — from user
-    case mentions // "~" — mention user
+    case from
+    case mentions
 
     var symbol: String {
         switch self {

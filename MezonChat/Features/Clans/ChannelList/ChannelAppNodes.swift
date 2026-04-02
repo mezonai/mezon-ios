@@ -86,7 +86,6 @@ final class ChannelAppCellNode: ASCellNode {
     }
 }
 
-// MARK: - Channel App Horizontal Cell Node (>3 apps, horizontal scroll)
 
 final class ChannelAppHorizontalCellNode: ASCellNode {
 
@@ -137,7 +136,6 @@ final class ChannelAppHorizontalCellNode: ASCellNode {
     }
 }
 
-// MARK: - Channel App Icon Node (pure ASDisplayKit replacement for ChannelAppIconItemView)
 
 final class ChannelAppIconNode: ASDisplayNode {
 
@@ -218,4 +216,4 @@ final class ChannelAppIconNode: ASDisplayNode {
     }
 }
 
-// ChannelAppIconItemView removed — replaced by ChannelAppIconNode (pure ASDisplayKit)
+

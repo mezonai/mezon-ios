@@ -12,7 +12,7 @@ public enum TooltipControllerContent: Equatable {
     case attributedText(NSAttributedString)
     case iconAndText(UIImage, String)
     case custom(TooltipControllerCustomContentNode)
-    
+
     var text: String {
         switch self {
             case let .text(text), let .iconAndText(_, text):
@@ -23,14 +23,14 @@ public enum TooltipControllerContent: Equatable {
                 return ""
         }
     }
-    
+
     var image: UIImage? {
         if case let .iconAndText(image, _) = self {
             return image
         }
         return nil
     }
-    
+
     public static func == (lhs: TooltipControllerContent, rhs: TooltipControllerContent) -> Bool {
         switch lhs {
             case let .text(lhsText):
@@ -64,7 +64,7 @@ public enum TooltipControllerContent: Equatable {
 public enum SourceAndRect {
     case node(() -> (ASDisplayNode, CGRect)?)
     case view(() -> (UIView, CGRect)?)
-    
+
     func globalRect(isAlreadyGlobal: Bool) -> CGRect? {
         switch self {
             case let .node(node):
@@ -91,12 +91,12 @@ public enum SourceAndRect {
 public final class TooltipControllerPresentationArguments {
     public let sourceAndRect: SourceAndRect
     public let sourceRectIsGlobal: Bool
-    
+
     public init(sourceNodeAndRect: @escaping () -> (ASDisplayNode, CGRect)?, sourceRectIsGlobal: Bool = false) {
         self.sourceAndRect = .node(sourceNodeAndRect)
         self.sourceRectIsGlobal = sourceRectIsGlobal
     }
-    
+
     public init(sourceViewAndRect: @escaping () -> (UIView, CGRect)?, sourceRectIsGlobal: Bool = false) {
         self.sourceAndRect = .view(sourceViewAndRect)
         self.sourceRectIsGlobal = sourceRectIsGlobal
@@ -108,17 +108,17 @@ open class TooltipController: ViewController, StandalonePresentableController {
         case center
         case natural
     }
-    
+
     private var controllerNode: TooltipControllerNode {
         return self.displayNode as! TooltipControllerNode
     }
-    
+
     public private(set) var content: TooltipControllerContent
     private let baseFontSize: CGFloat
     private let balancedTextLayout: Bool
     private let alignment: Alignment
     private let isBlurred: Bool
-    
+
     open func updateContent(_ content: TooltipControllerContent, animated: Bool, extendTimer: Bool, arrowOnBottom: Bool = true) {
         if self.content != content {
             self.content = content
@@ -133,21 +133,21 @@ open class TooltipController: ViewController, StandalonePresentableController {
             }
         }
     }
-    
+
     private let timeout: Double
     private let dismissByTapOutside: Bool
     private let dismissByTapOutsideSource: Bool
     private let dismissImmediatelyOnLayoutUpdate: Bool
     private var timeoutTimer: Timer?
-    
+
     private var padding: CGFloat
     private var innerPadding: UIEdgeInsets
-    
+
     private var layout: ContainerViewLayout?
     private var initialArrowOnBottom: Bool
-    
+
     public var dismissed: ((Bool) -> Void)?
-    
+
     public init(content: TooltipControllerContent, baseFontSize: CGFloat, balancedTextLayout: Bool = false, alignment: Alignment = .center, isBlurred: Bool = false, timeout: Double = 2.0, dismissByTapOutside: Bool = false, dismissByTapOutsideSource: Bool = false, dismissImmediatelyOnLayoutUpdate: Bool = false, arrowOnBottom: Bool = true, padding: CGFloat = 8.0, innerPadding: UIEdgeInsets = UIEdgeInsets()) {
         self.content = content
         self.baseFontSize = baseFontSize
@@ -161,20 +161,20 @@ open class TooltipController: ViewController, StandalonePresentableController {
         self.initialArrowOnBottom = arrowOnBottom
         self.padding = padding
         self.innerPadding = innerPadding
-        
+
         super.init(navigationBarPresentationData: nil)
-        
+
         self.statusBar.statusBarStyle = .Ignore
     }
-    
+
     required public init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-    
+
     deinit {
         self.timeoutTimer?.invalidate()
     }
-    
+
     override open func loadDisplayNode() {
         self.displayNode = TooltipControllerNode(content: self.content, baseFontSize: self.baseFontSize, balancedTextLayout: self.balancedTextLayout, alignment: self.alignment, isBlurred: self.isBlurred, dismiss: { [weak self] tappedInside in
             self?.dismiss(tappedInside: tappedInside)
@@ -184,17 +184,17 @@ open class TooltipController: ViewController, StandalonePresentableController {
         self.controllerNode.arrowOnBottom = self.initialArrowOnBottom
         self.displayNodeDidLoad()
     }
-    
+
     override open func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        
+
         self.controllerNode.animateIn()
         self.beginTimeout()
     }
-    
+
     override open func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        
+
         if self.layout != nil && self.layout!.size != layout.size {
             if self.dismissImmediatelyOnLayoutUpdate {
                 self.dismissImmediately()
@@ -203,24 +203,24 @@ open class TooltipController: ViewController, StandalonePresentableController {
             }
         } else {
             self.layout = layout
-            
+
             if let presentationArguments = self.presentationArguments as? TooltipControllerPresentationArguments, let sourceRect = presentationArguments.sourceAndRect.globalRect(isAlreadyGlobal: presentationArguments.sourceRectIsGlobal) {
                 self.controllerNode.sourceRect = sourceRect
             } else {
                 self.controllerNode.sourceRect = nil
             }
-            
+
             self.controllerNode.containerLayoutUpdated(layout, transition: transition)
         }
     }
-    
+
     override open func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        
+
         self.controllerNode.animateIn()
         self.beginTimeout()
     }
-    
+
     private func beginTimeout() {
         if self.timeoutTimer == nil {
             let timeoutTimer = Timer(timeout: self.timeout, repeat: false, completion: { [weak self] in
@@ -235,7 +235,7 @@ open class TooltipController: ViewController, StandalonePresentableController {
             timeoutTimer.start()
         }
     }
-    
+
     private func dismiss(tappedInside: Bool, completion: (() -> Void)? = nil) {
         self.dismissed?(tappedInside)
         self.controllerNode.animateOut { [weak self] in
@@ -243,11 +243,11 @@ open class TooltipController: ViewController, StandalonePresentableController {
              completion?()
         }
     }
-    
+
     override open func dismiss(completion: (() -> Void)? = nil) {
         self.dismiss(tappedInside: false, completion: completion)
     }
-    
+
     open func dismissImmediately() {
         self.dismissed?(false)
         self.controllerNode.hide()

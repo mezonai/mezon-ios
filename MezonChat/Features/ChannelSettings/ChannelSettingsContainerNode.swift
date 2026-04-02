@@ -33,7 +33,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private func setupUI() {
         let t = UIColor.theme
 
-        // Header
+
         let header = UIView()
         view.addSubview(header)
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -81,7 +81,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             saveBtn.centerYAnchor.constraint(equalTo: header.centerYAnchor),
         ])
 
-        // Content
+
         scrollView.showsVerticalScrollIndicator = false
         view.addSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -104,11 +104,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             stackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -32.sw),
         ])
 
-        // Inputs
+
         stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.name), input: nameField))
         stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.topic), input: topicView, isTextArea: true))
 
-        // Actions Group 1
+
         let group1 = createGroup(actions: [
             .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog"),
             .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission"),
@@ -124,13 +124,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         footerLabel.numberOfLines = 0
         stackView.addArrangedSubview(footerLabel)
 
-        // Actions Group 2
+
         let group2 = createGroup(actions: [
             .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon"),
         ])
         stackView.addArrangedSubview(group2)
 
-        // Delete Row
+
         let deleteBtn = createActionRow(title: L(L10n.Channel.delete), icon: "ChannelSetting/DeleteIcon", isDestructive: true)
         deleteBtn.backgroundColor = .mezonBorder
         deleteBtn.layer.cornerRadius = 12

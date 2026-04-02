@@ -172,6 +172,32 @@ final class MezonHTTPClient {
         return response.channeldesc
     }
 
+
+    func listCategoryDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_CategoryDesc] {
+        var req = Mezon_Api_ListCategoryDescsRequest()
+        req.clanID = clanId
+        req.limit = 100
+        req.state = 1
+        let response: Mezon_Api_CategoryDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListCategoryDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.categorydesc
+    }
+
+
+    func listFavoriteChannelIds(clanId: Int64, token: String) async throws -> [Int64] {
+        var req = Mezon_Api_ListFavoriteChannelRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListFavoriteChannelResponse = try await postProto(
+            path: "/mezon.api.Mezon/GetListFavoriteChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channelIds
+    }
+
     func listDirectMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
         var req = Mezon_Api_ListChannelDescsRequest()
         req.clanID      = 0
@@ -289,6 +315,7 @@ final class MezonHTTPClient {
         req.mentionEveryone = mentionEveryone
         req.avatar = avatar
         req.topicID = topicId
+
         return try await postProto(
             path: "/mezon.api.Mezon/SendChannelMessage",
             message: req,
@@ -467,16 +494,6 @@ final class MezonHTTPClient {
         )
     }
 
-    // NOTE: ListClanBadgeCount has moved to socket. See MezonEngine+ClanData.fetchBadgeCount.
-    // func listClanBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
-    //     var req = Mezon_Api_ListClanBadgeCountRequest()
-    //     req.clanID = clanId
-    //     return try await postProto(
-    //         path: "/mezon.api.Mezon/ListClanBadgeCount",
-    //         message: req,
-    //         auth: .bearer(token)
-    //     )
-    // }
 
     func getNotificationClan(clanId: Int64, token: String) async throws -> Mezon_Api_NotificationUserChannel {
         var req = Mezon_Api_DefaultNotificationClan()
@@ -611,6 +628,26 @@ final class MezonHTTPClient {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+
+    func getListEmojisByUserId(token: String) async throws -> Mezon_Api_EmojiListedResponse {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetListEmojisByUserId",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+
+    func getListStickersByUserId(token: String) async throws -> Mezon_Api_StickerListedResponse {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetListStickersByUserId",
             message: empty,
             auth: .bearer(token)
         )

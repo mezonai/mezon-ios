@@ -244,7 +244,7 @@ enum L10n {
     enum DirectMessage {
         static let you        = "directMessage.you"
         static let addFriend = "directMessage.addFriend"
-        /// RN `MessagePreviewLastest` empty group / attachment labels (`attachments.*` keys on mobile).
+
         static let groupCreated   = "directMessage.groupCreated"
         static let previewFile    = "directMessage.previewFile"
         static let previewLink    = "directMessage.previewLink"

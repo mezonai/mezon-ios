@@ -91,6 +91,15 @@ final class MezonRootController: NavigationController {
         guard let pending = AppDelegate.pendingNavigation else { return }
         AppDelegate.pendingNavigation = nil
 
+
+        if let clanIdStr = pending["clanId"] as? String, let clanId = Int64(clanIdStr), clanId != 0 {
+            let isDM = pending["isDM"] as? Bool ?? false
+            if !isDM {
+                context.currentClanId = clanId
+                AppLogger.network.info("[FCM] processPendingNavigation: pre-set currentClanId=\(clanId) for socket join")
+            }
+        }
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             await withTaskGroup(of: Void.self) { group in
@@ -107,7 +116,6 @@ final class MezonRootController: NavigationController {
         }
     }
 
-    // MARK: - Notification Navigation
 
     @objc private func handleQRSelectClanRoot(_ notification: Notification) {
         rootTabController?.selectedIndex = 0
@@ -247,6 +255,8 @@ final class MezonRootController: NavigationController {
                 }
             }))
         } else {
+
+            switchClanIfNeeded(homeVC: homeVC, toClanId: targetClanId)
             var minimal = Mezon_Api_ChannelDescription()
             minimal.channelID = channelIdInt
             minimal.clanID = targetClanId
@@ -257,10 +267,24 @@ final class MezonRootController: NavigationController {
     }
 
     private func switchClanIfNeeded(homeVC: HomeViewController, toClanId: Int64) {
-        guard toClanId != homeVC.clanListVC.selectedClanId,
-              let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == toClanId }) else { return }
-        homeVC.clanListVC.select(clan: clan)
-        homeVC.channelListVC.configure(clanId: toClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
+        guard toClanId != 0, toClanId != homeVC.clanListVC.selectedClanId else { return }
+        if let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == toClanId }) {
+            homeVC.clanListVC.select(clan: clan)
+            homeVC.channelListVC.configure(clanId: toClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
+        } else {
+
+
+            context.currentClanId = toClanId
+            if context.account.socket.isConnected {
+                context.account.socket.joinClanChat(clanId: toClanId)
+            }
+
+            Task { @MainActor [weak self] in
+                guard let self, let token = await self.context.getToken() else { return }
+                self.context.engine.clanData.fetchAllClanData(clanId: toClanId, token: token)
+            }
+            AppLogger.network.info("[FCM] switchClanIfNeeded: clan \(toClanId) not in clans list yet, set currentClanId + fetchAllClanData")
+        }
     }
 
     private func fetchClanChannelsInBackground(clanId: Int64) {

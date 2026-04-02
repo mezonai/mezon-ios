@@ -57,5 +57,48 @@ extension MezonEngine {
                     return (r0, r1, r2)
                 }
         }
+
+
+        func cachedEmojiList(clanId: Int64) -> MediaPanelEmojiListCache? {
+            if let c = postbox.getSetting(key: MediaPanelPostboxKeys.emojiListByUser, type: MediaPanelEmojiListCache.self) {
+                return c
+            }
+            if let c = postbox.getSetting(key: MediaPanelPostboxKeys.emojiList(clanId: clanId), type: MediaPanelEmojiListCache.self) {
+                return c
+            }
+            if let stored = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int {
+                let sid = Int64(stored)
+                if sid != clanId,
+                   let c = postbox.getSetting(key: MediaPanelPostboxKeys.emojiList(clanId: sid), type: MediaPanelEmojiListCache.self) {
+                    return c
+                }
+            }
+            return postbox.getSetting(key: MediaPanelPostboxKeys.emojiList(clanId: 0), type: MediaPanelEmojiListCache.self)
+        }
+
+        func cachedStickerList(clanId: Int64) -> MediaPanelStickerListCache? {
+            if let c = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self) {
+                return c
+            }
+            if let c = postbox.getSetting(key: MediaPanelPostboxKeys.stickerList(clanId: clanId), type: MediaPanelStickerListCache.self) {
+                return c
+            }
+            if let stored = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int {
+                let sid = Int64(stored)
+                if sid != clanId,
+                   let c = postbox.getSetting(key: MediaPanelPostboxKeys.stickerList(clanId: sid), type: MediaPanelStickerListCache.self) {
+                    return c
+                }
+            }
+            return postbox.getSetting(key: MediaPanelPostboxKeys.stickerList(clanId: 0), type: MediaPanelStickerListCache.self)
+        }
+
+        func cachedGifCategoriesJSON() -> MediaPanelTenorJsonCache? {
+            postbox.getSetting(key: MediaPanelPostboxKeys.gifCategoriesJson, type: MediaPanelTenorJsonCache.self)
+        }
+
+        func cachedGifFeaturedJSON() -> MediaPanelTenorJsonCache? {
+            postbox.getSetting(key: MediaPanelPostboxKeys.gifFeaturedJson, type: MediaPanelTenorJsonCache.self)
+        }
     }
 }

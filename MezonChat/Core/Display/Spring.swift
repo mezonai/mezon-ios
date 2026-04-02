@@ -6,7 +6,7 @@ struct ViewportItemSpring {
     let damping: CGFloat
     let mass: CGFloat
     var velocity: CGFloat = 0.0
-    
+
     init(stiffness: CGFloat, damping: CGFloat, mass: CGFloat) {
         self.stiffness = stiffness
         self.damping = damping
@@ -50,10 +50,10 @@ private func getTForX(_ x: CGFloat, _ x1: CGFloat, _ x2: CGFloat) -> CGFloat {
             let currentX = calcBezier(t, x1, x2) - x
             t -= currentX / currentSlope
         }
-        
+
         i += 1
     }
-    
+
     return t
 }
 

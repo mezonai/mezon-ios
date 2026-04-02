@@ -107,7 +107,7 @@ final class ClanListViewController: ViewController {
         }
     }
 
-    /// RN `listClanBadgeCount` — socket-only; updates `badgeCount` / `hasUnreadMessage_p` on clan rows.
+
     @MainActor
     private func refreshClanSidebarBadgesFromSocket() async {
         guard context.account.socket.isConnected else { return }
@@ -154,7 +154,7 @@ final class ClanListViewController: ViewController {
 
         guard senderId != context.currentUser?.id else { return }
 
-        // --- Clan messages: badge handled by handleMentionReceived only ---
+
         if clanId != 0 {
             return
         }
@@ -249,7 +249,7 @@ final class ClanListViewController: ViewController {
                         changed = true
                     }
                     if (notification.userInfo?["fromSelf"] as? Bool) == true {
-                        // Don't clear the dot for self-messages — other channels might still be unread
+
                     }
                 }
             }
@@ -355,7 +355,7 @@ final class ClanListViewController: ViewController {
                     }
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
-                // HTTP + ListChannelBadgeCount often expose 1 = “has unread”, not the real count. Socket `handleNewMessageReceived` increments locally; keep the higher per channel (RN-style until server sends exact counts).
+
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
@@ -364,7 +364,7 @@ final class ClanListViewController: ViewController {
         }
     }
 
-    /// Per-channel `max(server, previousStrip)` so debounced / reconnect fetches don’t reset DM badge to 1 after socket `+= 1`.
+
     private static func mergeUnreadDmStrip(serverUnread: [Mezon_Api_ChannelDescription], previousStrip: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
         let prevCount = Dictionary(uniqueKeysWithValues: previousStrip.map { ($0.channelID, $0.countMessUnread) })
         guard !prevCount.isEmpty else { return serverUnread }
@@ -393,8 +393,7 @@ final class ClanListViewController: ViewController {
         return nil
     }
 
-    /// Returns the current user's role IDs from the active clan's permission state.
-    /// Mirrors RN's `selectMemberClanByUserId` → `role_id`.
+
     static func getCurrentUserRoleIds(context: AccountContext) -> Set<Int64> {
         let clanId = context.currentClanId
         guard clanId != 0 else { return [] }
@@ -402,8 +401,7 @@ final class ClanListViewController: ViewController {
         return Set(roleList.roles.map { $0.id })
     }
 
-    /// Checks if a channel message mentions or replies to the current user.
-    /// Mirrors RN's `badgeService.isMessageMentionOrReply`.
+
     static func checkMessageMentionsUser(
         _ message: Mezon_Api_ChannelMessage,
         currentUserId: String?,
@@ -411,25 +409,25 @@ final class ClanListViewController: ViewController {
     ) -> Bool {
         guard let currentUserId, !currentUserId.isEmpty else { return false }
 
-        // Check mentions
+
         if let mentionList = try? Mezon_Api_MessageMentionList(serializedBytes: message.mentions) {
             for mention in mentionList.mentions {
-                // @here
+
                 if mention.userID != 0, "\(mention.userID)" == ChatMessageDisplay.mentionHereUserId {
                     return true
                 }
-                // Direct user mention
+
                 if mention.userID != 0, "\(mention.userID)" == currentUserId {
                     return true
                 }
-                // Role mention
+
                 if mention.roleID != 0, currentUserRoleIds.contains(mention.roleID) {
                     return true
                 }
             }
         }
 
-        // Check replies — if any reference was sent by the current user
+
         if let refList = try? Mezon_Api_MessageRefList(serializedBytes: message.references) {
             for ref in refList.refs {
                 if ref.messageSenderID != 0, "\(ref.messageSenderID)" == currentUserId {
