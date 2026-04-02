@@ -39,6 +39,7 @@ enum L10n {
         static let share          = "common.share"
         static let download       = "common.download"
         static let forward        = "common.forward"
+        static let forwarded      = "common.forwarded"
         static let saveChanges    = "common.saveChanges"
         static let enable         = "common.enable"
         static let reset          = "common.reset"
@@ -309,6 +310,7 @@ extension L10n {
         "common.share":         "Share",
         "common.download":      "Download",
         "common.forward":       "Forward",
+        "common.forwarded":     "Forwarded",
         "common.saveChanges":   "Save Changes",
         "common.enable":        "Enable",
         "common.reset":         "Reset",
@@ -540,6 +542,7 @@ extension L10n {
         "common.share":         "Chia sẻ",
         "common.download":      "Tải xuống",
         "common.forward":       "Chuyển tiếp",
+        "common.forwarded":     "Đã chuyển tiếp",
         "common.saveChanges":   "Lưu thay đổi",
         "common.enable":        "Bật",
         "common.reset":         "Đặt lại",

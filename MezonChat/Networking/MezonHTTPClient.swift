@@ -177,7 +177,6 @@ final class MezonHTTPClient {
         var req = Mezon_Api_ListCategoryDescsRequest()
         req.clanID = clanId
         req.limit = 100
-        req.state = 1
         let response: Mezon_Api_CategoryDescList = try await postProto(
             path: "/mezon.api.Mezon/ListCategoryDescs",
             message: req,

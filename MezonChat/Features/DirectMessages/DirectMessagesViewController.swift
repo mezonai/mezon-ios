@@ -69,10 +69,17 @@ final class DirectMessagesViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+    }
+
+    @objc private func handleDirectMessagesThemeChange() {
+        guard isNodeLoaded else { return }
+        directMessagesNode.applyTheme()
     }
 
     @objc private func handleSocketStatusForDMBadges(_ notification: Notification) {

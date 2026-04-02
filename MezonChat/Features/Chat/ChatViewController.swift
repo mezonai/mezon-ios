@@ -94,6 +94,8 @@ struct ChatMessageDisplay: Identifiable {
     let isMe: Bool
     let sendingState: SendingState
     let hasIncludeMention: Bool
+    let isForward: Bool
+    let showForwardHeader: Bool
     var isFailed: Bool { sendingState == .failed }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
@@ -113,7 +115,19 @@ struct ChatMessageDisplay: Identifiable {
         let diff = current.createdAt.timeIntervalSince(prev.createdAt)
         return diff < 120 && diff >= 0
     }
+
     static let mentionHereUserId: String = "1775731111020111321"
+    private static let forwardCombineGapSeconds: TimeInterval = 120
+
+    static func shouldShowForwardHeader(isForward: Bool, current: Message, previous: Message?, previousWasForward: Bool) -> Bool {
+        guard isForward else { return false }
+        guard let prev = previous else { return true }
+        if !previousWasForward { return true }
+        let diff = current.createdAt.timeIntervalSince(prev.createdAt)
+        if diff > Self.forwardCombineGapSeconds || diff < 0 { return true }
+        if current.senderId != prev.senderId { return true }
+        return false
+    }
 }
 
 struct ChatState {
@@ -1163,9 +1177,42 @@ final class ChatViewController: ViewController {
                 currentUserId: currentUserId,
                 currentUserRoleIds: currentUserRoleIds
             )
-            return ChatMessageDisplay(message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL, isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed, replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog, topicData: topicData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention)
+            let isForward = Self.parseContentIsForward(from: record.content)
+            return ChatMessageDisplay(
+                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
+                isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
+                replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
+                topicData: topicData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
+                isForward: isForward, showForwardHeader: false
+            )
         }
         return Self.applyCombine(to: displays)
+    }
+
+    private static func parseContentIsForward(from data: Data) -> Bool {
+        guard !data.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return jsonForwardTruth(json["fwd"])
+    }
+
+    private static func jsonForwardTruth(_ value: Any?) -> Bool {
+        switch value {
+        case let b as Bool: return b
+        case let n as NSNumber:
+            return n.boolValue || n.intValue != 0
+        case let i as Int: return i != 0
+        case let i64 as Int64: return i64 != 0
+        case let d as Double: return d != 0
+        case is [String: Any]: return true
+        case let arr as [Any]: return !arr.isEmpty
+        case let s as String:
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if t.isEmpty { return false }
+            if t == "0" || t == "false" { return false }
+            return true
+        default:
+            return false
+        }
     }
 
     private static func firstReplyRef(from data: Data) -> (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool) {
@@ -1235,10 +1282,23 @@ final class ChatViewController: ViewController {
 
     private static func applyCombine(to displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         displays.enumerated().map { i, d in
-            let prev = i > 0 ? displays[i - 1].message : nil
+            let prevDisplay = i > 0 ? displays[i - 1] : nil
+            let prev = prevDisplay?.message
             let hasReply = d.replyRef != nil || d.isDeletedReply
             let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
-            return ChatMessageDisplay(message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine, attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent, replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog, topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention)
+            let showForwardHeader = ChatMessageDisplay.shouldShowForwardHeader(
+                isForward: d.isForward,
+                current: d.message,
+                previous: prev,
+                previousWasForward: prevDisplay?.isForward ?? false
+            )
+            return ChatMessageDisplay(
+                message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine,
+                attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
+                replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
+                topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
+                isForward: d.isForward, showForwardHeader: showForwardHeader
+            )
         }
     }
 

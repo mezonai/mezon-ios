@@ -1522,6 +1522,47 @@ struct Mezon_Api_ListClanUsersRequest: Sendable {
   init() {}
 }
 
+/// List clan members' custom status strings (user_status) by clan.
+struct Mezon_Api_ListClanUsersStatusRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// The clan ID to list from.
+  var clanID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_ClanUserStatusEntry: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var userID: Int64 = 0
+
+  var userStatus: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// User id and custom status text for members of a clan.
+struct Mezon_Api_ClanUserStatusList: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var clanUserStatuses: [Mezon_Api_ClanUserStatusEntry] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 /// Get a list of unexpired notifications.
 struct Mezon_Api_ListNotificationsRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -2891,8 +2932,8 @@ struct Mezon_Api_ListCategoryDescsRequest: Sendable {
   /// Max number of records to return. Between 1 and 100.
   var limit: Int32 = 0
 
-  /// The friend state to list.
-  var state: Int32 = 0
+  /// Clan to list categories for (wire field 2; matches React Native / production API).
+  var clanID: Int64 = 0
 
   /// Cursor to start from
   var cursor: String = String()
@@ -8306,6 +8347,10 @@ struct Mezon_Api_ListChannelBadgeCountRequest: Sendable {
 
   var clanID: Int64 = 0
 
+  var limit: Int32 = 0
+
+  var page: Int32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -8317,6 +8362,8 @@ struct Mezon_Api_ListChannelBadgeCountResponse: Sendable {
   // methods supported on all messages.
 
   var channeldesc: [Mezon_Api_ChannelDescription] = []
+
+  var totalCount: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -9116,6 +9163,10 @@ struct Mezon_Api_ListUserOnlineRequest: Sendable {
 
   var clanID: Int64 = 0
 
+  var limit: Int32 = 0
+
+  var page: Int32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -9127,6 +9178,8 @@ struct Mezon_Api_ListUserOnlineResponse: Sendable {
   // methods supported on all messages.
 
   var users: [Mezon_Api_User] = []
+
+  var totalCount: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -11436,6 +11489,101 @@ extension Mezon_Api_ListClanUsersRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
+extension Mezon_Api_ListClanUsersStatusRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ListClanUsersStatusRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_ListClanUsersStatusRequest, rhs: Mezon_Api_ListClanUsersStatusRequest) -> Bool {
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_ClanUserStatusEntry: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ClanUserStatusEntry"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{3}user_status\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.userStatus) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.userID != 0 {
+      try visitor.visitSingularInt64Field(value: self.userID, fieldNumber: 1)
+    }
+    if !self.userStatus.isEmpty {
+      try visitor.visitSingularStringField(value: self.userStatus, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_ClanUserStatusEntry, rhs: Mezon_Api_ClanUserStatusEntry) -> Bool {
+    if lhs.userID != rhs.userID {return false}
+    if lhs.userStatus != rhs.userStatus {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_ClanUserStatusList: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ClanUserStatusList"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_user_statuses\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.clanUserStatuses) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.clanUserStatuses.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.clanUserStatuses, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_ClanUserStatusList, rhs: Mezon_Api_ClanUserStatusList) -> Bool {
+    if lhs.clanUserStatuses != rhs.clanUserStatuses {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Mezon_Api_ListNotificationsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListNotificationsRequest"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}limit\0\u{3}clan_id\0\u{3}notification_id\0\u{1}category\0\u{1}direction\0")
@@ -13707,7 +13855,7 @@ extension Mezon_Api_CategoryDescList: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListCategoryDescsRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}limit\0\u{1}state\0\u{1}cursor\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}limit\0\u{3}clan_id\0\u{1}cursor\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -13716,7 +13864,7 @@ extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtob
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt32Field(value: &self.limit) }()
-      case 2: try { try decoder.decodeSingularInt32Field(value: &self.state) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.cursor) }()
       default: break
       }
@@ -13727,8 +13875,8 @@ extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtob
     if self.limit != 0 {
       try visitor.visitSingularInt32Field(value: self.limit, fieldNumber: 1)
     }
-    if self.state != 0 {
-      try visitor.visitSingularInt32Field(value: self.state, fieldNumber: 2)
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 2)
     }
     if !self.cursor.isEmpty {
       try visitor.visitSingularStringField(value: self.cursor, fieldNumber: 3)
@@ -13738,7 +13886,7 @@ extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtob
 
   static func ==(lhs: Mezon_Api_ListCategoryDescsRequest, rhs: Mezon_Api_ListCategoryDescsRequest) -> Bool {
     if lhs.limit != rhs.limit {return false}
-    if lhs.state != rhs.state {return false}
+    if lhs.clanID != rhs.clanID {return false}
     if lhs.cursor != rhs.cursor {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
@@ -24747,7 +24895,7 @@ extension Mezon_Api_MessageReactionList: SwiftProtobuf.Message, SwiftProtobuf._M
 
 extension Mezon_Api_ListChannelBadgeCountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListChannelBadgeCountRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{1}limit\0\u{1}page\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -24756,6 +24904,8 @@ extension Mezon_Api_ListChannelBadgeCountRequest: SwiftProtobuf.Message, SwiftPr
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.limit) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.page) }()
       default: break
       }
     }
@@ -24765,11 +24915,19 @@ extension Mezon_Api_ListChannelBadgeCountRequest: SwiftProtobuf.Message, SwiftPr
     if self.clanID != 0 {
       try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
     }
+    if self.limit != 0 {
+      try visitor.visitSingularInt32Field(value: self.limit, fieldNumber: 2)
+    }
+    if self.page != 0 {
+      try visitor.visitSingularInt32Field(value: self.page, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_ListChannelBadgeCountRequest, rhs: Mezon_Api_ListChannelBadgeCountRequest) -> Bool {
     if lhs.clanID != rhs.clanID {return false}
+    if lhs.limit != rhs.limit {return false}
+    if lhs.page != rhs.page {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -24777,7 +24935,7 @@ extension Mezon_Api_ListChannelBadgeCountRequest: SwiftProtobuf.Message, SwiftPr
 
 extension Mezon_Api_ListChannelBadgeCountResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListChannelBadgeCountResponse"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}channeldesc\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}channeldesc\0\u{3}total_count\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -24786,6 +24944,7 @@ extension Mezon_Api_ListChannelBadgeCountResponse: SwiftProtobuf.Message, SwiftP
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.channeldesc) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.totalCount) }()
       default: break
       }
     }
@@ -24795,11 +24954,15 @@ extension Mezon_Api_ListChannelBadgeCountResponse: SwiftProtobuf.Message, SwiftP
     if !self.channeldesc.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.channeldesc, fieldNumber: 1)
     }
+    if self.totalCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.totalCount, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_ListChannelBadgeCountResponse, rhs: Mezon_Api_ListChannelBadgeCountResponse) -> Bool {
     if lhs.channeldesc != rhs.channeldesc {return false}
+    if lhs.totalCount != rhs.totalCount {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -26296,7 +26459,7 @@ extension Mezon_Api_GetPollResponse: SwiftProtobuf.Message, SwiftProtobuf._Messa
 
 extension Mezon_Api_ListUserOnlineRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListUserOnlineRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{1}limit\0\u{1}page\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -26305,6 +26468,8 @@ extension Mezon_Api_ListUserOnlineRequest: SwiftProtobuf.Message, SwiftProtobuf.
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.limit) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.page) }()
       default: break
       }
     }
@@ -26314,11 +26479,19 @@ extension Mezon_Api_ListUserOnlineRequest: SwiftProtobuf.Message, SwiftProtobuf.
     if self.clanID != 0 {
       try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
     }
+    if self.limit != 0 {
+      try visitor.visitSingularInt32Field(value: self.limit, fieldNumber: 2)
+    }
+    if self.page != 0 {
+      try visitor.visitSingularInt32Field(value: self.page, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_ListUserOnlineRequest, rhs: Mezon_Api_ListUserOnlineRequest) -> Bool {
     if lhs.clanID != rhs.clanID {return false}
+    if lhs.limit != rhs.limit {return false}
+    if lhs.page != rhs.page {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -26326,7 +26499,7 @@ extension Mezon_Api_ListUserOnlineRequest: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Api_ListUserOnlineResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListUserOnlineResponse"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}users\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}users\0\u{3}total_count\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -26335,6 +26508,7 @@ extension Mezon_Api_ListUserOnlineResponse: SwiftProtobuf.Message, SwiftProtobuf
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.users) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.totalCount) }()
       default: break
       }
     }
@@ -26344,11 +26518,15 @@ extension Mezon_Api_ListUserOnlineResponse: SwiftProtobuf.Message, SwiftProtobuf
     if !self.users.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.users, fieldNumber: 1)
     }
+    if self.totalCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.totalCount, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_ListUserOnlineResponse, rhs: Mezon_Api_ListUserOnlineResponse) -> Bool {
     if lhs.users != rhs.users {return false}
+    if lhs.totalCount != rhs.totalCount {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
