@@ -65,7 +65,9 @@ final class NotificationsViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        Task { await fetchNotifications(category: 1) }
+        if items.isEmpty {
+            Task { await fetchNotifications(category: currentCategory) }
+        }
     }
 
     private var lastLayout: ContainerViewLayout?
@@ -174,16 +176,19 @@ final class NotificationsViewController: ViewController {
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
-            if record.messageID != 0 {
+            if record.category == 1 && record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
             self.navigationController?.pushViewController(vc, animated: true)
         case .topic(let record):
             channel.clanID = record.clanID
             channel.channelID = record.channelID
+            channel.channelLabel = "Topic Discussion"
             context.currentClanId = record.clanID
+            
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
+            vc.topicId = record.id
             self.navigationController?.pushViewController(vc, animated: true)
         }
     }

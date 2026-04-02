@@ -81,6 +81,8 @@ final class MezonRootController: NavigationController {
         pushViewController(tabBarController, animated: false)
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleQRSelectClanRoot(_:)), name: .mezonQRSelectClan, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
 
         processPendingNavigation()
     }
@@ -106,6 +108,17 @@ final class MezonRootController: NavigationController {
     }
 
     // MARK: - Notification Navigation
+
+    @objc private func handleQRSelectClanRoot(_ notification: Notification) {
+        rootTabController?.selectedIndex = 0
+        popToTabBarController()
+    }
+
+    @objc private func handleQRNavigateToDM(_ notification: Notification) {
+        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        let title = notification.userInfo?["title"] as? String
+        navigateToDM(channelIdStr: channelIdStr, title: title)
+    }
 
     @objc private func handleNavigateToChannel(_ notification: Notification) {
         guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }

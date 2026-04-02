@@ -162,7 +162,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             tv.textContainerInset = UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
             tv.textColor = UIColor.theme.textStrong
             tv.font = .systemFont(ofSize: 16.sf)
-            tv.heightAnchor.constraint(equalToConstant: 200.sh).isActive = true
+            tv.heightAnchor.constraint(equalToConstant: 150.sh).isActive = true
             tv.isScrollEnabled = false
         }
         v.addArrangedSubview(input)
@@ -203,7 +203,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.border
+                sep.backgroundColor = UIColor.theme.tertiary
                 stack.addArrangedSubview(sep)
                 sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
             }
@@ -216,7 +216,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         v.backgroundColor = .clear
 
         let iconView = UIImageView()
-        iconView.image = UIImage(named: icon)?.withRenderingMode(.alwaysOriginal)
+        iconView.image = UIImage(named: icon)?.withRenderingMode(isDestructive ? .alwaysTemplate : .alwaysOriginal)
         iconView.contentMode = .scaleAspectFit
         iconView.tintColor = isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(iconView)
@@ -230,7 +230,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         let l = UILabel()
         l.text = title
-        l.font = .systemFont(ofSize: 16.sf, weight: .medium)
+        l.font = .systemFont(ofSize: 14.sf, weight: .medium)
         l.textColor = isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(l)
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -247,12 +247,12 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             NSLayoutConstraint.activate([
                 arrow.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16.sw),
                 arrow.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-                arrow.widthAnchor.constraint(equalToConstant: 12.swh),
-                arrow.heightAnchor.constraint(equalToConstant: 12.swh),
+                arrow.widthAnchor.constraint(equalToConstant: 16.swh),
+                arrow.heightAnchor.constraint(equalToConstant: 16.swh),
             ])
         }
 
-        v.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
+        v.heightAnchor.constraint(equalToConstant: 60.sh).isActive = true
         return v
     }
 

@@ -72,8 +72,6 @@ extension NotificationRecord {
         self.senderID = apiModel.senderID
         self.createTimeSeconds = apiModel.createTimeSeconds
         self.persistent = apiModel.persistent
-        self.clanID = apiModel.clanID
-        self.channelID = apiModel.channelID
         self.channelType = apiModel.channelType
         self.topicID = apiModel.topicID
         self.category = apiModel.category
@@ -82,13 +80,15 @@ extension NotificationRecord {
         self.content = decoded.text
         self.avatarURL = apiModel.avatarURL.isEmpty ? decoded.avatar : apiModel.avatarURL
         self.messageID = decoded.messageID
+        self.clanID = decoded.clanID
+        self.channelID = decoded.channelID
     }
 
-    private typealias DecodedContent = (text: String, avatar: String, messageID: Int64)
+    private typealias DecodedContent = (text: String, avatar: String, messageID: Int64, clanID: Int64, channelID: Int64)
 
     //Decode content in notification
     private static func decodeContent(from data: Data) -> DecodedContent {
-        guard !data.isEmpty else { return ("", "", 0) }
+        guard !data.isEmpty else { return ("", "", 0, 0, 0) }
         if let channelMessage = try? Mezon_Api_DirectFcmProto(serializedBytes: data) {
             let jsonString = channelMessage.content
             let text: String
@@ -100,8 +100,8 @@ extension NotificationRecord {
             } else {
                 text = jsonString
             }
-            return (text, channelMessage.avatar, channelMessage.messageID)
+            return (text, channelMessage.avatar, channelMessage.messageID, channelMessage.clanID, channelMessage.channelID)
         }
-        return (String(data: data, encoding: .utf8) ?? "", "", 0)
+        return (String(data: data, encoding: .utf8) ?? "", "", 0, 0, 0)
     }
 }

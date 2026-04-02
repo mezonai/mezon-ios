@@ -221,5 +221,13 @@ extension MezonEngine {
             guard let data = postbox.getPreferenceData(key: PreferencesKeys.allChannelsByUser) else { return nil }
             return try? Mezon_Api_ChannelDescList(serializedBytes: data)
         }
+
+        func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
+            try await network.getInviteInfo(code: code, token: token)
+        }
+
+        func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
+            try await network.joinClanWithInvite(code: code, token: token)
+        }
     }
 }

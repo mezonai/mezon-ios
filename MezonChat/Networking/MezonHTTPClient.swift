@@ -90,6 +90,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func confirmLogin(loginId: String, token: String) async throws -> MezonSession {
+        struct Body: Encodable {
+            let login_id: String
+        }
+        return try await post(
+            path: "/v2/account/authenticate/confirmlogin",
+            body: Body(login_id: loginId),
+            auth: .bearer(token)
+        )
+    }
+
     func getAccount(token: String) async throws -> Mezon_Api_Account {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(
@@ -123,6 +134,25 @@ final class MezonHTTPClient {
             body: Body(token: session.token, refresh_token: session.refreshToken,
                 device_id: deviceId, platform: platform),
             auth: .bearer(session.token)
+        )
+    }
+
+    func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
+        let req = try buildRequest(
+            method: "GET", path: "/v2/invite/\(code)", queryItems: [],
+            body: Optional<EmptyBody>.none,
+            auth: .serverKey
+        )
+        return try await execute(req, allowBearerRetry: false)
+    }
+
+    func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
+        var req = Mezon_Api_InviteUserRequest()
+        req.inviteID = Int64(code) ?? 0
+        return try await postProto(
+            path: "/mezon.api.Mezon/InviteUser",
+            message: req,
+            auth: .bearer(token)
         )
     }
 
@@ -655,9 +685,9 @@ final class MezonHTTPClient {
         }
 
         if allowBearerRetry,
-           http.statusCode == 401 || http.statusCode == 403,
-           case .bearer = auth,
-           let recovery = bearerUnauthorizedRecovery,
+            http.statusCode == 401 || http.statusCode == 403,
+            case .bearer = auth,
+            let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
             AppLogger.network.info("[HTTP] \(http.statusCode) on proto \(url.path); retrying with refreshed session token")
             return try await postProto(
@@ -720,9 +750,9 @@ final class MezonHTTPClient {
         }
 
         if allowBearerRetry,
-           http.statusCode == 401 || http.statusCode == 403,
-           request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
-           let recovery = bearerUnauthorizedRecovery,
+            http.statusCode == 401 || http.statusCode == 403,
+            request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
+            let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
             AppLogger.network.info("[HTTP] \(http.statusCode) on \(request.url?.path ?? ""); retrying JSON request with refreshed token")
             var retry = request

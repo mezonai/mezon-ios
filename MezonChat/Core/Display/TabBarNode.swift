@@ -74,7 +74,7 @@ final class TabBarItemNode: ASDisplayNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let s = TabBarLayoutScale.value
-        let iconSize: CGFloat = 26 * s
+        let iconSize: CGFloat = 22 * s
         iconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
 
         let fontSize: CGFloat = 10 * s
