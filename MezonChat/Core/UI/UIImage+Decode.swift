@@ -9,7 +9,13 @@ extension UIImage {
     }
 
     static func decompressedImage(from data: Data) -> UIImage? {
+        if let animated = animatedImage(from: data) {
+            return animated
+        }
         guard let image = decodeImage(from: data) else { return nil }
+        if let frames = image.images, frames.count > 1 {
+            return image
+        }
         guard let cgImage = image.cgImage else { return image }
         let width = cgImage.width
         let height = cgImage.height

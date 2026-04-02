@@ -246,20 +246,41 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
         let title = response.notification.request.content.title
 
+        if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
+            accountContext?.currentClanId = clanIdInt
+        }
+
         Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
 
         completionHandler()
     }
 
     static var pendingNavigation: [String: Any]?
+    static var lastHandledNavigationInstanceId: String?
 
     static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false, title: String? = nil) {
         guard let channelId, !channelId.isEmpty else { return }
-        var info: [String: Any] = ["channelId": channelId, "isDM": isDM]
+        var info: [String: Any] = [
+            "channelId": channelId,
+            "isDM": isDM,
+            "navigationInstanceId": UUID().uuidString,
+        ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
         if let title, !title.isEmpty { info["title"] = title }
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
+        let instanceId = info["navigationInstanceId"] as? String
+        DispatchQueue.main.async {
+            guard let instanceId,
+                  (pendingNavigation?["navigationInstanceId"] as? String) == instanceId else { return }
+            pendingNavigation = nil
+        }
+    }
+
+    static func recordNavigationInstanceHandled(userInfo: [AnyHashable: Any]?) {
+        if let sid = userInfo?["navigationInstanceId"] as? String {
+            lastHandledNavigationInstanceId = sid
+        }
     }
 }
 

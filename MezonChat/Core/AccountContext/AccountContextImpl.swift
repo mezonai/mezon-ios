@@ -208,8 +208,9 @@ final class AccountContextImpl: AccountContext {
             activeRefreshTask = task
         } else {
             AppLogger.network.info("[Auth] recoverFromForeground: token still valid, reconnecting socket only")
-            if let token = session?.token {
-                account.socket.connect(token: token, wsHostOverride: nil)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let token = self.session?.token else { return }
+                self.account.socket.connect(token: token, wsHostOverride: nil)
             }
         }
     }
@@ -553,6 +554,9 @@ final class AccountContextImpl: AccountContext {
         account.socket.joinClanChat(clanId: 0)
         AppLogger.app.info("[MezonSocket] joinClanChat clanId=0 (DM stream, RN RootListener parity)")
 
+        // currentClanId is pre-set from the FCM notification payload in
+        // AppDelegate.didReceive before the socket connects, so it already
+        // points to the correct clan for notification-driven launches.
         let cachedClanId: Int64
         if currentClanId != 0 {
             cachedClanId = currentClanId
