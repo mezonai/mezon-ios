@@ -71,6 +71,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         // 3. Settings Group
         let settingsHeader = createSectionHeader(title: L(L10n.Common.settings))
         stackView.addArrangedSubview(settingsHeader)
+        stackView.setCustomSpacing(10.sh, after: settingsHeader)
 
         let settingsActions: [SettingAction] = [
             .init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview"),
@@ -87,6 +88,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         // 4. User Management Group
         let userMgmtHeader = createSectionHeader(title: L(L10n.ClanSetting.userManagement))
         stackView.addArrangedSubview(userMgmtHeader)
+        stackView.setCustomSpacing(10.sh, after: userMgmtHeader)
 
         let userActions: [SettingAction] = [
             .init(title: L(L10n.Clan.members), icon: "ClanSetting/Members"),
@@ -142,7 +144,11 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         let avatarContainer = UIView()
         avatarContainer.backgroundColor = colorFor(name: clanName)
         avatarContainer.layer.cornerRadius = 16.swh
-        avatarContainer.clipsToBounds = true
+        avatarContainer.layer.shadowColor = UIColor.black.cgColor
+        avatarContainer.layer.shadowOffset = CGSize(width: 0, height: 4.sh)
+        avatarContainer.layer.shadowRadius = 8.swh
+        avatarContainer.layer.shadowOpacity = 0.2
+        avatarContainer.clipsToBounds = false
         v.addSubview(avatarContainer)
 
         let initialsLabel = UILabel()
@@ -155,6 +161,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         let avatarImageView = UIImageView()
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
+        avatarImageView.layer.cornerRadius = 16.swh
         avatarContainer.addSubview(avatarImageView)
 
         if !avatarURL.isEmpty {
@@ -169,7 +176,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
         let nameLabel = UILabel()
         nameLabel.text = clanName
-        nameLabel.font = .systemFont(ofSize: 18.sf, weight: .medium)
+        nameLabel.font = .systemFont(ofSize: 16.sf, weight: .medium)
         nameLabel.textColor = .mezonTextMuted
         nameLabel.textAlignment = .center
         v.addSubview(nameLabel)
@@ -207,7 +214,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         let l = UILabel()
         l.text = title
         l.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        l.textColor = UIColor.theme.textDisabled
+        l.textColor = UIColor.theme.textStrong
         v.addSubview(l)
         l.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -261,7 +268,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     private func createRow(action: SettingAction) -> UIView {
         let v = UIView()
-        v.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
+        v.heightAnchor.constraint(equalToConstant: 60.sh).isActive = true
 
         let icon = UIImageView(
             image: UIImage(named: action.icon)?.withRenderingMode(.alwaysOriginal))
@@ -271,7 +278,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
         let title = UILabel()
         title.text = action.title
-        title.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        title.font = .systemFont(ofSize: 14.sf, weight: .medium)
         title.textColor = .mezonTextPrimary
         v.addSubview(title)
 
