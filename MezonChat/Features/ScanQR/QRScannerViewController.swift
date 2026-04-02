@@ -40,6 +40,10 @@ final class QRScannerViewController: ViewController {
         scannerNode.onGalleryTapped = { [weak self] in
             self?.openGallery()
         }
+        
+        scannerNode.onMyQRCodeTapped = { [weak self] in
+            self?.navigateToMyQRCode()
+        }
     }
     
     override func viewDidLoad() {
@@ -151,6 +155,11 @@ final class QRScannerViewController: ViewController {
         let picker = PHPickerViewController(configuration: config)
         picker.delegate = self
         present(picker, animated: true)
+    }
+    
+    private func navigateToMyQRCode() {
+        let vc = MyQRCodeViewController(context: self.context)
+        self.navigationController?.pushViewController(vc, animated: true)
     }
     
     private func handleScannedData(_ data: String) {
