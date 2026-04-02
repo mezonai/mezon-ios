@@ -82,11 +82,11 @@ final class ClanListViewController: ViewController {
             self, selector: #selector(handleSocketStatusForClanBadges(_:)),
             name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(
-            self, selector: #selector(handleMezonSelectClan(_:)), name: .mezonSelectClan,
+            self, selector: #selector(handleMezonQRSelectClan(_:)), name: .mezonQRSelectClan,
             object: nil)
     }
 
-    @objc private func handleMezonSelectClan(_ notification: Notification) {
+    @objc private func handleMezonQRSelectClan(_ notification: Notification) {
         guard let clanIdStr = notification.userInfo?["clanId"] as? String,
             let clanId = Int64(clanIdStr)
         else { return }

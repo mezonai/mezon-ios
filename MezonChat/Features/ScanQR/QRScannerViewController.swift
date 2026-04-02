@@ -285,7 +285,7 @@ final class QRScannerViewController: ViewController {
                                     self.hideClanInvite()
                                     self.closeTapped()
                                     NotificationCenter.default.post(
-                                        name: .mezonSelectClan,
+                                        name: .mezonQRSelectClan,
                                         object: nil,
                                         userInfo: ["clanId": "\(response.clanID)"]
                                     )
@@ -360,7 +360,7 @@ final class QRScannerViewController: ViewController {
                                 self.hideUserProfile()
                                 self.closeTapped()
                                 NotificationCenter.default.post(
-                                    name: .mezonNavigateToDM,
+                                    name: .mezonQRNavigateToDM,
                                     object: nil,
                                     userInfo: ["channelId": "\(channel.channelID)", "title": profileData.name]
                                 )
