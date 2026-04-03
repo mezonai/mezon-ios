@@ -88,6 +88,16 @@ enum L10n {
         static let noThanks = "qrScanner.noThanks"
         static let userProfile = "qrScanner.userProfile"
         static let message = "qrScanner.message"
+        static let myQRCode = "qrScanner.myQRCode"
+        static let qrProfile = "qrScanner.qrProfile"
+        static let qrTransfer = "qrScanner.qrTransfer"
+        static let poweredBy = "qrScanner.poweredBy"
+        static let shareWithOthers = "qrScanner.shareWithOthers"
+        static let scanProfileHelp = "qrScanner.scanProfileHelp"
+        static let scanTransferHelp = "qrScanner.scanTransferHelp"
+        static let scanInstruction = "qrScanner.scanInstruction"
+        static let chooseFromGallery = "qrScanner.chooseFromGallery"
+        static let sharePersonalQR = "qrScanner.sharePersonalQR"
     }
 
     enum Language {
@@ -517,6 +527,16 @@ extension L10n {
         "qrScanner.noThanks": "No, Thanks",
         "qrScanner.message": "Message",
         "qrScanner.userProfile": "USER PROFILE",
+        "qrScanner.myQRCode": "My QR Code",
+        "qrScanner.qrProfile": "QR Profile",
+        "qrScanner.qrTransfer": "QR Transfer",
+        "qrScanner.poweredBy": "Powered by Mezon",
+        "qrScanner.shareWithOthers": "Share with others",
+        "qrScanner.scanProfileHelp": "Scan this QR code to chat with me or view my profile",
+        "qrScanner.scanTransferHelp": "Scan this QR code to transfer funds",
+        "qrScanner.scanInstruction": "Move camera to QR to scan or",
+        "qrScanner.chooseFromGallery": "Choose from Photo Library",
+        "qrScanner.sharePersonalQR": "Share personal QR code ˄",
 
         "error.networkError": "Network Error",
         "error.connectionFailed": "Connection failed. Please try again.",
@@ -759,6 +779,16 @@ extension L10n {
         "qrScanner.noThanks": "Không, cảm ơn",
         "qrScanner.message": "Nhắn tin",
         "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",
+        "qrScanner.myQRCode": "Mã QR của tôi",
+        "qrScanner.qrProfile": "Mã QR Hồ sơ",
+        "qrScanner.qrTransfer": "Mã QR Chuyển tiền",
+        "qrScanner.poweredBy": "Được cung cấp bởi Mezon",
+        "qrScanner.shareWithOthers": "Chia sẻ với mọi người",
+        "qrScanner.scanProfileHelp": "Quét mã QR này để trò chuyện với tôi hoặc xem hồ sơ của tôi",
+        "qrScanner.scanTransferHelp": "Quét mã QR này để chuyển khoản",
+        "qrScanner.scanInstruction": "Di chuyển camera đến mã QR để quét hoặc",
+        "qrScanner.chooseFromGallery": "Chọn từ Thư viện ảnh",
+        "qrScanner.sharePersonalQR": "Chia sẻ mã QR cá nhân ˄",
 
         "error.networkError": "Lỗi kết nối mạng",
         "error.connectionFailed": "Kết nối thất bại. Vui lòng thử lại.",
