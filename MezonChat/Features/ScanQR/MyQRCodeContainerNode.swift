@@ -41,6 +41,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
     var onTabChanged: ((Int) -> Void)?
     var onBackTapped: (() -> Void)?
+    var onDownloadTapped: ((UIImage) -> Void)?
+    var onShareTapped: ((UIImage) -> Void)?
 
     init(context: AccountContext) {
         self.context = context
@@ -59,7 +61,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         backButton.tintColor = .mezonTextStrong
         backButton.imageNode.contentMode = .scaleAspectFit
         backButton.style.preferredSize = CGSize(width: 24.swh, height: 24.swh)
-        backButton.hitTestSlop = UIEdgeInsets(top: -16.sh, left: -16.sw, bottom: -16.sh, right: -16.sw)
+        backButton.hitTestSlop = UIEdgeInsets(
+            top: -16.sh, left: -16.sw, bottom: -16.sh, right: -16.sw)
 
         titleNode.attributedText = NSAttributedString(
             string: L(L10n.QRScanner.myQRCode),
@@ -158,6 +161,11 @@ final class MyQRCodeContainerNode: ASDisplayNode {
             self, action: #selector(profileTabTapped), forControlEvents: .touchUpInside)
         transferTabButton.addTarget(
             self, action: #selector(transferTabTapped), forControlEvents: .touchUpInside)
+
+        downloadButton.addTarget(
+            self, action: #selector(downloadTapped), forControlEvents: .touchUpInside)
+        shareButton.addTarget(
+            self, action: #selector(shareTapped), forControlEvents: .touchUpInside)
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -282,7 +290,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
         let tabWidth = size.width - 32.sw
         tabContainerNode.style.preferredSize = CGSize(width: tabWidth, height: 48.sh)
-        tabSelectionBackgroundNode.style.preferredSize = CGSize(width: tabWidth / 2 - 4.sw, height: 40.sh)
+        tabSelectionBackgroundNode.style.preferredSize = CGSize(
+            width: tabWidth / 2 - 4.sw, height: 40.sh)
         profileTabButton.style.preferredSize = CGSize(width: tabWidth / 2, height: 48.sh)
         transferTabButton.style.preferredSize = CGSize(width: tabWidth / 2, height: 48.sh)
 
@@ -354,7 +363,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         cardContentStack.alignItems = .center
         cardContentStack.children = [
             ASInsetLayoutSpec(
-                insets: UIEdgeInsets(top: 24.sh, left: 24.sw, bottom: 0, right: 24.sw), child: headerStack),
+                insets: UIEdgeInsets(top: 24.sh, left: 24.sw, bottom: 0, right: 24.sw),
+                child: headerStack),
             dividerNode,
             mezonLogoStack,
             qrContainer,
@@ -364,10 +374,12 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
         let cardBackground = ASBackgroundLayoutSpec(
             child: ASInsetLayoutSpec(
-                insets: UIEdgeInsets(top: 0, left: 0, bottom: 32.sh, right: 0), child: cardContentStack
+                insets: UIEdgeInsets(top: 0, left: 0, bottom: 32.sh, right: 0),
+                child: cardContentStack
             ), background: cardNode)
         let cardInset = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 0, left: 20.sw, bottom: 24.sh, right: 20.sw), child: cardBackground)
+            insets: UIEdgeInsets(top: 0, left: 20.sw, bottom: 24.sh, right: 20.sw),
+            child: cardBackground)
 
         let backButtonInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 0), child: backButton)
@@ -403,5 +415,62 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
     @objc private func backTapped() {
         onBackTapped?()
+    }
+
+    @objc private func downloadTapped() {
+        if let image = getCardSnapshot() {
+            onDownloadTapped?(image)
+        }
+    }
+
+    @objc private func shareTapped() {
+        if let image = getCardSnapshot() {
+            onShareTapped?(image)
+        }
+    }
+
+    private func getCardSnapshot() -> UIImage? {
+        let prevDownloadHidden = downloadButton.isHidden
+        let prevShareHidden = shareButton.isHidden
+        let prevSubtitleHidden = subtitleNode.isHidden
+        let prevCardBG = cardNode.backgroundColor
+
+        downloadButton.isHidden = true
+        shareButton.isHidden = true
+        subtitleNode.isHidden = true
+        cardNode.backgroundColor = .clear
+
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.frame = cardNode.bounds
+        gradientLayer.colors = UIColor.loginGradientColors.map { $0.cgColor }
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        gradientLayer.cornerRadius = cardNode.cornerRadius
+        cardNode.view.layer.insertSublayer(gradientLayer, at: 0)
+
+        let qrBgNode = ASDisplayNode()
+        qrBgNode.backgroundColor = .white
+        qrBgNode.cornerRadius = 8
+        let qrFrame = qrImageNode.view.convert(qrImageNode.view.bounds, to: cardNode.view)
+        qrBgNode.frame = qrFrame.insetBy(dx: -8, dy: -8)
+        cardNode.view.insertSubview(qrBgNode.view, belowSubview: qrImageNode.view)
+
+        let targetFrame = cardNode.frame
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3.0
+        let renderer = UIGraphicsImageRenderer(size: targetFrame.size, format: format)
+        let image = renderer.image { ctx in
+            ctx.cgContext.translateBy(x: -targetFrame.origin.x, y: -targetFrame.origin.y)
+            self.view.layer.render(in: ctx.cgContext)
+        }
+
+        gradientLayer.removeFromSuperlayer()
+        qrBgNode.view.removeFromSuperview()
+        cardNode.backgroundColor = prevCardBG
+        downloadButton.isHidden = prevDownloadHidden
+        shareButton.isHidden = prevShareHidden
+        subtitleNode.isHidden = prevSubtitleHidden
+
+        return image
     }
 }
