@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProtobuf
 
 struct ClanRecord: PostboxCoding, Equatable {
 
@@ -16,5 +17,10 @@ struct ClanRecord: PostboxCoding, Equatable {
         self.icon    = icon
         self.ownerId = ownerId
         self.data    = data
+    }
+
+    var preventsAnonymousMessages: Bool {
+        guard !data.isEmpty, let d = try? Mezon_Api_ClanDesc(serializedBytes: data) else { return false }
+        return d.preventAnonymous
     }
 }

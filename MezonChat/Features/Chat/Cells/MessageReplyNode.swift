@@ -74,7 +74,7 @@ final class MessageReplyNode: ASDisplayNode {
         nameNode.attributedText = NSAttributedString(
             string: displayName,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: .semibold),
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
                 .foregroundColor: t.textRoleLink
             ]
         )
@@ -110,7 +110,7 @@ final class MessageReplyNode: ASDisplayNode {
             previewNode.attributedText = NSAttributedString(
                 string: "Tap to see attachment",
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 13.sf),
+                    .font: UIFont.systemFont(ofSize: 12.sf),
                     .foregroundColor: t.textDisabled
                 ]
             )
@@ -132,7 +132,7 @@ final class MessageReplyNode: ASDisplayNode {
             previewNode.attributedText = NSAttributedString(
                 string: preview,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 13.sf),
+                    .font: UIFont.systemFont(ofSize: 12.sf),
                     .foregroundColor: t.textDisabled
                 ]
             )
@@ -232,7 +232,7 @@ final class MessageDeletedReplyNode: ASDisplayNode {
         labelNode.attributedText = NSAttributedString(
             string: "Original message was deleted",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf),
+                .font: UIFont.systemFont(ofSize: 12.sf),
                 .foregroundColor: t.textDisabled
             ]
         )

@@ -240,6 +240,9 @@ enum L10n {
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
+        static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
+        static let yourLocation          = "channelMessages.yourLocation"
+        static let locationOf            = "channelMessages.locationOf"
     }
 
     enum DirectMessage {
@@ -461,6 +464,9 @@ extension L10n {
         "channelMessages.userIsTyping": "%@ is typing…",
         "channelMessages.usersAreTyping": "%@ are typing…",
         "channelMessages.severalPeopleTyping": "Several people are typing…",
+        "channelMessages.voiceMessageA11y": "Voice message. Tap to play or pause.",
+        "channelMessages.yourLocation": "Your location",
+        "channelMessages.locationOf": "%@'s location",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -693,6 +699,9 @@ extension L10n {
         "channelMessages.userIsTyping": "%@ đang nhập…",
         "channelMessages.usersAreTyping": "%@ đang nhập…",
         "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",
+        "channelMessages.voiceMessageA11y": "Tin nhắn thoại. Chạm để phát hoặc tạm dừng.",
+        "channelMessages.yourLocation": "Vị trí của bạn",
+        "channelMessages.locationOf": "Vị trí của %@",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
