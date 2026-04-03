@@ -1881,20 +1881,32 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private func dismissAdvancePanel() {
+        sendInputViewController.hideAdvancePanelIfNeeded()
+        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+    }
+
     private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
         switch item.id {
         case "pickFiles":
+            dismissAdvancePanel()
             sendInputViewController.openFilePicker()
         case "location":
+            dismissAdvancePanel()
             handleSendLocation()
         case "buzz":
+            dismissAdvancePanel()
             handleBuzzMessage()
         case "anonymous":
             guard clanId != 0, !clanPreventsAnonymous() else { return }
             _ = AnonymousMessageStore.toggle(clanId: clanId)
             sendInputViewController.refreshAnonymousUI()
             rebuildAdvancePanelActions()
+            DispatchQueue.main.async { [weak self] in
+                self?.sendInputViewController.focusTextInput()
+            }
         default:
+            dismissAdvancePanel()
             let toast = UILabel()
             toast.text = "  \(item.label.replacingOccurrences(of: "\n", with: " ")) — Coming soon  "
             toast.font = .systemFont(ofSize: 14, weight: .medium)
