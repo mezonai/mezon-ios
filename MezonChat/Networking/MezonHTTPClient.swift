@@ -299,6 +299,7 @@ final class MezonHTTPClient {
         mentionEveryone: Bool = false,
         avatar: String = "",
         topicId: Int64 = 0,
+        code: Int32 = 0,
         token: String
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
         var req = Mezon_Realtime_ChannelMessageSend()
@@ -314,6 +315,7 @@ final class MezonHTTPClient {
         req.mentionEveryone = mentionEveryone
         req.avatar = avatar
         req.topicID = topicId
+        req.code = code
 
         return try await postProto(
             path: "/mezon.api.Mezon/SendChannelMessage",

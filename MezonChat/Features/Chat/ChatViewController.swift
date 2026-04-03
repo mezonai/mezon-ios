@@ -1,5 +1,6 @@
 import SwiftProtobuf
 import UIKit
+import CoreLocation
 
 enum ActiveChannelTracker {
     private static let lock = NSLock()
@@ -17,6 +18,8 @@ struct ParsedAttachment: Equatable {
     let filetype: String
     let width: Int?
     let height: Int?
+    /// Voice / audio attachment duration from API (seconds).
+    let durationSeconds: Int?
     var localImage: UIImage?
     var isUploading: Bool = false
 
@@ -34,6 +37,12 @@ struct ParsedAttachment: Equatable {
 
     var isMedia: Bool { isImage || isVideo }
 
+    var isAudio: Bool {
+        if filetype.hasPrefix("audio/") { return true }
+        return ["mp3", "m4a", "aac", "wav", "ogg", "flac", "opus"].contains(fileExtension)
+            || ["mp3", "m4a", "aac", "wav", "ogg", "flac", "opus"].contains(urlExtension)
+    }
+
     var fileExtension: String {
         (filename as NSString).pathExtension.lowercased()
     }
@@ -45,7 +54,8 @@ struct ParsedAttachment: Equatable {
 
     static func ==(lhs: ParsedAttachment, rhs: ParsedAttachment) -> Bool {
         lhs.url == rhs.url && lhs.filename == rhs.filename && lhs.filetype == rhs.filetype
-            && lhs.width == rhs.width && lhs.height == rhs.height && lhs.isUploading == rhs.isUploading
+            && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
+            && lhs.isUploading == rhs.isUploading
     }
 
     static var pendingImageCache: [String: [UIImage]] = [:]
@@ -91,6 +101,7 @@ struct ChatMessageDisplay: Identifiable {
     let isWelcome: Bool
     let callLog: CallLogData?
     let topicData: TopicData?
+    let locationData: LocationData?
     let isMe: Bool
     let sendingState: SendingState
     let hasIncludeMention: Bool
@@ -100,6 +111,7 @@ struct ChatMessageDisplay: Identifiable {
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
+    var isLocation: Bool { locationData != nil }
 
     var checkOneLinkImage: Bool {
         guard attachments.count == 1,
@@ -184,6 +196,13 @@ final class ChatViewController: ViewController {
     private var initialParentName: String?
     private(set) var lastSeenMessageId: String?
 
+    private lazy var locationManager: CLLocationManager = {
+        let lm = CLLocationManager()
+        lm.desiredAccuracy = kCLLocationAccuracyBest
+        return lm
+    }()
+    private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
+
     private lazy var sendInputViewController: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
             placeholder: L(L10n.ChannelMessages.writeMessage),
@@ -197,6 +216,12 @@ final class ChatViewController: ViewController {
         }
         vc.onToggleEmojiPicker = { [weak self] visible, collapsedH in
             self?.handleEmojiPickerToggle(visible: visible, collapsedHeight: collapsedH)
+        }
+        vc.onToggleAdvancePanel = { [weak self] visible, collapsedH in
+            self?.handleAdvancePanelToggle(visible: visible, collapsedHeight: collapsedH)
+        }
+        vc.onAnonymousModeChanged = { [weak self] in
+            self?.rebuildAdvancePanelActions()
         }
         vc.topicId = self.topicId
         return vc
@@ -237,6 +262,28 @@ final class ChatViewController: ViewController {
     private var emojiPickerHeightConstraint: NSLayoutConstraint?
     private var emojiPickerBottomConstraint: NSLayoutConstraint?
     private var emojiPickerCollapsedHeight: CGFloat = 0
+
+    private lazy var advancePanelView: AdvancedFunctionPanelView = {
+        let v = AdvancedFunctionPanelView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        v.onRequestDismiss = { [weak self] in
+            guard let self else { return }
+            self.sendInputViewController.markAdvancePanelDismissedByHost()
+            self.handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        }
+        v.onActionTapped = { [weak self] item in
+            self?.handleAdvanceAction(item)
+        }
+        v.onHeightChanged = { [weak self] newHeight in
+            self?.updateAdvancePanelOverlayHeight(newHeight)
+        }
+        return v
+    }()
+
+    private var advancePanelHeightConstraint: NSLayoutConstraint?
+    private var advancePanelBottomConstraint: NSLayoutConstraint?
+    private var advancePanelCollapsedHeight: CGFloat = 0
 
     private var inputBarHeight: CGFloat = 56
     private var currentKeyboardOffset: CGFloat = 0
@@ -378,6 +425,7 @@ final class ChatViewController: ViewController {
         super.viewDidLoad()
         messagesNode.applyTheme()
         setupInputBar()
+        configureAnonymousComposerAndAdvancePanel()
         start()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
@@ -389,6 +437,11 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        configureAnonymousComposerAndAdvancePanel()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isMovingFromParent { onLeave() }
@@ -397,6 +450,9 @@ final class ChatViewController: ViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         guard !isMovingFromParent else { return }
+        // Don't reset channel state if a modal (e.g. document picker) is presented over us
+        if presentedViewController != nil { return }
+        if view.window?.rootViewController?.presentedViewController != nil { return }
         guard topicId == 0 else { return }
         if ActiveChannelTracker.currentChannelId == channel.channelID {
             context.currentChannel = nil
@@ -422,6 +478,7 @@ final class ChatViewController: ViewController {
 
         if suppressScrollToBottomForNextKeyboardInset,
            emojiPickerCollapsedHeight == 0,
+           advancePanelCollapsedHeight == 0,
            keyboardOffset < 0.5 {
             keyboardOffset = max(
                 keyboardOffset,
@@ -430,7 +487,8 @@ final class ChatViewController: ViewController {
         }
 
         let emojiOffset = emojiPickerCollapsedHeight
-        let bottomOffset = max(keyboardOffset, emojiOffset)
+        let advanceOffset = advancePanelCollapsedHeight
+        let bottomOffset = max(keyboardOffset, max(emojiOffset, advanceOffset))
 
         let sendComposerH = sendInputViewController.totalHeight
         let totalBottomH = sendComposerH
@@ -444,6 +502,7 @@ final class ChatViewController: ViewController {
         transition.updateFrame(view: sendInputViewController.view, frame: inputFrame)
 
         emojiPickerBottomConstraint?.constant = -bottomInset
+        advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripBottomPad: CGFloat = 2
         let stripH = Self.remoteTypingStripMaxHeight + stripBottomPad
@@ -799,6 +858,9 @@ final class ChatViewController: ViewController {
         guard !hasMarkedAsRead, !messages.isEmpty else { return }
         guard let lastMessage = messages.last else { return }
         guard let messageId = Int64(lastMessage.message.id) else { return }
+        guard context.account.socket.isConnected else {
+            return
+        }
         hasMarkedAsRead = true
 
         let channelUnreadCount = channel.countMessUnread
@@ -1171,6 +1233,7 @@ final class ChatViewController: ViewController {
                         filetype: "image/jpeg",
                         width: Int(image.size.width),
                         height: Int(image.size.height),
+                        durationSeconds: nil,
                         localImage: image,
                         isUploading: stillUploading
                     )
@@ -1192,11 +1255,15 @@ final class ChatViewController: ViewController {
                 currentUserRoleIds: currentUserRoleIds
             )
             let isForward = Self.parseContentIsForward(from: record.content)
+            let locationData = LocationData.parse(
+                from: record.content, code: record.code,
+                avatarURL: record.senderAvatarURL, senderName: record.senderDisplayName, isMe: isMe
+            )
             return ChatMessageDisplay(
                 message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
-                topicData: topicData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
+                topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
                 isForward: isForward, showForwardHeader: false
             )
         }
@@ -1310,7 +1377,7 @@ final class ChatViewController: ViewController {
                 message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine,
                 attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
-                topicData: d.topicData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
+                topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
                 isForward: d.isForward, showForwardHeader: showForwardHeader
             )
         }
@@ -1389,7 +1456,8 @@ final class ChatViewController: ViewController {
                     filename: att.filename,
                     filetype: att.filetype,
                     width: att.width != 0 ? Int(att.width) : nil,
-                    height: att.height != 0 ? Int(att.height) : nil
+                    height: att.height != 0 ? Int(att.height) : nil,
+                    durationSeconds: att.duration > 0 ? Int(att.duration) : nil
                 )
             }
         }
@@ -1408,12 +1476,19 @@ final class ChatViewController: ViewController {
                     guard let url = item["url"] as? String, !url.isEmpty else { return nil }
                     let w = item["width"] as? Int ?? (item["width"] as? String).flatMap { Int($0) }
                     let h = item["height"] as? Int ?? (item["height"] as? String).flatMap { Int($0) }
+                    let d: Int? = {
+                        if let n = item["duration"] as? Int { return n > 0 ? n : nil }
+                        if let n = item["duration"] as? Int64 { return n > 0 ? Int(n) : nil }
+                        if let s = item["duration"] as? String, let n = Int(s) { return n > 0 ? n : nil }
+                        return nil
+                    }()
                     return ParsedAttachment(
                         url: url,
                         filename: item["filename"] as? String ?? "",
                         filetype: item["filetype"] as? String ?? "",
                         width: w,
-                        height: h
+                        height: h,
+                        durationSeconds: d
                     )
                 }
             }
@@ -1597,6 +1672,18 @@ final class ChatViewController: ViewController {
 
         emojiPickerView.configureMediaPanelCache(engine: context.engine)
 
+        view.addSubview(advancePanelView)
+        let advH = advancePanelView.heightAnchor.constraint(equalToConstant: 0)
+        advancePanelHeightConstraint = advH
+        let advBottom = advancePanelView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        advancePanelBottomConstraint = advBottom
+        NSLayoutConstraint.activate([
+            advancePanelView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            advancePanelView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            advH,
+            advBottom,
+        ])
+
         applyRemoteTypingStripTheme()
         inputBarHeight = sendInputViewController.totalHeight
         remoteTypingStripView.alpha = 0
@@ -1604,6 +1691,7 @@ final class ChatViewController: ViewController {
         view.bringSubviewToFront(remoteTypingStripView)
         view.bringSubviewToFront(sendInputViewController.view)
         view.bringSubviewToFront(emojiPickerView)
+        view.bringSubviewToFront(advancePanelView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false
@@ -1637,6 +1725,14 @@ final class ChatViewController: ViewController {
             emojiPickerView.resetToCollapsed()
             UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
         }
+
+        if advancePanelCollapsedHeight > 0 {
+            advancePanelCollapsedHeight = 0
+            advancePanelHeightConstraint?.constant = 0
+            advancePanelView.isHidden = true
+            advancePanelView.resetToCollapsed()
+            UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+        }
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
@@ -1646,6 +1742,9 @@ final class ChatViewController: ViewController {
 
         if emojiPickerCollapsedHeight > 0 && !emojiPickerView.isHidden {
             emojiPickerView.applySnapCollapsed()
+        }
+        if advancePanelCollapsedHeight > 0 && !advancePanelView.isHidden {
+            advancePanelView.applySnapCollapsed()
         }
     }
 
@@ -1706,6 +1805,204 @@ final class ChatViewController: ViewController {
 
         let panelH = emojiPickerView.expandedHeight
         emojiPickerView.applySnapExpanded(height: panelH)
+    }
+
+    private func clanPreventsAnonymous() -> Bool {
+        guard clanId != 0 else { return true }
+        let rec = context.account.postbox.read { tx in tx.getClan(id: clanId) }
+        return rec?.preventsAnonymousMessages ?? false
+    }
+
+    private func rebuildAdvancePanelActions() {
+        let prevent = clanPreventsAnonymous()
+        let on = AnonymousMessageStore.isEnabled(clanId: clanId)
+        let items = AdvancedFunctionPanelView.defaultActionItems(
+            anonymousOn: on,
+            includeAnonymous: clanId != 0 && !prevent
+        )
+        advancePanelView.setActions(items)
+    }
+
+    private func configureAnonymousComposerAndAdvancePanel() {
+        sendInputViewController.setClanAnonymousPolicy(preventAnonymous: clanPreventsAnonymous())
+        sendInputViewController.refreshAnonymousUI()
+        rebuildAdvancePanelActions()
+    }
+
+    private func handleAdvancePanelToggle(visible: Bool, collapsedHeight: CGFloat) {
+        if visible {
+            rebuildAdvancePanelActions()
+            // Dismiss emoji picker if open
+            if emojiPickerCollapsedHeight > 0 {
+                emojiPickerCollapsedHeight = 0
+                emojiPickerHeightConstraint?.constant = 0
+                emojiPickerView.isHidden = true
+                emojiPickerView.resetToCollapsed()
+            }
+
+            suppressScrollToBottomForNextKeyboardInset = false
+            let screenH = UIScreen.main.bounds.height
+            let expandedH = max(screenH * 0.85, collapsedHeight + 200)
+            advancePanelView.collapsedHeight = collapsedHeight
+            advancePanelView.expandedHeight = expandedH
+            advancePanelView.resetToCollapsed()
+
+            advancePanelCollapsedHeight = collapsedHeight
+            advancePanelHeightConstraint?.constant = collapsedHeight
+            advancePanelView.isHidden = false
+            advancePanelView.applyTheme()
+        } else {
+            suppressScrollToBottomForNextKeyboardInset = true
+            advancePanelCollapsedHeight = 0
+            advancePanelHeightConstraint?.constant = 0
+            advancePanelView.isHidden = true
+            advancePanelView.resetToCollapsed()
+        }
+
+        if let layout = lastLayout {
+            let transition: ContainedViewLayoutTransition = visible
+                ? .animated(duration: 0.25, curve: .easeInOut)
+                : .immediate
+            containerLayoutUpdated(layout, transition: transition)
+        }
+        if visible {
+            UIView.animate(withDuration: 0.25) {
+                self.view.layoutIfNeeded()
+            }
+        } else {
+            view.layoutIfNeeded()
+        }
+    }
+
+    private func updateAdvancePanelOverlayHeight(_ newHeight: CGFloat) {
+        advancePanelHeightConstraint?.constant = newHeight
+        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
+        switch item.id {
+        case "pickFiles":
+            sendInputViewController.openFilePicker()
+        case "location":
+            handleSendLocation()
+        case "buzz":
+            handleBuzzMessage()
+        case "anonymous":
+            guard clanId != 0, !clanPreventsAnonymous() else { return }
+            _ = AnonymousMessageStore.toggle(clanId: clanId)
+            sendInputViewController.refreshAnonymousUI()
+            rebuildAdvancePanelActions()
+        default:
+            let toast = UILabel()
+            toast.text = "  \(item.label.replacingOccurrences(of: "\n", with: " ")) — Coming soon  "
+            toast.font = .systemFont(ofSize: 14, weight: .medium)
+            toast.textColor = .white
+            toast.backgroundColor = UIColor(white: 0.2, alpha: 0.9)
+            toast.layer.cornerRadius = 20
+            toast.clipsToBounds = true
+            toast.textAlignment = .center
+            toast.sizeToFit()
+            toast.frame.size.height = 40
+            toast.frame.size.width += 32
+            toast.center = CGPoint(x: view.bounds.midX, y: view.bounds.height - 120)
+            toast.alpha = 0
+            view.addSubview(toast)
+
+            UIView.animate(withDuration: 0.3, animations: {
+                toast.alpha = 1
+            }) { _ in
+                UIView.animate(withDuration: 0.3, delay: 1.5, options: [], animations: {
+                    toast.alpha = 0
+                }) { _ in
+                    toast.removeFromSuperview()
+                }
+            }
+        }
+    }
+
+    private func handleSendLocation() {
+        let status = locationManager.authorizationStatus
+        switch status {
+        case .notDetermined:
+            locationManager.delegate = self
+            locationCompletion = { [weak self] coord in
+                guard let self, let coord else { return }
+                self.showLocationConfirm(coordinate: coord)
+            }
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
+            fetchLocationAndShowConfirm()
+        case .denied, .restricted:
+            showLocationPermissionDeniedAlert()
+        @unknown default:
+            break
+        }
+    }
+
+    private func fetchLocationAndShowConfirm() {
+        locationManager.delegate = self
+        locationCompletion = { [weak self] coord in
+            guard let self, let coord else { return }
+            self.showLocationConfirm(coordinate: coord)
+        }
+        locationManager.requestLocation()
+    }
+
+    private func showLocationConfirm(coordinate: CLLocationCoordinate2D) {
+        let label = channelLabel.isEmpty ? "this channel" : channelLabel
+        let confirmVC = ShareLocationConfirmViewController(coordinate: coordinate, channelLabel: label)
+        confirmVC.onSend = { [weak self] lat, lng in
+            guard let self else { return }
+            self.sendInputViewController.sendLocation(latitude: lat, longitude: lng)
+            DispatchQueue.main.async {
+                self.sendInputViewController.focusTextInput()
+            }
+        }
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(confirmVC, animated: true)
+    }
+
+    private func showLocationPermissionDeniedAlert() {
+        let alert = UIAlertController(
+            title: "Location Permission",
+            message: "Mezon needs access to your location to share it. Please enable location access in Settings.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Settings", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(alert, animated: true)
+    }
+
+    private func handleBuzzMessage() {
+        let buzzVC = BuzzMessageViewController()
+        buzzVC.onSend = { [weak self] text in
+            guard let self else { return }
+            self.sendInputViewController.sendBuzzMessage(text: text)
+            DispatchQueue.main.async {
+                self.sendInputViewController.focusTextInput()
+            }
+        }
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(buzzVC, animated: true)
     }
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
@@ -2016,6 +2313,37 @@ final class ChatViewController: ViewController {
             break
         case .report:
             break
+        }
+    }
+}
+
+extension ChatViewController: CLLocationManagerDelegate {
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        manager.delegate = nil
+        let completion = locationCompletion
+        locationCompletion = nil
+        completion?(locations.last?.coordinate)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        manager.delegate = nil
+        let completion = locationCompletion
+        locationCompletion = nil
+        completion?(nil)
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        guard status != .notDetermined else { return }
+        if status == .authorizedWhenInUse || status == .authorizedAlways {
+            manager.requestLocation()
+        } else {
+            manager.delegate = nil
+            let completion = locationCompletion
+            locationCompletion = nil
+            completion?(nil)
+            showLocationPermissionDeniedAlert()
         }
     }
 }

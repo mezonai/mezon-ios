@@ -302,6 +302,9 @@ final class ChannelListContainerNode: ASDisplayNode {
     private func scrollToChannel(channelId: Int64) {
         let sectionOffset = hasChannelAppsSection ? 1 : 0
         for s in 0..<state.categories.count {
+            if state.categories[s].id == ChannelCategory.favoritesCategoryId {
+                continue
+            }
             let rows = rowsForSection(s)
             if let r = rows.firstIndex(where: { $0.channelDesc.channelID == channelId }) {
                 let indexPath = IndexPath(row: r, section: s + sectionOffset)
