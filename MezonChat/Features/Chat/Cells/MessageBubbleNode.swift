@@ -231,7 +231,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if hasContent {
             let tcn = MessageTextContentNode()
-            tcn.configure(parsedContent: parsed)
+            tcn.configure(parsedContent: parsed, buzzStyled: display.isBuzzMessage)
             tcn.onMentionTapped = { interaction.onMentionTapped($0) }
             tcn.onHashtagTapped = { interaction.onHashtagTapped($0) }
             tcn.onLinkTapped = { UIApplication.shared.open($0) }

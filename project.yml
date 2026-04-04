@@ -11,6 +11,16 @@ schemes:
       config: Release
     archive:
       config: Release
+  MezonSharing:
+    build:
+      targets:
+        MezonSharing: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
 
 packages:
   SwiftProtobuf:
@@ -53,6 +63,7 @@ targets:
       - package: SwiftProtobuf
         product: SwiftProtobuf
       - target: NotificationService
+      - target: MezonSharing
     sources:
       - path: MezonChat
         excludes:
@@ -98,6 +109,10 @@ targets:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).AppDelegate
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - "mezon.mobile.sharing"
+            CFBundleURLName: "mezon.mobile.sharing"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
@@ -141,3 +156,37 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+
+  MezonSharing:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: MezonSharing
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
+        PRODUCT_NAME: MezonSharing
+        MARKETING_VERSION: "1.2.92"
+        CURRENT_PROJECT_VERSION: "1"
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MezonSharing/MezonSharing.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: "MezonSharing/MezonSharing-Bridging-Header.h"
+    info:
+      path: MezonSharing/Info.plist
+      properties:
+        CFBundleDisplayName: Mezon
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 100
+              NSExtensionActivationSupportsImageWithMaxCount: 100
+              NSExtensionActivationSupportsMovieWithMaxCount: 100
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+            PHSupportedMediaTypes:
+              - Video
+              - Image
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController

@@ -40,7 +40,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
     func configure(
         title: String, subtitle: String? = nil, channelType: Int32, isPrivate: Bool,
-        isAgeRestricted: Bool
+        isAgeRestricted: Bool, isDM: Bool = false
     ) {
         let t = UIColor.theme
 
@@ -84,9 +84,15 @@ final class ChatHeaderNode: ASDisplayNode {
             else { iconName = "Channel/channel" }
         default: iconName = "Channel/channel"
         }
-        let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
-        channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
-        channelIconNode.tintColor = t.textStrong
+
+        if isDM {
+            channelIconNode.isHidden = true
+        } else {
+            channelIconNode.isHidden = false
+            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
+            channelIconNode.tintColor = t.textStrong
+        }
 
         self.setNeedsLayout()
     }
@@ -142,12 +148,18 @@ final class ChatHeaderNode: ASDisplayNode {
         titleStack.style.flexShrink = 1
         titleStack.style.flexGrow = 1
 
+        var rowChildren: [ASLayoutElement] = [backButtonNode]
+        if !channelIconNode.isHidden {
+            rowChildren.append(channelIconNode)
+        }
+        rowChildren.append(contentsOf: [titleStack, searchButtonNode])
+
         let row = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 8.sw,
             justifyContent: .start,
             alignItems: .center,
-            children: [backButtonNode, channelIconNode, titleStack, searchButtonNode]
+            children: rowChildren
         )
 
         let insets = UIEdgeInsets(top: 0, left: 12.sw, bottom: 0, right: 4.sw)

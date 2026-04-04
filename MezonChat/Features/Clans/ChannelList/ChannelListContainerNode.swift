@@ -49,6 +49,14 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var memberCount: Int = 0
     private var onlineCount: Int = 0
 
+    private let channelListLoadingOverlay = UIView()
+    private let channelListLoadingSpinner: UIActivityIndicatorView = {
+        let s = UIActivityIndicatorView(style: .large)
+        s.translatesAutoresizingMaskIntoConstraints = false
+        s.hidesWhenStopped = true
+        return s
+    }()
+
     init(signal: Signal<ChannelListState, NoError>, interaction: ChannelListInteraction) {
         tableNode = ASTableNode(style: .plain)
         self.interaction = interaction
@@ -91,12 +99,28 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.applyRowDiff(prev: prevState, new: newState)
                 }
 
-                if let selectedId = newState.selectedChannelId,
+                if !newState.isLoading,
+                   let selectedId = newState.selectedChannelId,
                    selectedId != prevState.selectedChannelId {
-                    self.scrollToChannel(channelId: selectedId)
+                    self.scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
                 }
+
+                self.updateChannelListLoadingOverlay(isLoading: newState.isLoading)
             })
         )
+    }
+
+    private func updateChannelListLoadingOverlay(isLoading: Bool) {
+        let t = UIColor.theme
+        channelListLoadingOverlay.backgroundColor = t.secondary.withAlphaComponent(0.94)
+        channelListLoadingSpinner.color = t.textStrong
+        if isLoading {
+            channelListLoadingOverlay.isHidden = false
+            channelListLoadingSpinner.startAnimating()
+        } else {
+            channelListLoadingSpinner.stopAnimating()
+            channelListLoadingOverlay.isHidden = true
+        }
     }
 
     private func safeReloadData() {
@@ -113,7 +137,10 @@ final class ChannelListContainerNode: ASDisplayNode {
     private func applyCrossfadeReload() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        tableNode.reloadData()
+        UIView.performWithoutAnimation {
+            self.tableNode.reloadData()
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
         tableNode.view.contentOffset = .zero
         CATransaction.commit()
         committedSectionCount = totalSections
@@ -211,8 +238,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         let hasChanges = !sectionsToReload.isEmpty || !filteredInsert.isEmpty
             || !filteredDelete.isEmpty || !filteredReload.isEmpty
         if hasChanges {
-            let rowAnim: UITableView.RowAnimation = .fade
-            tableNode.performBatch(animated: true) {
+            let rowAnim = UITableView.RowAnimation.none
+            tableNode.performBatch(animated: false) {
                 if !sectionsToReload.isEmpty {
                     self.tableNode.reloadSections(sectionsToReload, with: rowAnim)
                 }
@@ -233,14 +260,59 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func channelRowDataChanged(old: ChannelListRow, new: ChannelListRow,
                                        prevSelected: Int64?, newSelected: Int64?) -> Bool {
-        let o = old.channelDesc
-        let n = new.channelDesc
-        let chId = n.channelID
-        return o.countMessUnread != n.countMessUnread
-            || o.hasLastSentMessage != n.hasLastSentMessage
-            || o.lastSentMessage.timestampSeconds != n.lastSentMessage.timestampSeconds
-            || o.lastSeenMessage.timestampSeconds != n.lastSeenMessage.timestampSeconds
-            || (chId == prevSelected) != (chId == newSelected)
+        channelListRowVisuallyChanged(old: old, new: new, prevSelected: prevSelected, newSelected: newSelected)
+    }
+
+    private func channelListRowVisuallyChanged(
+        old: ChannelListRow,
+        new: ChannelListRow,
+        prevSelected: Int64?,
+        newSelected: Int64?
+    ) -> Bool {
+        switch (old, new) {
+        case let (.channel(o, _), .channel(n, _)):
+            return channelItemVisuallyChanged(o, n, prevSelected: prevSelected, newSelected: newSelected)
+        case let (.thread(o, oLast, _), .thread(n, nLast, _)):
+            if oLast != nLast { return true }
+            return threadItemVisuallyChanged(o, n, prevSelected: prevSelected, newSelected: newSelected)
+        default:
+            return true
+        }
+    }
+
+    private func channelItemVisuallyChanged(
+        _ o: Mezon_Api_ChannelDescription,
+        _ n: Mezon_Api_ChannelDescription,
+        prevSelected: Int64?,
+        newSelected: Int64?
+    ) -> Bool {
+        guard o.channelID == n.channelID else { return true }
+        if (o.channelID == prevSelected) != (n.channelID == newSelected) { return true }
+        if o.channelLabel != n.channelLabel { return true }
+        if o.type != n.type { return true }
+        if o.channelPrivate != n.channelPrivate { return true }
+        if o.ageRestricted != n.ageRestricted { return true }
+        if o.countMessUnread != n.countMessUnread { return true }
+        return Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n)
+    }
+
+    private func threadItemVisuallyChanged(
+        _ o: Mezon_Api_ChannelDescription,
+        _ n: Mezon_Api_ChannelDescription,
+        prevSelected: Int64?,
+        newSelected: Int64?
+    ) -> Bool {
+        guard o.channelID == n.channelID else { return true }
+        if (o.channelID == prevSelected) != (n.channelID == newSelected) { return true }
+        if o.channelLabel != n.channelLabel { return true }
+        if o.countMessUnread != n.countMessUnread { return true }
+        return Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n)
+    }
+
+    private static func appearsUnreadInChannelList(_ ch: Mezon_Api_ChannelDescription) -> Bool {
+        ch.countMessUnread > 0
+            || (ch.hasLastSentMessage
+                && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds)
     }
 
     private func applyRowDiff(prev: ChannelListState, new: ChannelListState) {
@@ -265,25 +337,30 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
         }
 
-        var oldAllLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
-        for ch in prev.allChannels { oldAllLookup[ch.channelID] = ch }
-        var newAllLookup: [Int64: Mezon_Api_ChannelDescription] = [:]
-        for ch in new.allChannels { newAllLookup[ch.channelID] = ch }
-
         var paths: [IndexPath] = []
         for s in 0..<new.categories.count {
-            let rows = rowsForSection(s)
+            let pc = prev.categories[s]
+            let nc = new.categories[s]
+            let oldRows = computeRows(for: pc, allChannels: prev.allChannels, selectedChannelId: prev.selectedChannelId)
+            let newRows = rowsForSection(s)
 
-            for (r, row) in rows.enumerated() {
-                let chId = row.channelDesc.channelID
-                let oldDesc = oldAllLookup[chId]
-                let newDesc = newAllLookup[chId]
-                let changed = oldDesc?.countMessUnread != newDesc?.countMessUnread
-                    || (oldDesc?.hasLastSentMessage != newDesc?.hasLastSentMessage)
-                    || (oldDesc?.lastSentMessage.timestampSeconds != newDesc?.lastSentMessage.timestampSeconds)
-                    || (oldDesc?.lastSeenMessage.timestampSeconds != newDesc?.lastSeenMessage.timestampSeconds)
-                    || (chId == prev.selectedChannelId) != (chId == new.selectedChannelId)
-                if changed {
+            for r in 0..<newRows.count {
+                guard r < oldRows.count else {
+                    paths.append(IndexPath(row: r, section: s + sectionOffset))
+                    continue
+                }
+                let oldRow = oldRows[r]
+                let newRow = newRows[r]
+                if oldRow.channelDesc.channelID != newRow.channelDesc.channelID {
+                    paths.append(IndexPath(row: r, section: s + sectionOffset))
+                    continue
+                }
+                if channelListRowVisuallyChanged(
+                    old: oldRow,
+                    new: newRow,
+                    prevSelected: prev.selectedChannelId,
+                    newSelected: new.selectedChannelId
+                ) {
                     paths.append(IndexPath(row: r, section: s + sectionOffset))
                 }
             }
@@ -299,7 +376,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.commit()
     }
 
-    private func scrollToChannel(channelId: Int64) {
+    private func scrollToChannel(channelId: Int64, animated: Bool = true) {
         let sectionOffset = hasChannelAppsSection ? 1 : 0
         for s in 0..<state.categories.count {
             if state.categories[s].id == ChannelCategory.favoritesCategoryId {
@@ -315,7 +392,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                           indexPath.row < self.tableNode.numberOfRows(inSection: indexPath.section) else {
                         return
                     }
-                    self.tableNode.scrollToRow(at: indexPath, at: .middle, animated: true)
+                    self.tableNode.scrollToRow(at: indexPath, at: .middle, animated: animated)
                 }
                 return
             }
@@ -363,6 +440,17 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.onTap = { [weak self] in
             self?.presentClanActionSheet()
         }
+
+        channelListLoadingOverlay.isUserInteractionEnabled = true
+        channelListLoadingOverlay.isHidden = true
+        channelListLoadingOverlay.layer.zPosition = 80
+        channelListLoadingOverlay.addSubview(channelListLoadingSpinner)
+        NSLayoutConstraint.activate([
+            channelListLoadingSpinner.centerXAnchor.constraint(equalTo: channelListLoadingOverlay.centerXAnchor),
+            channelListLoadingSpinner.centerYAnchor.constraint(equalTo: channelListLoadingOverlay.centerYAnchor),
+        ])
+        view.addSubview(channelListLoadingOverlay)
+        updateChannelListLoadingOverlay(isLoading: state.isLoading)
     }
 
     private func scheduleReload() {
@@ -413,6 +501,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         stickyTopOffset = topInset
         let tableFrame = CGRect(x: 0, y: topInset, width: layout.size.width, height: layout.size.height - topInset - layout.intrinsicInsets.bottom)
         transition.updateFrame(node: tableNode, frame: tableFrame)
+        channelListLoadingOverlay.frame = tableFrame
         updateTableHeaderLayout()
     }
 
@@ -534,6 +623,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         tableNode.backgroundColor = .clear
         headerUIView.applyTheme()
         headerUIView.backgroundColor = t.primaryGradient
+        if !channelListLoadingOverlay.isHidden {
+            channelListLoadingOverlay.backgroundColor = t.secondary.withAlphaComponent(0.94)
+        }
         scheduleReload()
     }
 

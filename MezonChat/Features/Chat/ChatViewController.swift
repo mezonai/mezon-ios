@@ -107,7 +107,9 @@ struct ChatMessageDisplay: Identifiable {
     let hasIncludeMention: Bool
     let isForward: Bool
     let showForwardHeader: Bool
+    let messageCode: Int32
     var isFailed: Bool { sendingState == .failed }
+    var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
@@ -235,8 +237,8 @@ final class ChatViewController: ViewController {
         v.onEmojiSelected = { [weak self] emojiId, shortname in
             guard let self else { return }
             self.sendInputViewController.insertEmoji(emojiId, shortname: shortname)
-
             self.sendInputViewController.hideEmojiPickerIfNeeded()
+            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
         }
         v.onStickerSelected = { [weak self] sticker in
             guard let self else { return }
@@ -271,6 +273,7 @@ final class ChatViewController: ViewController {
             guard let self else { return }
             self.sendInputViewController.markAdvancePanelDismissedByHost()
             self.handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+            self.sendInputViewController.focusTextInput()
         }
         v.onActionTapped = { [weak self] item in
             self?.handleAdvanceAction(item)
@@ -306,6 +309,8 @@ final class ChatViewController: ViewController {
     private var typingPruneTimer: Foundation.Timer?
 
     private static let remoteTypingStripMaxHeight: CGFloat = 22
+    private static let remoteTypingStripBottomPadding: CGFloat = 2
+    private static let chatFrameBottomGap: CGFloat = 6.sh
 
     private lazy var remoteTypingStripView: UIView = {
         let v = UIView()
@@ -418,7 +423,7 @@ final class ChatViewController: ViewController {
                 self.scrollToBottomIfNeeded()
             }
         }
-        displayNode = ChatContainerNode(signal: stateSignal(), interaction: interaction)
+        displayNode = ChatContainerNode(signal: stateSignal(), interaction: interaction, isDM: clanId == 0)
     }
 
     override func viewDidLoad() {
@@ -504,8 +509,7 @@ final class ChatViewController: ViewController {
         emojiPickerBottomConstraint?.constant = -bottomInset
         advancePanelBottomConstraint?.constant = -bottomInset
 
-        let stripBottomPad: CGFloat = 2
-        let stripH = Self.remoteTypingStripMaxHeight + stripBottomPad
+        let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
         let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layout.size.width, height: stripH)
         transition.updateFrame(view: remoteTypingStripView, frame: typingFrame)
         remoteTypingLabel.frame = CGRect(
@@ -529,7 +533,11 @@ final class ChatViewController: ViewController {
         inputBarHeight = sendComposerH
         currentKeyboardOffset = bottomOffset
 
-        messagesNode.updateLayout(layout: layout, inputBarHeight: totalInputArea, transition: transition)
+        messagesNode.updateLayout(
+            layout: layout,
+            inputBarHeight: totalInputArea + Self.chatFrameBottomGap,
+            transition: transition
+        )
     }
 
     private var lastLayout: ContainerViewLayout?
@@ -1264,7 +1272,7 @@ final class ChatViewController: ViewController {
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
-                isForward: isForward, showForwardHeader: false
+                isForward: isForward, showForwardHeader: false, messageCode: record.code
             )
         }
         return Self.applyCombine(to: displays)
@@ -1378,7 +1386,7 @@ final class ChatViewController: ViewController {
                 attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
                 topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
-                isForward: d.isForward, showForwardHeader: showForwardHeader
+                isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode
             )
         }
     }
@@ -1860,16 +1868,20 @@ final class ChatViewController: ViewController {
         }
 
         if let layout = lastLayout {
-            let transition: ContainedViewLayoutTransition = visible
-                ? .animated(duration: 0.25, curve: .easeInOut)
-                : .immediate
-            containerLayoutUpdated(layout, transition: transition)
+            containerLayoutUpdated(layout, transition: .immediate)
         }
+
         if visible {
-            UIView.animate(withDuration: 0.25) {
-                self.view.layoutIfNeeded()
+            advancePanelView.transform = CGAffineTransform(translationX: 0, y: 30)
+            advancePanelView.alpha = 0
+            view.layoutIfNeeded()
+            UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0.8, options: .curveEaseOut) {
+                self.advancePanelView.transform = .identity
+                self.advancePanelView.alpha = 1
             }
         } else {
+            advancePanelView.transform = .identity
+            advancePanelView.alpha = 1
             view.layoutIfNeeded()
         }
     }
@@ -1879,6 +1891,11 @@ final class ChatViewController: ViewController {
         UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
             self.view.layoutIfNeeded()
         }
+    }
+
+    private func dismissAdvancePanel() {
+        sendInputViewController.hideAdvancePanelIfNeeded()
+        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
     }
 
     private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
@@ -1894,6 +1911,9 @@ final class ChatViewController: ViewController {
             _ = AnonymousMessageStore.toggle(clanId: clanId)
             sendInputViewController.refreshAnonymousUI()
             rebuildAdvancePanelActions()
+            DispatchQueue.main.async { [weak self] in
+                self?.sendInputViewController.focusTextInput()
+            }
         default:
             let toast = UILabel()
             toast.text = "  \(item.label.replacingOccurrences(of: "\n", with: " ")) — Coming soon  "
@@ -2222,12 +2242,19 @@ final class ChatViewController: ViewController {
         let senderId = Int64(display.message.senderId) ?? 0
 
         let mode: Int32
-        if clanId != 0 {
-            mode = MezonConstants.ChannelStreamMode.channel.rawValue
-        } else if channel.type == MezonConstants.ChannelType.dm.rawValue {
+        switch channel.type {
+        case MezonConstants.ChannelType.thread.rawValue:
+            mode = MezonConstants.ChannelStreamMode.thread.rawValue
+        case MezonConstants.ChannelType.dm.rawValue:
             mode = MezonConstants.ChannelStreamMode.dm.rawValue
-        } else {
+        case MezonConstants.ChannelType.group.rawValue:
             mode = MezonConstants.ChannelStreamMode.group.rawValue
+        default:
+            if clanId != 0 {
+                mode = MezonConstants.ChannelStreamMode.channel.rawValue
+            } else {
+                mode = MezonConstants.ChannelStreamMode.group.rawValue
+            }
         }
 
         let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
@@ -2267,12 +2294,19 @@ final class ChatViewController: ViewController {
             let msgId = display.message.id
             if let msgIdInt = Int64(msgId) {
                 let mode: Int32
-                if clanId != 0 {
-                    mode = MezonConstants.ChannelStreamMode.channel.rawValue
-                } else if channel.type == MezonConstants.ChannelType.dm.rawValue {
+                switch channel.type {
+                case MezonConstants.ChannelType.thread.rawValue:
+                    mode = MezonConstants.ChannelStreamMode.thread.rawValue
+                case MezonConstants.ChannelType.dm.rawValue:
                     mode = MezonConstants.ChannelStreamMode.dm.rawValue
-                } else {
+                case MezonConstants.ChannelType.group.rawValue:
                     mode = MezonConstants.ChannelStreamMode.group.rawValue
+                default:
+                    if clanId != 0 {
+                        mode = MezonConstants.ChannelStreamMode.channel.rawValue
+                    } else {
+                        mode = MezonConstants.ChannelStreamMode.group.rawValue
+                    }
                 }
                 let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
                 context.account.socket.removeChannelMessage(

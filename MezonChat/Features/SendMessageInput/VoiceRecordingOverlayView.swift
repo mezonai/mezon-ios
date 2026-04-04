@@ -81,9 +81,14 @@ final class VoiceRecordingOverlayView: UIView {
 
     private var displayLink: CADisplayLink?
     private var recordingStartedAt: CFTimeInterval = 0
+    private var isSlideCancelHighlighted = false
 
     private static let verticalInset: CGFloat = 6
     private static let rightMicSize: CGFloat = 48
+    private static let appearDuration: TimeInterval = 0.34
+    private static let appearSpringDamping: CGFloat = 0.78
+    private static let appearSpringVelocity: CGFloat = 0.55
+    private static let appearSlideOffset: CGFloat = 14
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -153,8 +158,13 @@ final class VoiceRecordingOverlayView: UIView {
     func applyTheme() {
         let t = UIColor.theme
         gradientLayer.colors = [t.primaryGradient.cgColor, t.primary.cgColor]
-        leftMicBackdrop.backgroundColor = t.textStrong.withAlphaComponent(0.35)
-        leftMicImageView.tintColor = t.textStrong
+        if isSlideCancelHighlighted {
+            leftMicBackdrop.backgroundColor = Self.cancelTrashBackgroundColor
+            leftMicImageView.tintColor = .white
+        } else {
+            leftMicBackdrop.backgroundColor = t.textStrong.withAlphaComponent(0.35)
+            leftMicImageView.tintColor = t.textStrong
+        }
         timerLabel.textColor = t.textStrong
         slideChevron.tintColor = t.textStrong
         slideLabel.textColor = t.textStrong
@@ -162,7 +172,12 @@ final class VoiceRecordingOverlayView: UIView {
         rightMicImageView.tintColor = .white
     }
 
+    private static let cancelTrashBackgroundColor = UIColor(red: 0.90, green: 0.24, blue: 0.26, alpha: 1)
+
     func prepareForRecording() {
+        layer.removeAllAnimations()
+        transform = .identity
+        setSlideCancelledHighlight(false, animated: false)
         timerLabel.text = "0:00"
         recordingStartedAt = 0
         stopDisplayLink()
@@ -179,6 +194,27 @@ final class VoiceRecordingOverlayView: UIView {
     func tearDown() {
         stopDisplayLink()
         stopAllLayerAnimations()
+        setSlideCancelledHighlight(false, animated: false)
+        layer.removeAllAnimations()
+        transform = .identity
+        alpha = 1
+    }
+
+    func runAppearAnimation() {
+        layer.removeAllAnimations()
+        alpha = 0
+        transform = CGAffineTransform(translationX: 0, y: Self.appearSlideOffset)
+        layoutIfNeeded()
+        UIView.animate(
+            withDuration: Self.appearDuration,
+            delay: 0,
+            usingSpringWithDamping: Self.appearSpringDamping,
+            initialSpringVelocity: Self.appearSpringVelocity,
+            options: [.curveEaseOut, .allowUserInteraction]
+        ) {
+            self.alpha = 1
+            self.transform = .identity
+        }
     }
 
     private func startDisplayLink() {
@@ -247,13 +283,32 @@ final class VoiceRecordingOverlayView: UIView {
         slideContainer.layer.transform = CATransform3DIdentity
         stopRightMicAnimations()
         rightMicButton.alpha = 1
-        leftMicBackdrop.alpha = 1
     }
 
-    func setSlideCancelledHighlight(_ cancelled: Bool) {
-        slideLabel.alpha = cancelled ? 0.5 : 1
-        slideChevron.alpha = cancelled ? 0.5 : 1
-        rightMicButton.alpha = cancelled ? 0.5 : 1
-        leftMicBackdrop.alpha = cancelled ? 0.45 : 1
+    func setSlideCancelledHighlight(_ cancelled: Bool, animated: Bool = true) {
+        isSlideCancelHighlighted = cancelled
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let animations = {
+            let t = UIColor.theme
+            if cancelled {
+                self.leftMicImageView.image = UIImage(systemName: "trash.fill", withConfiguration: iconConfig)
+                self.leftMicBackdrop.backgroundColor = Self.cancelTrashBackgroundColor
+                self.leftMicImageView.tintColor = .white
+                self.slideLabel.text = "Release to delete"
+            } else {
+                self.leftMicImageView.image = UIImage(systemName: "mic.fill", withConfiguration: iconConfig)
+                self.leftMicBackdrop.backgroundColor = t.textStrong.withAlphaComponent(0.35)
+                self.leftMicImageView.tintColor = t.textStrong
+                self.slideLabel.text = "Slide to cancel"
+            }
+            self.slideLabel.alpha = cancelled ? 0.85 : 1
+            self.slideChevron.alpha = cancelled ? 0.85 : 1
+            self.rightMicButton.alpha = cancelled ? 0.5 : 1
+        }
+        if animated {
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState], animations: animations)
+        } else {
+            animations()
+        }
     }
 }

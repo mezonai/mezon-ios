@@ -533,7 +533,7 @@ final class SendMessageInputViewController: UIViewController {
                     mentionEveryone: false,
                     avatar: avatar,
                     topicId: self.topicId,
-                    code: 8,
+                    code: MezonConstants.MessageCode.buzz.rawValue,
                     token: token
                 )
             } catch {
@@ -713,11 +713,20 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func insertEmoji(_ emojiId: String, shortname: String) {
+        guard !isVoiceRecordingActive else { return }
         applyEmojiInsertion(emojiId: emojiId, shortname: shortname, replaceRange: textView.selectedRange)
+    }
+
+    func focusComposerAfterEmojiPanelSelection() {
+        guard !isVoiceRecordingActive else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.textView.becomeFirstResponder()
+        }
     }
 
 
     private func applyEmojiInsertion(emojiId: String, shortname: String, replaceRange: NSRange) {
+        guard !isVoiceRecordingActive else { return }
         let token = Self.normalizedEmojiToken(from: shortname)
         emojiIdByColonToken[token] = emojiId
 
@@ -790,10 +799,14 @@ final class SendMessageInputViewController: UIViewController {
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
+        updateInlineSuggestions()
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
         hideEmojiSuggestions()
     }
 
     private func insertEmojiFromSuggestion(_ emoji: CachedClanEmojiRecord) {
+        guard !isVoiceRecordingActive else { return }
         guard let ctx = detectEmojiColonContext() else { return }
         let full = (textView.text ?? "") as NSString
         let len = full.length
@@ -1017,11 +1030,11 @@ final class SendMessageInputViewController: UIViewController {
             chevronButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             chevronButton.heightAnchor.constraint(equalToConstant: btnSize),
 
-            attachButton.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 2.sw),
+            attachButton.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 4.sw),
             attachButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             attachButton.heightAnchor.constraint(equalToConstant: btnSize),
 
-            advanceButton.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 2.sw),
+            advanceButton.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
             advanceButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             advanceButton.heightAnchor.constraint(equalToConstant: btnSize),
 
@@ -1072,15 +1085,18 @@ final class SendMessageInputViewController: UIViewController {
         advanceButtonWidthConstraint = advW
         advW.isActive = true
 
+        // Pin overlay to the full input bar frame as a sibling of `inputBarView` (not inside it).
+        // When the keyboard hides during hold-to-record, the composer `view` still moves as a unit;
+        // matching the bar’s frame avoids the strip sticking to a stale layout like RN `position: 'absolute'` to the bar.
         voiceRecordingOverlay.translatesAutoresizingMaskIntoConstraints = false
-        inputBarView.addSubview(voiceRecordingOverlay)
+        view.addSubview(voiceRecordingOverlay)
+        view.insertSubview(voiceRecordingOverlay, aboveSubview: inputBarView)
         NSLayoutConstraint.activate([
-            voiceRecordingOverlay.topAnchor.constraint(equalTo: topSeparator.bottomAnchor),
-            voiceRecordingOverlay.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor),
-            voiceRecordingOverlay.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor),
+            voiceRecordingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            voiceRecordingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            voiceRecordingOverlay.topAnchor.constraint(equalTo: inputBarView.topAnchor),
             voiceRecordingOverlay.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor),
         ])
-        inputBarView.bringSubviewToFront(voiceRecordingOverlay)
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleVoiceLongPress(_:)))
         longPress.minimumPressDuration = 0.4
@@ -2219,6 +2235,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private func startVoiceRecording() {
         guard !voiceRecordingStartAborted else { return }
+        let keyboardWasVisible = textView.isFirstResponder
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
@@ -2262,10 +2279,16 @@ final class SendMessageInputViewController: UIViewController {
         isVoiceRecordingActive = true
         voiceRecordingOverlay.prepareForRecording()
         voiceRecordingOverlay.markRecordingStarted()
+        view.bringSubviewToFront(voiceRecordingOverlay)
         voiceRecordingOverlay.isHidden = false
-        voiceRecordingOverlay.alpha = 1
-        textView.isUserInteractionEnabled = false
+        voiceRecordingOverlay.runAppearAnimation()
         emojiButton.isUserInteractionEnabled = false
+        if keyboardWasVisible {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isVoiceRecordingActive, !self.textView.isFirstResponder else { return }
+                self.textView.becomeFirstResponder()
+            }
+        }
     }
 
     private func cancelVoiceRecording(deleteFile: Bool) {
@@ -2281,7 +2304,6 @@ final class SendMessageInputViewController: UIViewController {
             self.voiceRecordingOverlay.isHidden = true
         }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        textView.isUserInteractionEnabled = true
         emojiButton.isUserInteractionEnabled = true
     }
 
@@ -2297,7 +2319,6 @@ final class SendMessageInputViewController: UIViewController {
             self.voiceRecordingOverlay.isHidden = true
         }
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        textView.isUserInteractionEnabled = true
         emojiButton.isUserInteractionEnabled = true
 
         guard let url, let start else { return }
@@ -2736,6 +2757,9 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        if isVoiceRecordingActive {
+            return false
+        }
         if text == "\n" {
             send()
             return false

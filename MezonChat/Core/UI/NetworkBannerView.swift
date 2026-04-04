@@ -74,7 +74,7 @@ final class NetworkBannerView: UIView {
         }
     }
 
-    private func syncWithNetworkState() {
+    private func syncBannerToMonitor() {
         if NetworkMonitor.shared.isConnected {
             hide()
         } else {
@@ -85,7 +85,7 @@ final class NetworkBannerView: UIView {
     private func scheduleDeferredSync() {
         hideWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.syncWithNetworkState()
+            self?.syncBannerToMonitor()
         }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
@@ -106,13 +106,13 @@ final class NetworkBannerView: UIView {
             forName: NetworkMonitor.statusDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak banner] notification in
-            let connected = notification.userInfo?["isConnected"] as? Bool ?? true
-            if connected {
-                banner?.hide()
+        ) { [weak banner] _ in
+            guard let banner else { return }
+            if NetworkMonitor.shared.isConnected {
+                banner.hide()
             } else {
-                banner?.show()
-                banner?.scheduleDeferredSync()
+                banner.show()
+                banner.scheduleDeferredSync()
             }
         }
 
@@ -121,7 +121,7 @@ final class NetworkBannerView: UIView {
             object: nil,
             queue: .main
         ) { [weak banner] _ in
-            banner?.syncWithNetworkState()
+            banner?.syncBannerToMonitor()
         }
 
         NotificationCenter.default.addObserver(
@@ -129,11 +129,14 @@ final class NetworkBannerView: UIView {
             object: nil,
             queue: .main
         ) { [weak banner] _ in
-            banner?.syncWithNetworkState()
+            banner?.syncBannerToMonitor()
         }
 
-        if !NetworkMonitor.shared.isConnected {
+        if NetworkMonitor.shared.isConnected {
+            banner.hide()
+        } else {
             banner.show()
+            banner.scheduleDeferredSync()
         }
 
         return banner
