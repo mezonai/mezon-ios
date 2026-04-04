@@ -100,8 +100,17 @@ final class SearchViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        let hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
-        displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped)
+        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
+        let isDM = clanId == 0
+        if isDM {
+            hiddenTabs.insert(.members)
+            hiddenTabs.insert(.channels)
+        }
+        displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped && !isDM)
+        if isDM {
+            searchNode.tabBar.isHidden = true
+            switchTab(.messages)
+        }
         searchNode.searchBar.textField.delegate = self
         searchNode.tabBar.onTabSelected = { [weak self] tab in
             self?.switchTab(tab)

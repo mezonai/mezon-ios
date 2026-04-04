@@ -169,6 +169,48 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     @objc private func handleWillEnterForeground() {
         accountContext?.recoverFromForeground()
+        checkPendingSharedContent()
+    }
+
+    private func checkPendingSharedContent() {
+        if SharingManager.shared.hasPendingSharedContent() {
+            NotificationCenter.default.post(
+                name: .mezonDidReceiveSharedContent,
+                object: nil,
+                userInfo: ["type": "unknown"]
+            )
+        }
+    }
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            handleShareURL(context.url)
+        }
+    }
+
+    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        handleShareURL(url)
+        return url.scheme == "mezon.mobile.sharing"
+    }
+
+    private func handleShareURL(_ url: URL) {
+        guard url.scheme == "mezon.mobile.sharing" else { return }
+
+        let type: String
+        if let fragment = url.fragment {
+            type = fragment
+        } else {
+            type = "text"
+        }
+
+        AppLogger.network.info("[Sharing] Received share URL with type: \(type)")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NotificationCenter.default.post(
+                name: .mezonDidReceiveSharedContent,
+                object: nil,
+                userInfo: ["type": type]
+            )
+        }
     }
 
     deinit { disposables.dispose() }
@@ -290,6 +332,7 @@ extension Notification.Name {
     static let mezonMessageTypingReceived = Notification.Name("MezonMessageTypingReceived")
     static let mezonQRSelectClan = Notification.Name("MezonQRSelectClan")
     static let mezonQRNavigateToDM = Notification.Name("MezonQRNavigateToDM")
+    static let mezonDidReceiveSharedContent = Notification.Name("MezonDidReceiveSharedContent")
 }
 
 extension AppDelegate: MessagingDelegate {

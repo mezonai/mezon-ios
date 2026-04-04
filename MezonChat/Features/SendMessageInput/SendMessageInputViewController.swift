@@ -533,7 +533,7 @@ final class SendMessageInputViewController: UIViewController {
                     mentionEveryone: false,
                     avatar: avatar,
                     topicId: self.topicId,
-                    code: 8,
+                    code: MezonConstants.MessageCode.buzz.rawValue,
                     token: token
                 )
             } catch {
@@ -717,6 +717,13 @@ final class SendMessageInputViewController: UIViewController {
         applyEmojiInsertion(emojiId: emojiId, shortname: shortname, replaceRange: textView.selectedRange)
     }
 
+    func focusComposerAfterEmojiPanelSelection() {
+        guard !isVoiceRecordingActive else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.textView.becomeFirstResponder()
+        }
+    }
+
 
     private func applyEmojiInsertion(emojiId: String, shortname: String, replaceRange: NSRange) {
         guard !isVoiceRecordingActive else { return }
@@ -792,6 +799,9 @@ final class SendMessageInputViewController: UIViewController {
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
+        updateInlineSuggestions()
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
         hideEmojiSuggestions()
     }
 
@@ -1020,11 +1030,11 @@ final class SendMessageInputViewController: UIViewController {
             chevronButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             chevronButton.heightAnchor.constraint(equalToConstant: btnSize),
 
-            attachButton.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 2.sw),
+            attachButton.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 4.sw),
             attachButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             attachButton.heightAnchor.constraint(equalToConstant: btnSize),
 
-            advanceButton.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 2.sw),
+            advanceButton.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
             advanceButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             advanceButton.heightAnchor.constraint(equalToConstant: btnSize),
 

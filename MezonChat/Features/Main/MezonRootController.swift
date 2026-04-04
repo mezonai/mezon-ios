@@ -83,8 +83,10 @@ final class MezonRootController: NavigationController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRSelectClanRoot(_:)), name: .mezonQRSelectClan, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSharedContent(_:)), name: .mezonDidReceiveSharedContent, object: nil)
 
         processPendingNavigation()
+        checkPendingSharedContentOnLaunch()
     }
 
     private func processPendingNavigation() {
@@ -343,7 +345,46 @@ final class MezonRootController: NavigationController {
         return result
     }
 
-    deinit { navigationDisposable.dispose() }
+
+    @objc private func handleSharedContent(_ notification: Notification) {
+        let type = notification.userInfo?["type"] as? String ?? "unknown"
+        presentSharingUI(type: type)
+    }
+
+    private func checkPendingSharedContentOnLaunch() {
+        guard SharingManager.shared.hasPendingSharedContent() else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            guard SharingManager.shared.hasPendingSharedContent() else { return }
+            self.presentSharingUI(type: "unknown")
+        }
+    }
+
+    private func presentSharingUI(type: String) {
+        guard let content = SharingManager.shared.loadSharedContent(type: type) else {
+            AppLogger.network.info("[Sharing] No shared content found for type: \(type)")
+            return
+        }
+
+        if let presented = self.view.window?.rootViewController?.presentedViewController,
+           presented is SharingViewController {
+            presented.dismiss(animated: false)
+        }
+
+        let sharingVC = SharingViewController(context: context, sharedContent: content)
+        if let windowRoot = self.view.window?.rootViewController {
+            var topVC = windowRoot
+            while let presented = topVC.presentedViewController {
+                topVC = presented
+            }
+            topVC.present(sharingVC, animated: true)
+        }
+    }
+
+    deinit {
+        navigationDisposable.dispose()
+        NotificationCenter.default.removeObserver(self, name: .mezonDidReceiveSharedContent, object: nil)
+    }
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
         let actualTheme = theme ?? ThemeManager.shared.current

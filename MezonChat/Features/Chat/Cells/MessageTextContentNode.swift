@@ -16,6 +16,7 @@ final class MessageTextContentNode: ASDisplayNode {
     private var currentParsedContent: ParsedContent?
     private var currentAttrText: NSAttributedString?
     private var hasEmoji = false
+    private var buzzStyled = false
 
     private var cachedTextSize: CGSize = .zero
 
@@ -32,8 +33,9 @@ final class MessageTextContentNode: ASDisplayNode {
         view.addGestureRecognizer(tap)
     }
 
-    func configure(parsedContent: ParsedContent) {
+    func configure(parsedContent: ParsedContent, buzzStyled: Bool = false) {
         currentParsedContent = parsedContent
+        self.buzzStyled = buzzStyled
 
         let hasCodeBlock = parsedContent.tokens.contains {
             if case .codeBlock = $0.kind { return true }
@@ -55,7 +57,7 @@ final class MessageTextContentNode: ASDisplayNode {
 
         if hasCodeBlock {
             useSegments = true
-            let segments = RichTextBuilder.buildSegments(from: parsedContent)
+            let segments = RichTextBuilder.buildSegments(from: parsedContent, buzzStyled: buzzStyled)
             for segment in segments {
                 switch segment {
                 case .text(let attrText):
@@ -79,7 +81,7 @@ final class MessageTextContentNode: ASDisplayNode {
         useSegments = false
 
 
-        let attrText = RichTextBuilder.build(from: parsedContent)
+        let attrText = RichTextBuilder.build(from: parsedContent, buzzStyled: buzzStyled)
         currentAttrText = attrText
 
         if containsEmoji {

@@ -244,11 +244,8 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         let index = sender.tag
         guard index >= 0, index < actionItems.count else { return }
         let item = actionItems[index]
-        onRequestDismiss?()
         onActionTapped?(item)
     }
-
-    // MARK: - Gestures
 
     private func setupGestures() {
         sheetPanGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))

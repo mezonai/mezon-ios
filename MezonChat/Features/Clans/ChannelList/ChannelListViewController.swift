@@ -681,18 +681,23 @@ final class ChannelListViewController: ViewController {
         errorMessage = nil
         channelListCategoryDescs = []
         channelListFavoriteIds = []
+        allChannels = []
+        categories = []
 
-        let hadCache = restoreCachedChannels(clanId: clanId)
+        isLoading = true
+        needsReloadPipe.putNext(())
 
-        isLoading = !hadCache
-        if !hadCache {
-            needsReloadPipe.putNext(())
-        }
+        _ = restoreCachedChannels(clanId: clanId)
+
         fetchChannelsWithoutLoadingSignal()
     }
 
     private func fetchChannelsWithoutLoadingSignal() {
-        guard clanId != 0 else { return }
+        guard clanId != 0 else {
+            isLoading = false
+            needsReloadPipe.putNext(())
+            return
+        }
         let clanId = self.clanId
 
         let signal = channelListSignal(clanId: clanId)

@@ -44,14 +44,16 @@ final class ChatContainerNode: ASDisplayNode {
     private var committedItems: [ListViewItem] = []
     private(set) var committedMessageIds: [String] = []
     private let interaction: ChatInteraction
+    private let isDM: Bool
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
 
-    init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction) {
+    init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction, isDM: Bool = false) {
         listView = ListView()
         self.interaction = interaction
+        self.isDM = isDM
 
         let t = UIColor.theme
         loadingOlderNode.setViewBlock {
@@ -197,7 +199,8 @@ final class ChatContainerNode: ASDisplayNode {
             subtitle: state.parentName,
             channelType: state.channelType,
             isPrivate: state.isPrivate,
-            isAgeRestricted: state.isAgeRestricted
+            isAgeRestricted: state.isAgeRestricted,
+            isDM: isDM
         )
     }
 

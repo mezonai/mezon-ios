@@ -118,6 +118,121 @@ final class MediaPickerViewController: UIViewController {
         return btn
     }()
 
+    private lazy var permissionDeniedView: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.isHidden = true
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 44, weight: .thin)
+        let iconView = UIImageView(image: UIImage(systemName: "photo.on.rectangle.angled", withConfiguration: iconConfig))
+        iconView.tintColor = UIColor.white.withAlphaComponent(0.3)
+        iconView.contentMode = .scaleAspectFit
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = UILabel()
+        titleLabel.text = "No Photo Access"
+        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.textColor = UIColor.theme.textStrong
+        titleLabel.textAlignment = .center
+
+        let descLabel = UILabel()
+        descLabel.text = "Please allow access to your photos\nto select and send media."
+        descLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        descLabel.textColor = UIColor.theme.textDisabled
+        descLabel.textAlignment = .center
+        descLabel.numberOfLines = 0
+
+        let settingsBtn = UIButton(type: .system)
+        settingsBtn.translatesAutoresizingMaskIntoConstraints = false
+        var config = UIButton.Configuration.filled()
+        config.title = "Go to Settings"
+        config.baseBackgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+        config.baseForegroundColor = .white
+        config.cornerStyle = .capsule
+        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 24, bottom: 10, trailing: 24)
+        settingsBtn.configuration = config
+        settingsBtn.addAction(UIAction { _ in
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        }, for: .touchUpInside)
+
+        stack.addArrangedSubview(iconView)
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(descLabel)
+
+        let spacer = UIView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: 4).isActive = true
+        stack.addArrangedSubview(spacer)
+        stack.addArrangedSubview(settingsBtn)
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 32),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -32),
+        ])
+
+        return container
+    }()
+
+    private lazy var limitedBanner: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.backgroundColor = UIColor.theme.primary
+        v.isHidden = true
+
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = "You have limited Mezon from accessing your photos."
+        label.font = .systemFont(ofSize: 13, weight: .regular)
+        label.textColor = UIColor.theme.textDisabled
+        label.numberOfLines = 2
+
+        let manageBtn = UIButton(type: .system)
+        manageBtn.translatesAutoresizingMaskIntoConstraints = false
+        var config = UIButton.Configuration.filled()
+        config.title = "MANAGE"
+        config.baseBackgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+        config.baseForegroundColor = .white
+        config.cornerStyle = .capsule
+        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var out = incoming
+            out.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+            return out
+        }
+        manageBtn.configuration = config
+        manageBtn.addAction(UIAction { [weak self] _ in self?.manageLimitedAccess() }, for: .touchUpInside)
+
+        manageBtn.setContentCompressionResistancePriority(.required, for: .horizontal)
+        manageBtn.setContentHuggingPriority(.required, for: .horizontal)
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        v.addSubview(label)
+        v.addSubview(manageBtn)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16),
+            label.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            label.trailingAnchor.constraint(equalTo: manageBtn.leadingAnchor, constant: -8),
+
+            manageBtn.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16),
+            manageBtn.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+        ])
+
+        return v
+    }()
+
+    private var limitedBannerHeightConstraint: NSLayoutConstraint?
+
     private var didSendResults = false
 
     override func viewDidLoad() {
@@ -143,6 +258,7 @@ final class MediaPickerViewController: UIViewController {
     }
 
     deinit {
+        PHPhotoLibrary.shared().unregisterChangeObserver(self)
         cachingImageManager.stopCachingImagesForAllAssets()
     }
 
@@ -164,11 +280,14 @@ final class MediaPickerViewController: UIViewController {
         headerView.addSubview(titleButton)
         headerView.addSubview(sendButton)
         headerView.addSubview(cancelButton)
+        view.addSubview(limitedBanner)
         view.addSubview(collectionView)
         view.addSubview(dropdownOverlay)
         view.addSubview(albumDropdownView)
 
         let headerHeight: CGFloat = 52
+        let bannerHeight = limitedBanner.heightAnchor.constraint(equalToConstant: 0)
+        self.limitedBannerHeightConstraint = bannerHeight
 
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -190,7 +309,12 @@ final class MediaPickerViewController: UIViewController {
             sendButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16),
             sendButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor, constant: 4),
 
-            collectionView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            limitedBanner.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            limitedBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            limitedBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bannerHeight,
+
+            collectionView.topAnchor.constraint(equalTo: limitedBanner.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -209,21 +333,72 @@ final class MediaPickerViewController: UIViewController {
     private func checkPermissionAndLoad() {
         let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
         switch status {
-        case .authorized, .limited:
+        case .authorized:
             loadAssets()
+        case .limited:
+            showLimitedBanner()
+            loadAssets()
+            PHPhotoLibrary.shared().register(self)
         case .notDetermined:
             PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
                 DispatchQueue.main.async {
-                    if newStatus == .authorized || newStatus == .limited {
+                    switch newStatus {
+                    case .authorized:
                         self?.loadAssets()
-                    } else {
-                        self?.dismiss(animated: true)
+                    case .limited:
+                        self?.showLimitedBanner()
+                        self?.loadAssets()
+                        if let self { PHPhotoLibrary.shared().register(self) }
+                    default:
+                        self?.showPermissionDenied()
                     }
                 }
             }
-        default:
-            dismiss(animated: true)
+        case .denied, .restricted:
+            showPermissionDenied()
+        @unknown default:
+            showPermissionDenied()
         }
+    }
+
+    private func showLimitedBanner() {
+        limitedBanner.isHidden = false
+        limitedBannerHeightConstraint?.constant = 44
+        view.layoutIfNeeded()
+    }
+
+    private func manageLimitedAccess() {
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+
+        sheet.addAction(UIAlertAction(title: "Select More Photos...", style: .default) { [weak self] _ in
+            guard let self else { return }
+            PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: self)
+        })
+
+        sheet.addAction(UIAlertAction(title: "Change Settings", style: .default) { _ in
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        })
+
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        present(sheet, animated: true)
+    }
+
+    private func showPermissionDenied() {
+        // Hide the album title button and collection view
+        titleButton.isHidden = true
+        collectionView.isHidden = true
+
+        // Show permission denied view
+        view.addSubview(permissionDeniedView)
+        NSLayoutConstraint.activate([
+            permissionDeniedView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            permissionDeniedView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            permissionDeniedView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            permissionDeniedView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        permissionDeniedView.isHidden = false
     }
 
     private func loadAssets() {
@@ -664,6 +839,14 @@ extension MediaPickerViewController: UICollectionViewDataSource, UICollectionVie
     }
 }
 
+
+extension MediaPickerViewController: PHPhotoLibraryChangeObserver {
+    func photoLibraryDidChange(_ changeInstance: PHChange) {
+        DispatchQueue.main.async { [weak self] in
+            self?.loadAssets()
+        }
+    }
+}
 
 extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 
