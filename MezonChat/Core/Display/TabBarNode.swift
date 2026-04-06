@@ -195,7 +195,6 @@ public final class TabBarNode: ASDisplayNode {
         return itemNodes[index].frame
     }
 
-    /// Call when `UIColor.theme` changes so tab labels (built in `layoutSpecThatFits`) pick up new colors.
     func refreshItemAppearanceForThemeChange() {
         separatorNode.backgroundColor = UIColor.theme.border
         itemNodes.forEach { $0.setNeedsLayout() }

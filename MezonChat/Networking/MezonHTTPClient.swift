@@ -17,6 +17,10 @@ final class MezonHTTPClient {
         if #available(iOS 15.0, *) {
             config.multipathServiceType = .handover
         }
+        if #available(iOS 17.0, *),
+           config.responds(to: Selector(("setAssumesHTTP3Capable:"))) {
+            config.setValue(true, forKey: "assumesHTTP3Capable")
+        }
         urlSession = URLSession(configuration: config)
     }
 
@@ -684,6 +688,23 @@ final class MezonHTTPClient {
         req.sorts = sorts
         return try await postProto(
             path: "/mezon.api.Mezon/SearchMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func createPinMessage(
+        clanId: Int64,
+        channelId: Int64,
+        messageId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_PinMessagesList {
+        var req = Mezon_Api_PinMessageRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.messageID = messageId
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreatePinMessage",
             message: req,
             auth: .bearer(token)
         )

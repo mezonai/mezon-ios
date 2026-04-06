@@ -263,7 +263,6 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         applyTheme()
     }
 
-    /// RN `baseColor.green` (Mezon join voice).
     private static let joinVoiceGreen = UIColor(red: 0.133, green: 0.694, blue: 0.298, alpha: 1)
 
     private func styleTertiaryCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
@@ -330,7 +329,6 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         CATransaction.commit()
     }
 
-    /// Pill button: radius must be ≤ height/2 or UIButton background draws with pinched “almond” ends.
     private func joinVoiceButtonCapsuleStyle(_ button: UIButton, height: CGFloat) {
         let r = height / 2
         button.layer.cornerRadius = r

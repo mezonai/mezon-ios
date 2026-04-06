@@ -282,6 +282,11 @@ enum L10n {
         static let markMessage      = "messageAction.markMessage"
         static let quickMenu        = "messageAction.quickMenu"
         static let report           = "messageAction.report"
+        static let pinMessageConfirm = "messageAction.pinMessageConfirm"
+        static let pinSuccess       = "messageAction.pinSuccess"
+        static let pinError         = "messageAction.pinError"
+        static let yes              = "messageAction.yes"
+        static let no               = "messageAction.no"
     }
 
     enum Error {
@@ -501,6 +506,11 @@ extension L10n {
         "messageAction.markMessage": "Mark Message",
         "messageAction.quickMenu": "Quick Menu",
         "messageAction.report": "Report",
+        "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
+        "messageAction.pinSuccess": "Message pinned successfully",
+        "messageAction.pinError": "Failed to pin message",
+        "messageAction.yes": "Yes",
+        "messageAction.no": "No",
 
         "profile.addStatus": "Add Status",
         "profile.editProfile": "Edit Profile",
@@ -746,6 +756,11 @@ extension L10n {
         "messageAction.markMessage": "Đánh dấu tin nhắn",
         "messageAction.quickMenu": "Menu nhanh",
         "messageAction.report": "Báo cáo",
+        "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
+        "messageAction.pinSuccess": "Ghim tin nhắn thành công",
+        "messageAction.pinError": "Ghim tin nhắn thất bại",
+        "messageAction.yes": "Đồng ý",
+        "messageAction.no": "Không",
 
         "profile.addStatus": "Thêm trạng thái",
         "profile.editProfile": "Chỉnh sửa hồ sơ",

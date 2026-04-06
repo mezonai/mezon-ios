@@ -613,7 +613,6 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
-    /// RN-style: one **screen share** tile when publishing screen, plus a separate **camera / avatar** tile (never shows screen in the main tile).
     private func voiceTileDescriptors(participants: [Participant]) -> [VoiceParticipantTileDescriptor] {
         var out: [VoiceParticipantTileDescriptor] = []
         for p in participants {
@@ -1234,7 +1233,6 @@ private final class VoiceParticipantRowView: UIView {
         videoView.track = nil
     }
 
-    /// Detach LiveKit renderer before the row leaves the hierarchy (avoids holding decoders).
     func prepareForRemoval() {
         videoView.track = nil
     }

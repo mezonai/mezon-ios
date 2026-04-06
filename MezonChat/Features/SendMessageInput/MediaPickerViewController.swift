@@ -386,11 +386,9 @@ final class MediaPickerViewController: UIViewController {
     }
 
     private func showPermissionDenied() {
-        // Hide the album title button and collection view
         titleButton.isHidden = true
         collectionView.isHidden = true
 
-        // Show permission denied view
         view.addSubview(permissionDeniedView)
         NSLayoutConstraint.activate([
             permissionDeniedView.topAnchor.constraint(equalTo: headerView.bottomAnchor),

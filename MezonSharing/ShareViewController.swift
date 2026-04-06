@@ -148,8 +148,6 @@ class ShareViewController: UIViewController {
         }
     }
 
-    // MARK: - Handle Videos
-
     private func handleVideos(attachment: NSItemProvider, index: Int) {
         attachment.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let url = data as? URL else {

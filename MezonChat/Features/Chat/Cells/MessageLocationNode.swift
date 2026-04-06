@@ -171,10 +171,8 @@ final class MessageLocationNode: ASDisplayNode {
         let w = cachedTotalSize.width
         containerNode.frame = CGRect(origin: .zero, size: cachedTotalSize)
 
-        // Map area
         mapImageNode.frame = CGRect(x: 0, y: 0, width: w, height: Self.mapHeight)
 
-        // Avatar marker in center of map
         let avatarSz = Self.avatarSize
         let avatarX = (w - avatarSz) / 2
         let avatarY = (Self.mapHeight - avatarSz) / 2

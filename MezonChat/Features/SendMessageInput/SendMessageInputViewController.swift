@@ -645,7 +645,6 @@ final class SendMessageInputViewController: UIViewController {
         isEmojiPickerVisible.toggle()
 
         if isEmojiPickerVisible {
-            // Dismiss advance panel if open
             if isAdvancePanelVisible {
                 isAdvancePanelVisible = false
                 onToggleAdvancePanel?(false, 0)
@@ -1071,7 +1070,6 @@ final class SendMessageInputViewController: UIViewController {
         phc.isActive = true
         previewHeightConstraint = phc
 
-        // Width constraints for collapse/expand
         let chevW = chevronButton.widthAnchor.constraint(equalToConstant: 0)
         chevronButtonWidthConstraint = chevW
         chevW.isActive = true
@@ -1085,9 +1083,6 @@ final class SendMessageInputViewController: UIViewController {
         advanceButtonWidthConstraint = advW
         advW.isActive = true
 
-        // Pin overlay to the full input bar frame as a sibling of `inputBarView` (not inside it).
-        // When the keyboard hides during hold-to-record, the composer `view` still moves as a unit;
-        // matching the bar’s frame avoids the strip sticking to a stale layout like RN `position: 'absolute'` to the bar.
         voiceRecordingOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(voiceRecordingOverlay)
         view.insertSubview(voiceRecordingOverlay, aboveSubview: inputBarView)
@@ -1100,7 +1095,6 @@ final class SendMessageInputViewController: UIViewController {
 
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleVoiceLongPress(_:)))
         longPress.minimumPressDuration = 0.4
-        // Large value so slide-to-cancel (often >120pt) never fails the long press before/after recognition.
         longPress.allowableMovement = 2000
         longPress.cancelsTouchesInView = false
         voiceButton.addGestureRecognizer(longPress)

@@ -106,7 +106,6 @@ final class SharingViewController: UIViewController {
         return b
     }()
 
-    // Selected channel badge (replaces search icon + text when a channel is selected)
     private let selectedAvatarView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -373,7 +372,6 @@ final class SharingViewController: UIViewController {
             searchClearButton.widthAnchor.constraint(equalToConstant: 24),
             searchClearButton.heightAnchor.constraint(equalToConstant: 24),
 
-            // Selected avatar overlay
             selectedAvatarView.leadingAnchor.constraint(equalTo: searchContainer.leadingAnchor, constant: 8),
             selectedAvatarView.centerYAnchor.constraint(equalTo: searchContainer.centerYAnchor),
             selectedAvatarView.widthAnchor.constraint(equalToConstant: 24),
@@ -453,7 +451,6 @@ final class SharingViewController: UIViewController {
             sendButton.heightAnchor.constraint(equalToConstant: 40),
         ])
 
-        // Loading overlay
         NSLayoutConstraint.activate([
             loadingOverlay.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingOverlay.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -612,7 +609,6 @@ final class SharingViewController: UIViewController {
                 ])
             }
 
-            // Remove (X) button on each attachment
             let removeBtn = UIButton(type: .system)
             removeBtn.translatesAutoresizingMaskIntoConstraints = false
             let removeConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
@@ -727,7 +723,6 @@ final class SharingViewController: UIViewController {
 
     @objc private func clearSearchTapped() {
         if selectedChannel != nil {
-            // Clear selection
             selectedChannel = nil
             showSearchMode()
             updateSendButton()
@@ -975,7 +970,6 @@ final class SharingViewController: UIViewController {
                 }
                 let isPublic = channel.channelPrivate == 0
 
-                // Send message
                 _ = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,

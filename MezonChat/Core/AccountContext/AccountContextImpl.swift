@@ -574,9 +574,6 @@ final class AccountContextImpl: AccountContext {
         account.socket.joinClanChat(clanId: 0)
         AppLogger.app.info("[MezonSocket] joinClanChat clanId=0 (DM stream, RN RootListener parity)")
 
-        // currentClanId is pre-set from the FCM notification payload in
-        // AppDelegate.didReceive before the socket connects, so it already
-        // points to the correct clan for notification-driven launches.
         let cachedClanId: Int64
         if currentClanId != 0 {
             cachedClanId = currentClanId

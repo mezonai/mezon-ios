@@ -310,6 +310,8 @@ final class ChatContainerNode: ASDisplayNode {
                     isPrivate: state.isPrivate,
                     isAgeRestricted: state.isAgeRestricted
                 ))
+            } else if display.isSystemMessage {
+                items.append(ChatSystemMessageItem(display: display, interaction: interaction))
             } else {
                 items.append(ChatMessageItem(display: display, interaction: interaction))
             }
@@ -470,10 +472,17 @@ final class ChatContainerNode: ASDisplayNode {
         let reversedNewMessages = new.messages.reversed() as [ChatMessageDisplay]
         var itemIdx = 0
         for (msgIdx, newMsg) in reversedNewMessages.enumerated() {
-            while itemIdx < newItems.count, !(newItems[itemIdx] is ChatMessageItem) {
+            while itemIdx < newItems.count,
+                  !(newItems[itemIdx] is ChatMessageItem),
+                  !(newItems[itemIdx] is ChatSystemMessageItem) {
                 itemIdx += 1
             }
             guard itemIdx < newItems.count else { break }
+
+            if newItems[itemIdx] is ChatSystemMessageItem {
+                itemIdx += 1
+                continue
+            }
 
             let changed: Bool
             if forceAll {
