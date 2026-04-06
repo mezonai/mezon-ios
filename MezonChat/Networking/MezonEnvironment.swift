@@ -109,4 +109,14 @@ enum MezonEnvironment {
 
     static var tenorAPIKey: String? { infoPlistString("TENOR_API_KEY") }
     static var tenorClientKey: String? { infoPlistString("TENOR_CLIENT_KEY") }
+
+    var meetWebSocketURLString: String {
+        if let override = Self.infoPlistString("MEET_WS_URL"), !override.isEmpty {
+            return override
+        }
+        switch self {
+        case .dev: return "wss://meet.mezon.ai"
+        case .prod: return "wss://meet.mezon.ai"
+        }
+    }
 }

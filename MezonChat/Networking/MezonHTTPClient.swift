@@ -473,13 +473,29 @@ final class MezonHTTPClient {
     }
 
     func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
-        var req = Mezon_Api_ListClanUsersRequest()
+        var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
+        req.channelID = 0
+        req.channelType = MezonConstants.ChannelType.mezonVoice.rawValue
+        req.limit = 100
+        req.state = 1
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelVoiceUsers",
             message: req,
             auth: .bearer(token)
         )
+    }
+
+    func generateMeetToken(channelId: Int64, roomName: String, token: String) async throws -> String {
+        var req = Mezon_Api_GenerateMeetTokenRequest()
+        req.channelID = channelId
+        req.roomName = roomName
+        let response: Mezon_Api_GenerateMeetTokenResponse = try await postProto(
+            path: "/mezon.api.Mezon/GenerateMeetToken",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.token
     }
 
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {

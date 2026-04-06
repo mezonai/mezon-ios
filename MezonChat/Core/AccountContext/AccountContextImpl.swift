@@ -436,6 +436,26 @@ final class AccountContextImpl: AccountContext {
                     ] as [String: Any]
                 )
             }
+            account.socket.onVoiceJoined = { [weak self] ev in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)
+                }
+            }
+            account.socket.onVoiceLeaved = { [weak self] ev in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
+                }
+            }
+            account.socket.onVoiceEnded = { [weak self] ev in
+                Task { @MainActor in
+                    guard let self else { return }
+                    let cid = Int64(ev.voiceChannelID) ?? 0
+                    guard cid != 0 else { return }
+                    self.engine.clanData.applyVoiceEnded(clanId: ev.clanID, channelId: cid)
+                }
+            }
             account.socket.onNotification = { [weak self] noti in
                 guard let self else { return }
                 guard noti.channelID != 0 else { return }

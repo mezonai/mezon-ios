@@ -333,6 +333,7 @@ extension Notification.Name {
     static let mezonQRSelectClan = Notification.Name("MezonQRSelectClan")
     static let mezonQRNavigateToDM = Notification.Name("MezonQRNavigateToDM")
     static let mezonDidReceiveSharedContent = Notification.Name("MezonDidReceiveSharedContent")
+    static let mezonVoicePresenceChanged = Notification.Name("MezonVoicePresenceChanged")
 }
 
 extension AppDelegate: MessagingDelegate {

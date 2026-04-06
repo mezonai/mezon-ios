@@ -193,6 +193,70 @@ extension MezonEngine {
             return try? Mezon_Api_VoiceChannelUserList(serializedBytes: data)
         }
 
+        func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
+            await fetchVoiceChannelUsers(clanId: clanId, token: token)
+        }
+
+        func applyVoiceJoined(clanId: Int64, channelId: Int64, userId: Int64) {
+            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            let uid = "\(userId)"
+            applyVoiceLeaved(clanId: clanId, channelId: channelId, userId: userId, list: &list, notify: false)
+            if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
+                var entry = list.voiceChannelUsers[idx]
+                if !entry.userIds.contains(uid) {
+                    entry.userIds.append(uid)
+                    list.voiceChannelUsers[idx] = entry
+                }
+            } else {
+                var vu = Mezon_Api_VoiceChannelUser()
+                vu.channelID = channelId
+                vu.userIds = [uid]
+                list.voiceChannelUsers.append(vu)
+            }
+            persistVoiceUsersList(list, clanId: clanId)
+        }
+
+        func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64) {
+            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            applyVoiceLeaved(clanId: clanId, channelId: channelId, userId: userId, list: &list, notify: true)
+        }
+
+        private func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64, list: inout Mezon_Api_VoiceChannelUserList, notify: Bool) {
+            let uid = "\(userId)"
+            guard let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) else {
+                if notify { persistVoiceUsersList(list, clanId: clanId) }
+                return
+            }
+            var entry = list.voiceChannelUsers[idx]
+            entry.userIds.removeAll { $0 == uid }
+            if entry.userIds.isEmpty {
+                list.voiceChannelUsers.remove(at: idx)
+            } else {
+                list.voiceChannelUsers[idx] = entry
+            }
+            if notify {
+                persistVoiceUsersList(list, clanId: clanId)
+            }
+        }
+
+        func applyVoiceEnded(clanId: Int64, channelId: Int64) {
+            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            list.voiceChannelUsers.removeAll { $0.channelID == channelId }
+            persistVoiceUsersList(list, clanId: clanId)
+        }
+
+        private func persistVoiceUsersList(_ list: Mezon_Api_VoiceChannelUserList, clanId: Int64) {
+            if let data = try? list.serializedData() {
+                postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
+            }
+            clanVoiceUsersUpdated.putNext(clanId)
+            NotificationCenter.default.post(
+                name: .mezonVoicePresenceChanged,
+                object: nil,
+                userInfo: ["clanId": NSNumber(value: clanId)]
+            )
+        }
+
         func getBadgeCount(clanId: Int64) -> Int32 {
             guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanBadgeCount(clanId: clanId)),
                   data.count >= 4 else { return 0 }
