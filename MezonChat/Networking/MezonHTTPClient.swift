@@ -536,11 +536,12 @@ final class MezonHTTPClient {
         )
     }
 
-    func registFcmDeviceToken(fcmToken: String, deviceId: String, platform: String = "ios", authToken: String) async throws -> Mezon_Api_RegistFcmDeviceTokenResponse {
+    func registFcmDeviceToken(fcmToken: String, deviceId: String, platform: String = "ios", voipToken: String = "", authToken: String) async throws -> Mezon_Api_RegistFcmDeviceTokenResponse {
         var req = Mezon_Api_RegistFcmDeviceTokenRequest()
         req.token = fcmToken
         req.deviceID = deviceId
         req.platform = platform
+        req.voipToken = voipToken
         return try await postProto(
             path: "/mezon.api.Mezon/RegistFCMDeviceToken",
             message: req,

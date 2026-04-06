@@ -162,7 +162,7 @@ final class MessageTable: Table {
         }
     }
 
-    func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {
+    func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) -> String? {
         for channelId in cache.keys {
             guard let idx = cache[channelId]?.firstIndex(where: { $0.id == messageId }) else { continue }
             let old = cache[channelId]![idx]
@@ -190,32 +190,21 @@ final class MessageTable: Table {
                 }
             }
 
-            let newEmojiId = "\(reaction.emojiID)"
+            let emojiIdForJson = reaction.emojiID != 0 ? "\(reaction.emojiID)" : ""
             let isAdding = !reaction.action
-            for i in 0..<reactionsArray.count {
-                let entryEmojiId: String = {
-                    if let s = reactionsArray[i]["emoji_id"] as? String { return s }
-                    if let n = reactionsArray[i]["emoji_id"] as? Int { return "\(n)" }
-                    return ""
-                }()
-                if entryEmojiId == newEmojiId {
-                    let oldCount: Int = {
-                        if let n = reactionsArray[i]["count"] as? Int { return n }
-                        if let n = reactionsArray[i]["count"] as? Int32 { return Int(n) }
-                        if let n = reactionsArray[i]["count"] as? Int64 { return Int(n) }
-                        return 0
-                    }()
-                    reactionsArray[i]["count"] = isAdding ? oldCount + 1 : max(oldCount - 1, 0)
-                }
-            }
+            let appendedCount: Int = {
+                if isAdding { return 0 }
+                let c = Int(reaction.count)
+                return c > 0 ? c : 1
+            }()
 
             let newEntry: [String: Any] = [
-                "emoji_id": newEmojiId,
+                "emoji_id": emojiIdForJson,
                 "emoji": reaction.emoji,
                 "sender_id": "\(reaction.senderID)",
                 "sender_name": reaction.senderName,
                 "action": isAdding,
-                "count": 0
+                "count": appendedCount
             ]
             reactionsArray.append(newEntry)
 
@@ -232,8 +221,9 @@ final class MessageTable: Table {
                 referencesData: old.referencesData, mentionsJSON: old.mentionsJSON
             )
             pendingWrites.insert(channelId)
-            return
+            return channelId
         }
+        return nil
     }
 
     func markMessageFailed(id: String) {

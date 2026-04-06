@@ -17,6 +17,8 @@ struct ChatInteraction {
     let onReplyTapped: (String) -> Void
     let onTopicTapped: (TopicData) -> Void
     let onReactionTapped: (ParsedReaction, ChatMessageDisplay) -> Void
+    let onReactionDetailRequested: (ParsedReaction, ChatMessageDisplay) -> Void
+    let onAddReactionTapped: (ChatMessageDisplay) -> Void
     let onAvatarTapped: (ChatMessageDisplay) -> Void
     let onSwipeReply: (ChatMessageDisplay) -> Void
     var onMessagesReloaded: (() -> Void)?

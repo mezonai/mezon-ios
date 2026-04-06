@@ -177,23 +177,6 @@ final class MessageTextContentNode: ASDisplayNode {
         return CGSize(width: min(ceil(rect.width), maxWidth), height: ceil(rect.height))
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesBegan(touches, with: event)
-        (supernode as? MessageBubbleNode)?.showHighlight(true)
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesEnded(touches, with: event)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            (self?.supernode as? MessageBubbleNode)?.showHighlight(false)
-        }
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>?, with event: UIEvent?) {
-        super.touchesCancelled(touches, with: event)
-        (supernode as? MessageBubbleNode)?.showHighlight(false)
-    }
-
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: view)
 
