@@ -14,6 +14,8 @@ enum MezonConfig {
     static var baseImgURL: String    { env.baseImgURL }
     static var profileImgURL: String { env.profileImgURL }
 
+    static var meetWebSocketURLString: String { env.meetWebSocketURLString }
+
 
     static func emojiImageURL(emojiId: String) -> URL? {
         guard !emojiId.isEmpty else { return nil }

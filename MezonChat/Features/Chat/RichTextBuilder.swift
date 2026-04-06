@@ -79,8 +79,9 @@ enum RichTextBuilder {
 
         static func fromTheme() -> Style {
             let t = UIColor.theme
+            let body = UIFont.systemFont(ofSize: 14.sf)
             return Style(
-                bodyFont: .systemFont(ofSize: 14.sf),
+                bodyFont: body,
                 bodyColor: t.textStrong,
                 mentionFont: .systemFont(ofSize: 14.sf, weight: .semibold),
                 mentionColor: t.textLink,
@@ -90,8 +91,8 @@ enum RichTextBuilder {
                 linkColor: t.textLink,
                 codeBgColor: t.tertiary,
                 codeFont: UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular),
-                boldFont: .systemFont(ofSize: 14.sf, weight: .bold),
-                headingFonts: Self.defaultHeadingFonts(),
+                boldFont: body,
+                headingFonts: Array(repeating: body, count: 6),
                 emojiSize: 20.sf,
                 emojiImgproxyFitSide: 50
             )
@@ -183,11 +184,16 @@ enum RichTextBuilder {
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
                 attrs[.backgroundColor] = s.codeBgColor
+                let paraStyle = NSMutableParagraphStyle()
+                paraStyle.lineHeightMultiple = 1.4
+                attrs[.paragraphStyle] = paraStyle
+                attrs[.baselineOffset] = 1
                 var displayText = rawText
                 if displayText.hasPrefix("`") && displayText.hasSuffix("`") {
                     displayText = String(displayText.dropFirst().dropLast())
                 }
-                result.append(NSAttributedString(string: " \(displayText) ", attributes: attrs))
+                let thin = "\u{2009}"
+                result.append(NSAttributedString(string: "\(thin)\(displayText)\(thin)", attributes: attrs))
 
             case .codeBlock:
                 var attrs = bodyAttributes(s)

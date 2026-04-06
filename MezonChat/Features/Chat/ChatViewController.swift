@@ -18,7 +18,6 @@ struct ParsedAttachment: Equatable {
     let filetype: String
     let width: Int?
     let height: Int?
-    /// Voice / audio attachment duration from API (seconds).
     let durationSeconds: Int?
     var localImage: UIImage?
     var isUploading: Bool = false
@@ -114,6 +113,16 @@ struct ChatMessageDisplay: Identifiable {
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
     var isLocation: Bool { locationData != nil }
+
+    var isSystemMessage: Bool {
+        let code = MezonConstants.MessageCode(rawValue: messageCode)
+        switch code {
+        case .welcome, .createThread, .createPin, .auditLog, .upcomingEvent:
+            return true
+        default:
+            return false
+        }
+    }
 
     var checkOneLinkImage: Bool {
         guard attachments.count == 1,
@@ -455,7 +464,6 @@ final class ChatViewController: ViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         guard !isMovingFromParent else { return }
-        // Don't reset channel state if a modal (e.g. document picker) is presented over us
         if presentedViewController != nil { return }
         if view.window?.rootViewController?.presentedViewController != nil { return }
         guard topicId == 0 else { return }
@@ -1840,7 +1848,6 @@ final class ChatViewController: ViewController {
     private func handleAdvancePanelToggle(visible: Bool, collapsedHeight: CGFloat) {
         if visible {
             rebuildAdvancePanelActions()
-            // Dismiss emoji picker if open
             if emojiPickerCollapsedHeight > 0 {
                 emojiPickerCollapsedHeight = 0
                 emojiPickerHeightConstraint?.constant = 0
@@ -2320,7 +2327,7 @@ final class ChatViewController: ViewController {
             }
             context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
         case .pinMessage:
-            break
+            showPinMessageConfirm(display: display)
         case .forward, .forwardMessage:
             break
         case .resend:
@@ -2347,6 +2354,46 @@ final class ChatViewController: ViewController {
             break
         case .report:
             break
+        }
+    }
+
+    private func showPinMessageConfirm(display: ChatMessageDisplay) {
+        let alert = UIAlertController(
+            title: L(L10n.MessageAction.pinMessage),
+            message: L(L10n.MessageAction.pinMessageConfirm),
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.yes), style: .default) { [weak self] _ in
+            self?.performPinMessage(display: display)
+        })
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.no), style: .cancel))
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(alert, animated: true)
+    }
+
+    private func performPinMessage(display: ChatMessageDisplay) {
+        guard let msgId = Int64(display.message.id) else { return }
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else { return }
+            do {
+                let _ = try await self.context.account.network.createPinMessage(
+                    clanId: self.clanId,
+                    channelId: self.channel.channelID,
+                    messageId: msgId,
+                    token: token
+                )
+                Toast.success(L(L10n.MessageAction.pinSuccess))
+            } catch {
+                AppLogger.network.warning("[Chat] createPinMessage failed: \(error)")
+                Toast.error(L(L10n.MessageAction.pinError))
+            }
         }
     }
 }

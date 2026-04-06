@@ -53,8 +53,6 @@ final class SharingChannelCell: UITableViewCell {
 
     private var imageTask: URLSessionDataTask?
 
-    // MARK: - Init
-
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupLayout()
@@ -71,8 +69,6 @@ final class SharingChannelCell: UITableViewCell {
         channelIconView.isHidden = true
         checkmarkView.isHidden = true
     }
-
-    // MARK: - Layout
 
     private func setupLayout() {
         backgroundColor = .clear

@@ -60,8 +60,6 @@ final class MessageAudioAttachmentNode: ASDisplayNode {
     }
 }
 
-// MARK: - UIView
-
 final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
 
     private let attachment: ParsedAttachment

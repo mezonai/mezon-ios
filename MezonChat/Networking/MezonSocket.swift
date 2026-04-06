@@ -174,6 +174,19 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
+    func sendVoiceParticipantMeetState(clanId: Int64, channelId: Int64, roomName: String, displayName: String, join: Bool) {
+        var ev = Mezon_Realtime_HandleParticipantMeetStateEvent()
+        ev.clanID = clanId
+        ev.channelID = channelId
+        ev.displayName = displayName
+        ev.roomName = roomName
+        ev.state = join ? 0 : 1
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.handleParticipantMeetStateEvent = ev
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] voice meet state clan=\(clanId) channel=\(channelId) join=\(join)")
+    }
+
     func sendMessageTyping(
         clanId: Int64,
         channelId: Int64,

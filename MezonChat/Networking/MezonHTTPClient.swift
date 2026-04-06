@@ -17,6 +17,10 @@ final class MezonHTTPClient {
         if #available(iOS 15.0, *) {
             config.multipathServiceType = .handover
         }
+        if #available(iOS 17.0, *),
+           config.responds(to: Selector(("setAssumesHTTP3Capable:"))) {
+            config.setValue(true, forKey: "assumesHTTP3Capable")
+        }
         urlSession = URLSession(configuration: config)
     }
 
@@ -473,13 +477,29 @@ final class MezonHTTPClient {
     }
 
     func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
-        var req = Mezon_Api_ListClanUsersRequest()
+        var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
+        req.channelID = 0
+        req.channelType = MezonConstants.ChannelType.mezonVoice.rawValue
+        req.limit = 100
+        req.state = 1
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelVoiceUsers",
             message: req,
             auth: .bearer(token)
         )
+    }
+
+    func generateMeetToken(channelId: Int64, roomName: String, token: String) async throws -> String {
+        var req = Mezon_Api_GenerateMeetTokenRequest()
+        req.channelID = channelId
+        req.roomName = roomName
+        let response: Mezon_Api_GenerateMeetTokenResponse = try await postProto(
+            path: "/mezon.api.Mezon/GenerateMeetToken",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.token
     }
 
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
@@ -668,6 +688,23 @@ final class MezonHTTPClient {
         req.sorts = sorts
         return try await postProto(
             path: "/mezon.api.Mezon/SearchMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func createPinMessage(
+        clanId: Int64,
+        channelId: Int64,
+        messageId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_PinMessagesList {
+        var req = Mezon_Api_PinMessageRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.messageID = messageId
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreatePinMessage",
             message: req,
             auth: .bearer(token)
         )

@@ -1,4 +1,5 @@
 import UIKit
+import QuartzCore
 import SwiftProtobuf
 
 struct ChannelListState: Equatable {
@@ -292,6 +293,7 @@ final class ChannelListViewController: ViewController {
         dataDisposable.dispose()
         NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.removeObserver(self, name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonVoicePresenceChanged, object: nil)
     }
 
     private let categoriesPipe = ValuePipe<[ChannelCategory]>()
@@ -325,6 +327,20 @@ final class ChannelListViewController: ViewController {
 
     private var channelListNode: ChannelListContainerNode { displayNode as! ChannelListContainerNode }
 
+    private var enclosingNavigationController: NavigationController? {
+        var current: UIViewController? = self
+        while let node = current {
+            if let nav = node as? NavigationController {
+                return nav
+            }
+            if let nav = node.navigationController as? NavigationController {
+                return nav
+            }
+            current = node.parent
+        }
+        return nil
+    }
+
     init(context: AccountContext) {
         self.context = context
         super.init(navigationBarPresentationData: nil)
@@ -334,7 +350,7 @@ final class ChannelListViewController: ViewController {
 
     override func loadDisplayNode() {
         let interaction = ChannelListInteraction(
-            onSelectChannel: { [weak self] ch in self?.select(channel: ch) },
+            onSelectChannel: { [weak self] ch in self?.handleChannelTap(ch) },
             onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
@@ -343,7 +359,7 @@ final class ChannelListViewController: ViewController {
             onQRTapped: { [weak self] in
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
-                self.navigationController?.pushViewController(vc, animated: true)
+                self.enclosingNavigationController?.pushViewController(vc, animated: true)
             }
         )
         displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
@@ -358,6 +374,13 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForChannelBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
+    }
+
+    @objc private func handleVoicePresenceChanged(_ notification: Notification) {
+        guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
+        guard n.int64Value == clanId, clanId != 0 else { return }
+        needsReloadPipe.putNext(())
     }
 
     @objc private func handleJoinedClanForChannelBadges(_ notification: Notification) {
@@ -435,7 +458,7 @@ final class ChannelListViewController: ViewController {
             clanName: clanName,
             avatarURL: clanLogoURL
         )
-        self.navigationController?.pushViewController(vc, animated: true)
+        self.enclosingNavigationController?.pushViewController(vc, animated: true)
     }
 
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
@@ -470,7 +493,7 @@ final class ChannelListViewController: ViewController {
             channelName: channel.channelLabel,
             channelTopic: channel.topic
         )
-        self.navigationController?.pushViewController(vc, animated: true)
+        self.enclosingNavigationController?.pushViewController(vc, animated: true)
     }
 
     func refresh() { fetchChannels() }
@@ -763,6 +786,61 @@ final class ChannelListViewController: ViewController {
         setSelectedChannel(channel)
         self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
         needsReloadPipe.putNext(())
+    }
+
+    private func handleChannelTap(_ channel: Mezon_Api_ChannelDescription) {
+        if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+            presentJoinVoiceSheet(for: channel)
+            return
+        }
+        select(channel: channel)
+    }
+
+    private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
+        let title = channel.channelLabel.isEmpty
+            ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
+            : channel.channelLabel
+        let sheet = JoinVoiceChannelSheetViewController(
+            channelTitle: title,
+            chatUnreadCount: Int(channel.countMessUnread),
+            onChat: { [weak self] in self?.pushChatViewController(for: channel) },
+            onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
+            onInvite: {}
+        )
+        sheet.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            sheet.sheetPresentationController?.prefersGrabberVisible = false
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        present(sheet, animated: true)
+        CATransaction.commit()
+    }
+
+    private func pushChatViewController(for channel: Mezon_Api_ChannelDescription) {
+        select(channel: channel)
+        guard let nav = enclosingNavigationController else { return }
+        var parentName: String?
+        if channel.parentID != 0 {
+            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: clanId, channel: channel, context: context, parentName: parentName)
+        nav.pushViewController(chatVC, animated: true)
+    }
+
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+        select(channel: channel)
+        guard let nav = enclosingNavigationController else { return }
+        var parentName: String?
+        if channel.parentID != 0 {
+            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let vc = VoiceChannelRoomViewController(
+            context: context, channel: channel, parentChannelName: parentName)
+        nav.pushViewController(vc, animated: true)
     }
 
     func selectWithoutNavigation(channelId: Int64) {
