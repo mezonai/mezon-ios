@@ -33,7 +33,10 @@ final class ChannelAppCellNode: ASCellNode {
             } else {
                 ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
                     guard let self, let image else { return }
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
                     self.logoNode.image = image
+                    CATransaction.commit()
                 }
             }
         } else {
@@ -174,10 +177,12 @@ final class ChannelAppIconNode: ASDisplayNode {
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
                 logoImageNode.image = cached
             } else {
-                let id = app.appName
                 ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    guard let self, let image, self.nameNode.attributedText?.string == id else { return }
+                    guard let self, let image else { return }
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
                     self.logoImageNode.image = image
+                    CATransaction.commit()
                 }
             }
         } else {

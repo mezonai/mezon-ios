@@ -21,6 +21,7 @@ final class ChannelItemCellNode: ASCellNode {
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
+        clipsToBounds = true
         setupContent()
     }
 
@@ -162,18 +163,16 @@ final class ChannelItemCellNode: ASCellNode {
         inset.style.minHeight = ASDimensionMake(36.sh)
         let contentWithBackground = ASBackgroundLayoutSpec(child: inset, background: selectionNode)
 
-        let finalContent: ASLayoutElement
-        if !unreadDot.isHidden {
-            unreadDot.style.layoutPosition = CGPoint(x: -4.sw, y: 15.sh)
-            let absDot = ASAbsoluteLayoutSpec(children: [unreadDot])
-            let overlay = ASOverlayLayoutSpec(child: contentWithBackground, overlay: absDot)
-            finalContent = overlay
-        } else {
-            finalContent = contentWithBackground
-        }
-
-        return ASInsetLayoutSpec(
+        let paddedContent = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 0, left: 6.sw, bottom: 0, right: 6.sw),
-            child: finalContent)
+            child: contentWithBackground)
+
+        if !unreadDot.isHidden {
+            unreadDot.style.layoutPosition = CGPoint(x: -3.swh, y: 15.sh)
+            let absDot = ASAbsoluteLayoutSpec(children: [unreadDot])
+            return ASOverlayLayoutSpec(child: paddedContent, overlay: absDot)
+        } else {
+            return paddedContent
+        }
     }
 }
