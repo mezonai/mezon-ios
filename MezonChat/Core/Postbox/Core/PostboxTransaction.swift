@@ -12,6 +12,7 @@ final class PostboxTransaction {
     let notificationSettingTable:  NotificationSettingTable
     let notificationTable:         NotificationTable
     let topicTable:                TopicTable
+    let clanMemberTable:           ClanMemberTable
 
     private(set) var updatedChannelClanIds:     Set<Int64>   = []
     private(set) var updatedClans:              Bool         = false
@@ -20,6 +21,8 @@ final class PostboxTransaction {
     private(set) var updatedNotificationSettingIds: Set<Int64> = []
     private(set) var updatedNotificationKeys:   Set<String>  = []
     private(set) var updatedTopicClanIds:       Set<Int64>   = []
+    private(set) var updatedClanMemberIds:      Set<Int64>   = []
+    private(set) var updatedProfileUserIds:     Set<String>  = []
 
     init(
         channelTable: ChannelTable,
@@ -30,7 +33,8 @@ final class PostboxTransaction {
         settingsTable: SettingsTable,
         notificationSettingTable: NotificationSettingTable,
         notificationTable: NotificationTable,
-        topicTable: TopicTable
+        topicTable: TopicTable,
+        clanMemberTable: ClanMemberTable
     ) {
         self.channelTable              = channelTable
         self.clanTable                 = clanTable
@@ -41,6 +45,7 @@ final class PostboxTransaction {
         self.notificationSettingTable  = notificationSettingTable
         self.notificationTable         = notificationTable
         self.topicTable                = topicTable
+        self.clanMemberTable           = clanMemberTable
     }
 
     func getChannels(clanId: Int64) -> [ChannelRecord] {
@@ -132,7 +137,10 @@ final class PostboxTransaction {
     func setSession(_ record: AuthRecord?)  { authTable.setSession(record) }
 
     func getProfile(userId: String) -> ProfileRecord?  { profileTable.getProfile(userId: userId) }
-    func updateProfile(_ record: ProfileRecord)         { profileTable.setProfile(record) }
+    func updateProfile(_ record: ProfileRecord) {
+        profileTable.setProfile(record)
+        updatedProfileUserIds.insert(record.userId)
+    }
 
     func getSetting(key: String) -> Data?                        { settingsTable.get(key: key) }
     func getSetting<T: PostboxCoding>(key: String, type: T.Type) -> T? { settingsTable.get(key: key, type: type) }
@@ -167,6 +175,15 @@ final class PostboxTransaction {
         updatedChannelMetaIds.insert(channelId)
     }
 
+    func updateClanMembers(_ members: [ClanMemberRecord], clanId: Int64) {
+        clanMemberTable.updateMembers(members, clanId: clanId)
+        updatedClanMemberIds.insert(clanId)
+    }
+
+    func getClanMembers(clanId: Int64) -> [ClanMemberRecord] {
+        clanMemberTable.getMembers(clanId: clanId)
+    }
+
     func updateChannelDescription(clanId: Int64, channelId: Int64, name: String?, topic: String?) {
         let channels = channelTable.getChannels(clanId: clanId)
         if let index = channels.firstIndex(where: { $0.id == channelId }) {
@@ -178,6 +195,6 @@ final class PostboxTransaction {
     }
 
     var isEmpty: Bool {
-        updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty && updatedChannelMetaIds.isEmpty && updatedNotificationSettingIds.isEmpty && updatedNotificationKeys.isEmpty && updatedTopicClanIds.isEmpty
+        updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty && updatedChannelMetaIds.isEmpty && updatedNotificationSettingIds.isEmpty && updatedNotificationKeys.isEmpty && updatedTopicClanIds.isEmpty && updatedClanMemberIds.isEmpty && updatedProfileUserIds.isEmpty
     }
 }

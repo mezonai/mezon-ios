@@ -298,6 +298,20 @@ enum L10n {
         static let sessionExpiredContent  = "error.sessionExpiredContent"
         static let sessionExpiredConfirm  = "error.sessionExpiredConfirm"
     }
+
+    enum ChannelDetail {
+        static let members = "channelDetail.members"
+        static let media   = "channelDetail.media"
+        static let files   = "channelDetail.files"
+        static let pins    = "channelDetail.pins"
+        static let canvas  = "channelDetail.canvas"
+        static let online  = "channelDetail.online"
+        static let offline = "channelDetail.offline"
+        static let inviteMembers = "channelDetail.inviteMembers"
+        static let newGroup = "channelDetail.newGroup"
+        static let addMembers = "channelDetail.addMembers"
+        static let untitledCanvas = "channelDetail.untitledCanvas"
+    }
 }
 
 extension L10n {
@@ -555,6 +569,18 @@ extension L10n {
         "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
+
+        "channelDetail.members": "Members",
+        "channelDetail.media":   "Media",
+        "channelDetail.files":   "Files",
+        "channelDetail.pins":    "Pins",
+        "channelDetail.canvas":  "Canvas",
+        "channelDetail.online":  "Online",
+        "channelDetail.offline": "Offline",
+        "channelDetail.inviteMembers": "Invite Members",
+        "channelDetail.newGroup": "New Group",
+        "channelDetail.addMembers": "Add Members",
+        "channelDetail.untitledCanvas": "Untitled Canvas",
     ]
 
     private static let vi: [String: String] = [
@@ -813,5 +839,17 @@ extension L10n {
         "error.sessionExpiredContent":
             "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
         "error.sessionExpiredConfirm": "Đăng nhập lại",
+
+        "channelDetail.members": "Thành viên",
+        "channelDetail.media":   "Phương tiện",
+        "channelDetail.files":   "Tệp",
+        "channelDetail.pins":    "Ghim",
+        "channelDetail.canvas":  "Canvas",
+        "channelDetail.online":  "Trực tuyến",
+        "channelDetail.offline": "Ngoại tuyến",
+        "channelDetail.inviteMembers": "Mời thành viên",
+        "channelDetail.newGroup": "Nhóm mới",
+        "channelDetail.addMembers": "Thêm thành viên",
+        "channelDetail.untitledCanvas": "Bản vẽ chưa đặt tên",
     ]
 }
