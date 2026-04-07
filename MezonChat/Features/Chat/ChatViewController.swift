@@ -58,6 +58,7 @@ struct ParsedAttachment: Equatable {
     }
 
     static var pendingImageCache: [String: [UIImage]] = [:]
+    static var pendingDocumentPlaceholders: [String: [ParsedAttachment]] = [:]
 }
 
 struct ParsedReactionSender: Equatable {
@@ -385,6 +386,9 @@ final class ChatViewController: ViewController {
                     needsChannelMemberFilter: isPrivateOrThread
                 )
                 self.navigationController?.pushViewController(searchVC, animated: true)
+            },
+            onCallTapped: { [weak self] in
+                self?.startCall()
             },
             onHistoryTapped: { },
             onMenuTapped: { },
@@ -829,7 +833,6 @@ final class ChatViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            // Wait briefly for fetchClanChannelsInBackground to populate the postbox
             try? await Task.sleep(nanoseconds: 500_000_000)
             if self.tryResolveLabelFromPostbox() { return }
 
@@ -1040,12 +1043,8 @@ final class ChatViewController: ViewController {
                     self.context.account.postbox.write { tx in
                         tx.addMessages(response.messages.map { self.messageRecord(from: $0) })
                     }
-                    DispatchQueue.main.async {
-                        self.setIsLoadingNewer(false)
-                    }
-                } else {
-                    self.setIsLoadingNewer(false)
                 }
+                self.setIsLoadingNewer(false)
             } catch {
                 self.setHasMoreNewer(false)
                 self.setIsLoadingNewer(false)
@@ -1274,6 +1273,9 @@ final class ChatViewController: ViewController {
         for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
             ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
         }
+        for cachedId in ParsedAttachment.pendingDocumentPlaceholders.keys where !currentPendingIds.contains(cachedId) {
+            ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: cachedId)
+        }
 
         let displays = validRecords.map { record -> ChatMessageDisplay in
             let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
@@ -1281,20 +1283,41 @@ final class ChatViewController: ViewController {
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if record.id.hasPrefix("pending-"),
-               let localImages = ParsedAttachment.pendingImageCache[record.id], !localImages.isEmpty {
+            if record.id.hasPrefix("pending-") {
                 let stillUploading = record.sendingState == .pending
-                attachments = localImages.map { image in
-                    ParsedAttachment(
-                        url: "",
-                        filename: "uploading.jpg",
-                        filetype: "image/jpeg",
-                        width: Int(image.size.width),
-                        height: Int(image.size.height),
-                        durationSeconds: nil,
-                        localImage: image,
-                        isUploading: stillUploading
-                    )
+                let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
+                let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
+                if !localImages.isEmpty || !localDocs.isEmpty {
+                    var combined: [ParsedAttachment] = []
+                    if !localImages.isEmpty {
+                        combined.append(contentsOf: localImages.map { image in
+                            ParsedAttachment(
+                                url: "",
+                                filename: "uploading.jpg",
+                                filetype: "image/jpeg",
+                                width: Int(image.size.width),
+                                height: Int(image.size.height),
+                                durationSeconds: nil,
+                                localImage: image,
+                                isUploading: stillUploading
+                            )
+                        })
+                    }
+                    if !localDocs.isEmpty {
+                        combined.append(contentsOf: localDocs.map { doc in
+                            ParsedAttachment(
+                                url: doc.url,
+                                filename: doc.filename,
+                                filetype: doc.filetype,
+                                width: doc.width,
+                                height: doc.height,
+                                durationSeconds: doc.durationSeconds,
+                                localImage: doc.localImage,
+                                isUploading: stillUploading
+                            )
+                        })
+                    }
+                    attachments = combined
                 }
             }
 
@@ -2187,6 +2210,10 @@ final class ChatViewController: ViewController {
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
 
+    func jumpToMessageFromChannelDetail(messageId: String) {
+        jumpToMessage(id: messageId)
+    }
+
     private func jumpToMessage(id messageId: String) {
         shouldScrollToBottom = false
         isJumping = true
@@ -2656,5 +2683,33 @@ extension ChatViewController: CLLocationManagerDelegate {
             completion?(nil)
             showLocationPermissionDeniedAlert()
         }
+    }
+}
+
+extension ChatViewController {
+
+    func startCall() {
+        let isDM = clanId == 0
+            || channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
+        guard isDM else { return }
+
+        guard let myUserId = Int64(context.currentUser?.id ?? "") else { return }
+
+        let remoteUserId: Int64 = channel.userIds.first(where: { $0 != myUserId }) ?? 0
+        guard remoteUserId != 0 else {
+            AppLogger.app.error("[Call] Cannot determine remote user from DM channel userIds")
+            return
+        }
+
+        let callVC = CallViewController(
+            context: context,
+            remoteUserName: channel.channelLabel,
+            remoteAvatarURL: channel.avatars.first,
+            remoteUserId: remoteUserId,
+            dmChannelId: channel.channelID,
+            isOutgoing: true
+        )
+        present(callVC, animated: true)
     }
 }

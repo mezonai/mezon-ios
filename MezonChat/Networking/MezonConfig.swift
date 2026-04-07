@@ -16,6 +16,26 @@ enum MezonConfig {
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
 
+    static var chatWebAppBaseURL: String {
+        if let raw = Self.infoPlistString("MEZON_CHAT_WEB_BASE_URL"), !raw.isEmpty {
+            return raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        return "https://mezon.ai"
+    }
+
+    static func canvasMobileURL(clanId: Int64, channelId: Int64, canvasId: Int64) -> URL? {
+        URL(string: "\(chatWebAppBaseURL)/chat/canvas-mobile/\(clanId)/\(channelId)/\(canvasId)")
+    }
+
+    static func canvasShareURLString(clanId: Int64, channelId: Int64, canvasId: Int64) -> String {
+        "\(chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)/canvas/\(canvasId)"
+    }
+
+    private static func infoPlistString(_ key: String) -> String? {
+        guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
 
     static func emojiImageURL(emojiId: String) -> URL? {
         guard !emojiId.isEmpty else { return nil }

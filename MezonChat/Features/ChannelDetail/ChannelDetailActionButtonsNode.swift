@@ -14,9 +14,35 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
     private let muteLabel = ASTextNode2()
     private let settingsLabel = ASTextNode2()
 
-    var onSettingsTapped: (() -> Void)?
+    private let showSearch: Bool
+    private let showThreads: Bool
+    private let showMute: Bool
+    private let showSettings: Bool
 
-    override init() {
+    var onSettingsTapped: (() -> Void)?
+    var onSearchTapped: (() -> Void)?
+    var onThreadsTapped: (() -> Void)?
+
+    init(channel: Mezon_Api_ChannelDescription, context: AccountContext) {
+        let dm = MezonConstants.ChannelType.dm.rawValue
+        let group = MezonConstants.ChannelType.group.rawValue
+        let channelType = MezonConstants.ChannelType.channel.rawValue
+        let isDMOrGroup = channel.type == dm || channel.type == group
+        let myId = context.currentUser.flatMap { Int64($0.id) }
+        let isSelfDM = channel.type == dm && channel.userIds.first == myId
+
+        if channel.clanID == 0 {
+            self.showSearch = true
+            self.showThreads = false
+            self.showSettings = false
+            self.showMute = !isSelfDM
+        } else {
+            self.showSearch = true
+            self.showThreads = channel.type == channelType
+            self.showMute = !isSelfDM
+            self.showSettings = !isDMOrGroup
+        }
+
         super.init()
         automaticallyManagesSubnodes = true
 
@@ -32,8 +58,27 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             settingsButtonNode, icon: "gearshape", label: settingsLabel,
             text: L(L10n.Common.settings))
 
+        threadsButtonNode.isHidden = !showThreads
+        threadsLabel.isHidden = !showThreads
+        muteButtonNode.isHidden = !showMute
+        muteLabel.isHidden = !showMute
+        settingsButtonNode.isHidden = !showSettings
+        settingsLabel.isHidden = !showSettings
+
         settingsButtonNode.addTarget(
             self, action: #selector(settingsPressed), forControlEvents: .touchUpInside)
+        searchButtonNode.addTarget(
+            self, action: #selector(searchPressed), forControlEvents: .touchUpInside)
+        threadsButtonNode.addTarget(
+            self, action: #selector(threadsPressed), forControlEvents: .touchUpInside)
+    }
+
+    @objc private func searchPressed() {
+        onSearchTapped?()
+    }
+
+    @objc private func threadsPressed() {
+        onThreadsTapped?()
     }
 
     @objc private func settingsPressed() {
@@ -42,74 +87,113 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
     private func setupButton(_ button: ASButtonNode, icon: String, label: ASTextNode2, text: String)
     {
-        let size: CGFloat = 58.sw
+        let t = UIColor.theme
+        let size: CGFloat = 52.sw
         button.style.preferredSize = CGSize(width: size, height: size)
         button.cornerRadius = size / 2
-        button.backgroundColor = .white
-
-        button.shadowColor = UIColor.black.cgColor
-        button.shadowOffset = CGSize(width: 0, height: 2)
-        button.shadowRadius = 6
-        button.shadowOpacity = 0.08
+        button.backgroundColor = t.secondary
 
         button.setImage(
             UIImage(systemName: icon)?.withConfiguration(
                 UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
             )
-            .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal),
+            .withTintColor(t.textStrong, renderingMode: .alwaysOriginal),
             for: .normal
         )
 
         label.attributedText = NSAttributedString(
             string: text,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
-                .foregroundColor: UIColor.theme.textStrong,
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
             ]
         )
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let searchStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8.sw,
-            justifyContent: .center,
-            alignItems: .center,
-            children: [searchButtonNode, searchLabel]
-        )
+        var children: [ASLayoutElement] = []
 
-        let threadsStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8.sw,
-            justifyContent: .center,
-            alignItems: .center,
-            children: [threadsButtonNode, threadsLabel]
-        )
-
-        let muteStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8.sw,
-            justifyContent: .center,
-            alignItems: .center,
-            children: [muteButtonNode, muteLabel]
-        )
-
-        let settingsStack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8.sw,
-            justifyContent: .center,
-            alignItems: .center,
-            children: [settingsButtonNode, settingsLabel]
-        )
+        if showSearch {
+            children.append(
+                ASStackLayoutSpec(
+                    direction: .vertical,
+                    spacing: 12.sw,
+                    justifyContent: .center,
+                    alignItems: .center,
+                    children: [searchButtonNode, searchLabel]
+                ))
+        }
+        if showThreads {
+            children.append(
+                ASStackLayoutSpec(
+                    direction: .vertical,
+                    spacing: 12.sw,
+                    justifyContent: .center,
+                    alignItems: .center,
+                    children: [threadsButtonNode, threadsLabel]
+                ))
+        }
+        if showMute {
+            children.append(
+                ASStackLayoutSpec(
+                    direction: .vertical,
+                    spacing: 12.sw,
+                    justifyContent: .center,
+                    alignItems: .center,
+                    children: [muteButtonNode, muteLabel]
+                ))
+        }
+        if showSettings {
+            children.append(
+                ASStackLayoutSpec(
+                    direction: .vertical,
+                    spacing: 12.sw,
+                    justifyContent: .center,
+                    alignItems: .center,
+                    children: [settingsButtonNode, settingsLabel]
+                ))
+        }
 
         let mainStack = ASStackLayoutSpec(
             direction: .horizontal,
-            spacing: 32.sw,
+            spacing: 30.sw,
             justifyContent: .center,
             alignItems: .center,
-            children: [searchStack, threadsStack, muteStack, settingsStack]
+            children: children
         )
 
-        return mainStack
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 20.sf, left: 0, bottom: 0, right: 0),
+            child: mainStack
+        )
+    }
+
+    func applyTheme() {
+        let t = UIColor.theme
+        let pairs: [(ASButtonNode, ASTextNode2, String)] = [
+            (searchButtonNode, searchLabel, "magnifyingglass"),
+            (threadsButtonNode, threadsLabel, "text.bubble"),
+            (muteButtonNode, muteLabel, "bell.slash"),
+            (settingsButtonNode, settingsLabel, "gearshape"),
+        ]
+        for (button, label, iconName) in pairs {
+            button.backgroundColor = t.secondary
+            button.setImage(
+                UIImage(systemName: iconName)?.withConfiguration(
+                    UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+                )
+                .withTintColor(t.textStrong, renderingMode: .alwaysOriginal),
+                for: .normal
+            )
+            if let text = label.attributedText?.string {
+                label.attributedText = NSAttributedString(
+                    string: text,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 13.sf, weight: .semibold),
+                        .foregroundColor: t.textStrong,
+                    ]
+                )
+            }
+        }
     }
 }

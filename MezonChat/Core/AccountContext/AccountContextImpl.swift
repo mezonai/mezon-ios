@@ -529,6 +529,11 @@ final class AccountContextImpl: AccountContext {
                     )
                 }
             }
+            account.socket.onWebRTC = { msg in
+                Task { @MainActor in
+                    WebRTCCallManager.shared.handleSignalingMessage(msg)
+                }
+            }
             account.socket.connect(token: session.token, wsHostOverride: nil)
         }
         if let user { currentUser = user }

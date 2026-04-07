@@ -96,7 +96,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
     private let handleH: CGFloat = 25
     private let tabBarH: CGFloat = 52
     private let headerRowH: CGFloat = 44
-    private let tableMinH: CGFloat = 220
+    private let tableMinH: CGFloat = 320
 
     init(
         reactions: [ParsedReaction],
@@ -426,7 +426,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             tableH = min(maxTableH, max(tableMinH, CGFloat(rowCount) * 56))
         }
         let contentH = handleH + tabH + headH + tableH + 8
-        let maxSheetH = layout.size.height * 0.62
+        let maxSheetH = layout.size.height * 0.75
         containerHeight = min(contentH + safeBottom, maxSheetH)
 
         let containerY = layout.size.height - containerHeight

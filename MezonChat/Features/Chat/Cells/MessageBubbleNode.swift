@@ -78,7 +78,9 @@ final class MessageBubbleNode: ASDisplayNode {
         let parsed = display.parsedContent
         let mediaAttachments = display.attachments.filter { $0.isMedia }
         let audioAttachments = display.attachments.filter { $0.isAudio && !$0.url.isEmpty }
-        let fileAttachments = display.attachments.filter { !$0.isMedia && !$0.isAudio && !$0.url.isEmpty }
+        let fileAttachments = display.attachments.filter {
+            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading)
+        }
 
         if display.isCallLog {
             self.hasContent = false

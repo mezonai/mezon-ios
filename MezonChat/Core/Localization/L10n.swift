@@ -212,6 +212,20 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum ThreadList {
+        static let searchPlaceholder = "threadList.searchPlaceholder"
+        static let empty = "threadList.empty"
+        static let joinedThread = "threadList.joinedThread"
+        static let joinedThreads = "threadList.joinedThreads"
+        static let otherActiveThread = "threadList.otherActiveThread"
+        static let otherActiveThreads = "threadList.otherActiveThreads"
+        static let olderThread = "threadList.olderThread"
+        static let olderThreads = "threadList.olderThreads"
+        static let searchThread = "threadList.searchThread"
+        static let searchThreads = "threadList.searchThreads"
+        static let createThreadSoon = "threadList.createThreadSoon"
+    }
+
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
@@ -311,6 +325,13 @@ enum L10n {
         static let newGroup = "channelDetail.newGroup"
         static let addMembers = "channelDetail.addMembers"
         static let untitledCanvas = "channelDetail.untitledCanvas"
+        static let searchFilesPlaceholder = "channelDetail.searchFilesPlaceholder"
+        static let fileSharedBy = "channelDetail.fileSharedBy"
+        static let noFilesYet = "channelDetail.noFilesYet"
+        static let noMediaYet = "channelDetail.noMediaYet"
+        static let pinAttachmentPreview = "channelDetail.pinAttachmentPreview"
+        static let pinEmbedPreview = "channelDetail.pinEmbedPreview"
+        static let noPinsYet = "channelDetail.noPinsYet"
     }
 }
 
@@ -462,6 +483,18 @@ extension L10n {
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
 
+        "threadList.searchPlaceholder": "Search for Thread Name",
+        "threadList.empty": "No threads yet",
+        "threadList.joinedThread": "joined thread",
+        "threadList.joinedThreads": "joined threads",
+        "threadList.otherActiveThread": "other active thread",
+        "threadList.otherActiveThreads": "other active threads",
+        "threadList.olderThread": "older thread",
+        "threadList.olderThreads": "older threads",
+        "threadList.searchThread": "search result",
+        "threadList.searchThreads": "search results",
+        "threadList.createThreadSoon": "Create thread is not available here yet.",
+
         "channel.label":  "channel",
         "channel.thread": "Threads",
         "channel.settings": "Channel Settings",
@@ -581,6 +614,13 @@ extension L10n {
         "channelDetail.newGroup": "New Group",
         "channelDetail.addMembers": "Add Members",
         "channelDetail.untitledCanvas": "Untitled Canvas",
+        "channelDetail.searchFilesPlaceholder": "Search files",
+        "channelDetail.fileSharedBy": "Shared by %@",
+        "channelDetail.noFilesYet": "No files yet",
+        "channelDetail.noMediaYet": "No photos or videos yet",
+        "channelDetail.pinAttachmentPreview": "Attachment",
+        "channelDetail.pinEmbedPreview": "Embed",
+        "channelDetail.noPinsYet": "No pinned messages",
     ]
 
     private static let vi: [String: String] = [
@@ -724,6 +764,18 @@ extension L10n {
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
 
+        "threadList.searchPlaceholder": "Tìm theo tên chủ đề",
+        "threadList.empty": "Chưa có chủ đề",
+        "threadList.joinedThread": "chủ đề đã tham gia",
+        "threadList.joinedThreads": "chủ đề đã tham gia",
+        "threadList.otherActiveThread": "chủ đề hoạt động khác",
+        "threadList.otherActiveThreads": "chủ đề hoạt động khác",
+        "threadList.olderThread": "chủ đề cũ",
+        "threadList.olderThreads": "chủ đề cũ",
+        "threadList.searchThread": "kết quả",
+        "threadList.searchThreads": "kết quả",
+        "threadList.createThreadSoon": "Tạo chủ đề từ đây sẽ có trong bản cập nhật sau.",
+
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",
         "channel.settings": "Cài đặt kênh",
@@ -851,5 +903,12 @@ extension L10n {
         "channelDetail.newGroup": "Nhóm mới",
         "channelDetail.addMembers": "Thêm thành viên",
         "channelDetail.untitledCanvas": "Bản vẽ chưa đặt tên",
+        "channelDetail.searchFilesPlaceholder": "Tìm tệp",
+        "channelDetail.fileSharedBy": "Chia sẻ bởi %@",
+        "channelDetail.noFilesYet": "Chưa có tệp",
+        "channelDetail.noMediaYet": "Chưa có ảnh hay video",
+        "channelDetail.pinAttachmentPreview": "Tệp đính kèm",
+        "channelDetail.pinEmbedPreview": "Nội dung nhúng",
+        "channelDetail.noPinsYet": "Chưa có tin nhắn ghim",
     ]
 }

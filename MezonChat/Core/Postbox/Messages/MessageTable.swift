@@ -115,12 +115,22 @@ final class MessageTable: Table {
         return result
     }
 
+    private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
+        guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
+        if pending.content == server.content { return true }
+        if let pObj = try? JSONSerialization.jsonObject(with: pending.content),
+           let sObj = try? JSONSerialization.jsonObject(with: server.content) {
+            return (pObj as AnyObject).isEqual(sObj)
+        }
+        return false
+    }
+
     func addMessages(_ messages: [MessageRecord]) {
         for msg in messages {
             var current = cache[msg.channelId] ?? []
 
             if !msg.id.hasPrefix("pending-") {
-                if let pidx = current.firstIndex(where: { $0.id.hasPrefix("pending-") && $0.senderId == msg.senderId }) {
+                if let pidx = current.firstIndex(where: { serverEchoMatchesPending(server: msg, pending: $0) }) {
                     let pid = current[pidx].id
                     current[pidx] = msg
                     pendingDeletes.insert(pid)

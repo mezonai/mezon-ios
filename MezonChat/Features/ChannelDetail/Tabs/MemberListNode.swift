@@ -9,6 +9,7 @@ final class MemberListNode: ASDisplayNode {
     private let channelId: Int64
     private let channelType: Int32
     private let isPrivate: Bool
+    private let dmMemberLabelByUserId: [Int64: String]
     private let tableNode = ASTableNode()
 
     private enum MemberListItem {
@@ -33,16 +34,18 @@ final class MemberListNode: ASDisplayNode {
     private var roles: [Int64: String] = [:]
     private var ownerId: String?
     private let disposables = DisposableSet()
+    private var didStartMemberLoading = false
 
     init(
         context: AccountContext, clanId: Int64, channelId: Int64, channelType: Int32,
-        isPrivate: Bool
+        isPrivate: Bool, channelDescription: Mezon_Api_ChannelDescription
     ) {
         self.context = context
         self.clanId = clanId
         self.channelId = channelId
         self.channelType = channelType
         self.isPrivate = isPrivate
+        self.dmMemberLabelByUserId = Self.dmMemberLabels(from: channelDescription)
         super.init()
         self.automaticallyManagesSubnodes = true
 
@@ -50,10 +53,44 @@ final class MemberListNode: ASDisplayNode {
         tableNode.delegate = self
         tableNode.backgroundColor = .clear
         tableNode.view.separatorStyle = .none
+        tableNode.view.allowsSelection = true
+    }
 
+    func loadTabDataIfNeeded() {
+        guard !didStartMemberLoading else { return }
+        didStartMemberLoading = true
+        loadClanData()
         observeMembers()
         fetchMembersIfNeeded()
-        loadClanData()
+    }
+
+    private static func dmMemberLabels(from channel: Mezon_Api_ChannelDescription) -> [Int64: String] {
+        let dm = MezonConstants.ChannelType.dm.rawValue
+        let group = MezonConstants.ChannelType.group.rawValue
+        guard channel.type == dm || channel.type == group else { return [:] }
+
+        var result: [Int64: String] = [:]
+        let ids = channel.userIds
+        let displayNames = channel.displayNames
+        let usernames = channel.usernames
+        for i in ids.indices {
+            let id = ids[i]
+            let dn = i < displayNames.count ? displayNames[i] : ""
+            let un = i < usernames.count ? usernames[i] : ""
+            let label = !dn.isEmpty ? dn : un
+            if !label.isEmpty {
+                result[id] = label
+            }
+        }
+        return result
+    }
+
+    private func resolvedChannelMemberListName(_ record: ChannelMemberRecord) -> String {
+        if !record.clanNick.isEmpty { return record.clanNick }
+        if !record.displayName.isEmpty { return record.displayName }
+        if !record.username.isEmpty { return record.username }
+        if let fb = dmMemberLabelByUserId[record.userId], !fb.isEmpty { return fb }
+        return ""
     }
 
     private func loadClanData() {
@@ -104,15 +141,34 @@ final class MemberListNode: ASDisplayNode {
                     context.account.postbox.write { tx in
                         let members = res.channelUsers.map { u in
                             let profile = tx.getProfile(userId: String(u.userID))
+                            var displayName = profile?.displayName ?? ""
+                            var username = profile?.username ?? ""
+                            if displayName.isEmpty, username.isEmpty,
+                                let fb = self.dmMemberLabelByUserId[u.userID], !fb.isEmpty
+                            {
+                                displayName = fb
+                            }
                             return ChannelMemberRecord(
                                 id: u.id, userId: u.userID, roleIds: u.roleID,
                                 threadId: u.threadID, clanNick: u.clanNick,
                                 clanAvatar: u.clanAvatar, clanId: u.clanID,
                                 isBanned: u.isBanned, expiredBanTime: u.expiredBanTime,
                                 isOnline: profile?.isOnline ?? false,
-                                displayName: profile?.displayName ?? "",
-                                username: profile?.username ?? ""
+                                displayName: displayName,
+                                username: username
                             )
+                        }
+                        for u in res.channelUsers {
+                            let uid = String(u.userID)
+                            let existing = tx.getProfile(userId: uid)
+                            if existing != nil { continue }
+                            guard let fb = self.dmMemberLabelByUserId[u.userID], !fb.isEmpty else {
+                                continue
+                            }
+                            tx.updateProfile(
+                                ProfileRecord(
+                                    userId: uid, username: fb, displayName: fb, avatarUrl: nil,
+                                    status: 0, isOnline: false))
                         }
                         tx.updateChannelMembers(members, channelId: self.channelId)
                     }
@@ -176,12 +232,7 @@ final class MemberListNode: ASDisplayNode {
         let name: String
         switch member {
         case .channel(let record):
-            name =
-                !record.clanNick.isEmpty
-                ? record.clanNick
-                : !record.displayName.isEmpty
-                    ? record.displayName
-                    : record.username
+            name = resolvedChannelMemberListName(record)
         case .clan(let record):
             name =
                 !record.clanNick.isEmpty
@@ -243,10 +294,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 let color = getRoleColor(roleIds: member.roleIds)
                 let isOwner = String(member.userId) == ownerId
                 return {
-                    let initialName =
-                        !member.clanNick.isEmpty
-                        ? member.clanNick
-                        : !member.displayName.isEmpty ? member.displayName : member.username
+                    let initialName = self.resolvedChannelMemberListName(member)
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
                         avatarUrl: member.clanAvatar, clanNick: member.clanNick,
@@ -273,10 +321,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 let member = members[indexPath.row]
                 let isOwner = String(member.userId) == ownerId
                 return {
-                    let initialName =
-                        !member.clanNick.isEmpty
-                        ? member.clanNick
-                        : !member.displayName.isEmpty ? member.displayName : member.username
+                    let initialName = self.resolvedChannelMemberListName(member)
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
                         avatarUrl: member.clanAvatar, clanNick: member.clanNick,
@@ -306,6 +351,90 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             }
         }
         return nil
+    }
+
+    func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
+        tableNode.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section != 0 else { return }
+
+        let user: Mezon_Api_User?
+        switch indexPath.section {
+        case 1:
+            switch onlineMembers {
+            case .channel(let members):
+                guard indexPath.row < members.count else { return }
+                user = Self.apiUser(from: members[indexPath.row])
+            case .clan(let members):
+                guard indexPath.row < members.count else { return }
+                user = Self.apiUser(from: members[indexPath.row])
+            }
+        case 2:
+            switch offlineMembers {
+            case .channel(let members):
+                guard indexPath.row < members.count else { return }
+                user = Self.apiUser(from: members[indexPath.row])
+            case .clan(let members):
+                guard indexPath.row < members.count else { return }
+                user = Self.apiUser(from: members[indexPath.row])
+            }
+        default:
+            user = nil
+        }
+
+        guard let user, user.id != 0 else { return }
+        if String(user.id) == context.currentUser?.id { return }
+
+        guard let host = tableNode.view.findHostingViewController() else { return }
+
+        let sheet = MemberProfileSheetController(
+            user: user,
+            context: context,
+            onSendMessage: { [weak self, weak host] dmChannel in
+                guard let self, let host else { return }
+                self.context.currentClanId = 0
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
+                host.navigationController?.pushViewController(chatVC, animated: true)
+            }
+        )
+        host.presentInGlobalOverlay(sheet)
+        sheet.animateIn()
+    }
+
+    private static func apiUser(from member: ChannelMemberRecord) -> Mezon_Api_User {
+        var u = Mezon_Api_User()
+        u.id = member.userId
+        u.username = member.username
+        u.displayName = displayName(for: member)
+        if !member.clanAvatar.isEmpty {
+            u.avatarURL = member.clanAvatar
+        }
+        u.online = member.isOnline
+        return u
+    }
+
+    private static func apiUser(from member: ClanMemberRecord) -> Mezon_Api_User {
+        var u = Mezon_Api_User()
+        u.id = member.userId
+        u.username = member.username
+        u.displayName = displayName(for: member)
+        if !member.clanAvatar.isEmpty {
+            u.avatarURL = member.clanAvatar
+        }
+        u.online = member.isOnline
+        return u
+    }
+
+    private static func displayName(for member: ChannelMemberRecord) -> String {
+        if !member.clanNick.isEmpty { return member.clanNick }
+        if !member.displayName.isEmpty { return member.displayName }
+        return member.username
+    }
+
+    private static func displayName(for member: ClanMemberRecord) -> String {
+        if !member.clanNick.isEmpty { return member.clanNick }
+        if !member.displayName.isEmpty { return member.displayName }
+        return member.username
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeForHeaderInSection section: Int) -> ASCellNode? {
@@ -355,45 +484,46 @@ private final class ActionButtonCellNode: ASCellNode {
         super.init()
         self.automaticallyManagesSubnodes = true
         self.backgroundColor = .clear
+        self.selectionStyle = .none
 
-        contentBgNode.backgroundColor = .white
+        let t = UIColor.theme
+        contentBgNode.backgroundColor = t.secondary
         contentBgNode.cornerRadius = 16.sf
-        contentBgNode.shadowColor = UIColor.black.cgColor
-        contentBgNode.shadowOffset = CGSize(width: 0, height: 2)
-        contentBgNode.shadowRadius = 8
-        contentBgNode.shadowOpacity = 0.05
 
-        iconBackgroundNode.backgroundColor = UIColor.theme.textLink
-        iconBackgroundNode.cornerRadius = 12.sf
-        iconBackgroundNode.style.preferredSize = CGSize(width: 24.sf, height: 24.sf)
+        let iconCircle: CGFloat = 40.sf
+        iconBackgroundNode.backgroundColor = t.bgViolet
+        iconBackgroundNode.cornerRadius = iconCircle / 2
+        iconBackgroundNode.clipsToBounds = true
+        iconBackgroundNode.style.preferredSize = CGSize(width: iconCircle, height: iconCircle)
 
-        let config = UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold)
+        let config = UIImage.SymbolConfiguration(pointSize: 20.sf, weight: .semibold)
         iconNode.image = UIImage(systemName: iconName, withConfiguration: config)?
             .withTintColor(.white, renderingMode: .alwaysOriginal)
-        iconNode.style.preferredSize = CGSize(width: 18.sf, height: 18.sf)
         iconNode.contentMode = .scaleAspectFit
 
         titleNode.attributedText = NSAttributedString(
             string: title,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
-                .foregroundColor: UIColor.theme.textStrong,
+                .foregroundColor: t.textStrong,
             ]
         )
 
         arrowNode.image = UIImage(systemName: "chevron.right")?.withTintColor(
-            UIColor.theme.textDisabled, renderingMode: .alwaysOriginal)
+            t.text.withAlphaComponent(0.55), renderingMode: .alwaysOriginal)
         arrowNode.style.preferredSize = CGSize(width: 14.sf, height: 14.sf)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let iconCenter = ASCenterLayoutSpec(
+        let iconCentered = ASCenterLayoutSpec(
             centeringOptions: .XY,
             sizingOptions: .minimumXY,
             child: iconNode
         )
-        let iconWithBackground = ASBackgroundLayoutSpec(
-            child: iconCenter, background: iconBackgroundNode)
+        let iconWithBackground = ASOverlayLayoutSpec(
+            child: iconBackgroundNode,
+            overlay: iconCentered
+        )
 
         let leftStack = ASStackLayoutSpec(
             direction: .horizontal,
@@ -456,18 +586,33 @@ private final class MemberCellNode: ASCellNode {
         super.init()
         self.automaticallyManagesSubnodes = true
         self.backgroundColor = .clear
+        self.selectionStyle = .none
 
         avatarContainerNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
         avatarContainerNode.cornerRadius = 20.sf
         avatarContainerNode.clipsToBounds = true
         avatarContainerNode.backgroundColor = .colorAvatarDefault
+        avatarContainerNode.automaticallyManagesSubnodes = true
 
         avatarNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
         avatarNode.cornerRadius = 20.sf
         avatarNode.clipsToBounds = true
 
-        avatarContainerNode.addSubnode(avatarPlaceholderNode)
+        avatarPlaceholderNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
+
         avatarContainerNode.addSubnode(avatarNode)
+        avatarContainerNode.addSubnode(avatarPlaceholderNode)
+        avatarContainerNode.layoutSpecBlock = { [weak self] _, _ in
+            guard let self else { return ASLayoutSpec() }
+            return ASOverlayLayoutSpec(
+                child: self.avatarNode,
+                overlay: ASCenterLayoutSpec(
+                    centeringOptions: .XY,
+                    sizingOptions: .minimumXY,
+                    child: self.avatarPlaceholderNode
+                )
+            )
+        }
         self.addSubnode(avatarContainerNode)
         self.addSubnode(nameNode)
 
@@ -477,7 +622,7 @@ private final class MemberCellNode: ASCellNode {
         statusNode.borderWidth = 2.sf
         self.addSubnode(statusNode)
 
-        separatorNode.backgroundColor = UIColor(hexString: "#E1E1E1")
+        separatorNode.backgroundColor = UIColor.theme.borderDim
         self.addSubnode(separatorNode)
 
         if isOwner {
@@ -526,13 +671,14 @@ private final class MemberCellNode: ASCellNode {
             name = !initialDisplayName.isEmpty ? initialDisplayName : "User \(userId)"
         }
 
-        var nameTextColor = UIColor.theme.textStrong
+        let t = UIColor.theme
+        var nameTextColor = t.textStrong
         if isOnline {
             if let roleColor = self.roleColor {
                 nameTextColor = roleColor
             }
         } else {
-            nameTextColor = UIColor.theme.textDisabled
+            nameTextColor = t.text
         }
 
         nameNode.attributedText = NSAttributedString(
@@ -581,14 +727,6 @@ private final class MemberCellNode: ASCellNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let phSize = avatarPlaceholderNode.measure(CGSize(width: 40.sf, height: 40.sf))
-        avatarPlaceholderNode.style.layoutPosition = CGPoint(
-            x: (40.sf - phSize.width) / 2,
-            y: (40.sf - phSize.height) / 2
-        )
-        avatarPlaceholderNode.style.preferredSize = phSize
-        avatarNode.frame = CGRect(x: 0, y: 0, width: 40.sf, height: 40.sf)
-
         let avatarWithStatus = ASCornerLayoutSpec(
             child: avatarContainerNode, corner: statusNode, location: .bottomRight)
         avatarWithStatus.offset = CGPoint(x: -2.sf, y: -2.sf)
@@ -662,5 +800,16 @@ private final class HeaderCellNode: ASCellNode {
             insets: UIEdgeInsets(top: 16, left: 16, bottom: 8, right: 16),
             child: textNode
         )
+    }
+}
+
+private extension UIView {
+    func findHostingViewController() -> ViewController? {
+        var responder: UIResponder? = self
+        while let next = responder?.next {
+            if let vc = next as? ViewController { return vc }
+            responder = next
+        }
+        return nil
     }
 }

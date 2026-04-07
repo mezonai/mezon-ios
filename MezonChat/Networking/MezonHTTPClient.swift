@@ -204,7 +204,7 @@ final class MezonHTTPClient {
         req.clanID      = 0
         req.limit       = 500
         req.state       = 1
-        req.page        = 1
+        req.page        = 0
         req.channelType = 3
         req.isMobile    = true
         let response: Mezon_Api_ChannelDescList = try await postProto(
@@ -213,6 +213,53 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.channeldesc
+    }
+
+    func listThreadDescs(
+        parentChannelId: Int64,
+        clanId: Int64,
+        page: Int32,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescList {
+        var req = Mezon_Api_ListThreadRequest()
+        req.limit = 100
+        req.state = 0
+        req.clanID = clanId
+        req.channelID = parentChannelId
+        req.threadID = 0
+        req.page = page
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListThreadDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func searchThread(
+        clanId: Int64,
+        parentChannelId: Int64,
+        label: String,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescList {
+        var req = Mezon_Api_SearchThreadRequest()
+        req.clanID = clanId
+        req.channelID = parentChannelId
+        req.label = label
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchThread",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
+        var req = Mezon_Api_ListChannelBadgeCountRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelBadgeCount",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     func createDirectMessage(userId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
@@ -750,13 +797,17 @@ final class MezonHTTPClient {
     func listChannelCanvases(
         clanId: Int64,
         channelId: Int64,
+        limit: Int32 = 50,
+        page: Int32 = 0,
         token: String
     ) async throws -> Mezon_Api_ChannelCanvasListResponse {
         var req = Mezon_Api_ChannelCanvasListRequest()
         req.clanID = clanId
         req.channelID = channelId
+        req.limit = limit
+        req.page = page
         return try await postProto(
-            path: "/mezon.api.Mezon/ListChannelCanvas",
+            path: "/mezon.api.Mezon/GetChannelCanvasList",
             message: req,
             auth: .bearer(token)
         )

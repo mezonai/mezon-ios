@@ -238,7 +238,11 @@ private extension String {
 
 private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fit) -> (TransformImageArguments) -> DrawingContext? {
     return { arguments -> DrawingContext? in
-        let context = DrawingContext(size: arguments.boundingSize, scale: arguments.scale ?? UIScreen.main.scale, clear: true)
+        let b = arguments.boundingSize
+        guard b.width.isFinite, b.height.isFinite, b.width > 0, b.height > 0 else {
+            return nil
+        }
+        let context = DrawingContext(size: b, scale: arguments.scale ?? UIScreen.main.scale, clear: true)
         context?.withFlippedContext { ctx in
             let drawRect = CGRect(origin: .zero, size: arguments.boundingSize)
 
