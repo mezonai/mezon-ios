@@ -158,7 +158,6 @@ final class SendMessageInputViewController: UIViewController {
         tv.isScrollEnabled = false
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 36)
         tv.textContainer.lineFragmentPadding = 0
-        tv.layer.cornerRadius = 20.swh
         tv.clipsToBounds = true
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.delegate = self
@@ -182,7 +181,8 @@ final class SendMessageInputViewController: UIViewController {
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    private static let textViewMinHeight: CGFloat = 40
+    /// Matches circular action buttons (`40.swh`); corner radius is synced in `PastableTextView.layoutSubviews`.
+    private static var textViewMinHeight: CGFloat { 40.swh }
     private static let inputBarPadding: CGFloat = 16
 
     private(set) var isEmojiPickerVisible = false
@@ -270,8 +270,6 @@ final class SendMessageInputViewController: UIViewController {
         return v
     }()
 
-    private static let previewHeight: CGFloat = AttachmentPreviewView.previewHeight
-
     private var inputBarCurrentHeight: CGFloat {
         return currentTextViewHeight + Self.inputBarPadding
     }
@@ -279,7 +277,8 @@ final class SendMessageInputViewController: UIViewController {
     var totalHeight: CGFloat {
         var h = inputBarCurrentHeight
         if !pickedImages.isEmpty || !pickedFiles.isEmpty {
-            h += Self.previewHeight
+            h += AttachmentPreviewView.preferredHeight(
+                imageCount: pickedImages.count, fileCount: pickedFiles.count)
         }
         if replyDisplay != nil {
             h += Self.replyBannerHeight
@@ -287,7 +286,7 @@ final class SendMessageInputViewController: UIViewController {
         return h
     }
 
-    private var currentTextViewHeight: CGFloat = textViewMinHeight
+    private var currentTextViewHeight: CGFloat = 40.swh
 
     init(placeholder: String = "", channel: Mezon_Api_ChannelDescription, clanId: Int64, context: AccountContext) {
         self.placeholder = placeholder
@@ -685,6 +684,10 @@ final class SendMessageInputViewController: UIViewController {
             onToggleAdvancePanel?(true, collapsedH)
         } else {
             onToggleAdvancePanel?(false, 0)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isVoiceRecordingActive else { return }
+                self.textView.becomeFirstResponder()
+            }
         }
 
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
@@ -926,7 +929,8 @@ final class SendMessageInputViewController: UIViewController {
         guard let cached = Self.channelAttachmentCache[cacheKey], !cached.isEmpty else { return }
         pickedImages = cached
         attachmentPreviewView.setImages(cached)
-        let targetH = Self.previewHeight
+        let targetH = AttachmentPreviewView.preferredHeight(
+            imageCount: pickedImages.count, fileCount: pickedFiles.count)
         previewHeightConstraint?.constant = targetH
         onHeightChanged?(totalHeight)
         view.layoutIfNeeded()
@@ -935,7 +939,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private func updatePreviewVisibility() {
         let shouldShow = attachmentPreviewView.hasAnyAttachment
-        let targetH = shouldShow ? Self.previewHeight : 0
+        let targetH = shouldShow ? attachmentPreviewView.preferredPreviewHeight : 0
         let heightChanged = previewHeightConstraint?.constant != targetH
         if heightChanged {
             previewHeightConstraint?.constant = targetH
@@ -2492,6 +2496,20 @@ final class SendMessageInputViewController: UIViewController {
         if !imagesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
+        if !filesToUpload.isEmpty, !sendAsAnonymous {
+            ParsedAttachment.pendingDocumentPlaceholders[localId] = filesToUpload.map { file in
+                ParsedAttachment(
+                    url: "",
+                    filename: file.filename,
+                    filetype: file.filetype,
+                    width: nil,
+                    height: nil,
+                    durationSeconds: nil,
+                    localImage: nil,
+                    isUploading: true
+                )
+            }
+        }
 
         let replyRef: Mezon_Api_MessageRef? = buildReplyRef()
         let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
@@ -2601,6 +2619,7 @@ final class SendMessageInputViewController: UIViewController {
                 if !sendAsAnonymous {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                 }
                 self.onError?("No session")
                 return
@@ -2638,6 +2657,7 @@ final class SendMessageInputViewController: UIViewController {
                             tx.markMessageSent(id: localId)
                         } else {
                             ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                            ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                         }
                     }
                 }
@@ -2645,6 +2665,7 @@ final class SendMessageInputViewController: UIViewController {
                 if !sendAsAnonymous {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                 }
                 self.onError?(error.localizedDescription)
             }
@@ -2883,6 +2904,17 @@ final class PastableTextView: UITextView {
 
     var onImagesPasted: (([UIImage]) -> Void)?
     var onGIFPasted: ((Data) -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let h = bounds.height
+        guard h > 0 else { return }
+        let cap = 20.swh
+        layer.cornerRadius = min(h * 0.5, cap)
+        if #available(iOS 13.0, *) {
+            layer.cornerCurve = .continuous
+        }
+    }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {

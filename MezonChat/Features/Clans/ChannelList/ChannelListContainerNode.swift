@@ -459,6 +459,36 @@ final class ChannelListContainerNode: ASDisplayNode {
         safeReloadData()
     }
 
+    private func channelAppsUIEqual(_ a: [Mezon_Api_ChannelAppResponse], _ b: [Mezon_Api_ChannelAppResponse]) -> Bool {
+        guard a.count == b.count else { return false }
+        for i in a.indices {
+            if a[i].id != b[i].id { return false }
+            if a[i].appName != b[i].appName { return false }
+            if a[i].appLogo != b[i].appLogo { return false }
+        }
+        return true
+    }
+
+    private func appsSectionRowCount(apps: [Mezon_Api_ChannelAppResponse], expanded: Bool) -> Int {
+        guard !apps.isEmpty else { return 0 }
+        if apps.count <= compactViewThreshold {
+            return expanded ? apps.count : 0
+        }
+        return 1
+    }
+
+    private func reloadChannelAppsSectionOnly() {
+        guard hasChannelAppsSection else { return }
+        guard tableNode.numberOfSections > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.reloadSections(IndexSet(integer: 0), with: .none)
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        CATransaction.commit()
+    }
+
     private func updateTableHeaderLayout() {
         guard let header = tableNode.view.tableHeaderView else { return }
         header.setNeedsLayout()
@@ -484,6 +514,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         let catSections = state.categories.count
         return appsSections + catSections
     }
+
+    var hasDisplayedChannelApps: Bool { !channelApps.isEmpty }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         if layer.maskedCorners != [.layerMinXMinYCorner] {
@@ -564,11 +596,23 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
-        let oldIds = channelApps.map { $0.id }
-        let newIds = apps.map { $0.id }
-        guard oldIds != newIds else { return }
+        if channelAppsUIEqual(channelApps, apps) { return }
+
+        let beforeHad = hasChannelAppsSection
+        let beforeCompact = channelApps.count <= compactViewThreshold
+        let beforeRows = appsSectionRowCount(apps: channelApps, expanded: isChannelAppsExpanded)
+
         channelApps = apps
-        if !isClanSwitching {
+
+        let afterHad = hasChannelAppsSection
+        let afterCompact = channelApps.count <= compactViewThreshold
+        let afterRows = appsSectionRowCount(apps: channelApps, expanded: isChannelAppsExpanded)
+
+        guard !isClanSwitching else { return }
+
+        if beforeHad, afterHad, beforeCompact == afterCompact, beforeRows == afterRows {
+            reloadChannelAppsSectionOnly()
+        } else {
             scheduleReload()
         }
     }

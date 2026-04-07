@@ -58,14 +58,23 @@ struct ParsedAttachment: Equatable {
     }
 
     static var pendingImageCache: [String: [UIImage]] = [:]
+    static var pendingDocumentPlaceholders: [String: [ParsedAttachment]] = [:]
+}
+
+struct ParsedReactionSender: Equatable {
+    let userId: String
+    let count: Int
+    let nameHint: String?
 }
 
 struct ParsedReaction: Equatable {
     let emojiId: String
     let emoji: String
     let count: Int
-    let senderIds: [String]
+    let senders: [ParsedReactionSender]
     let isMe: Bool
+
+    var senderIds: [String] { senders.map(\.userId) }
 }
 
 enum CallLogType: Int {
@@ -378,6 +387,9 @@ final class ChatViewController: ViewController {
                 )
                 self.navigationController?.pushViewController(searchVC, animated: true)
             },
+            onCallTapped: { [weak self] in
+                self?.startCall()
+            },
             onHistoryTapped: { },
             onMenuTapped: { },
             onScrolledNearTop: { [weak self] in
@@ -416,6 +428,12 @@ final class ChatViewController: ViewController {
             },
             onReactionTapped: { [weak self] reaction, display in
                 self?.handleEmojiReaction(emojiId: reaction.emojiId, shortname: reaction.emoji, display: display)
+            },
+            onReactionDetailRequested: { [weak self] reaction, display in
+                self?.presentReactionDetailSheet(initialReaction: reaction, display: display)
+            },
+            onAddReactionTapped: { [weak self] display in
+                self?.presentReactionEmojiPicker(for: display)
             },
             onAvatarTapped: { [weak self] display in
                 self?.showMemberProfile(display)
@@ -814,24 +832,48 @@ final class ChatViewController: ViewController {
         guard channel.channelLabel.isEmpty else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
+
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if self.tryResolveLabelFromPostbox() { return }
+
             do {
                 if self.clanId == 0 {
                     let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                     if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
                         self.channel = found
                         self.setChannelLabel(found.channelLabel)
+                        return
                     }
-                } else {
-                    let channels = try await self.context.account.network.listChannelDescs(clanId: self.clanId, token: token)
-                    if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
-                        self.channel = found
-                        self.setChannelLabel(found.channelLabel)
-                    }
+                }
+                let channels = try await self.context.account.network.listChannelByUserId(token: token)
+                if let found = channels.channeldesc.first(where: { $0.channelID == self.channel.channelID }),
+                   !found.channelLabel.isEmpty {
+                    self.channel = found
+                    self.setChannelLabel(found.channelLabel)
                 }
             } catch {
                 AppLogger.network.error("[Chat] resolveChannelLabel failed: \(error)")
             }
         }
+    }
+
+    private func tryResolveLabelFromPostbox() -> Bool {
+        if clanId == 0 {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
+               !cached.channelLabel.isEmpty {
+                channel = cached
+                setChannelLabel(cached.channelLabel)
+                return true
+            }
+        } else {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
+               !cached.channelLabel.isEmpty {
+                channel = cached
+                setChannelLabel(cached.channelLabel)
+                return true
+            }
+        }
+        return false
     }
 
     static func removeDeliveredNotifications(forChannelId channelId: Int64) {
@@ -1001,12 +1043,8 @@ final class ChatViewController: ViewController {
                     self.context.account.postbox.write { tx in
                         tx.addMessages(response.messages.map { self.messageRecord(from: $0) })
                     }
-                    DispatchQueue.main.async {
-                        self.setIsLoadingNewer(false)
-                    }
-                } else {
-                    self.setIsLoadingNewer(false)
                 }
+                self.setIsLoadingNewer(false)
             } catch {
                 self.setHasMoreNewer(false)
                 self.setIsLoadingNewer(false)
@@ -1235,6 +1273,9 @@ final class ChatViewController: ViewController {
         for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
             ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
         }
+        for cachedId in ParsedAttachment.pendingDocumentPlaceholders.keys where !currentPendingIds.contains(cachedId) {
+            ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: cachedId)
+        }
 
         let displays = validRecords.map { record -> ChatMessageDisplay in
             let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
@@ -1242,20 +1283,41 @@ final class ChatViewController: ViewController {
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if record.id.hasPrefix("pending-"),
-               let localImages = ParsedAttachment.pendingImageCache[record.id], !localImages.isEmpty {
+            if record.id.hasPrefix("pending-") {
                 let stillUploading = record.sendingState == .pending
-                attachments = localImages.map { image in
-                    ParsedAttachment(
-                        url: "",
-                        filename: "uploading.jpg",
-                        filetype: "image/jpeg",
-                        width: Int(image.size.width),
-                        height: Int(image.size.height),
-                        durationSeconds: nil,
-                        localImage: image,
-                        isUploading: stillUploading
-                    )
+                let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
+                let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
+                if !localImages.isEmpty || !localDocs.isEmpty {
+                    var combined: [ParsedAttachment] = []
+                    if !localImages.isEmpty {
+                        combined.append(contentsOf: localImages.map { image in
+                            ParsedAttachment(
+                                url: "",
+                                filename: "uploading.jpg",
+                                filetype: "image/jpeg",
+                                width: Int(image.size.width),
+                                height: Int(image.size.height),
+                                durationSeconds: nil,
+                                localImage: image,
+                                isUploading: stillUploading
+                            )
+                        })
+                    }
+                    if !localDocs.isEmpty {
+                        combined.append(contentsOf: localDocs.map { doc in
+                            ParsedAttachment(
+                                url: doc.url,
+                                filename: doc.filename,
+                                filetype: doc.filetype,
+                                width: doc.width,
+                                height: doc.height,
+                                durationSeconds: doc.durationSeconds,
+                                localImage: doc.localImage,
+                                isUploading: stillUploading
+                            )
+                        })
+                    }
+                    attachments = combined
                 }
             }
 
@@ -1546,93 +1608,204 @@ final class ChatViewController: ViewController {
     }
 
     private static func parseReactionsFromJSON(_ items: [[String: Any]], currentUserId: String?) -> [ParsedReaction] {
-        var grouped: [String: (emoji: String, senderIds: [String], countFromApi: Int)] = [:]
+        var emojiMeta: [String: (emoji: String, countFromApi: Int)] = [:]
         for item in items {
-            let emojiId: String = {
-                if let s = item["emoji_id"] as? String { return s }
-                if let n = item["emoji_id"] as? Int { return "\(n)" }
-                if let n = item["emoji_id"] as? Int64 { return "\(n)" }
-                if let s = item["emojiid"] as? String { return s }
-                if let n = item["emojiid"] as? Int { return "\(n)" }
-                return ""
-            }()
+            guard let key = reactionEmojiKeyJSON(item) else { continue }
             let emoji = item["emoji"] as? String ?? ""
-            let senderId: String = {
-                if let s = item["sender_id"] as? String { return s }
-                if let n = item["sender_id"] as? Int { return "\(n)" }
-                if let n = item["sender_id"] as? Int64 { return "\(n)" }
-                return ""
-            }()
-            let action = item["action"] as? Bool ?? true
             let countFromApi: Int = {
                 if let n = item["count"] as? Int { return n }
                 if let n = item["count"] as? Int32 { return Int(n) }
                 if let n = item["count"] as? Int64 { return Int(n) }
                 return 0
             }()
-            let key = emojiId.isEmpty ? emoji : emojiId
-            guard !key.isEmpty else { continue }
-
-            if grouped[key] == nil {
-                grouped[key] = (emoji: emoji, senderIds: [], countFromApi: 0)
-            }
-            if countFromApi > grouped[key]!.countFromApi {
-                grouped[key]!.countFromApi = countFromApi
-            }
-            if action {
-                if !grouped[key]!.senderIds.contains(senderId) {
-                    grouped[key]!.senderIds.append(senderId)
-                }
-            } else {
-                grouped[key]!.senderIds.removeAll { $0 == senderId }
-            }
+            var meta = emojiMeta[key] ?? (emoji: "", countFromApi: 0)
+            if countFromApi > meta.countFromApi { meta.countFromApi = countFromApi }
+            if !emoji.isEmpty { meta.emoji = emoji }
+            emojiMeta[key] = meta
         }
-        return grouped.compactMap { key, value in
-            let count = max(value.senderIds.count, value.countFromApi)
-            guard count > 0 else { return nil }
-            let isMe = currentUserId.map { value.senderIds.contains($0) } ?? false
+        return emojiMeta.keys.sorted().compactMap { key in
+            let meta = emojiMeta[key]!
+            let senderTuples = orderedActiveSendersWithStackCountsJSON(items: items, emojiKey: key)
+            let hadPerSenderRows = items.contains { item in
+                guard reactionEmojiKeyJSON(item) == key else { return false }
+                return !reactionSenderIdJSON(item).isEmpty
+            }
+            if senderTuples.isEmpty {
+                if hadPerSenderRows { return nil }
+                guard meta.countFromApi > 0 else { return nil }
+            }
+            let senders: [ParsedReactionSender] = senderTuples.map { tuple in
+                let hint = lastSenderNameJSON(items: items, emojiKey: key, senderId: tuple.userId)
+                return ParsedReactionSender(userId: tuple.userId, count: tuple.count, nameHint: hint)
+            }
+            let sumSender = senders.reduce(0) { $0 + $1.count }
+            let count = sumSender > 0 ? sumSender : meta.countFromApi
+            let isMe = currentUserId.map { uid in senders.contains { $0.userId == uid } } ?? false
             return ParsedReaction(
                 emojiId: key,
-                emoji: value.emoji,
+                emoji: meta.emoji,
                 count: count,
-                senderIds: value.senderIds,
+                senders: senders,
                 isMe: isMe
             )
-        }.sorted { $0.emojiId < $1.emojiId }
+        }
+    }
+
+    private static func reactionEmojiKeyJSON(_ item: [String: Any]) -> String? {
+        let emojiId: String = {
+            if let s = item["emoji_id"] as? String { return s }
+            if let n = item["emoji_id"] as? Int { return "\(n)" }
+            if let n = item["emoji_id"] as? Int64 { return "\(n)" }
+            if let s = item["emojiid"] as? String { return s }
+            if let n = item["emojiid"] as? Int { return "\(n)" }
+            return ""
+        }()
+        let emoji = item["emoji"] as? String ?? ""
+        let key = emojiId.isEmpty ? emoji : emojiId
+        return key.isEmpty ? nil : key
+    }
+
+    private static func reactionSenderIdJSON(_ item: [String: Any]) -> String {
+        if let s = item["sender_id"] as? String { return s }
+        if let n = item["sender_id"] as? Int { return "\(n)" }
+        if let n = item["sender_id"] as? Int64 { return "\(n)" }
+        return ""
+    }
+
+    private static func orderedActiveSendersWithStackCountsJSON(items: [[String: Any]], emojiKey: String) -> [(userId: String, count: Int)] {
+        var balance: [String: Int] = [:]
+        var order: [String] = []
+        func parseRowCount(_ item: [String: Any]) -> Int {
+            if let n = item["count"] as? Int { return n }
+            if let n = item["count"] as? Int32 { return Int(n) }
+            if let n = item["count"] as? Int64 { return Int(n) }
+            return 0
+        }
+        for item in items {
+            guard reactionEmojiKeyJSON(item) == emojiKey else { continue }
+            let sid = reactionSenderIdJSON(item)
+            guard !sid.isEmpty else { continue }
+            let actionAdd = item["action"] as? Bool ?? true
+            let rowCount = parseRowCount(item)
+            if actionAdd {
+                let prev = balance[sid] ?? 0
+                if rowCount > 0 {
+                    balance[sid] = rowCount
+                } else {
+                    balance[sid] = prev + 1
+                }
+                let newVal = balance[sid] ?? 0
+                if newVal > 0, prev == 0, !order.contains(sid) {
+                    order.append(sid)
+                }
+            } else {
+                let prev = balance[sid] ?? 0
+                if rowCount > 0 {
+                    balance[sid] = max(0, prev - rowCount)
+                } else {
+                    balance[sid] = max(0, prev - 1)
+                }
+                if (balance[sid] ?? 0) == 0 {
+                    order.removeAll { $0 == sid }
+                }
+            }
+        }
+        return order.compactMap { sid in
+            let c = balance[sid] ?? 0
+            return c > 0 ? (sid, c) : nil
+        }
+    }
+
+    private static func lastSenderNameJSON(items: [[String: Any]], emojiKey: String, senderId: String) -> String? {
+        for item in items.reversed() {
+            guard reactionEmojiKeyJSON(item) == emojiKey else { continue }
+            guard reactionSenderIdJSON(item) == senderId else { continue }
+            let action = item["action"] as? Bool ?? true
+            guard action else { continue }
+            if let name = item["sender_name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return name
+            }
+        }
+        return nil
     }
 
     private static func parseReactionsFromProtobuf(_ reactions: [Mezon_Api_MessageReaction], currentUserId: String?) -> [ParsedReaction] {
-        var grouped: [String: (emoji: String, senderIds: [String], countFromApi: Int32)] = [:]
+        var emojiMeta: [String: (emoji: String, countFromApi: Int)] = [:]
         for r in reactions {
-            let emojiKey = r.emojiID != 0 ? "\(r.emojiID)" : (r.emoji.isEmpty ? "?" : r.emoji)
-            guard emojiKey != "?" || !r.emoji.isEmpty else { continue }
-            let senderId = "\(r.senderID)"
-            if grouped[emojiKey] == nil {
-                grouped[emojiKey] = (emoji: r.emoji, senderIds: [], countFromApi: 0)
-            }
-            if r.count > grouped[emojiKey]!.countFromApi {
-                grouped[emojiKey]!.countFromApi = r.count
-            }
-            if !r.action {
-                if !grouped[emojiKey]!.senderIds.contains(senderId) {
-                    grouped[emojiKey]!.senderIds.append(senderId)
-                }
-            } else {
-                grouped[emojiKey]!.senderIds.removeAll { $0 == senderId }
-            }
+            guard let key = protoEmojiKey(r) else { continue }
+            let c = Int(r.count)
+            var meta = emojiMeta[key] ?? (emoji: "", countFromApi: 0)
+            if c > meta.countFromApi { meta.countFromApi = c }
+            if !r.emoji.isEmpty { meta.emoji = r.emoji }
+            emojiMeta[key] = meta
         }
-        return grouped.compactMap { key, value in
-            let count = max(Int(value.countFromApi), value.senderIds.count)
-            guard count > 0 else { return nil }
-            let isMe = currentUserId.map { value.senderIds.contains($0) } ?? false
+        return emojiMeta.keys.sorted().compactMap { key in
+            let meta = emojiMeta[key]!
+            let senderTuples = orderedActiveSendersWithStackCountsProtobuf(reactions: reactions, emojiKey: key)
+            let hadPerSenderRows = reactions.contains { r in
+                guard protoEmojiKey(r) == key else { return false }
+                return r.senderID != 0
+            }
+            if senderTuples.isEmpty {
+                if hadPerSenderRows { return nil }
+                guard meta.countFromApi > 0 else { return nil }
+            }
+            let senders: [ParsedReactionSender] = senderTuples.map { ParsedReactionSender(userId: $0.userId, count: $0.count, nameHint: nil) }
+            let sumSender = senders.reduce(0) { $0 + $1.count }
+            let count = sumSender > 0 ? sumSender : meta.countFromApi
+            let isMe = currentUserId.map { uid in senders.contains { $0.userId == uid } } ?? false
             return ParsedReaction(
                 emojiId: key,
-                emoji: value.emoji,
+                emoji: meta.emoji,
                 count: count,
-                senderIds: value.senderIds,
+                senders: senders,
                 isMe: isMe
             )
-        }.sorted { $0.emojiId < $1.emojiId }
+        }
+    }
+
+    private static func protoEmojiKey(_ r: Mezon_Api_MessageReaction) -> String? {
+        let emojiKey = r.emojiID != 0 ? "\(r.emojiID)" : (r.emoji.isEmpty ? "?" : r.emoji)
+        guard emojiKey != "?" || !r.emoji.isEmpty else { return nil }
+        return emojiKey
+    }
+
+    private static func orderedActiveSendersWithStackCountsProtobuf(reactions: [Mezon_Api_MessageReaction], emojiKey: String) -> [(userId: String, count: Int)] {
+        var balance: [String: Int] = [:]
+        var order: [String] = []
+        for r in reactions {
+            guard protoEmojiKey(r) == emojiKey else { continue }
+            let sid = "\(r.senderID)"
+            guard !sid.isEmpty else { continue }
+            let isRemove = r.action
+            let rowCount = Int(r.count)
+            if !isRemove {
+                let prev = balance[sid] ?? 0
+                if rowCount > 0 {
+                    balance[sid] = rowCount
+                } else {
+                    balance[sid] = prev + 1
+                }
+                let newVal = balance[sid] ?? 0
+                if newVal > 0, prev == 0, !order.contains(sid) {
+                    order.append(sid)
+                }
+            } else {
+                let prev = balance[sid] ?? 0
+                if rowCount > 0 {
+                    balance[sid] = max(0, prev - rowCount)
+                } else {
+                    balance[sid] = max(0, prev - 1)
+                }
+                if (balance[sid] ?? 0) == 0 {
+                    order.removeAll { $0 == sid }
+                }
+            }
+        }
+        return order.compactMap { sid in
+            let c = balance[sid] ?? 0
+            return c > 0 ? (sid, c) : nil
+        }
     }
 
     private func waitForSocketConnected() async {
@@ -2037,6 +2210,10 @@ final class ChatViewController: ViewController {
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
 
+    func jumpToMessageFromChannelDetail(messageId: String) {
+        jumpToMessage(id: messageId)
+    }
+
     private func jumpToMessage(id messageId: String) {
         shouldScrollToBottom = false
         isJumping = true
@@ -2238,6 +2415,9 @@ final class ChatViewController: ViewController {
         controller.onEmojiReaction = { [weak self] emojiId, shortname in
             self?.handleEmojiReaction(emojiId: emojiId, shortname: shortname, display: display)
         }
+        controller.onPresentFullEmojiPicker = { [weak self] in
+            self?.presentReactionEmojiPicker(for: display)
+        }
         activeActionSheet = controller
         self.presentInGlobalOverlay(controller)
         controller.animateIn()
@@ -2255,28 +2435,55 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func handleEmojiReaction(emojiId: String, shortname: String, display: ChatMessageDisplay) {
-        guard let msgId = Int64(display.message.id) else { return }
-        guard let emojiIdInt = Int64(emojiId) else { return }
-        let senderId = Int64(display.message.senderId) ?? 0
-
-        let mode: Int32
+    private func streamModeForCurrentChannel() -> Int32 {
         switch channel.type {
         case MezonConstants.ChannelType.thread.rawValue:
-            mode = MezonConstants.ChannelStreamMode.thread.rawValue
+            return MezonConstants.ChannelStreamMode.thread.rawValue
         case MezonConstants.ChannelType.dm.rawValue:
-            mode = MezonConstants.ChannelStreamMode.dm.rawValue
+            return MezonConstants.ChannelStreamMode.dm.rawValue
         case MezonConstants.ChannelType.group.rawValue:
-            mode = MezonConstants.ChannelStreamMode.group.rawValue
+            return MezonConstants.ChannelStreamMode.group.rawValue
         default:
             if clanId != 0 {
-                mode = MezonConstants.ChannelStreamMode.channel.rawValue
-            } else {
-                mode = MezonConstants.ChannelStreamMode.group.rawValue
+                return MezonConstants.ChannelStreamMode.channel.rawValue
             }
+            return MezonConstants.ChannelStreamMode.group.rawValue
         }
+    }
 
-        let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+    private var isCurrentChannelPublicClanRoot: Bool {
+        clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+    }
+
+    private func applyLocalReactionRemoveForMessage(display: ChatMessageDisplay, emojiId: String, shortname: String, removeCount: Int32) {
+        guard removeCount > 0 else { return }
+        guard let uid = context.currentUser?.id, let senderId = Int64(uid) else { return }
+        var r = Mezon_Api_MessageReaction()
+        r.emojiID = Int64(emojiId) ?? 0
+        r.emoji = shortname.isEmpty ? emojiId : shortname
+        r.senderID = senderId
+        if let n = context.currentUser?.displayName, !n.isEmpty {
+            r.senderName = n
+        }
+        r.action = true
+        r.count = removeCount
+        context.account.postbox.write { tx in
+            tx.updateMessageReactions(messageId: display.message.id, reaction: r)
+        }
+    }
+
+    private func writeMessageReaction(
+        display: ChatMessageDisplay,
+        emojiId: String,
+        shortname: String,
+        count: Int32,
+        actionDelete: Bool
+    ) {
+        guard let msgId = Int64(display.message.id) else { return }
+        let emojiIdInt = Int64(emojiId) ?? 0
+        let messageSenderId = Int64(display.message.senderId) ?? 0
+        let mode = streamModeForCurrentChannel()
+        let isPublic = isCurrentChannelPublicClanRoot
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else { return }
@@ -2289,9 +2496,9 @@ final class ChatViewController: ViewController {
                     messageId: msgId,
                     emojiId: emojiIdInt,
                     emoji: shortname,
-                    count: 1,
-                    messageSenderId: senderId,
-                    actionDelete: false,
+                    count: count,
+                    messageSenderId: messageSenderId,
+                    actionDelete: actionDelete,
                     topicId: self.topicId,
                     token: token
                 )
@@ -2299,6 +2506,42 @@ final class ChatViewController: ViewController {
                 AppLogger.network.warning("[Chat] writeMessageReaction failed: \(error)")
             }
         }
+    }
+
+    private func handleEmojiReaction(emojiId: String, shortname: String, display: ChatMessageDisplay) {
+        writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: 1, actionDelete: false)
+    }
+
+    private weak var reactionEmojiPickerSheet: MessageReactionEmojiPickerSheetController?
+
+    private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
+        view.endEditing(true)
+        let sheet = MessageReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
+            self?.handleEmojiReaction(emojiId: emojiId, shortname: shortname, display: display)
+        }
+        sheet.onDismiss = { [weak self] in
+            self?.reactionEmojiPickerSheet = nil
+        }
+        reactionEmojiPickerSheet = sheet
+        presentInGlobalOverlay(sheet)
+        sheet.animateIn()
+    }
+
+    private func presentReactionDetailSheet(initialReaction: ParsedReaction, display: ChatMessageDisplay) {
+        view.endEditing(true)
+        let sheet = MessageReactionDetailSheetController(
+            reactions: display.reactions,
+            display: display,
+            context: context,
+            reactionMemberLookupClanId: clanId,
+            initialEmojiId: initialReaction.emojiId,
+            onRemoveReaction: { [weak self] emojiId, shortname, count, display in
+                self?.applyLocalReactionRemoveForMessage(display: display, emojiId: emojiId, shortname: shortname, removeCount: count)
+                self?.writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: count, actionDelete: true)
+            }
+        )
+        presentInGlobalOverlay(sheet)
+        sheet.animateIn()
     }
 
     private func handleMessageAction(_ action: MessageAction, display: ChatMessageDisplay) {
@@ -2440,5 +2683,33 @@ extension ChatViewController: CLLocationManagerDelegate {
             completion?(nil)
             showLocationPermissionDeniedAlert()
         }
+    }
+}
+
+extension ChatViewController {
+
+    func startCall() {
+        let isDM = clanId == 0
+            || channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
+        guard isDM else { return }
+
+        guard let myUserId = Int64(context.currentUser?.id ?? "") else { return }
+
+        let remoteUserId: Int64 = channel.userIds.first(where: { $0 != myUserId }) ?? 0
+        guard remoteUserId != 0 else {
+            AppLogger.app.error("[Call] Cannot determine remote user from DM channel userIds")
+            return
+        }
+
+        let callVC = CallViewController(
+            context: context,
+            remoteUserName: channel.channelLabel,
+            remoteAvatarURL: channel.avatars.first,
+            remoteUserId: remoteUserId,
+            dmChannelId: channel.channelID,
+            isOutgoing: true
+        )
+        present(callVC, animated: true)
     }
 }

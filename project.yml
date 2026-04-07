@@ -77,8 +77,15 @@ targets:
     resources:
       - path: MezonChat/Resources/Assets.xcassets
       - path: MezonChat/Resources/Images.xcassets
+    postBuildScripts:
+      - name: Generate LiveKitWebRTC dSYM
+        script: |
+          /bin/sh "${SRCROOT}/Scripts/generate_livekit_webrtc_dsym.sh"
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
     settings:
       base:
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
         MARKETING_VERSION: "1.2.92"

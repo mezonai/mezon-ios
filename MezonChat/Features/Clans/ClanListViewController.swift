@@ -346,13 +346,12 @@ final class ClanListViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
-                if self.context.account.socket.isConnected {
-                    do {
-                        let badgeRows = try await self.context.account.socket.fetchListChannelBadgeCount(clanId: 0)
-                        ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
-                    } catch {
-                        AppLogger.network.debug("[ClanList] DM ListChannelBadgeCount: \(error)")
-                    }
+                do {
+                    let badgeRows = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
+                        .channeldesc
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
+                } catch {
+                    AppLogger.network.debug("[ClanList] DM ListChannelBadgeCount: \(error)")
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
 

@@ -4,28 +4,29 @@ import UIKit
 @MainActor
 final class ChannelDetailContainerNode: ASDisplayNode {
 
+    private enum AssetTab: Int {
+        case members, media, files, pins, canvas
+    }
+
     private let context: AccountContext
     private let clanId: Int64
     private let channel: Mezon_Api_ChannelDescription
     private let onClose: () -> Void
     private let onSettingsTapped: () -> Void
+    private let onSearchTapped: () -> Void
+    private let onThreadsTapped: () -> Void
 
     private let backButtonNode = ASButtonNode()
+    private let headerTrailingSpacerNode = ASDisplayNode()
     private let titleNode = ASTextNode2()
     private let channelIconNode = ASImageNode()
 
     private let actionButtonsNode: ChannelDetailActionButtonsNode
 
-    private var tabNodes: [ASTextNode2] = []
-    private lazy var tabLabels = [
-        L(L10n.ChannelDetail.members),
-        L(L10n.ChannelDetail.media),
-        L(L10n.ChannelDetail.files),
-        L(L10n.ChannelDetail.pins),
-        L(L10n.ChannelDetail.canvas),
-    ]
-    private let tabBarNode = ASScrollNode()
-    private let tabIndicatorNode = ASDisplayNode()
+    private let visibleTabs: [AssetTab]
+    private var tabTitleNodes: [ASTextNode2] = []
+    private var tabUnderlineNodes: [ASDisplayNode] = []
+    private let tabsScrollNode = ASScrollNode()
 
     private let membersListNode: MemberListNode
     private let mediaGalleryNode: MediaGalleryNode
@@ -37,18 +38,26 @@ final class ChannelDetailContainerNode: ASDisplayNode {
 
     init(
         context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription,
-        onClose: @escaping () -> Void, onSettingsTapped: @escaping () -> Void
+        onClose: @escaping () -> Void, onSettingsTapped: @escaping () -> Void,
+        onSearchTapped: @escaping () -> Void, onThreadsTapped: @escaping () -> Void
     ) {
         self.context = context
         self.clanId = clanId
         self.channel = channel
         self.onClose = onClose
         self.onSettingsTapped = onSettingsTapped
+        self.onSearchTapped = onSearchTapped
+        self.onThreadsTapped = onThreadsTapped
 
-        self.actionButtonsNode = ChannelDetailActionButtonsNode()
+        let myId = context.currentUser.flatMap { Int64($0.id) }
+        self.visibleTabs = Self.visibleTabsList(channel: channel, currentUserId: myId)
+
+        self.actionButtonsNode = ChannelDetailActionButtonsNode(
+            channel: channel, context: context)
         self.membersListNode = MemberListNode(
             context: context, clanId: clanId, channelId: channel.channelID,
-            channelType: channel.type, isPrivate: channel.channelPrivate != 0)
+            channelType: channel.type, isPrivate: channel.channelPrivate != 0,
+            channelDescription: channel)
         self.mediaGalleryNode = MediaGalleryNode(
             context: context, clanId: clanId, channelId: channel.channelID,
             channelType: channel.type)
@@ -65,12 +74,60 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         super.init()
         self.automaticallyManagesSubnodes = true
 
+        tabsScrollNode.scrollableDirections = [.left, .right]
+        tabsScrollNode.automaticallyManagesContentSize = true
+        tabsScrollNode.automaticallyManagesSubnodes = true
+
         setupHeader()
-        setupTabs()
+        buildTabs()
         actionButtonsNode.onSettingsTapped = { [weak self] in
             self?.settingsPressed()
         }
-        updateTabIndicator(animated: false)
+        actionButtonsNode.onSearchTapped = { [weak self] in
+            self?.onSearchTapped()
+        }
+        actionButtonsNode.onThreadsTapped = { [weak self] in
+            self?.onThreadsTapped()
+        }
+
+        loadDataForTab(at: 0)
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        tabsScrollNode.view.showsHorizontalScrollIndicator = false
+    }
+
+    private static func visibleTabsList(
+        channel: Mezon_Api_ChannelDescription, currentUserId: Int64?
+    ) -> [AssetTab] {
+        let dm = MezonConstants.ChannelType.dm.rawValue
+        let group = MezonConstants.ChannelType.group.rawValue
+        let isDMOrGroup = channel.type == dm || channel.type == group
+        let isSelfDM = channel.type == dm && channel.userIds.first == currentUserId
+        let isOneToOneDM =
+            channel.type == dm && !isSelfDM && channel.userIds.count <= 2
+
+        if isSelfDM {
+            return [.media, .files, .pins]
+        }
+        if isOneToOneDM {
+            return [.media, .files, .pins]
+        }
+        if !isDMOrGroup {
+            return [.members, .media, .files, .pins, .canvas]
+        }
+        return [.members, .media, .files, .pins]
+    }
+
+    private func title(for tab: AssetTab) -> String {
+        switch tab {
+        case .members: return L(L10n.ChannelDetail.members)
+        case .media: return L(L10n.ChannelDetail.media)
+        case .files: return L(L10n.ChannelDetail.files)
+        case .pins: return L(L10n.ChannelDetail.pins)
+        case .canvas: return L(L10n.ChannelDetail.canvas)
+        }
     }
 
     private func setupHeader() {
@@ -79,9 +136,12 @@ final class ChannelDetailContainerNode: ASDisplayNode {
                 UIColor.theme.textStrong, renderingMode: .alwaysOriginal), for: .normal)
         backButtonNode.addTarget(
             self, action: #selector(backPressed), forControlEvents: .touchUpInside)
+        backButtonNode.style.preferredSize = CGSize(width: 44.sf, height: 44.sf)
+        backButtonNode.contentHorizontalAlignment = .middle
+        backButtonNode.contentVerticalAlignment = .center
 
         let title = channel.channelLabel
-        let isThread = channel.type == 7
+        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
 
         let iconName: String
         if isThread {
@@ -102,72 +162,82 @@ final class ChannelDetailContainerNode: ASDisplayNode {
                 .foregroundColor: UIColor.theme.textStrong,
             ]
         )
+
+        headerTrailingSpacerNode.style.preferredSize = CGSize(width: 44.sf, height: 44.sf)
+        headerTrailingSpacerNode.isUserInteractionEnabled = false
+        headerTrailingSpacerNode.backgroundColor = .clear
     }
 
-    private func setupTabs() {
-        tabNodes = tabLabels.enumerated().map { index, label in
-            let node = ASTextNode2()
-            node.isUserInteractionEnabled = true
-            node.view.addGestureRecognizer(
+    private func buildTabs() {
+        tabTitleNodes = []
+        tabUnderlineNodes = []
+        for (index, tab) in visibleTabs.enumerated() {
+            let textNode = ASTextNode2()
+            textNode.isUserInteractionEnabled = true
+            textNode.view.tag = index
+            textNode.view.addGestureRecognizer(
                 UITapGestureRecognizer(target: self, action: #selector(tabPressed(_:))))
-            node.view.tag = index
-            updateTabNode(node, isActive: index == activeTabIndex)
-            return node
+
+            let underline = ASDisplayNode()
+            underline.style.height = ASDimension(unit: .points, value: 2)
+            underline.cornerRadius = 1
+
+            tabTitleNodes.append(textNode)
+            tabUnderlineNodes.append(underline)
+            updateTabAppearance(index: index, title: title(for: tab))
         }
-        tabIndicatorNode.backgroundColor = UIColor.theme.textLink
-        tabIndicatorNode.cornerRadius = 1.5.sf
-        self.addSubnode(tabIndicatorNode)
     }
 
-    private func updateTabNode(_ node: ASTextNode2, isActive: Bool) {
-        let index = node.view.tag
-        node.attributedText = NSAttributedString(
-            string: tabLabels[index],
+    private func updateTabAppearance(index: Int, title: String) {
+        guard index < tabTitleNodes.count, index < tabUnderlineNodes.count else { return }
+        let isActive = index == activeTabIndex
+        let t = UIColor.theme
+        let activeColor = t.bgViolet
+        let inactiveColor = t.text
+        tabTitleNodes[index].attributedText = NSAttributedString(
+            string: title,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 15.sf, weight: isActive ? .semibold : .medium),
-                .foregroundColor: isActive ? UIColor.theme.textLink : UIColor.theme.textDisabled,
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: isActive ? .semibold : .medium),
+                .foregroundColor: isActive ? activeColor : inactiveColor,
             ]
         )
+        tabUnderlineNodes[index].backgroundColor = isActive ? activeColor : .clear
     }
 
     @objc private func tabPressed(_ gesture: UITapGestureRecognizer) {
-        guard let index = gesture.view?.tag else { return }
+        guard let index = gesture.view?.tag, index >= 0, index < visibleTabs.count else { return }
         activeTabIndex = index
-        for (i, node) in tabNodes.enumerated() {
-            updateTabNode(node, isActive: i == activeTabIndex)
+        loadDataForTab(at: index)
+        for i in 0..<visibleTabs.count {
+            updateTabAppearance(index: i, title: title(for: visibleTabs[i]))
         }
-        updateTabIndicator(animated: true)
         self.setNeedsLayout()
     }
 
-    private func updateTabIndicator(animated: Bool) {
-        self.setNeedsLayout()
-        if animated {
-            UIView.animate(withDuration: 0.25) {
-                self.view.layoutIfNeeded()
-            }
+    private func loadDataForTab(at index: Int) {
+        guard index >= 0, index < visibleTabs.count else { return }
+        switch visibleTabs[index] {
+        case .members: membersListNode.loadTabDataIfNeeded()
+        case .media: mediaGalleryNode.loadTabDataIfNeeded()
+        case .files: fileListNode.loadTabDataIfNeeded()
+        case .pins: pinnedMessagesNode.loadTabDataIfNeeded()
+        case .canvas: canvasNode.loadTabDataIfNeeded()
         }
-    }
-
-    override func layout() {
-        super.layout()
-
-        guard activeTabIndex < tabNodes.count else { return }
-        let activeTab = tabNodes[activeTabIndex]
-        let tabFrame = activeTab.frame
-        let indicatorHeight: CGFloat = 3.sf
-        let indicatorY = tabFrame.maxY + 4.sf
-
-        tabIndicatorNode.frame = CGRect(
-            x: tabFrame.origin.x,
-            y: indicatorY,
-            width: tabFrame.size.width,
-            height: indicatorHeight
-        )
     }
 
     @objc private func backPressed() { onClose() }
     @objc private func settingsPressed() { onSettingsTapped() }
+
+    private func activeContentNode() -> ASDisplayNode {
+        guard activeTabIndex < visibleTabs.count else { return membersListNode }
+        switch visibleTabs[activeTabIndex] {
+        case .members: return membersListNode
+        case .media: return mediaGalleryNode
+        case .files: return fileListNode
+        case .pins: return pinnedMessagesNode
+        case .canvas: return canvasNode
+        }
+    }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         channelIconNode.style.preferredSize = CGSize(width: 16.sf, height: 16.sf)
@@ -180,65 +250,72 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         )
         headerContent.style.flexShrink = 1
 
-        let centerSpec = ASCenterLayoutSpec(
+        let titleCentered = ASCenterLayoutSpec(
             centeringOptions: .XY,
             child: headerContent
         )
+        titleCentered.style.flexGrow = 1
+        titleCentered.style.flexShrink = 1
 
-        let leftSpec = ASRelativeLayoutSpec(
-            horizontalPosition: .start,
-            verticalPosition: .center,
-            sizingOption: [],
-            child: backButtonNode
-        )
-
-        let topBar = ASOverlayLayoutSpec(
-            child: centerSpec,
-            overlay: leftSpec
+        let topBar = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 0,
+            justifyContent: .start,
+            alignItems: .center,
+            children: [backButtonNode, titleCentered, headerTrailingSpacerNode]
         )
         topBar.style.height = ASDimensionMake(56.sf)
         topBar.style.alignSelf = .stretch
 
-        let tabsStack = ASStackLayoutSpec(
-            direction: .horizontal,
-            spacing: 24.sw,
-            justifyContent: .start,
-            alignItems: .center,
-            children: tabNodes
-        )
+        var tabColumns: [ASLayoutElement] = []
+        for i in 0..<visibleTabs.count {
+            let col = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: 5.sf,
+                justifyContent: .start,
+                alignItems: .stretch,
+                children: [tabTitleNodes[i], tabUnderlineNodes[i]]
+            )
+            let padded = ASInsetLayoutSpec(
+                insets: UIEdgeInsets(top: 0, left: 10.sw, bottom: 0, right: 10.sw),
+                child: col
+            )
+            tabColumns.append(padded)
+        }
 
-        let tabsWithIndicator = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8.sf,
+        let tabsRow = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 0,
             justifyContent: .start,
             alignItems: .start,
-            children: [tabsStack]
+            children: tabColumns
         )
+
+        tabsScrollNode.layoutSpecBlock = { _, _ in tabsRow }
+        tabsScrollNode.style.minHeight = ASDimension(unit: .points, value: 30.sf)
+
+        let tabsHeader = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 20.sf, left: 0, bottom: 0, right: 0),
+            child: tabsScrollNode
+        )
+        tabsHeader.style.alignSelf = .stretch
 
         let headerSection = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 20,
+            spacing: 0,
             justifyContent: .start,
             alignItems: .stretch,
-            children: [topBar, actionButtonsNode, tabsWithIndicator]
+            children: [topBar, actionButtonsNode, tabsHeader]
         )
         headerSection.style.alignSelf = .stretch
 
-        let activeTabNode: ASDisplayNode
-        switch activeTabIndex {
-        case 0: activeTabNode = membersListNode
-        case 1: activeTabNode = mediaGalleryNode
-        case 2: activeTabNode = fileListNode
-        case 3: activeTabNode = pinnedMessagesNode
-        case 4: activeTabNode = canvasNode
-        default: activeTabNode = membersListNode
-        }
+        let activeTabNode = activeContentNode()
         activeTabNode.style.flexGrow = 1
         activeTabNode.style.flexShrink = 1
 
         let mainStack = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 16,
+            spacing: 0,
             justifyContent: .start,
             alignItems: .stretch,
             children: [headerSection, activeTabNode]
@@ -259,5 +336,14 @@ final class ChannelDetailContainerNode: ASDisplayNode {
                 .foregroundColor: t.textStrong,
             ]
         )
+        channelIconNode.tintColor = t.textStrong
+        backButtonNode.setImage(
+            UIImage(systemName: "chevron.left")?.withTintColor(
+                t.textStrong, renderingMode: .alwaysOriginal), for: .normal)
+        for i in 0..<visibleTabs.count {
+            updateTabAppearance(index: i, title: title(for: visibleTabs[i]))
+        }
+        actionButtonsNode.applyTheme()
+        pinnedMessagesNode.applyTheme()
     }
 }

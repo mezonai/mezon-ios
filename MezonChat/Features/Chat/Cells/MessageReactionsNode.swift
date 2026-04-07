@@ -6,11 +6,17 @@ final class MessageReactionsNode: ASDisplayNode {
     private var pillNodes: [ReactionPillNode] = []
     private var currentReactions: [ParsedReaction] = []
     var onReactionTapped: ((ParsedReaction) -> Void)?
+    var onReactionLongPressed: ((ParsedReaction) -> Void)?
+    var onAddReactionTapped: (() -> Void)?
+    var onStripBackgroundLongPressed: (() -> Void)?
 
     private static let maxVisiblePills = 20
+    private static let addButtonDiameter: CGFloat = 28
 
     private var overflowNode: ASTextNode2?
-    private var totalReactionCount: Int = 0
+    private var showAddButton = false
+
+    private let addReactionButtonNode = ASButtonNode()
 
     private struct LayoutRow {
         var frames: [(index: Int, frame: CGRect)]
@@ -21,37 +27,91 @@ final class MessageReactionsNode: ASDisplayNode {
 
     override init() {
         super.init()
+        automaticallyManagesSubnodes = false
+        isUserInteractionEnabled = true
+
+        let t = UIColor.theme
+        addReactionButtonNode.backgroundColor = t.tertiary
+        addReactionButtonNode.tintColor = t.textStrong
+        addReactionButtonNode.clipsToBounds = true
+        addReactionButtonNode.contentMode = .center
+        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        if let img = UIImage(systemName: "face.smiling", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate) {
+            addReactionButtonNode.setImage(img, for: .normal)
+        }
+        addReactionButtonNode.addTarget(self, action: #selector(addReactionControlTapped), forControlEvents: .touchUpInside)
     }
 
     override func didLoad() {
         super.didLoad()
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
+        let long = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        long.minimumPressDuration = 0.32
+        long.cancelsTouchesInView = false
+        view.addGestureRecognizer(long)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        let location = gesture.location(in: view)
-        for (i, pill) in pillNodes.enumerated() {
-            if pill.frame.contains(location), i < currentReactions.count {
-                onReactionTapped?(currentReactions[i])
-                return
-            }
-        }
+        guard gesture.state == .ended else { return }
+        let loc = gesture.location(in: view)
+        if addButtonHit(at: loc) { return }
+        pillAt(location: loc).map { onReactionTapped?($0) }
     }
 
-    func configure(reactions: [ParsedReaction]) {
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let loc = gesture.location(in: view)
+        if addButtonHit(at: loc) {
+            onAddReactionTapped?()
+            return
+        }
+        if let pill = pillAt(location: loc) {
+            onReactionLongPressed?(pill)
+            return
+        }
+        onStripBackgroundLongPressed?()
+    }
+
+    @objc private func addReactionControlTapped() {
+        onAddReactionTapped?()
+    }
+
+    private func addButtonHit(at location: CGPoint) -> Bool {
+        guard showAddButton, !addReactionButtonNode.isHidden, addReactionButtonNode.supernode === self else { return false }
+        return addReactionButtonNode.frame.contains(location)
+    }
+
+    private func syncAddReactionSubnode() {
+        addReactionButtonNode.removeFromSupernode()
+        guard showAddButton else {
+            addReactionButtonNode.isHidden = true
+            return
+        }
+        addSubnode(addReactionButtonNode)
+        addReactionButtonNode.isHidden = false
+    }
+
+    private func pillAt(location: CGPoint) -> ParsedReaction? {
+        for (i, pill) in pillNodes.enumerated() {
+            if pill.frame.contains(location), i < currentReactions.count {
+                return currentReactions[i]
+            }
+        }
+        return nil
+    }
+
+    func configure(reactions: [ParsedReaction], showAddButton: Bool) {
+        self.showAddButton = showAddButton
         pillNodes.forEach { $0.removeFromSupernode() }
         overflowNode?.removeFromSupernode()
         overflowNode = nil
 
-        totalReactionCount = reactions.count
         let visible = Array(reactions.prefix(Self.maxVisiblePills))
         currentReactions = visible
 
-        pillNodes = visible.map { reaction in
-            let pill = ReactionPillNode(reaction: reaction)
-            return pill
-        }
+        pillNodes = visible.map { ReactionPillNode(reaction: $0) }
         pillNodes.forEach { addSubnode($0) }
 
         if reactions.count > Self.maxVisiblePills {
@@ -67,10 +127,13 @@ final class MessageReactionsNode: ASDisplayNode {
             overflowNode = node
             addSubnode(node)
         }
+
+        syncAddReactionSubnode()
+        setNeedsLayout()
     }
 
-    func updateReactions(_ newReactions: [ParsedReaction]) {
-        totalReactionCount = newReactions.count
+    func updateReactions(_ newReactions: [ParsedReaction], showAddButton: Bool) {
+        self.showAddButton = showAddButton
         let visible = Array(newReactions.prefix(Self.maxVisiblePills))
 
         let oldMap = Dictionary(uniqueKeysWithValues: currentReactions.enumerated().map { ($1.emojiId, (index: $0, reaction: $1)) })
@@ -89,7 +152,7 @@ final class MessageReactionsNode: ASDisplayNode {
         for reaction in visible {
             if let oldEntry = oldMap[reaction.emojiId] {
                 let oldNode = pillNodes[oldEntry.index]
-                if oldEntry.reaction.count != reaction.count || oldEntry.reaction.isMe != reaction.isMe {
+                if oldEntry.reaction != reaction {
                     oldNode.update(reaction: reaction)
                 }
                 newPillNodes.append(oldNode)
@@ -118,26 +181,27 @@ final class MessageReactionsNode: ASDisplayNode {
             overflowNode = node
             addSubnode(node)
         }
+
+        syncAddReactionSubnode()
+        setNeedsLayout()
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
-        guard !pillNodes.isEmpty else {
+        if pillNodes.isEmpty, overflowNode == nil, !showAddButton {
             cachedTotalSize = .zero
             cachedRows = []
             return .zero
         }
 
         let spacing: CGFloat = 6.sw
+        let addDiameter = Self.addButtonDiameter.sh
         var rows: [LayoutRow] = []
         var currentRowFrames: [(index: Int, frame: CGRect)] = []
         var currentX: CGFloat = 0
         var currentRowMaxH: CGFloat = 0
         var totalY: CGFloat = 0
 
-        for (i, pill) in pillNodes.enumerated() {
-            let pillSize = pill.calculatedSize(maxWidth: maxWidth)
-            let neededWidth = currentRowFrames.isEmpty ? pillSize.width : pillSize.width + spacing
-
+        func flushRowIfNeeded(for neededWidth: CGFloat) {
             if currentX + neededWidth > maxWidth && !currentRowFrames.isEmpty {
                 rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
                 totalY += currentRowMaxH + spacing
@@ -145,27 +209,38 @@ final class MessageReactionsNode: ASDisplayNode {
                 currentX = 0
                 currentRowMaxH = 0
             }
+        }
 
+        for (i, pill) in pillNodes.enumerated() {
+            let pillSize = pill.calculatedSize(maxWidth: maxWidth)
+            let neededWidth = currentRowFrames.isEmpty ? pillSize.width : pillSize.width + spacing
+            flushRowIfNeeded(for: neededWidth)
             let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
             currentRowFrames.append((index: i, frame: CGRect(x: x, y: totalY, width: pillSize.width, height: pillSize.height)))
             currentX = x + pillSize.width
             currentRowMaxH = max(currentRowMaxH, pillSize.height)
         }
 
+        let overflowIndex = pillNodes.count
         if let overflowNode {
             let overflowSize = overflowNode.measure(CGSize(width: maxWidth, height: 28.sh))
             let neededWidth = currentRowFrames.isEmpty ? overflowSize.width : overflowSize.width + spacing
-            if currentX + neededWidth > maxWidth && !currentRowFrames.isEmpty {
-                rows.append(LayoutRow(frames: currentRowFrames, height: currentRowMaxH))
-                totalY += currentRowMaxH + spacing
-                currentRowFrames = []
-                currentX = 0
-                currentRowMaxH = 0
-            }
+            flushRowIfNeeded(for: neededWidth)
             let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
-            currentRowFrames.append((index: pillNodes.count, frame: CGRect(x: x, y: totalY, width: overflowSize.width, height: overflowSize.height)))
+            currentRowFrames.append((index: overflowIndex, frame: CGRect(x: x, y: totalY, width: overflowSize.width, height: overflowSize.height)))
             currentX = x + overflowSize.width
             currentRowMaxH = max(currentRowMaxH, overflowSize.height)
+        }
+
+        let addIndex = overflowIndex + (overflowNode != nil ? 1 : 0)
+        if showAddButton {
+            let addSize = CGSize(width: addDiameter, height: addDiameter)
+            let neededWidth = currentRowFrames.isEmpty ? addSize.width : addSize.width + spacing
+            flushRowIfNeeded(for: neededWidth)
+            let x = currentRowFrames.isEmpty ? 0 : currentX + spacing
+            currentRowFrames.append((index: addIndex, frame: CGRect(x: x, y: totalY, width: addSize.width, height: addSize.height)))
+            currentX = x + addSize.width
+            currentRowMaxH = max(currentRowMaxH, addSize.height)
         }
 
         if !currentRowFrames.isEmpty {
@@ -180,15 +255,32 @@ final class MessageReactionsNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
+        let w = bounds.width
+        if w > 1, cachedRows.isEmpty, !pillNodes.isEmpty {
+            _ = measureSize(maxWidth: w)
+        }
         let overflowIndex = pillNodes.count
+        let addIndex = overflowIndex + (overflowNode != nil ? 1 : 0)
+        var addFrame: CGRect?
         for row in cachedRows {
             for entry in row.frames {
                 if entry.index < pillNodes.count {
                     pillNodes[entry.index].frame = entry.frame
-                } else if entry.index == overflowIndex {
-                    overflowNode?.frame = entry.frame
+                } else if let overflowNode, entry.index == overflowIndex {
+                    overflowNode.frame = entry.frame
+                } else if entry.index == addIndex {
+                    addFrame = entry.frame
                 }
             }
+        }
+
+        if showAddButton, let rect = addFrame {
+            addReactionButtonNode.frame = rect
+            let r = min(rect.width, rect.height) / 2
+            addReactionButtonNode.cornerRadius = r
+            addReactionButtonNode.isHidden = false
+        } else {
+            addReactionButtonNode.isHidden = true
         }
     }
 }
@@ -214,6 +306,7 @@ final class ReactionPillNode: ASDisplayNode {
     init(reaction: ParsedReaction) {
         self.emojiId = reaction.emojiId
         super.init()
+        automaticallyManagesSubnodes = false
 
         let t = UIColor.theme
 
@@ -294,6 +387,7 @@ final class ReactionPillNode: ASDisplayNode {
             borderWidth = 0
             borderColor = nil
         }
+        setNeedsLayout()
     }
 
     func calculatedSize(maxWidth: CGFloat) -> CGSize {

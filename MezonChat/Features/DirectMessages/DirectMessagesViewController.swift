@@ -45,6 +45,9 @@ final class DirectMessagesViewController: ViewController {
             onSearchTapped: {},
             onBackTapped: { [weak self] in
                 self?.navigationController?.popViewController(animated: true)
+            },
+            onRefresh: { [weak self] in
+                self?.refreshDirectMessages()
             }
         )
         displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction, context: context)
@@ -68,7 +71,7 @@ final class DirectMessagesViewController: ViewController {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
     }
 
@@ -82,20 +85,21 @@ final class DirectMessagesViewController: ViewController {
         directMessagesNode.applyTheme()
     }
 
-    @objc private func handleSocketStatusForDMBadges(_ notification: Notification) {
+    @objc private func handleSocketReconnectForDMBadges(_ notification: Notification) {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
         Task { @MainActor in
-            await self.applyDmListChannelBadgeCountFromSocket()
+            await self.applyDmListChannelBadgeCount()
         }
     }
 
 
     @MainActor
-    private func applyDmListChannelBadgeCountFromSocket() async {
-        guard context.account.socket.isConnected else { return }
+    private func applyDmListChannelBadgeCount() async {
         guard !directMessages.isEmpty else { return }
+        guard let token = await context.getToken() else { return }
         do {
-            let rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: 0)
+            let badgeResponse = try await context.account.network.listChannelBadgeCount(clanId: 0, token: token)
+            let rows = badgeResponse.channeldesc
             guard !rows.isEmpty else { return }
             var updated = directMessages
             ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
@@ -260,13 +264,13 @@ final class DirectMessagesViewController: ViewController {
             defer { self.setIsLoading(false) }
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
-                if self.context.account.socket.isConnected {
-                    do {
-                        let badgeRows = try await self.context.account.socket.fetchListChannelBadgeCount(clanId: 0)
-                        ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
-                    } catch {
-                        AppLogger.network.debug("[DM] ListChannelBadgeCount after listDM: \(error)")
-                    }
+                do {
+                    let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
+                        clanId: 0, token: token)
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
+                        into: &channels, badgeRows: badgeResponse.channeldesc)
+                } catch {
+                    AppLogger.network.debug("[DM] ListChannelBadgeCount after listDM: \(error)")
                 }
                 let sorted = channels.sorted { ch1, ch2 in
                     let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
@@ -279,6 +283,35 @@ final class DirectMessagesViewController: ViewController {
             } catch {
                 self.setErrorMessage(error.localizedDescription)
                 AppLogger.network.error("fetchDirectMessages: \(error)")
+            }
+        }
+    }
+
+    private func refreshDirectMessages() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.directMessagesNode.endRefreshing() }
+            guard let token = await self.context.getToken() else { return }
+            do {
+                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                do {
+                    let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
+                        clanId: 0, token: token)
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
+                        into: &channels, badgeRows: badgeResponse.channeldesc)
+                } catch {
+                    AppLogger.network.debug("[DM] ListChannelBadgeCount after refresh: \(error)")
+                }
+                let sorted = channels.sorted { ch1, ch2 in
+                    let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
+                    let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
+                    return t1 > t2
+                }
+                self.setDirectMessages(sorted)
+                self.setIsEmpty(sorted.isEmpty)
+                self.persistDmChannelListToPostbox()
+            } catch {
+                AppLogger.network.error("[DM] refreshDirectMessages: \(error)")
             }
         }
     }

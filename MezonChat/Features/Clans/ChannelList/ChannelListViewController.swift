@@ -387,7 +387,7 @@ final class ChannelListViewController: ViewController {
         guard let joinedClan = notification.userInfo?["clanId"] as? Int64 else { return }
         guard joinedClan == clanId, joinedClan != 0 else { return }
         Task { @MainActor in
-            await self.applyChannelBadgeCountsFromSocket(clanId: joinedClan)
+            await self.applyChannelBadgeCounts(clanId: joinedClan)
         }
     }
 
@@ -396,19 +396,43 @@ final class ChannelListViewController: ViewController {
         guard clanId != 0 else { return }
 
 
-        fetchChannelsWithoutLoadingSignal()
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
 
 
+    private func channelListRowsVisuallyEqual(_ a: [Mezon_Api_ChannelDescription], _ b: [Mezon_Api_ChannelDescription]) -> Bool {
+        guard a.count == b.count else { return false }
+        var byId = Dictionary(uniqueKeysWithValues: b.map { ($0.channelID, $0) })
+        for ch in a {
+            guard let o = byId[ch.channelID] else { return false }
+            if ch.countMessUnread != o.countMessUnread { return false }
+            if ch.channelLabel != o.channelLabel { return false }
+            if ch.type != o.type { return false }
+            if ch.channelPrivate != o.channelPrivate { return false }
+            if ch.ageRestricted != o.ageRestricted { return false }
+            if ch.lastSeenMessage.timestampSeconds != o.lastSeenMessage.timestampSeconds { return false }
+            if ch.lastSentMessage.timestampSeconds != o.lastSentMessage.timestampSeconds { return false }
+            if ch.hasLastSentMessage != o.hasLastSentMessage { return false }
+            let uA = ch.countMessUnread > 0
+                || (ch.hasLastSentMessage && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds)
+            let uB = o.countMessUnread > 0
+                || (o.hasLastSentMessage && o.lastSeenMessage.timestampSeconds < o.lastSentMessage.timestampSeconds)
+            if uA != uB { return false }
+        }
+        return true
+    }
+
     @MainActor
-    private func applyChannelBadgeCountsFromSocket(clanId: Int64) async {
+    private func applyChannelBadgeCounts(clanId: Int64) async {
         guard clanId != 0 else { return }
-        guard context.account.socket.isConnected else { return }
+        guard let token = await context.getToken() else { return }
         do {
-            let rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: clanId)
+            let rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
+                .channeldesc
             guard !rows.isEmpty else { return }
             var updated = allChannels
             ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
+            guard !channelListRowsVisuallyEqual(allChannels, updated) else { return }
             allChannels = updated
             let storedCollapsed = loadCollapsedCategoryIds()
             let built = buildChannelCategories(
@@ -504,7 +528,7 @@ final class ChannelListViewController: ViewController {
         errorMessage = nil
 
         needsReloadPipe.putNext(())
-        fetchChannelsWithoutLoadingSignal()
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: true)
     }
 
     @objc private func handleThemeChange() { channelListNode.applyTheme() }
@@ -707,15 +731,14 @@ final class ChannelListViewController: ViewController {
         allChannels = []
         categories = []
 
-        isLoading = true
+        let hadCache = restoreCachedChannels(clanId: clanId)
+        isLoading = !hadCache
         needsReloadPipe.putNext(())
 
-        _ = restoreCachedChannels(clanId: clanId)
-
-        fetchChannelsWithoutLoadingSignal()
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
 
-    private func fetchChannelsWithoutLoadingSignal() {
+    private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
             isLoading = false
             needsReloadPipe.putNext(())
@@ -728,6 +751,7 @@ final class ChannelListViewController: ViewController {
             |> `catch` { (error: ChannelFetchError) -> Signal<FetchResult, NoError> in .single(.failure(error.localizedDescription)) }
             |> deliverOnMainQueue
 
+        let allowEmptyApps = allowEmptyChannelAppsOverwrite
         fetchDisposable.set(signal.start(next: { [weak self] result in
                 guard let self else { return }
                 self.isLoading = false
@@ -745,10 +769,10 @@ final class ChannelListViewController: ViewController {
                     )
                     let cats = self.applyBuiltCategoriesPreservingCollapse(built)
                     self.categories = cats
-                self.channelsLoadedPromise.set(true)
-                self.persistSelectedChannel()
+                    self.channelsLoadedPromise.set(true)
+                    self.persistSelectedChannel()
                     self.categoriesPipe.putNext(cats)
-                self.fetchChannelApps()
+                    self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                     self.context.account.postbox.setPreferenceData(
                         key: PreferencesKeys.channelList(clanId: clanId),
                         value: self.encodeChannelList(channels)
@@ -757,9 +781,6 @@ final class ChannelListViewController: ViewController {
                         key: PreferencesKeys.channelListMeta(clanId: clanId),
                         value: self.encodeChannelListMeta(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
                     )
-                    Task { @MainActor in
-                        await self.applyChannelBadgeCountsFromSocket(clanId: clanId)
-                    }
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
@@ -809,8 +830,20 @@ final class ChannelListViewController: ViewController {
         )
         sheet.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
-            sheet.sheetPresentationController?.detents = [.medium(), .large()]
             sheet.sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
+                    safeAreaBottomInset: bottomInset)
+                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
+                    min(targetHeight, context.maximumDetentValue)
+                }
+                sheet.sheetPresentationController?.detents = [contentDetent]
+                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            }
         }
         CATransaction.begin()
         CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
@@ -913,8 +946,18 @@ final class ChannelListViewController: ViewController {
                     let channels = try await channelsTask
                     let categoryDescs = await categoriesTask
                     let favoriteIds = Set(await favoritesTask)
+                    var mergedChannels = channels
+                    do {
+                        let rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
+                            .channeldesc
+                        if !rows.isEmpty {
+                            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &mergedChannels, badgeRows: rows)
+                        }
+                    } catch {
+                        AppLogger.network.debug("[ChannelList] ListChannelBadgeCount (batched with list): \(error)")
+                    }
                     subscriber.putNext(ChannelListFetchPayload(
-                        channels: channels,
+                        channels: mergedChannels,
                         categoryDescs: categoryDescs,
                         favoriteChannelIds: favoriteIds
                     ))
@@ -954,7 +997,7 @@ final class ChannelListViewController: ViewController {
         return withUnsafeBytes(of: &le) { Data($0) }
     }
 
-    private func fetchChannelApps() {
+    private func fetchChannelApps(allowEmptyOverwrite: Bool = false) {
         guard clanId != 0 else { return }
         let clanId = self.clanId
         Task { @MainActor [weak self] in
@@ -962,11 +1005,20 @@ final class ChannelListViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             do {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanId, token: token)
+                guard self.clanId == clanId else { return }
+                let key = PreferencesKeys.channelApps(clanId: clanId)
+                if apps.isEmpty, !allowEmptyOverwrite {
+                    if self.channelListNode.hasDisplayedChannelApps { return }
+                    if let data = self.context.account.postbox.getPreferenceData(key: key),
+                       !self.decodeChannelApps(data).isEmpty {
+                        return
+                    }
+                }
                 self.channelListNode.updateChannelApps(apps)
-                self.context.account.postbox.setPreferenceData(
-                    key: PreferencesKeys.channelApps(clanId: clanId),
-                    value: self.encodeChannelApps(apps)
-                )
+                let encoded = self.encodeChannelApps(apps)
+                if self.context.account.postbox.getPreferenceData(key: key) != encoded {
+                    self.context.account.postbox.setPreferenceData(key: key, value: encoded)
+                }
             } catch {
                 AppLogger.network.error("Failed to fetch channel apps: \(error)")
             }

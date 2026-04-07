@@ -33,7 +33,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private let hasAudio: Bool
     private let hasFiles: Bool
     private let hasEmbeds: Bool
-    private let hasReactions: Bool
+    private let showsReactionStrip: Bool
     private let hasReply: Bool
     private let hasDeletedReply: Bool
     private let hasLocation: Bool
@@ -78,7 +78,9 @@ final class MessageBubbleNode: ASDisplayNode {
         let parsed = display.parsedContent
         let mediaAttachments = display.attachments.filter { $0.isMedia }
         let audioAttachments = display.attachments.filter { $0.isAudio && !$0.url.isEmpty }
-        let fileAttachments = display.attachments.filter { !$0.isMedia && !$0.isAudio && !$0.url.isEmpty }
+        let fileAttachments = display.attachments.filter {
+            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading)
+        }
 
         if display.isCallLog {
             self.hasContent = false
@@ -106,7 +108,7 @@ final class MessageBubbleNode: ASDisplayNode {
             self.hasEmbeds = !parsed.embeds.isEmpty
             self.hasLocation = false
         }
-        self.hasReactions = !display.reactions.isEmpty
+        self.showsReactionStrip = Self.shouldShowReactionStrip(for: display)
 
         if display.isForward {
             let b = ASDisplayNode()
@@ -133,6 +135,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         super.init()
+        automaticallyManagesSubnodes = false
         backgroundColor = .clear
 
         if display.hasIncludeMention {
@@ -281,13 +284,10 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(ln)
         }
 
-        if hasReactions {
+        if showsReactionStrip {
             let rn = MessageReactionsNode()
-            rn.configure(reactions: display.reactions)
-            rn.onReactionTapped = { [weak self] reaction in
-                guard let self else { return }
-                interaction.onReactionTapped(reaction, self.display)
-            }
+            rn.configure(reactions: display.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(rn)
             reactionsNode = rn
             addSubnode(rn)
         }
@@ -312,18 +312,17 @@ final class MessageBubbleNode: ASDisplayNode {
     func updateReactions(newDisplay: ChatMessageDisplay) {
         self.display = newDisplay
 
-        if newDisplay.reactions.isEmpty {
+        let strip = Self.shouldShowReactionStrip(for: newDisplay)
+        if !strip {
             reactionsNode?.removeFromSupernode()
             reactionsNode = nil
         } else if let existing = reactionsNode {
-            existing.updateReactions(newDisplay.reactions)
+            existing.updateReactions(newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(existing)
         } else {
             let rn = MessageReactionsNode()
-            rn.configure(reactions: newDisplay.reactions)
-            rn.onReactionTapped = { [weak self] reaction in
-                guard let self else { return }
-                self.interaction.onReactionTapped(reaction, self.display)
-            }
+            rn.configure(reactions: newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(rn)
             reactionsNode = rn
             addSubnode(rn)
         }
@@ -336,6 +335,8 @@ final class MessageBubbleNode: ASDisplayNode {
         let oldFailed = self.isFailed
         self.display = newDisplay
         self.isFailed = newDisplay.isFailed
+
+        syncReactionStripWithDisplay(newDisplay)
 
         if oldFailed && !newDisplay.isFailed {
             errorTextNode?.removeFromSupernode()
@@ -369,6 +370,50 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let _ = measureSize(width: cachedTotalSize.width)
         setNeedsLayout()
+    }
+
+    private func syncReactionStripWithDisplay(_ newDisplay: ChatMessageDisplay) {
+        let strip = Self.shouldShowReactionStrip(for: newDisplay)
+        if !strip {
+            reactionsNode?.removeFromSupernode()
+            reactionsNode = nil
+            return
+        }
+        if let existing = reactionsNode {
+            existing.updateReactions(newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(existing)
+        } else {
+            let rn = MessageReactionsNode()
+            rn.configure(reactions: newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(rn)
+            reactionsNode = rn
+            addSubnode(rn)
+        }
+    }
+
+    private func wireReactionNodeCallbacks(_ rn: MessageReactionsNode) {
+        rn.onReactionTapped = { [weak self] reaction in
+            guard let self else { return }
+            interaction.onReactionTapped(reaction, self.display)
+        }
+        rn.onReactionLongPressed = { [weak self] reaction in
+            guard let self else { return }
+            interaction.onReactionDetailRequested(reaction, self.display)
+        }
+        rn.onAddReactionTapped = { [weak self] in
+            guard let self else { return }
+            interaction.onAddReactionTapped(self.display)
+        }
+        rn.onStripBackgroundLongPressed = { [weak self] in
+            self?.handleLongPressOnReactionStripBackground()
+        }
+    }
+
+    private func handleLongPressOnReactionStripBackground() {
+        guard !hasCallLog, !hasLocation else { return }
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        interaction.onMessageLongPressed(display)
     }
 
     private func loadAvatar() {
@@ -427,6 +472,7 @@ final class MessageBubbleNode: ASDisplayNode {
         super.didLoad()
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.25
+        longPress.delegate = self
         view.addGestureRecognizer(longPress)
 
         highlightNode.backgroundColor = UIColor.mezonBorder.withAlphaComponent(0.3)
@@ -454,6 +500,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
+        guard let touch = touches.first, !touchIsOnReactionsStrip(touch) else { return }
         showHighlight(true)
     }
 
@@ -473,6 +520,7 @@ final class MessageBubbleNode: ASDisplayNode {
         switch gesture.state {
         case .began:
             guard !hasCallLog, !hasLocation else { return }
+            if touchIsInsideReactions(gesture) { return }
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             interaction.onMessageLongPressed(display)
@@ -481,6 +529,26 @@ final class MessageBubbleNode: ASDisplayNode {
         default:
             break
         }
+    }
+
+    private func touchIsInsideReactions(_ gesture: UIGestureRecognizer) -> Bool {
+        guard let rn = reactionsNode, rn.isNodeLoaded else { return false }
+        let p = gesture.location(in: rn.view)
+        return rn.view.bounds.contains(p)
+    }
+
+    private func touchIsOnReactionsStrip(_ touch: UITouch) -> Bool {
+        guard let rn = reactionsNode, rn.isNodeLoaded else { return false }
+        let p = touch.location(in: view)
+        let frameInBubble = rn.view.convert(rn.view.bounds, to: view)
+        return frameInBubble.contains(p)
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer.view === view, gestureRecognizer is UILongPressGestureRecognizer, touchIsInsideReactions(gestureRecognizer) {
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
 
     func showHighlight(_ show: Bool) {
@@ -818,4 +886,19 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         return fullFormatter.string(from: date)
     }
+
+    private static func reactionStripAllowed(for display: ChatMessageDisplay) -> Bool {
+        if display.isFailed { return false }
+        if display.isSystemMessage { return false }
+        if display.isCallLog { return false }
+        if display.isTopic { return false }
+        if display.message.isDeleted { return false }
+        return true
+    }
+
+    private static func shouldShowReactionStrip(for display: ChatMessageDisplay) -> Bool {
+        reactionStripAllowed(for: display) && !display.reactions.isEmpty
+    }
 }
+
+extension MessageBubbleNode: UIGestureRecognizerDelegate {}

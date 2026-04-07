@@ -584,6 +584,8 @@ public class DrawingContext {
     public let size: CGSize
     public let scale: CGFloat
     public let scaledSize: CGSize
+    private let pixelWidth: Int
+    private let pixelHeight: Int
     public let bytesPerRow: Int
     private let bitmapInfo: CGBitmapInfo
     public let length: Int
@@ -617,25 +619,46 @@ public class DrawingContext {
     }
 
     public init?(size: CGSize, scale: CGFloat = 0.0, opaque: Bool = false, clear: Bool = false, bytesPerRow: Int? = nil, colorSpace: CGColorSpace? = nil) {
-        if size.width <= 0.0 || size.height <= 0.0 {
+        guard size.width.isFinite, size.height.isFinite,
+            size.width > 0, size.height > 0
+        else {
             return nil
         }
 
         assert(!size.width.isZero && !size.height.isZero)
-        let size: CGSize = CGSize(width: max(1.0, size.width), height: max(1.0, size.height))
+        let maxLogicalSide: CGFloat = 8192
+        let size: CGSize = CGSize(
+            width: min(max(1.0, size.width), maxLogicalSide),
+            height: min(max(1.0, size.height), maxLogicalSide)
+        )
 
         let actualScale: CGFloat
         if scale.isZero {
-            actualScale = deviceScale
+            let s = deviceScale
+            actualScale = (s.isFinite && s > 0) ? s : 1.0
         } else {
             actualScale = scale
         }
+        guard actualScale.isFinite, actualScale > 0 else {
+            return nil
+        }
         self.size = size
         self.scale = actualScale
-        self.scaledSize = CGSize(width: size.width * actualScale, height: size.height * actualScale)
+        let scaled = CGSize(width: size.width * actualScale, height: size.height * actualScale)
+        guard scaled.width.isFinite, scaled.height.isFinite,
+            scaled.width > 0, scaled.height > 0
+        else {
+            return nil
+        }
+        self.scaledSize = scaled
 
-        self.bytesPerRow = bytesPerRow ?? DeviceGraphicsContextSettings.shared.bytesPerRow(forWidth: Int(scaledSize.width))
-        self.length = self.bytesPerRow * Int(scaledSize.height)
+        let pw = max(1, Int(ceil(scaled.width)))
+        let ph = max(1, Int(ceil(scaled.height)))
+        self.pixelWidth = pw
+        self.pixelHeight = ph
+
+        self.bytesPerRow = bytesPerRow ?? DeviceGraphicsContextSettings.shared.bytesPerRow(forWidth: pw)
+        self.length = self.bytesPerRow * ph
 
         self.imageBuffer = ASCGImageBuffer(length: UInt(self.length))
 
@@ -647,8 +670,8 @@ public class DrawingContext {
 
         guard let context = CGContext(
             data: self.imageBuffer.mutableBytes,
-            width: Int(self.scaledSize.width),
-            height: Int(self.scaledSize.height),
+            width: pw,
+            height: ph,
             bitsPerComponent: DeviceGraphicsContextSettings.shared.bitsPerComponent,
             bytesPerRow: self.bytesPerRow,
             space: colorSpace ?? DeviceGraphicsContextSettings.shared.colorSpace,
@@ -678,8 +701,8 @@ public class DrawingContext {
         let dataProvider = self.imageBuffer.createDataProviderAndInvalidate()
 
         if let image = CGImage(
-            width: Int(self.scaledSize.width),
-            height: Int(self.scaledSize.height),
+            width: self.pixelWidth,
+            height: self.pixelHeight,
             bitsPerComponent: self.context.bitsPerComponent,
             bitsPerPixel: self.context.bitsPerPixel,
             bytesPerRow: self.context.bytesPerRow,
@@ -709,7 +732,7 @@ public class DrawingContext {
         options.setObject(ioSurfaceProperties, forKey: kCVPixelBufferIOSurfacePropertiesKey as NSString)
 
         var pixelBuffer: CVPixelBuffer?
-        CVPixelBufferCreateWithBytes(nil, Int(self.scaledSize.width), Int(self.scaledSize.height), kCVPixelFormatType_32BGRA, self.bytes, self.bytesPerRow, { pointer, _ in
+        CVPixelBufferCreateWithBytes(nil, self.pixelWidth, self.pixelHeight, kCVPixelFormatType_32BGRA, self.bytes, self.bytesPerRow, { pointer, _ in
             if let pointer = pointer {
                 Unmanaged<ASCGImageBuffer>.fromOpaque(pointer).release()
             }

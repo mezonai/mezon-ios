@@ -22,7 +22,7 @@ final class AttachmentPreviewView: UIView {
         layout.scrollDirection = .horizontal
         layout.minimumInteritemSpacing = 14.sw
         layout.minimumLineSpacing = 14.sw
-        layout.sectionInset = UIEdgeInsets(top: 10.sh, left: 8.sw, bottom: 10.sh, right: 20.sw)
+        layout.sectionInset = UIEdgeInsets(top: 9.sh, left: 8.sw, bottom: 9.sh, right: 20.sw)
         let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
         cv.translatesAutoresizingMaskIntoConstraints = false
         cv.backgroundColor = .clear
@@ -109,6 +109,22 @@ final class AttachmentPreviewView: UIView {
         !images.isEmpty || !fileItems.isEmpty
     }
 
+    var preferredPreviewHeight: CGFloat {
+        Self.preferredHeight(imageCount: images.count, fileCount: fileItems.count)
+    }
+
+    static func preferredHeight(imageCount: Int, fileCount: Int) -> CGFloat {
+        guard imageCount > 0 || fileCount > 0 else { return 0 }
+        let insetV = 9.sh * 2
+        var maxRow: CGFloat = 0
+        if imageCount > 0 { maxRow = max(maxRow, Self.imageItemRowHeight) }
+        if fileCount > 0 { maxRow = max(maxRow, Self.fileItemRowHeight) }
+        return insetV + maxRow
+    }
+
+    static var imageItemRowHeight: CGFloat { 80.sh }
+    static var fileItemRowHeight: CGFloat { 56.sh }
+
     func setImages(_ newImages: [UIImage]) {
         images = newImages
         videoIndices.removeAll()
@@ -149,11 +165,10 @@ extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDel
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        let thumbH: CGFloat = 80.sh
         if indexPath.item < images.count {
-            return CGSize(width: 70.sw, height: thumbH)
+            return CGSize(width: 70.sw, height: AttachmentPreviewView.imageItemRowHeight)
         } else {
-            return CGSize(width: 120.sw, height: thumbH)
+            return CGSize(width: 220.sw, height: AttachmentPreviewView.fileItemRowHeight)
         }
     }
 }
@@ -272,17 +287,21 @@ private final class AttachmentFileCell: UICollectionViewCell {
 
     private let nameLabel: UILabel = {
         let lbl = UILabel()
-        lbl.font = .systemFont(ofSize: 11, weight: .medium)
-        lbl.numberOfLines = 2
+        lbl.font = .systemFont(ofSize: 12.sf, weight: .medium)
+        lbl.numberOfLines = 1
         lbl.lineBreakMode = .byTruncatingMiddle
         lbl.translatesAutoresizingMaskIntoConstraints = false
+        lbl.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return lbl
     }()
 
     private let sizeLabel: UILabel = {
         let lbl = UILabel()
-        lbl.font = .systemFont(ofSize: 10)
+        lbl.font = .systemFont(ofSize: 10.sf, weight: .regular)
+        lbl.numberOfLines = 1
         lbl.translatesAutoresizingMaskIntoConstraints = false
+        lbl.setContentCompressionResistancePriority(.required, for: .horizontal)
+        lbl.setContentHuggingPriority(.required, for: .horizontal)
         return lbl
     }()
 
@@ -320,17 +339,17 @@ private final class AttachmentFileCell: UICollectionViewCell {
             containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: closeSize / 2),
 
-            iconImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
+            iconImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 6),
             iconImageView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: 26),
-            iconImageView.heightAnchor.constraint(equalToConstant: 26),
+            iconImageView.widthAnchor.constraint(equalToConstant: 24),
+            iconImageView.heightAnchor.constraint(equalToConstant: 24),
 
             nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
-            nameLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -6),
-            nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8),
+            nameLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: sizeLabel.leadingAnchor, constant: -6),
 
-            sizeLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            sizeLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
+            sizeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -6),
+            sizeLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
 
             closeButton.widthAnchor.constraint(equalToConstant: closeSize),
             closeButton.heightAnchor.constraint(equalToConstant: closeSize),
@@ -342,7 +361,7 @@ private final class AttachmentFileCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(file: PickedFileInfo) {
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         iconImageView.image = UIImage(systemName: Self.iconName(for: file.filename), withConfiguration: iconConfig)
         nameLabel.text = file.filename
         nameLabel.textColor = UIColor.theme.text

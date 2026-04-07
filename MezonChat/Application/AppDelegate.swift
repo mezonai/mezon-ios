@@ -345,9 +345,10 @@ extension AppDelegate: MessagingDelegate {
             guard let context = self.accountContext else { return }
             guard let token = await context.getToken() else { return }
             let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+            let voipToken = CallKitManager.shared.voipToken ?? ""
             do {
                 _ = try await context.account.network.registFcmDeviceToken(
-                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: token
+                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: token
                 )
                 AppLogger.network.info("[FCM] Token registered with server")
             } catch {

@@ -5,6 +5,23 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     static let sheetTransitionDuration: CFTimeInterval = 0.22
 
+    static let contentSizedDetentIdentifier = UISheetPresentationController.Detent.Identifier("mezon.joinVoice.content")
+
+    static func preferredSheetHeight(safeAreaBottomInset: CGFloat) -> CGFloat {
+        let grabberBlock: CGFloat = 8 + 5 + 12
+        let header: CGFloat = 72
+        let gapAfterHeader: CGFloat = 20
+        let iconCircle: CGFloat = 20 + 36 + 20
+        let stackSpacing: CGFloat = 6 + 6
+        let voiceTitleLine: CGFloat = 26
+        let statusLines: CGFloat = 48
+        let centerBlock = iconCircle + stackSpacing + voiceTitleLine + statusLines
+        let contentBottomPad: CGFloat = 8
+        let footerGap: CGFloat = 12
+        let footerRow: CGFloat = 50 + 10
+        return grabberBlock + header + gapAfterHeader + centerBlock + contentBottomPad + footerGap + footerRow + safeAreaBottomInset
+    }
+
     private let channelTitle: String
     private let chatUnreadCount: Int
     private let onChat: () -> Void
