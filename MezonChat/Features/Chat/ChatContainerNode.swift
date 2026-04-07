@@ -4,6 +4,7 @@ import UIKit
 
 struct ChatInteraction {
     let onBackTapped: () -> Void
+    let onHeaderTapped: () -> Void
     let onSearchTapped: () -> Void
     let onHistoryTapped: () -> Void
     let onMenuTapped: () -> Void
@@ -74,6 +75,7 @@ final class ChatContainerNode: ASDisplayNode {
 
         super.init()
         headerNode.onBackTapped = { interaction.onBackTapped() }
+        headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
         addSubnode(headerNode)
         addSubnode(listView)

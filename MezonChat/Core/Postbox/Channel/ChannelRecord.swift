@@ -24,24 +24,26 @@ struct ChannelRecord: PostboxCoding, Equatable {
     let protoData: Data?
 
     init(proto: Mezon_Api_ChannelDescription) {
-        self.id           = proto.channelID
-        self.clanId       = proto.clanID
-        self.label        = proto.channelLabel
-        self.type         = Int32(proto.type)
-        self.categoryId   = proto.categoryID
+        self.id = proto.channelID
+        self.clanId = proto.clanID
+        self.label = proto.channelLabel
+        self.type = Int32(proto.type)
+        self.categoryId = proto.categoryID
         self.categoryName = proto.categoryName
-        self.parentId     = proto.parentID
-        self.topic        = proto.topic
-        self.position     = 0
-        self.permissions  = []
-        self.members      = []
-        self.isBanned     = false
+        self.parentId = proto.parentID
+        self.topic = proto.topic
+        self.position = 0
+        self.permissions = []
+        self.members = []
+        self.isBanned = false
         self.expiredBanTime = 0
-        self.protoData    = try? proto.serializedData()
+        self.protoData = try? proto.serializedData()
     }
 
     func toProto() -> Mezon_Api_ChannelDescription {
-        if let data = protoData, let proto = try? Mezon_Api_ChannelDescription(serializedBytes: data) {
+        if let data = protoData,
+            let proto = try? Mezon_Api_ChannelDescription(serializedBytes: data)
+        {
             var updated = proto
             updated.channelLabel = self.label
             updated.topic = self.topic
@@ -64,7 +66,9 @@ struct ChannelRecord: PostboxCoding, Equatable {
         let newTopic = topic ?? self.topic
 
         var updatedProtoData = self.protoData
-        if let data = self.protoData, var proto = try? Mezon_Api_ChannelDescription(serializedBytes: data) {
+        if let data = self.protoData,
+            var proto = try? Mezon_Api_ChannelDescription(serializedBytes: data)
+        {
             proto.channelLabel = newLabel
             proto.topic = newTopic
             updatedProtoData = try? proto.serializedData()
@@ -99,7 +103,6 @@ struct ChannelRecord: PostboxCoding, Equatable {
         if proto.parentID != 0 { updatedParentId = proto.parentID }
         if proto.type != 0 { updatedType = Int32(proto.type) }
 
-
         var updatedProto = self.toProto()
         if !proto.channelLabel.isEmpty { updatedProto.channelLabel = proto.channelLabel }
         if !proto.topic.isEmpty { updatedProto.topic = proto.topic }
@@ -125,12 +128,16 @@ struct ChannelRecord: PostboxCoding, Equatable {
     var isTopLevel: Bool { parentId == 0 }
 
     static func empty(channelId: Int64) -> ChannelRecord {
-        ChannelRecord(id: channelId, clanId: 0, label: "", type: 0,
-                      categoryId: 0, categoryName: "", parentId: 0, topic: "", position: 0, protoData: nil)
+        ChannelRecord(
+            id: channelId, clanId: 0, label: "", type: 0,
+            categoryId: 0, categoryName: "", parentId: 0, topic: "", position: 0, protoData: nil)
     }
 
-    init(id: Int64, clanId: Int64, label: String, type: Int32,
-         categoryId: Int64, categoryName: String, parentId: Int64, topic: String, position: Int32, protoData: Data?) {
+    init(
+        id: Int64, clanId: Int64, label: String, type: Int32,
+        categoryId: Int64, categoryName: String, parentId: Int64, topic: String, position: Int32,
+        protoData: Data?
+    ) {
         self.id = id
         self.clanId = clanId
         self.label = label
@@ -172,41 +179,5 @@ struct PermissionRecord: PostboxCoding, Equatable {
         self.active = active
         self.scope = scope
         self.level = level
-    }
-}
-
-struct ChannelMemberRecord: PostboxCoding, Equatable {
-    let id: Int64
-    let userId: Int64
-    let roleIds: [Int64]
-    let threadId: Int64
-    let clanNick: String
-    let clanAvatar: String
-    let clanId: Int64
-    let isBanned: Bool
-    let expiredBanTime: Int32
-
-    init(from proto: Mezon_Api_ChannelUserList.ChannelUser) {
-        self.id = proto.id
-        self.userId = proto.userID
-        self.roleIds = proto.roleID
-        self.threadId = proto.threadID
-        self.clanNick = proto.clanNick
-        self.clanAvatar = proto.clanAvatar
-        self.clanId = proto.clanID
-        self.isBanned = proto.isBanned
-        self.expiredBanTime = proto.expiredBanTime
-    }
-
-    init(id: Int64, userId: Int64, roleIds: [Int64], threadId: Int64, clanNick: String, clanAvatar: String, clanId: Int64, isBanned: Bool, expiredBanTime: Int32) {
-        self.id = id
-        self.userId = userId
-        self.roleIds = roleIds
-        self.threadId = threadId
-        self.clanNick = clanNick
-        self.clanAvatar = clanAvatar
-        self.clanId = clanId
-        self.isBanned = isBanned
-        self.expiredBanTime = expiredBanTime
     }
 }

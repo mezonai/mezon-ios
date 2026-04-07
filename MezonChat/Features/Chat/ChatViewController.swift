@@ -362,6 +362,9 @@ final class ChatViewController: ViewController {
     override func loadDisplayNode() {
         var interaction = ChatInteraction(
             onBackTapped: { [weak self] in self?.navigationController?.popViewController(animated: true) },
+            onHeaderTapped: { [weak self] in
+                self?.openChannelDetail()
+            },
             onSearchTapped: { [weak self] in
                 guard let self else { return }
                 let isPrivateOrThread = self.channel.channelPrivate != 0 || self.channel.parentID != 0
@@ -2148,6 +2151,15 @@ final class ChatViewController: ViewController {
         navigationController?.pushViewController(topicVC, animated: true)
     }
 
+    private func openChannelDetail() {
+        let vc = ChannelDetailViewController(
+            context: self.context,
+            clanId: self.clanId,
+            channel: self.channel
+        )
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+
     private func showMemberProfile(_ display: ChatMessageDisplay) {
         let senderId = display.message.senderId
         guard senderId != context.currentUser?.id else { return }
@@ -2353,7 +2365,9 @@ final class ChatViewController: ViewController {
         case .editMessage:
             break
         case .report:
-            break
+            break // TODO: implement report
+        case .editMessage:
+            break // TODO: implement edit
         }
     }
 
