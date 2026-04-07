@@ -4,6 +4,7 @@ import UIKit
 final class ChatHeaderNode: ASDisplayNode {
 
     private let backButtonNode = ASButtonNode()
+    private let titleContainerNode = ASControlNode()
     private let channelIconNode = ASImageNode()
     private let titleNode = ASTextNode2()
     private let subtitleNode = ASTextNode2()
@@ -11,6 +12,7 @@ final class ChatHeaderNode: ASDisplayNode {
     private let separatorNode = ASDisplayNode()
 
     var onBackTapped: (() -> Void)?
+    var onHeaderTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
 
     override init() {
@@ -22,6 +24,9 @@ final class ChatHeaderNode: ASDisplayNode {
             for: .normal
         )
         backButtonNode.addTarget(self, action: #selector(backPressed), forControlEvents: .touchUpInside)
+
+        titleContainerNode.automaticallyManagesSubnodes = true
+        titleContainerNode.addTarget(self, action: #selector(headerPressed), forControlEvents: .touchUpInside)
 
         searchButtonNode.setImage(
             UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate),
@@ -36,6 +41,10 @@ final class ChatHeaderNode: ASDisplayNode {
 
         subtitleNode.maximumNumberOfLines = 1
         subtitleNode.truncationMode = .byTruncatingTail
+
+        titleContainerNode.addSubnode(channelIconNode)
+        titleContainerNode.addSubnode(titleNode)
+        titleContainerNode.addSubnode(subtitleNode)
     }
 
     func configure(
@@ -127,6 +136,10 @@ final class ChatHeaderNode: ASDisplayNode {
         onBackTapped?()
     }
 
+    @objc private func headerPressed() {
+        onHeaderTapped?()
+    }
+
     @objc private func searchPressed() {
         onSearchTapped?()
     }
@@ -148,12 +161,20 @@ final class ChatHeaderNode: ASDisplayNode {
         titleStack.style.flexShrink = 1
         titleStack.style.flexGrow = 1
 
-        var rowChildren: [ASLayoutElement] = [backButtonNode]
-        if !channelIconNode.isHidden {
-            rowChildren.append(channelIconNode)
+        let titleRow = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 8.sw,
+            justifyContent: .start,
+            alignItems: .center,
+            children: channelIconNode.isHidden ? [titleStack] : [channelIconNode, titleStack]
+        )
+        titleContainerNode.layoutSpecBlock = { _, _ in
+            return titleRow
         }
-        rowChildren.append(contentsOf: [titleStack, searchButtonNode])
+        titleContainerNode.style.flexShrink = 1
+        titleContainerNode.style.flexGrow = 1
 
+        let rowChildren: [ASLayoutElement] = [backButtonNode, titleContainerNode, searchButtonNode]
         let row = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 8.sw,

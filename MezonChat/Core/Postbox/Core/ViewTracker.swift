@@ -9,6 +9,8 @@ final class ViewTracker {
     private var notificationSettingViews = Bag<(MutableNotificationSettingView, ValuePipe<NotificationSettingView>)>()
     private var notificationListViews = Bag<(MutableNotificationListView, ValuePipe<NotificationListView>)>()
     private var topicListViews        = Bag<(MutableTopicListView,        ValuePipe<TopicListView>)>()
+    private var clanMemberViews       = Bag<(MutableClanMemberView,       ValuePipe<ClanMemberView>)>()
+    private var profileViews          = Bag<(MutableProfileView,          ValuePipe<ProfileView>)>()
 
     func addChannelListView(
         clanId: Int64,
@@ -24,6 +26,7 @@ final class ViewTracker {
         channelListViews.remove(index)
     }
 
+
     func addClanListView(
         initial: [ClanRecord]
     ) -> (Bag<(MutableClanListView, ValuePipe<ClanListView>)>.Index, Signal<ClanListView, NoError>) {
@@ -35,6 +38,20 @@ final class ViewTracker {
 
     func removeClanListView(index: Bag<(MutableClanListView, ValuePipe<ClanListView>)>.Index) {
         clanListViews.remove(index)
+    }
+
+    func addClanMemberView(
+        clanId: Int64,
+        initial: [ClanMemberRecord]
+    ) -> (Bag<(MutableClanMemberView, ValuePipe<ClanMemberView>)>.Index, Signal<ClanMemberView, NoError>) {
+        let mutableView = MutableClanMemberView(clanId: clanId, members: initial)
+        let pipe        = ValuePipe<ClanMemberView>()
+        let index       = clanMemberViews.add((mutableView, pipe))
+        return (index, pipe.signal())
+    }
+
+    func removeClanMemberView(index: Bag<(MutableClanMemberView, ValuePipe<ClanMemberView>)>.Index) {
+        clanMemberViews.remove(index)
     }
 
     func addMessageHistoryView(
@@ -77,6 +94,20 @@ final class ViewTracker {
 
     func removeNotificationSettingView(index: Bag<(MutableNotificationSettingView, ValuePipe<NotificationSettingView>)>.Index) {
         notificationSettingViews.remove(index)
+    }
+
+    func addProfileView(
+        userId: String,
+        initial: ProfileRecord?
+    ) -> (Bag<(MutableProfileView, ValuePipe<ProfileView>)>.Index, Signal<ProfileView, NoError>) {
+        let mutableView = MutableProfileView(userId: userId, record: initial)
+        let pipe        = ValuePipe<ProfileView>()
+        let index       = profileViews.add((mutableView, pipe))
+        return (index, pipe.signal())
+    }
+
+    func removeProfileView(index: Bag<(MutableProfileView, ValuePipe<ProfileView>)>.Index) {
+        profileViews.remove(index)
     }
     func addNotificationListView(
         clanId: Int64,
@@ -149,6 +180,19 @@ final class ViewTracker {
         for (_, (view, pipe)) in topicListViews.copyItemsWithIndices() {
             if view.replay(transaction: transaction) {
                 pipe.putNext(view.immutableView())
+            }
+        }
+
+
+        for (_, (view, pipe)) in clanMemberViews.copyItemsWithIndices() {
+            if view.replay(transaction: transaction) {
+                pipe.putNext(view.immutableView() as! ClanMemberView)
+            }
+        }
+
+        for (_, (view, pipe)) in profileViews.copyItemsWithIndices() {
+            if view.replay(transaction: transaction) {
+                pipe.putNext(view.immutableView() as! ProfileView)
             }
         }
     }

@@ -302,8 +302,8 @@ final class DmListItemCell: UITableViewCell {
         }
 
         let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return (Self.previewLayoutPlaceholder, time)
+        if trimmed.isEmpty || (msg.senderID != 0 && trimmed == senderPrefix.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return (Self.previewWhenNoMessageBody(senderPrefix: senderPrefix, isGroup: isGroup), time)
         }
         return (preview, time)
     }
@@ -313,7 +313,10 @@ final class DmListItemCell: UITableViewCell {
             return senderPrefix + L(L10n.DirectMessage.groupCreated)
         }
         let p = senderPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
-        return p.isEmpty ? previewLayoutPlaceholder : p
+        if p.isEmpty {
+            return "[\(L(L10n.DirectMessage.previewFile))]"
+        }
+        return p + " [\(L(L10n.DirectMessage.previewFile))]"
     }
 
 

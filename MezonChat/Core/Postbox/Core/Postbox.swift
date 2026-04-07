@@ -22,6 +22,7 @@ final class Postbox {
     let notificationSettingTable: NotificationSettingTable
     let notificationTable: NotificationTable
     let topicTable: TopicTable
+    let clanMemberTable: ClanMemberTable
 
     private let viewTracker = ViewTracker()
 
@@ -55,6 +56,7 @@ final class Postbox {
         notificationSettingTable = NotificationSettingTable(db: clansDb)
         notificationTable = NotificationTable(db: notificationsDb)
         topicTable = TopicTable(db: notificationsDb)
+        clanMemberTable = ClanMemberTable(db: clansDb)
     }
 
     func write(_ block: @escaping (PostboxTransaction) -> Void) {
@@ -69,11 +71,13 @@ final class Postbox {
                 settingsTable: settingsTable,
                 notificationSettingTable: notificationSettingTable,
                 notificationTable: notificationTable,
-                topicTable: topicTable
+                topicTable: topicTable,
+                clanMemberTable: clanMemberTable
             )
             block(tx)
             channelTable.beforeCommit()
             clanTable.beforeCommit()
+            clanMemberTable.beforeCommit()
             messageTable.beforeCommit()
             authTable.beforeCommit()
             profileTable.beforeCommit()
@@ -97,7 +101,8 @@ final class Postbox {
                 settingsTable: settingsTable,
                 notificationSettingTable: notificationSettingTable,
                 notificationTable: notificationTable,
-                topicTable: topicTable
+                topicTable: topicTable,
+                clanMemberTable: clanMemberTable
             )
             result = block(tx)
         }
@@ -148,6 +153,27 @@ final class Postbox {
         }
     }
 
+    func profileView(userId: String) -> Signal<ProfileView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableProfileView, ValuePipe<ProfileView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.profileTable.getProfile(userId: userId)
+                subscriber.putNext(ProfileView(userId: userId, record: initial))
+                let (index, signal) = self.viewTracker.addProfileView(userId: userId, initial: initial)
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeProfileView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
     func messageHistoryView(channelId: String) -> Signal<MessageHistoryView, NoError> {
         return Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
@@ -188,6 +214,30 @@ final class Postbox {
             return ActionDisposable { [weak self] in
                 self?.queue.async {
                     if let idx = viewIndex { self?.viewTracker.removeChannelMetaView(index: idx) }
+                    innerDisposable?.dispose()
+                }
+            }
+        }
+    }
+
+
+    func clanMemberView(clanId: Int64) -> Signal<ClanMemberView, NoError> {
+        return Signal { [weak self] subscriber in
+            guard let self else { return EmptyDisposable }
+            var viewIndex: Bag<(MutableClanMemberView, ValuePipe<ClanMemberView>)>.Index?
+            var innerDisposable: Disposable?
+            self.queue.sync {
+                let initial = self.clanMemberTable.getMembers(clanId: clanId)
+                subscriber.putNext(ClanMemberView(clanId: clanId, members: initial))
+                let (index, signal) = self.viewTracker.addClanMemberView(
+                    clanId: clanId, initial: initial
+                )
+                viewIndex = index
+                innerDisposable = signal.start(next: { subscriber.putNext($0) })
+            }
+            return ActionDisposable { [weak self] in
+                self?.queue.async {
+                    if let idx = viewIndex { self?.viewTracker.removeClanMemberView(index: idx) }
                     innerDisposable?.dispose()
                 }
             }
