@@ -11,8 +11,21 @@ schemes:
       config: Release
     archive:
       config: Release
+  MezonSharing:
+    build:
+      targets:
+        MezonSharing: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
 
 packages:
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    from: "2.12.1"
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf
     from: "1.28.0"
@@ -50,9 +63,12 @@ targets:
         com.apple.BackgroundModes:
           enabled: 1
     dependencies:
+      - package: LiveKit
+        product: LiveKit
       - package: SwiftProtobuf
         product: SwiftProtobuf
       - target: NotificationService
+      - target: MezonSharing
     sources:
       - path: MezonChat
         excludes:
@@ -61,8 +77,15 @@ targets:
     resources:
       - path: MezonChat/Resources/Assets.xcassets
       - path: MezonChat/Resources/Images.xcassets
+    postBuildScripts:
+      - name: Generate LiveKitWebRTC dSYM
+        script: |
+          /bin/sh "${SRCROOT}/Scripts/generate_livekit_webrtc_dsym.sh"
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
     settings:
       base:
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
         MARKETING_VERSION: "1.2.92"
@@ -98,6 +121,10 @@ targets:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).AppDelegate
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - "mezon.mobile.sharing"
+            CFBundleURLName: "mezon.mobile.sharing"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UISupportedInterfaceOrientations~ipad:
@@ -141,3 +168,37 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+
+  MezonSharing:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: MezonSharing
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
+        PRODUCT_NAME: MezonSharing
+        MARKETING_VERSION: "1.2.92"
+        CURRENT_PROJECT_VERSION: "1"
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: MezonSharing/MezonSharing.entitlements
+        SWIFT_OBJC_BRIDGING_HEADER: "MezonSharing/MezonSharing-Bridging-Header.h"
+    info:
+      path: MezonSharing/Info.plist
+      properties:
+        CFBundleDisplayName: Mezon
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 100
+              NSExtensionActivationSupportsImageWithMaxCount: 100
+              NSExtensionActivationSupportsMovieWithMaxCount: 100
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+            PHSupportedMediaTypes:
+              - Video
+              - Image
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController

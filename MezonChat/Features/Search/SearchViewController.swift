@@ -100,8 +100,17 @@ final class SearchViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        let hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
-        displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped)
+        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
+        let isDM = clanId == 0
+        if isDM {
+            hiddenTabs.insert(.members)
+            hiddenTabs.insert(.channels)
+        }
+        displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped && !isDM)
+        if isDM {
+            searchNode.tabBar.isHidden = true
+            switchTab(.messages)
+        }
         searchNode.searchBar.textField.delegate = self
         searchNode.tabBar.onTabSelected = { [weak self] tab in
             self?.switchTab(tab)
@@ -868,10 +877,12 @@ final class SearchInputNode: ASDisplayNode {
         label.textColor = .white
         label.backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 1)
         label.textAlignment = .center
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         label.layer.cornerRadius = 10
         label.clipsToBounds = true
-        let size = label.sizeThatFits(CGSize(width: 200, height: 20))
-        badgeWidth = size.width + 16
+        let textSize = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20))
+        badgeWidth = textSize.width + 16
         badgeLabel = label
         if isNodeLoaded { view.addSubview(label) }
         setNeedsLayout()
@@ -885,10 +896,12 @@ final class SearchInputNode: ASDisplayNode {
         label.textColor = .white
         label.backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 1)
         label.textAlignment = .center
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
         label.layer.cornerRadius = 10
         label.clipsToBounds = true
-        let size = label.sizeThatFits(CGSize(width: 200, height: 20))
-        badgeWidth = size.width + 16
+        let textSize = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20))
+        badgeWidth = textSize.width + 16
         badgeLabel = label
         if isNodeLoaded { view.addSubview(label) }
         setNeedsLayout()
@@ -930,8 +943,16 @@ final class SearchInputNode: ASDisplayNode {
         if let badge = badgeLabel {
             let badgeH: CGFloat = 20
             let badgeX: CGFloat = 36
-            badge.frame = CGRect(x: badgeX, y: (h - badgeH) / 2, width: badgeWidth, height: badgeH)
-            textField.frame = CGRect(x: badgeX + badgeWidth + 6, y: 0, width: bounds.width - badgeX - badgeWidth - 6 - rightPad, height: h)
+            let minTextFieldWidth: CGFloat = 48
+            let inner = bounds.width - badgeX - rightPad
+            let maxQuarter = bounds.width * 0.25
+            let maxBySpace = max(0, inner - 6 - minTextFieldWidth)
+            let maxBadgeW = min(maxQuarter, maxBySpace)
+            let badgeW = min(badgeWidth, maxBadgeW)
+            badge.frame = CGRect(x: badgeX, y: (h - badgeH) / 2, width: badgeW, height: badgeH)
+            textField.frame = CGRect(
+                x: badgeX + badgeW + 6, y: 0,
+                width: bounds.width - badgeX - badgeW - 6 - rightPad, height: h)
         } else {
             textField.frame = CGRect(x: 36, y: 0, width: bounds.width - 36 - rightPad, height: h)
         }

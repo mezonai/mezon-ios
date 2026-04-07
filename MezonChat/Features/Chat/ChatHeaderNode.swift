@@ -4,14 +4,20 @@ import UIKit
 final class ChatHeaderNode: ASDisplayNode {
 
     private let backButtonNode = ASButtonNode()
+    private let titleContainerNode = ASControlNode()
     private let channelIconNode = ASImageNode()
     private let titleNode = ASTextNode2()
     private let subtitleNode = ASTextNode2()
+    private let callButtonNode = ASButtonNode()
     private let searchButtonNode = ASButtonNode()
     private let separatorNode = ASDisplayNode()
 
+    private var isDM = false
+
     var onBackTapped: (() -> Void)?
+    var onHeaderTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
+    var onCallTapped: (() -> Void)?
 
     override init() {
         super.init()
@@ -22,6 +28,15 @@ final class ChatHeaderNode: ASDisplayNode {
             for: .normal
         )
         backButtonNode.addTarget(self, action: #selector(backPressed), forControlEvents: .touchUpInside)
+
+        titleContainerNode.automaticallyManagesSubnodes = true
+        titleContainerNode.addTarget(self, action: #selector(headerPressed), forControlEvents: .touchUpInside)
+        callButtonNode.setImage(
+            UIImage(systemName: "phone.fill")?.withRenderingMode(.alwaysTemplate),
+            for: .normal
+        )
+        callButtonNode.addTarget(self, action: #selector(callPressed), forControlEvents: .touchUpInside)
+        callButtonNode.isHidden = true
 
         searchButtonNode.setImage(
             UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate),
@@ -36,11 +51,15 @@ final class ChatHeaderNode: ASDisplayNode {
 
         subtitleNode.maximumNumberOfLines = 1
         subtitleNode.truncationMode = .byTruncatingTail
+
+        titleContainerNode.addSubnode(channelIconNode)
+        titleContainerNode.addSubnode(titleNode)
+        titleContainerNode.addSubnode(subtitleNode)
     }
 
     func configure(
         title: String, subtitle: String? = nil, channelType: Int32, isPrivate: Bool,
-        isAgeRestricted: Bool
+        isAgeRestricted: Bool, isDM: Bool = false
     ) {
         let t = UIColor.theme
 
@@ -84,9 +103,18 @@ final class ChatHeaderNode: ASDisplayNode {
             else { iconName = "Channel/channel" }
         default: iconName = "Channel/channel"
         }
-        let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
-        channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
-        channelIconNode.tintColor = t.textStrong
+
+        if isDM {
+            channelIconNode.isHidden = true
+            callButtonNode.isHidden = false
+        } else {
+            channelIconNode.isHidden = false
+            callButtonNode.isHidden = true
+            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
+            channelIconNode.tintColor = t.textStrong
+        }
+        self.isDM = isDM
 
         self.setNeedsLayout()
     }
@@ -94,6 +122,7 @@ final class ChatHeaderNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         backButtonNode.tintColor = t.textStrong
+        callButtonNode.tintColor = t.textStrong
         searchButtonNode.tintColor = t.textStrong
         channelIconNode.tintColor = t.textStrong
         separatorNode.backgroundColor = t.border
@@ -121,13 +150,22 @@ final class ChatHeaderNode: ASDisplayNode {
         onBackTapped?()
     }
 
+    @objc private func headerPressed() {
+        onHeaderTapped?()
+    }
+
     @objc private func searchPressed() {
         onSearchTapped?()
+    }
+
+    @objc private func callPressed() {
+        onCallTapped?()
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         backButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         channelIconNode.style.preferredSize = CGSize(width: 16.swh, height: 16.swh)
+        callButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         searchButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         titleNode.style.flexShrink = 1
         subtitleNode.style.flexShrink = 1
@@ -142,12 +180,31 @@ final class ChatHeaderNode: ASDisplayNode {
         titleStack.style.flexShrink = 1
         titleStack.style.flexGrow = 1
 
+        let titleRow = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 8.sw,
+            justifyContent: .start,
+            alignItems: .center,
+            children: channelIconNode.isHidden ? [titleStack] : [channelIconNode, titleStack]
+        )
+        titleContainerNode.layoutSpecBlock = { _, _ in
+            return titleRow
+        }
+        titleContainerNode.style.flexShrink = 1
+        titleContainerNode.style.flexGrow = 1
+
+        var rowChildren: [ASLayoutElement] = [backButtonNode, titleContainerNode]
+        if isDM && !callButtonNode.isHidden {
+            rowChildren.append(callButtonNode)
+        }
+        rowChildren.append(searchButtonNode)
+
         let row = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 8.sw,
             justifyContent: .start,
             alignItems: .center,
-            children: [backButtonNode, channelIconNode, titleStack, searchButtonNode]
+            children: rowChildren
         )
 
         let insets = UIEdgeInsets(top: 0, left: 12.sw, bottom: 0, right: 4.sw)

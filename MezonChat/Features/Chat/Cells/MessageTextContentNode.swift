@@ -16,6 +16,7 @@ final class MessageTextContentNode: ASDisplayNode {
     private var currentParsedContent: ParsedContent?
     private var currentAttrText: NSAttributedString?
     private var hasEmoji = false
+    private var buzzStyled = false
 
     private var cachedTextSize: CGSize = .zero
 
@@ -32,8 +33,9 @@ final class MessageTextContentNode: ASDisplayNode {
         view.addGestureRecognizer(tap)
     }
 
-    func configure(parsedContent: ParsedContent) {
+    func configure(parsedContent: ParsedContent, buzzStyled: Bool = false) {
         currentParsedContent = parsedContent
+        self.buzzStyled = buzzStyled
 
         let hasCodeBlock = parsedContent.tokens.contains {
             if case .codeBlock = $0.kind { return true }
@@ -55,7 +57,7 @@ final class MessageTextContentNode: ASDisplayNode {
 
         if hasCodeBlock {
             useSegments = true
-            let segments = RichTextBuilder.buildSegments(from: parsedContent)
+            let segments = RichTextBuilder.buildSegments(from: parsedContent, buzzStyled: buzzStyled)
             for segment in segments {
                 switch segment {
                 case .text(let attrText):
@@ -79,7 +81,7 @@ final class MessageTextContentNode: ASDisplayNode {
         useSegments = false
 
 
-        let attrText = RichTextBuilder.build(from: parsedContent)
+        let attrText = RichTextBuilder.build(from: parsedContent, buzzStyled: buzzStyled)
         currentAttrText = attrText
 
         if containsEmoji {
@@ -173,23 +175,6 @@ final class MessageTextContentNode: ASDisplayNode {
         layoutManager.ensureLayout(for: textContainer)
         let rect = layoutManager.usedRect(for: textContainer)
         return CGSize(width: min(ceil(rect.width), maxWidth), height: ceil(rect.height))
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesBegan(touches, with: event)
-        (supernode as? MessageBubbleNode)?.showHighlight(true)
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesEnded(touches, with: event)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            (self?.supernode as? MessageBubbleNode)?.showHighlight(false)
-        }
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>?, with event: UIEvent?) {
-        super.touchesCancelled(touches, with: event)
-        (supernode as? MessageBubbleNode)?.showHighlight(false)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {

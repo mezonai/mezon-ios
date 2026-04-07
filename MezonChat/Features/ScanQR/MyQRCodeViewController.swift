@@ -27,6 +27,25 @@ final class MyQRCodeViewController: ViewController {
         myQRCodeNode.onBackTapped = { [weak self] in
             self?.navigationController?.popViewController(animated: true)
         }
+        
+        myQRCodeNode.onDownloadTapped = { [weak self] image in
+            guard let self = self else { return }
+            UIImageWriteToSavedPhotosAlbum(image, self, #selector(self.image(_:didFinishSavingWithError:contextInfo:)), nil)
+        }
+        
+        myQRCodeNode.onShareTapped = { [weak self] image in
+            guard let self = self else { return }
+            let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+            self.present(activityVC, animated: true)
+        }
+    }
+
+    @objc private func image(_ image: UIImage, didFinishSavingWithError error: Error?, contextInfo: UnsafeRawPointer) {
+        if let error = error {
+            Toast.error(error.localizedDescription)
+        } else {
+            Toast.success("Success")
+        }
     }
 
     override func viewDidLoad() {

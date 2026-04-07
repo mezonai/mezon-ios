@@ -174,6 +174,19 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
+    func sendVoiceParticipantMeetState(clanId: Int64, channelId: Int64, roomName: String, displayName: String, join: Bool) {
+        var ev = Mezon_Realtime_HandleParticipantMeetStateEvent()
+        ev.clanID = clanId
+        ev.channelID = channelId
+        ev.displayName = displayName
+        ev.roomName = roomName
+        ev.state = join ? 0 : 1
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.handleParticipantMeetStateEvent = ev
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] voice meet state clan=\(clanId) channel=\(channelId) join=\(join)")
+    }
+
     func sendMessageTyping(
         clanId: Int64,
         channelId: Int64,
@@ -451,6 +464,47 @@ final class MezonSocket: NSObject {
         }
         connect(token: token, wsHostOverride: wsHostOverride)
         onReconnect?()
+    }
+
+    // MARK: - WebRTC Signaling
+
+    /// Forward a WebRTC signaling message to a remote peer (SDP offer/answer, ICE candidate, quit, etc.)
+    func forwardWebrtcSignaling(
+        receiverId: Int64,
+        dataType: WebRTCSignalingType,
+        jsonData: String,
+        channelId: Int64,
+        callerId: Int64
+    ) {
+        var fwd = Mezon_Realtime_WebrtcSignalingFwd()
+        fwd.receiverID = receiverId
+        fwd.dataType = dataType.rawValue
+        fwd.jsonData = jsonData
+        fwd.channelID = channelId
+        fwd.callerID = callerId
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.webrtcSignalingFwd = fwd
+        send(envelope)
+        let signalingTypeCode = Int(dataType.rawValue)
+        AppLogger.app.info("[MezonSocket] forwardWebrtcSignaling type=\(signalingTypeCode) to=\(receiverId)")
+    }
+
+    /// Send VoIP push to receiver to trigger incoming call (CallKit on iOS)
+    func makeCallPush(
+        receiverId: Int64,
+        jsonData: String,
+        channelId: Int64,
+        callerId: Int64
+    ) {
+        var push = Mezon_Realtime_IncomingCallPush()
+        push.receiverID = receiverId
+        push.jsonData = jsonData
+        push.channelID = channelId
+        push.callerID = callerId
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.incomingCallPush = push
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] makeCallPush to=\(receiverId)")
     }
 
     func fetchListChannelBadgeCount(clanId: Int64) async throws -> [Mezon_Api_ChannelDescription] {

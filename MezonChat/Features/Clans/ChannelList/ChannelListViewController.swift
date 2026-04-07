@@ -1,4 +1,5 @@
 import UIKit
+import QuartzCore
 import SwiftProtobuf
 
 struct ChannelListState: Equatable {
@@ -292,6 +293,7 @@ final class ChannelListViewController: ViewController {
         dataDisposable.dispose()
         NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.removeObserver(self, name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonVoicePresenceChanged, object: nil)
     }
 
     private let categoriesPipe = ValuePipe<[ChannelCategory]>()
@@ -325,6 +327,20 @@ final class ChannelListViewController: ViewController {
 
     private var channelListNode: ChannelListContainerNode { displayNode as! ChannelListContainerNode }
 
+    private var enclosingNavigationController: NavigationController? {
+        var current: UIViewController? = self
+        while let node = current {
+            if let nav = node as? NavigationController {
+                return nav
+            }
+            if let nav = node.navigationController as? NavigationController {
+                return nav
+            }
+            current = node.parent
+        }
+        return nil
+    }
+
     init(context: AccountContext) {
         self.context = context
         super.init(navigationBarPresentationData: nil)
@@ -334,7 +350,7 @@ final class ChannelListViewController: ViewController {
 
     override func loadDisplayNode() {
         let interaction = ChannelListInteraction(
-            onSelectChannel: { [weak self] ch in self?.select(channel: ch) },
+            onSelectChannel: { [weak self] ch in self?.handleChannelTap(ch) },
             onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
@@ -343,7 +359,7 @@ final class ChannelListViewController: ViewController {
             onQRTapped: { [weak self] in
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
-                self.navigationController?.pushViewController(vc, animated: true)
+                self.enclosingNavigationController?.pushViewController(vc, animated: true)
             }
         )
         displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
@@ -358,13 +374,20 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForChannelBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
+    }
+
+    @objc private func handleVoicePresenceChanged(_ notification: Notification) {
+        guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
+        guard n.int64Value == clanId, clanId != 0 else { return }
+        needsReloadPipe.putNext(())
     }
 
     @objc private func handleJoinedClanForChannelBadges(_ notification: Notification) {
         guard let joinedClan = notification.userInfo?["clanId"] as? Int64 else { return }
         guard joinedClan == clanId, joinedClan != 0 else { return }
         Task { @MainActor in
-            await self.applyChannelBadgeCountsFromSocket(clanId: joinedClan)
+            await self.applyChannelBadgeCounts(clanId: joinedClan)
         }
     }
 
@@ -373,19 +396,43 @@ final class ChannelListViewController: ViewController {
         guard clanId != 0 else { return }
 
 
-        fetchChannelsWithoutLoadingSignal()
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
 
 
+    private func channelListRowsVisuallyEqual(_ a: [Mezon_Api_ChannelDescription], _ b: [Mezon_Api_ChannelDescription]) -> Bool {
+        guard a.count == b.count else { return false }
+        var byId = Dictionary(uniqueKeysWithValues: b.map { ($0.channelID, $0) })
+        for ch in a {
+            guard let o = byId[ch.channelID] else { return false }
+            if ch.countMessUnread != o.countMessUnread { return false }
+            if ch.channelLabel != o.channelLabel { return false }
+            if ch.type != o.type { return false }
+            if ch.channelPrivate != o.channelPrivate { return false }
+            if ch.ageRestricted != o.ageRestricted { return false }
+            if ch.lastSeenMessage.timestampSeconds != o.lastSeenMessage.timestampSeconds { return false }
+            if ch.lastSentMessage.timestampSeconds != o.lastSentMessage.timestampSeconds { return false }
+            if ch.hasLastSentMessage != o.hasLastSentMessage { return false }
+            let uA = ch.countMessUnread > 0
+                || (ch.hasLastSentMessage && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds)
+            let uB = o.countMessUnread > 0
+                || (o.hasLastSentMessage && o.lastSeenMessage.timestampSeconds < o.lastSentMessage.timestampSeconds)
+            if uA != uB { return false }
+        }
+        return true
+    }
+
     @MainActor
-    private func applyChannelBadgeCountsFromSocket(clanId: Int64) async {
+    private func applyChannelBadgeCounts(clanId: Int64) async {
         guard clanId != 0 else { return }
-        guard context.account.socket.isConnected else { return }
+        guard let token = await context.getToken() else { return }
         do {
-            let rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: clanId)
+            let rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
+                .channeldesc
             guard !rows.isEmpty else { return }
             var updated = allChannels
             ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
+            guard !channelListRowsVisuallyEqual(allChannels, updated) else { return }
             allChannels = updated
             let storedCollapsed = loadCollapsedCategoryIds()
             let built = buildChannelCategories(
@@ -435,7 +482,7 @@ final class ChannelListViewController: ViewController {
             clanName: clanName,
             avatarURL: clanLogoURL
         )
-        self.navigationController?.pushViewController(vc, animated: true)
+        self.enclosingNavigationController?.pushViewController(vc, animated: true)
     }
 
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
@@ -470,7 +517,7 @@ final class ChannelListViewController: ViewController {
             channelName: channel.channelLabel,
             channelTopic: channel.topic
         )
-        self.navigationController?.pushViewController(vc, animated: true)
+        self.enclosingNavigationController?.pushViewController(vc, animated: true)
     }
 
     func refresh() { fetchChannels() }
@@ -481,7 +528,7 @@ final class ChannelListViewController: ViewController {
         errorMessage = nil
 
         needsReloadPipe.putNext(())
-        fetchChannelsWithoutLoadingSignal()
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: true)
     }
 
     @objc private func handleThemeChange() { channelListNode.applyTheme() }
@@ -681,18 +728,22 @@ final class ChannelListViewController: ViewController {
         errorMessage = nil
         channelListCategoryDescs = []
         channelListFavoriteIds = []
+        allChannels = []
+        categories = []
 
         let hadCache = restoreCachedChannels(clanId: clanId)
-
         isLoading = !hadCache
-        if !hadCache {
-            needsReloadPipe.putNext(())
-        }
-        fetchChannelsWithoutLoadingSignal()
+        needsReloadPipe.putNext(())
+
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
 
-    private func fetchChannelsWithoutLoadingSignal() {
-        guard clanId != 0 else { return }
+    private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
+        guard clanId != 0 else {
+            isLoading = false
+            needsReloadPipe.putNext(())
+            return
+        }
         let clanId = self.clanId
 
         let signal = channelListSignal(clanId: clanId)
@@ -700,6 +751,7 @@ final class ChannelListViewController: ViewController {
             |> `catch` { (error: ChannelFetchError) -> Signal<FetchResult, NoError> in .single(.failure(error.localizedDescription)) }
             |> deliverOnMainQueue
 
+        let allowEmptyApps = allowEmptyChannelAppsOverwrite
         fetchDisposable.set(signal.start(next: { [weak self] result in
                 guard let self else { return }
                 self.isLoading = false
@@ -717,10 +769,10 @@ final class ChannelListViewController: ViewController {
                     )
                     let cats = self.applyBuiltCategoriesPreservingCollapse(built)
                     self.categories = cats
-                self.channelsLoadedPromise.set(true)
-                self.persistSelectedChannel()
+                    self.channelsLoadedPromise.set(true)
+                    self.persistSelectedChannel()
                     self.categoriesPipe.putNext(cats)
-                self.fetchChannelApps()
+                    self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                     self.context.account.postbox.setPreferenceData(
                         key: PreferencesKeys.channelList(clanId: clanId),
                         value: self.encodeChannelList(channels)
@@ -729,9 +781,6 @@ final class ChannelListViewController: ViewController {
                         key: PreferencesKeys.channelListMeta(clanId: clanId),
                         value: self.encodeChannelListMeta(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
                     )
-                    Task { @MainActor in
-                        await self.applyChannelBadgeCountsFromSocket(clanId: clanId)
-                    }
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
@@ -758,6 +807,73 @@ final class ChannelListViewController: ViewController {
         setSelectedChannel(channel)
         self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
         needsReloadPipe.putNext(())
+    }
+
+    private func handleChannelTap(_ channel: Mezon_Api_ChannelDescription) {
+        if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+            presentJoinVoiceSheet(for: channel)
+            return
+        }
+        select(channel: channel)
+    }
+
+    private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
+        let title = channel.channelLabel.isEmpty
+            ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
+            : channel.channelLabel
+        let sheet = JoinVoiceChannelSheetViewController(
+            channelTitle: title,
+            chatUnreadCount: Int(channel.countMessUnread),
+            onChat: { [weak self] in self?.pushChatViewController(for: channel) },
+            onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
+            onInvite: {}
+        )
+        sheet.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            sheet.sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
+                    safeAreaBottomInset: bottomInset)
+                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
+                    min(targetHeight, context.maximumDetentValue)
+                }
+                sheet.sheetPresentationController?.detents = [contentDetent]
+                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        present(sheet, animated: true)
+        CATransaction.commit()
+    }
+
+    private func pushChatViewController(for channel: Mezon_Api_ChannelDescription) {
+        select(channel: channel)
+        guard let nav = enclosingNavigationController else { return }
+        var parentName: String?
+        if channel.parentID != 0 {
+            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: clanId, channel: channel, context: context, parentName: parentName)
+        nav.pushViewController(chatVC, animated: true)
+    }
+
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+        select(channel: channel)
+        guard let nav = enclosingNavigationController else { return }
+        var parentName: String?
+        if channel.parentID != 0 {
+            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let vc = VoiceChannelRoomViewController(
+            context: context, channel: channel, parentChannelName: parentName)
+        nav.pushViewController(vc, animated: true)
     }
 
     func selectWithoutNavigation(channelId: Int64) {
@@ -830,8 +946,18 @@ final class ChannelListViewController: ViewController {
                     let channels = try await channelsTask
                     let categoryDescs = await categoriesTask
                     let favoriteIds = Set(await favoritesTask)
+                    var mergedChannels = channels
+                    do {
+                        let rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
+                            .channeldesc
+                        if !rows.isEmpty {
+                            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &mergedChannels, badgeRows: rows)
+                        }
+                    } catch {
+                        AppLogger.network.debug("[ChannelList] ListChannelBadgeCount (batched with list): \(error)")
+                    }
                     subscriber.putNext(ChannelListFetchPayload(
-                        channels: channels,
+                        channels: mergedChannels,
                         categoryDescs: categoryDescs,
                         favoriteChannelIds: favoriteIds
                     ))
@@ -871,7 +997,7 @@ final class ChannelListViewController: ViewController {
         return withUnsafeBytes(of: &le) { Data($0) }
     }
 
-    private func fetchChannelApps() {
+    private func fetchChannelApps(allowEmptyOverwrite: Bool = false) {
         guard clanId != 0 else { return }
         let clanId = self.clanId
         Task { @MainActor [weak self] in
@@ -879,11 +1005,20 @@ final class ChannelListViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             do {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanId, token: token)
+                guard self.clanId == clanId else { return }
+                let key = PreferencesKeys.channelApps(clanId: clanId)
+                if apps.isEmpty, !allowEmptyOverwrite {
+                    if self.channelListNode.hasDisplayedChannelApps { return }
+                    if let data = self.context.account.postbox.getPreferenceData(key: key),
+                       !self.decodeChannelApps(data).isEmpty {
+                        return
+                    }
+                }
                 self.channelListNode.updateChannelApps(apps)
-                self.context.account.postbox.setPreferenceData(
-                    key: PreferencesKeys.channelApps(clanId: clanId),
-                    value: self.encodeChannelApps(apps)
-                )
+                let encoded = self.encodeChannelApps(apps)
+                if self.context.account.postbox.getPreferenceData(key: key) != encoded {
+                    self.context.account.postbox.setPreferenceData(key: key, value: encoded)
+                }
             } catch {
                 AppLogger.network.error("Failed to fetch channel apps: \(error)")
             }

@@ -54,6 +54,11 @@ final class FileItemNode: ASDisplayNode {
     private let iconNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let bgNode = ASDisplayNode()
+    private let spinnerNode: ASDisplayNode?
+    private let showsUploadSpinner: Bool
+
+    private static let spinnerSide: CGFloat = 24
+    private static let spinnerLeadingGap: CGFloat = 8
 
     var onTapped: (() -> Void)?
     var tag: Int = 0
@@ -63,6 +68,24 @@ final class FileItemNode: ASDisplayNode {
     private var cachedNameSize: CGSize = .zero
 
     init(attachment: ParsedAttachment) {
+        let shows = attachment.isUploading
+        let spinner: ASDisplayNode?
+        if shows {
+            let s = ASDisplayNode()
+            s.isUserInteractionEnabled = false
+            s.setViewBlock {
+                let indicator = UIActivityIndicatorView(style: .medium)
+                indicator.color = UIColor.theme.text
+                indicator.startAnimating()
+                return indicator
+            }
+            s.style.preferredSize = CGSize(width: Self.spinnerSide, height: Self.spinnerSide)
+            spinner = s
+        } else {
+            spinner = nil
+        }
+        self.showsUploadSpinner = shows
+        self.spinnerNode = spinner
         super.init()
 
         let t = UIColor.theme
@@ -88,6 +111,10 @@ final class FileItemNode: ASDisplayNode {
         nameNode.maximumNumberOfLines = 2
         nameNode.truncationMode = .byTruncatingMiddle
         addSubnode(nameNode)
+
+        if let spinner {
+            addSubnode(spinner)
+        }
     }
 
     override func didLoad() {
@@ -97,19 +124,22 @@ final class FileItemNode: ASDisplayNode {
     }
 
     @objc private func handleTap() {
+        guard !showsUploadSpinner else { return }
         onTapped?()
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
-        let insetH: CGFloat = 12
+        let insetLeading: CGFloat = 14
+        let insetTrailing: CGFloat = 14
         let insetV: CGFloat = 10
         let spacing: CGFloat = 10
-        let nameMaxW = maxWidth * 0.7 - cachedIconSize.width - spacing - insetH * 2
+        let spinnerReserve: CGFloat = showsUploadSpinner ? Self.spinnerSide + Self.spinnerLeadingGap : 0
+        let nameMaxW = maxWidth * 0.7 - cachedIconSize.width - spacing - insetLeading - insetTrailing - spinnerReserve
 
         cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: .greatestFiniteMagnitude))
 
-        let contentW = insetH + cachedIconSize.width + spacing + cachedNameSize.width + insetH
-        let contentH = insetV + max(cachedIconSize.height, cachedNameSize.height) + insetV
+        let contentW = insetLeading + cachedIconSize.width + spacing + cachedNameSize.width + spinnerReserve + insetTrailing
+        let contentH = insetV + max(cachedIconSize.height, cachedNameSize.height, showsUploadSpinner ? Self.spinnerSide : 0) + insetV
 
         cachedSize = CGSize(width: contentW, height: contentH)
         return cachedSize
@@ -117,17 +147,27 @@ final class FileItemNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        let insetH: CGFloat = 12
+        let insetLeading: CGFloat = 14
+        let insetTrailing: CGFloat = 14
         let spacing: CGFloat = 10
 
         bgNode.frame = bounds
         let centerY = bounds.height / 2
 
-        let iconX = insetH
+        let iconX = insetLeading
         iconNode.frame = CGRect(x: iconX, y: centerY - cachedIconSize.height / 2, width: cachedIconSize.width, height: cachedIconSize.height)
 
         let nameX = iconX + cachedIconSize.width + spacing
-        nameNode.frame = CGRect(x: nameX, y: centerY - cachedNameSize.height / 2, width: cachedNameSize.width, height: cachedNameSize.height)
+        let spinnerW: CGFloat = showsUploadSpinner ? Self.spinnerSide : 0
+        let gap: CGFloat = showsUploadSpinner ? Self.spinnerLeadingGap : 0
+        let nameAvailableW = bounds.width - nameX - insetTrailing - gap - spinnerW
+        let nameW = min(cachedNameSize.width, max(0, nameAvailableW))
+        nameNode.frame = CGRect(x: nameX, y: centerY - cachedNameSize.height / 2, width: nameW, height: cachedNameSize.height)
+
+        if let spinnerNode, showsUploadSpinner {
+            let sx = bounds.width - insetTrailing - spinnerW
+            spinnerNode.frame = CGRect(x: sx, y: centerY - spinnerW / 2, width: spinnerW, height: spinnerW)
+        }
     }
 
     private static func iconName(for attachment: ParsedAttachment) -> String {

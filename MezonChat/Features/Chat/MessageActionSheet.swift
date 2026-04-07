@@ -97,6 +97,7 @@ final class MessageActionSheetController: ViewController {
     private let onAction: (MessageAction) -> Void
     var onDismiss: (() -> Void)?
     var onEmojiReaction: ((String, String) -> Void)?
+    var onPresentFullEmojiPicker: (() -> Void)?
 
     private var sheetNode: MessageActionSheetNode {
         return displayNode as! MessageActionSheetNode
@@ -117,8 +118,10 @@ final class MessageActionSheetController: ViewController {
 
     override func loadDisplayNode() {
         let actions = Self.availableActions(display: display, isOwnMessage: isOwnMessage)
+        let quickReactions = Self.includeQuickReactions(for: display)
         self.displayNode = MessageActionSheetNode(
             messageActions: actions,
+            includeQuickReactions: quickReactions,
             onAction: { [weak self] action in
                 guard let self else { return }
                 let callback = self.onAction
@@ -131,6 +134,12 @@ final class MessageActionSheetController: ViewController {
                 let callback = self.onEmojiReaction
                 self.animateDismiss {
                     callback?(emojiId, shortname)
+                }
+            },
+            onOpenFullEmojiPicker: { [weak self] in
+                guard let self else { return }
+                self.animateDismiss {
+                    self.onPresentFullEmojiPicker?()
                 }
             },
             onDimTapped: { [weak self] in
@@ -196,6 +205,15 @@ final class MessageActionSheetController: ViewController {
 
         return actions
     }
+
+    private static func includeQuickReactions(for display: ChatMessageDisplay) -> Bool {
+        if display.isFailed { return false }
+        if display.isSystemMessage { return false }
+        if display.isCallLog { return false }
+        if display.isTopic { return false }
+        if display.message.isDeleted { return false }
+        return true
+    }
 }
 
 private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegate, UIScrollViewDelegate {
@@ -206,8 +224,10 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let scrollView = UIScrollView()
 
     private let messageActions: [MessageAction]
+    private let includeQuickReactions: Bool
     private let onAction: (MessageAction) -> Void
     private let onEmojiReaction: (String, String) -> Void
+    private let onOpenFullEmojiPicker: () -> Void
     private let onDimTapped: () -> Void
 
     private var containerHeight: CGFloat = 0
@@ -235,13 +255,17 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     init(
         messageActions: [MessageAction],
+        includeQuickReactions: Bool,
         onAction: @escaping (MessageAction) -> Void,
         onEmojiReaction: @escaping (String, String) -> Void,
+        onOpenFullEmojiPicker: @escaping () -> Void,
         onDimTapped: @escaping () -> Void
     ) {
         self.messageActions = messageActions
+        self.includeQuickReactions = includeQuickReactions
         self.onAction = onAction
         self.onEmojiReaction = onEmojiReaction
+        self.onOpenFullEmojiPicker = onOpenFullEmojiPicker
         self.onDimTapped = onDimTapped
 
         self.dimmingNode = ASDisplayNode()
@@ -345,7 +369,8 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let normal = messageActions.filter { $0.group == .normal }
         let warning = messageActions.filter { $0.group == .warning }
 
-        var totalContentH: CGFloat = emojiRowH + groupSpacing
+        let quickReactionsBlockH: CGFloat = includeQuickReactions ? (emojiRowH + groupSpacing) : 0
+        var totalContentH: CGFloat = quickReactionsBlockH
         if !frequent.isEmpty { totalContentH += CGFloat(frequent.count) * rowH + groupSpacing }
         if !normal.isEmpty { totalContentH += CGFloat(normal.count) * rowH + groupSpacing }
         if !warning.isEmpty { totalContentH += CGFloat(warning.count) * rowH + groupSpacing }
@@ -399,8 +424,10 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let contentW = screenW - padH * 2
         var y: CGFloat = 0
 
-        buildEmojiRow(at: y, screenW: screenW)
-        y += emojiRowH + groupSpacing
+        if includeQuickReactions {
+            buildEmojiRow(at: y, screenW: screenW)
+            y += emojiRowH + groupSpacing
+        }
 
         let frequent = messageActions.filter { $0.group == .frequent }
         let normal = messageActions.filter { $0.group == .normal }
@@ -424,12 +451,16 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let btnSize: CGFloat = 44
         let contentW = screenW - padH * 2
         let totalButtons = Self.emojiData.count + 1
-        let spacing = (contentW - CGFloat(totalButtons) * btnSize) / CGFloat(totalButtons - 1)
+        let gapCount = totalButtons - 1
+        let spacing: CGFloat = gapCount > 0
+            ? max(0, (contentW - CGFloat(totalButtons) * btnSize) / CGFloat(gapCount))
+            : 0
         var x = padH
+        let btnY = y + (emojiRowH - btnSize) / 2
 
         for (idx, emoji) in Self.emojiData.enumerated() {
             let btn = UIButton(type: .custom)
-            btn.frame = CGRect(x: x, y: y + (emojiRowH - btnSize) / 2, width: btnSize, height: btnSize)
+            btn.frame = CGRect(x: x, y: btnY, width: btnSize, height: btnSize)
             btn.backgroundColor = t.secondary
             btn.layer.cornerRadius = btnSize / 2
             btn.clipsToBounds = true
@@ -445,14 +476,19 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         }
 
         let pickerBtn = UIButton(type: .system)
-        pickerBtn.frame = CGRect(x: contentW + padH - btnSize, y: y + (emojiRowH - btnSize) / 2, width: btnSize, height: btnSize)
+        pickerBtn.frame = CGRect(x: x, y: btnY, width: btnSize, height: btnSize)
         pickerBtn.backgroundColor = t.secondary
         pickerBtn.layer.cornerRadius = btnSize / 2
         pickerBtn.clipsToBounds = true
         let smileyConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        pickerBtn.setImage(UIImage(systemName: "smiley", withConfiguration: smileyConfig), for: .normal)
+        pickerBtn.setImage(UIImage(systemName: "face.smiling", withConfiguration: smileyConfig), for: .normal)
         pickerBtn.tintColor = t.textStrong
+        pickerBtn.addTarget(self, action: #selector(fullEmojiPickerTapped), for: .touchUpInside)
         scrollView.addSubview(pickerBtn)
+    }
+
+    @objc private func fullEmojiPickerTapped() {
+        onOpenFullEmojiPicker()
     }
 
     @objc private func emojiTapped(_ sender: UIButton) {

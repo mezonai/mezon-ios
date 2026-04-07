@@ -4,7 +4,9 @@ import UIKit
 
 struct ChatInteraction {
     let onBackTapped: () -> Void
+    let onHeaderTapped: () -> Void
     let onSearchTapped: () -> Void
+    let onCallTapped: (() -> Void)?
     let onHistoryTapped: () -> Void
     let onMenuTapped: () -> Void
     let onScrolledNearTop: () -> Void
@@ -17,6 +19,8 @@ struct ChatInteraction {
     let onReplyTapped: (String) -> Void
     let onTopicTapped: (TopicData) -> Void
     let onReactionTapped: (ParsedReaction, ChatMessageDisplay) -> Void
+    let onReactionDetailRequested: (ParsedReaction, ChatMessageDisplay) -> Void
+    let onAddReactionTapped: (ChatMessageDisplay) -> Void
     let onAvatarTapped: (ChatMessageDisplay) -> Void
     let onSwipeReply: (ChatMessageDisplay) -> Void
     var onMessagesReloaded: (() -> Void)?
@@ -44,14 +48,16 @@ final class ChatContainerNode: ASDisplayNode {
     private var committedItems: [ListViewItem] = []
     private(set) var committedMessageIds: [String] = []
     private let interaction: ChatInteraction
+    private let isDM: Bool
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
 
-    init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction) {
+    init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction, isDM: Bool = false) {
         listView = ListView()
         self.interaction = interaction
+        self.isDM = isDM
 
         let t = UIColor.theme
         loadingOlderNode.setViewBlock {
@@ -72,7 +78,9 @@ final class ChatContainerNode: ASDisplayNode {
 
         super.init()
         headerNode.onBackTapped = { interaction.onBackTapped() }
+        headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
+        headerNode.onCallTapped = { interaction.onCallTapped?() }
         addSubnode(headerNode)
         addSubnode(listView)
         addSubnode(skeletonNode)
@@ -197,7 +205,8 @@ final class ChatContainerNode: ASDisplayNode {
             subtitle: state.parentName,
             channelType: state.channelType,
             isPrivate: state.isPrivate,
-            isAgeRestricted: state.isAgeRestricted
+            isAgeRestricted: state.isAgeRestricted,
+            isDM: isDM
         )
     }
 
@@ -307,6 +316,8 @@ final class ChatContainerNode: ASDisplayNode {
                     isPrivate: state.isPrivate,
                     isAgeRestricted: state.isAgeRestricted
                 ))
+            } else if display.isSystemMessage {
+                items.append(ChatSystemMessageItem(display: display, interaction: interaction))
             } else {
                 items.append(ChatMessageItem(display: display, interaction: interaction))
             }
@@ -418,11 +429,10 @@ final class ChatContainerNode: ASDisplayNode {
         }
         insertItems.sort { $0.index < $1.index }
 
-        let currentOffset: CGFloat? = {
-            if case let .known(value) = self.listView.visibleContentOffset() { return value }
-            return nil
+        let isAtBottom: Bool = {
+            if case let .known(value) = self.listView.visibleContentOffset() { return value < 10 }
+            return false
         }()
-        let isAtBottom = (currentOffset ?? 0) < 10
 
         isLoadMoreGuardActive = true
 
@@ -438,7 +448,7 @@ final class ChatContainerNode: ASDisplayNode {
         }()
 
         var scrollToItem: ListViewScrollToItem?
-        if hasNewAtBottom && !isLoadMoreResult && (isAtBottom || newestMessageIsMe) {
+        if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }
@@ -467,10 +477,17 @@ final class ChatContainerNode: ASDisplayNode {
         let reversedNewMessages = new.messages.reversed() as [ChatMessageDisplay]
         var itemIdx = 0
         for (msgIdx, newMsg) in reversedNewMessages.enumerated() {
-            while itemIdx < newItems.count, !(newItems[itemIdx] is ChatMessageItem) {
+            while itemIdx < newItems.count,
+                  !(newItems[itemIdx] is ChatMessageItem),
+                  !(newItems[itemIdx] is ChatSystemMessageItem) {
                 itemIdx += 1
             }
             guard itemIdx < newItems.count else { break }
+
+            if newItems[itemIdx] is ChatSystemMessageItem {
+                itemIdx += 1
+                continue
+            }
 
             let changed: Bool
             if forceAll {

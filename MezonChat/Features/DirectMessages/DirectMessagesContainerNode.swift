@@ -6,6 +6,7 @@ struct DirectMessagesInteraction {
     let onAddFriendTapped: () -> Void
     let onSearchTapped: () -> Void
     let onBackTapped: () -> Void
+    let onRefresh: () -> Void
 }
 
 final class DirectMessagesContainerNode: ASDisplayNode {
@@ -29,6 +30,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let context: AccountContext
     private var needsReloadOnLayout = false
 
+    private let refreshControl = UIRefreshControl()
     private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
 
     init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction, context: AccountContext) {
@@ -66,6 +68,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         tableView.register(DmListItemCell.self, forCellReuseIdentifier: DmListItemCell.reuseId)
         tableView.dataSource = self
         tableView.delegate = self
+
+        refreshControl.tintColor = .mezonTextPrimary
+        refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
+        tableView.refreshControl = refreshControl
 
         titleLabel.text = L(L10n.Tab.messages)
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
@@ -176,6 +182,11 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
     @objc private func searchTapped() { interaction.onSearchTapped() }
+    @objc private func handleRefresh() { interaction.onRefresh() }
+
+    func endRefreshing() {
+        refreshControl.endRefreshing()
+    }
 }
 
 extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegate {

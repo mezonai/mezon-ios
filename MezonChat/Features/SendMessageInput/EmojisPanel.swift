@@ -20,6 +20,10 @@ private enum EmojiCategoryOrdering {
 
 private let emojiColumns = 9
 
+enum EmojisPanelThemePlacement {
+    case composerInline
+    case secondaryBottomSheet
+}
 
 private enum EmojiGridItem {
     case header(key: String, title: String, collapsed: Bool)
@@ -34,6 +38,8 @@ final class EmojisPanel: UIView {
     var onSearchFocusChanged: ((Bool) -> Void)?
 
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
+
+    var searchPlaceholderText: String = "Find the perfect emoji"
 
     private weak var cacheEngine: MezonEngine?
 
@@ -122,6 +128,8 @@ final class EmojisPanel: UIView {
     private var categoryStripCategories: [String] = []
     private var searchDebounceWorkItem: DispatchWorkItem?
 
+    private var themePlacement: EmojisPanelThemePlacement = .composerInline
+
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -146,13 +154,26 @@ final class EmojisPanel: UIView {
         ingestEmojis(emojis)
     }
 
-    func applyTheme() {
+    var isEmojiGridScrolledToTop: Bool { emojiGrid.contentOffset.y <= 0.5 }
+
+    func requireSheetDismissPanGetsPriority(_ sheetPan: UIPanGestureRecognizer) {
+        emojiGrid.panGestureRecognizer.require(toFail: sheetPan)
+    }
+
+    func applyTheme(placement: EmojisPanelThemePlacement = .composerInline) {
+        themePlacement = placement
         let t = UIColor.theme
-        searchBarContainer.backgroundColor = t.primary
+        backgroundColor = .clear
+        switch placement {
+        case .composerInline:
+            searchBarContainer.backgroundColor = t.primary
+        case .secondaryBottomSheet:
+            searchBarContainer.backgroundColor = t.tertiary
+        }
         searchIconView.tintColor = t.textDisabled
         searchTextField.textColor = t.textStrong
         searchTextField.attributedPlaceholder = NSAttributedString(
-            string: "Find the perfect emoji",
+            string: searchPlaceholderText,
             attributes: [.foregroundColor: t.textDisabled]
         )
         categoryCollection.reloadData()
@@ -407,7 +428,21 @@ extension EmojisPanel: UICollectionViewDataSource, UICollectionViewDelegate, UIC
         if collectionView.tag == 1 {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: EmojiCategoryStripCell.reuseId, for: indexPath) as! EmojiCategoryStripCell
             let key = categoryStripCategories[indexPath.item]
-            cell.configure(categoryKey: key, title: displayTitle(for: key), isSelected: key == selectedStripCategory, symbol: Self.stripSymbol(for: key))
+            let t = UIColor.theme
+            let stripUnselected: UIColor
+            switch themePlacement {
+            case .composerInline:
+                stripUnselected = t.primary.withAlphaComponent(0.5)
+            case .secondaryBottomSheet:
+                stripUnselected = t.tertiary
+            }
+            cell.configure(
+                categoryKey: key,
+                title: displayTitle(for: key),
+                isSelected: key == selectedStripCategory,
+                symbol: Self.stripSymbol(for: key),
+                unselectedBackground: stripUnselected
+            )
             return cell
         }
 
@@ -664,7 +699,7 @@ private final class EmojiCategoryStripCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(categoryKey: String, title: String, isSelected: Bool, symbol: UIImage?) {
+    func configure(categoryKey: String, title: String, isSelected: Bool, symbol: UIImage?, unselectedBackground: UIColor) {
         let predefined = EmojiCategoryOrdering.predefinedPrefix.contains(categoryKey)
             || EmojiCategoryOrdering.predefinedSuffix.contains(categoryKey)
         if predefined, let symbol {
@@ -676,8 +711,9 @@ private final class EmojiCategoryStripCell: UICollectionViewCell {
             initialLabel.isHidden = false
             initialLabel.text = String(title.prefix(1)).uppercased()
         }
+        let t = UIColor.theme
         contentView.backgroundColor = isSelected
-            ? UIColor.theme.bgViolet.withAlphaComponent(0.35)
-            : UIColor.theme.primary.withAlphaComponent(0.5)
+            ? t.bgViolet.withAlphaComponent(0.35)
+            : unselectedBackground
     }
 }

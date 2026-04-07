@@ -1,5 +1,6 @@
 import UIKit
 import AVFoundation
+import UniformTypeIdentifiers
 
 private struct ComposerMention {
     var userId: Int64
@@ -51,6 +52,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private(set) var pickedImages: [UIImage] = []
     private var pickedFileURLs: [Int: URL] = [:]
+    private(set) var pickedFiles: [PickedFileInfo] = []
 
     private var allMentionMembers: [MentionMember] = []
     private var allMentionSuggestionItems: [MentionSuggestionItem] = []
@@ -99,7 +101,7 @@ final class SendMessageInputViewController: UIViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         v.clipsToBounds = true
         v.onRemove = { [weak self] index in
-            self?.removePickedImage(at: index)
+            self?.removeAttachment(at: index)
         }
         return v
     }()
@@ -116,11 +118,37 @@ final class SendMessageInputViewController: UIViewController {
         return v
     }()
 
+    private var isAttachControlCollapsed = false
+    private var attachButtonWidthConstraint: NSLayoutConstraint?
+    private var advanceButtonWidthConstraint: NSLayoutConstraint?
+    private var chevronButtonWidthConstraint: NSLayoutConstraint?
+
+    private let voiceRecordingOverlay = VoiceRecordingOverlayView()
+    private var voiceLongPressGesture: UILongPressGestureRecognizer!
+    private var voiceAudioRecorder: AVAudioRecorder?
+    private var voiceRecordingFileURL: URL?
+    private var voiceRecordingStartDate: Date?
+    private var isVoiceRecordingActive = false
+    private var voiceRecordingCancelled = false
+    private var voiceRecordingStartAborted = false
+    private var voiceSlideAnchorX: CGFloat?
+
+    private lazy var chevronButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold)), for: .normal)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.layer.cornerRadius = 20.swh
+        btn.clipsToBounds = true
+        btn.addAction(UIAction { [weak self] _ in self?.expandAttachControls() }, for: .touchUpInside)
+        return btn
+    }()
+
     private lazy var attachButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
+        btn.clipsToBounds = true
         btn.addAction(UIAction { [weak self] _ in self?.openPhotoPicker() }, for: .touchUpInside)
         return btn
     }()
@@ -130,7 +158,6 @@ final class SendMessageInputViewController: UIViewController {
         tv.isScrollEnabled = false
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 36)
         tv.textContainer.lineFragmentPadding = 0
-        tv.layer.cornerRadius = 20.swh
         tv.clipsToBounds = true
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.delegate = self
@@ -154,13 +181,27 @@ final class SendMessageInputViewController: UIViewController {
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    private static let textViewMinHeight: CGFloat = 40
+    /// Matches circular action buttons (`40.swh`); corner radius is synced in `PastableTextView.layoutSubviews`.
+    private static var textViewMinHeight: CGFloat { 40.swh }
     private static let inputBarPadding: CGFloat = 16
 
     private(set) var isEmojiPickerVisible = false
+    private(set) var isAdvancePanelVisible = false
     private var lastKeyboardHeight: CGFloat = 260
     var keyboardOverlayHeightEstimate: CGFloat { lastKeyboardHeight }
     var onToggleEmojiPicker: ((Bool, CGFloat) -> Void)?
+    var onToggleAdvancePanel: ((Bool, CGFloat) -> Void)?
+    var onAnonymousModeChanged: (() -> Void)?
+    private var clanPreventAnonymous = false
+
+    private lazy var advanceButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.layer.cornerRadius = 20.swh
+        btn.addAction(UIAction { [weak self] _ in self?.toggleAdvancePanel() }, for: .touchUpInside)
+        return btn
+    }()
 
     private lazy var emojiButton: UIButton = {
         let btn = UIButton(type: .system)
@@ -168,6 +209,24 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.addAction(UIAction { [weak self] _ in self?.toggleEmojiPicker() }, for: .touchUpInside)
         return btn
+    }()
+
+    private lazy var anonymousIndicatorButton: UIButton = {
+        let b = UIButton(type: .system)
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.isHidden = true
+        let cfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        b.setImage(UIImage(systemName: "sunglasses.fill", withConfiguration: cfg), for: .normal)
+        b.layer.cornerRadius = 11
+        b.clipsToBounds = true
+        b.accessibilityLabel = "Anonymous message"
+        b.addAction(UIAction { [weak self] _ in
+            guard let self, self.clanId != 0, !self.clanPreventAnonymous else { return }
+            _ = AnonymousMessageStore.toggle(clanId: self.clanId)
+            self.refreshAnonymousUI()
+            self.onAnonymousModeChanged?()
+        }, for: .touchUpInside)
+        return b
     }()
 
     private lazy var sendButton: UIButton = {
@@ -179,10 +238,37 @@ final class SendMessageInputViewController: UIViewController {
         btn.tintColor = .white
         btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
         btn.addAction(UIAction { [weak self] _ in self?.send() }, for: .touchUpInside)
+        btn.alpha = 0
+        btn.isHidden = true
         return btn
     }()
 
-    private static let previewHeight: CGFloat = AttachmentPreviewView.previewHeight
+    private let voiceMicImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.contentMode = .scaleAspectFit
+        iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        iv.image = UIImage(systemName: "mic.fill")
+        iv.setContentHuggingPriority(.required, for: .horizontal)
+        iv.setContentHuggingPriority(.required, for: .vertical)
+        return iv
+    }()
+
+    private lazy var voiceButton: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.layer.cornerRadius = 20.swh
+        v.clipsToBounds = true
+        v.isUserInteractionEnabled = true
+        v.addSubview(voiceMicImageView)
+        NSLayoutConstraint.activate([
+            voiceMicImageView.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            voiceMicImageView.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            voiceMicImageView.widthAnchor.constraint(equalToConstant: 22.sf),
+            voiceMicImageView.heightAnchor.constraint(equalToConstant: 22.sf),
+        ])
+        return v
+    }()
 
     private var inputBarCurrentHeight: CGFloat {
         return currentTextViewHeight + Self.inputBarPadding
@@ -190,8 +276,9 @@ final class SendMessageInputViewController: UIViewController {
 
     var totalHeight: CGFloat {
         var h = inputBarCurrentHeight
-        if !pickedImages.isEmpty {
-            h += Self.previewHeight
+        if !pickedImages.isEmpty || !pickedFiles.isEmpty {
+            h += AttachmentPreviewView.preferredHeight(
+                imageCount: pickedImages.count, fileCount: pickedFiles.count)
         }
         if replyDisplay != nil {
             h += Self.replyBannerHeight
@@ -199,7 +286,7 @@ final class SendMessageInputViewController: UIViewController {
         return h
     }
 
-    private var currentTextViewHeight: CGFloat = textViewMinHeight
+    private var currentTextViewHeight: CGFloat = 40.swh
 
     init(placeholder: String = "", channel: Mezon_Api_ChannelDescription, clanId: Int64, context: AccountContext) {
         self.placeholder = placeholder
@@ -262,6 +349,11 @@ final class SendMessageInputViewController: UIViewController {
             let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
             emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
         }
+        if isAdvancePanelVisible {
+            isAdvancePanelVisible = false
+            let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+            advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: iconConfig), for: .normal)
+        }
     }
 
     private var channelStreamMode: Int32 {
@@ -318,11 +410,136 @@ final class SendMessageInputViewController: UIViewController {
     func send() {
         let plainText = buildPlainTextFromAttributed()
         let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasImages = !pickedImages.isEmpty
-        guard !trimmed.isEmpty || hasImages else { return }
+        let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
+        guard !trimmed.isEmpty || hasAttachments else { return }
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
     }
 
+
+    func sendLocation(latitude: Double, longitude: Double) {
+        let googleMapsLink = "https://www.google.com/maps?q=\(latitude),\(longitude)&z=14&t=m&mapclient=embed"
+        let linkLength = googleMapsLink.count
+
+        let contentJSON: [String: Any] = [
+            "t": googleMapsLink,
+            "lk": [["s": 0, "e": linkLength]],
+            "mk": [["s": 0, "e": linkLength, "type": "lk"]]
+        ]
+        let contentStr: String
+        if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
+           let str = String(data: data, encoding: .utf8) {
+            contentStr = str
+        } else {
+            contentStr = "{}"
+        }
+
+        let mode: Int32 = {
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                return MezonConstants.ChannelStreamMode.thread.rawValue
+            case MezonConstants.ChannelType.dm.rawValue:
+                return MezonConstants.ChannelStreamMode.dm.rawValue
+            case MezonConstants.ChannelType.group.rawValue:
+                return MezonConstants.ChannelStreamMode.group.rawValue
+            default:
+                return clanId == 0
+                    ? MezonConstants.ChannelStreamMode.group.rawValue
+                    : MezonConstants.ChannelStreamMode.channel.rawValue
+            }
+        }()
+        let isPublic = channel.channelPrivate == 0
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+        let replyRef = buildReplyRef()
+        let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
+
+        clearReply()
+        onSent?()
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.onError?("No session")
+                return
+            }
+            do {
+                _ = try await self.context.account.network.sendChannelMessage(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    content: contentStr,
+                    mentions: [],
+                    attachments: [],
+                    references: references,
+                    anonymous: self.shouldSendAsAnonymousMessage,
+                    mentionEveryone: false,
+                    avatar: avatar,
+                    topicId: self.topicId,
+                    code: 17,
+                    token: token
+                )
+            } catch {
+                self.onError?(error.localizedDescription)
+            }
+        }
+    }
+
+    func sendBuzzMessage(text: String) {
+        let buzzText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !buzzText.isEmpty else { return }
+
+        let contentJSON: [String: Any] = ["t": buzzText]
+        let contentStr: String
+        if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
+           let str = String(data: data, encoding: .utf8) {
+            contentStr = str
+        } else {
+            contentStr = "{}"
+        }
+
+        let mode: Int32 = {
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                return MezonConstants.ChannelStreamMode.thread.rawValue
+            case MezonConstants.ChannelType.dm.rawValue:
+                return MezonConstants.ChannelStreamMode.dm.rawValue
+            case MezonConstants.ChannelType.group.rawValue:
+                return MezonConstants.ChannelStreamMode.group.rawValue
+            default:
+                return clanId == 0
+                    ? MezonConstants.ChannelStreamMode.group.rawValue
+                    : MezonConstants.ChannelStreamMode.channel.rawValue
+            }
+        }()
+        let isPublic = channel.channelPrivate == 0
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.onError?("No session")
+                return
+            }
+            do {
+                _ = try await self.context.account.network.sendChannelMessage(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    content: contentStr,
+                    mentions: [],
+                    attachments: [],
+                    references: [],
+                    anonymous: self.shouldSendAsAnonymousMessage,
+                    mentionEveryone: false,
+                    avatar: avatar,
+                    topicId: self.topicId,
+                    code: MezonConstants.MessageCode.buzz.rawValue,
+                    token: token
+                )
+            } catch {
+                self.onError?(error.localizedDescription)
+            }
+        }
+    }
 
     func sendSticker(_ sticker: CachedClanStickerRecord) {
         let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -378,8 +595,14 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideHashtagSuggestions()
         textPipe.putNext("")
+        syncAttachControlsWithTypedText()
+        updateSendVoiceToggle()
     }
     func updateText(_ newText: String) { text = newText; textPipe.putNext(newText) }
+
+    func focusTextInput() {
+        textView.becomeFirstResponder()
+    }
 
     private func openPhotoPicker() {
         MediaPickerViewController.present(from: self) { [weak self] results in
@@ -401,10 +624,32 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    func openFilePicker() {
+        let supportedTypes: [UTType] = [.item]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+
+        var presenter: UIViewController = self
+        if let parent = self.parent {
+            presenter = parent
+        }
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(picker, animated: true)
+    }
+
     private func toggleEmojiPicker() {
         isEmojiPickerVisible.toggle()
 
         if isEmojiPickerVisible {
+            if isAdvancePanelVisible {
+                isAdvancePanelVisible = false
+                onToggleAdvancePanel?(false, 0)
+                let advIconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+                advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: advIconConfig), for: .normal)
+            }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
             textView.resignFirstResponder()
@@ -422,6 +667,46 @@ final class SendMessageInputViewController: UIViewController {
         emojiButton.setImage(UIImage(systemName: iconName, withConfiguration: iconConfig), for: .normal)
     }
 
+    private func toggleAdvancePanel() {
+        isAdvancePanelVisible.toggle()
+
+        if isAdvancePanelVisible {
+            if isEmojiPickerVisible {
+                isEmojiPickerVisible = false
+                onToggleEmojiPicker?(false, 0)
+                let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
+                emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
+            }
+            hideEmojiSuggestions()
+            hideHashtagSuggestions()
+            textView.resignFirstResponder()
+            let collapsedH = max(lastKeyboardHeight, 260)
+            onToggleAdvancePanel?(true, collapsedH)
+        } else {
+            onToggleAdvancePanel?(false, 0)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isVoiceRecordingActive else { return }
+                self.textView.becomeFirstResponder()
+            }
+        }
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        let iconName = isAdvancePanelVisible ? "xmark" : "line.3.horizontal"
+        advanceButton.setImage(UIImage(systemName: iconName, withConfiguration: iconConfig), for: .normal)
+    }
+
+    func hideAdvancePanelIfNeeded() {
+        guard isAdvancePanelVisible else { return }
+        markAdvancePanelDismissedByHost()
+        onToggleAdvancePanel?(false, 0)
+    }
+
+    func markAdvancePanelDismissedByHost() {
+        isAdvancePanelVisible = false
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: iconConfig), for: .normal)
+    }
+
 
     private static func normalizedEmojiToken(from shortname: String) -> String {
         let inner = shortname.split(separator: ":").joined()
@@ -430,11 +715,20 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func insertEmoji(_ emojiId: String, shortname: String) {
+        guard !isVoiceRecordingActive else { return }
         applyEmojiInsertion(emojiId: emojiId, shortname: shortname, replaceRange: textView.selectedRange)
+    }
+
+    func focusComposerAfterEmojiPanelSelection() {
+        guard !isVoiceRecordingActive else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.textView.becomeFirstResponder()
+        }
     }
 
 
     private func applyEmojiInsertion(emojiId: String, shortname: String, replaceRange: NSRange) {
+        guard !isVoiceRecordingActive else { return }
         let token = Self.normalizedEmojiToken(from: shortname)
         emojiIdByColonToken[token] = emojiId
 
@@ -507,10 +801,14 @@ final class SendMessageInputViewController: UIViewController {
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
+        updateInlineSuggestions()
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
         hideEmojiSuggestions()
     }
 
     private func insertEmojiFromSuggestion(_ emoji: CachedClanEmojiRecord) {
+        guard !isVoiceRecordingActive else { return }
         guard let ctx = detectEmojiColonContext() else { return }
         let full = (textView.text ?? "") as NSString
         let len = full.length
@@ -527,9 +825,6 @@ final class SendMessageInputViewController: UIViewController {
         onToggleEmojiPicker?(false, 0)
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
         emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
-        DispatchQueue.main.async { [weak self] in
-            self?.textView.becomeFirstResponder()
-        }
     }
 
     private func addPickedImage(_ image: UIImage) {
@@ -577,6 +872,16 @@ final class SendMessageInputViewController: UIViewController {
         updatePreviewVisibility()
     }
 
+    private func removeAttachment(at index: Int) {
+        let imageCount = pickedImages.count
+        if index < imageCount {
+            removePickedImage(at: index)
+        } else {
+            let fileIndex = index - imageCount
+            removePickedFile(at: fileIndex)
+        }
+    }
+
     private func removePickedImage(at index: Int) {
         guard index >= 0, index < pickedImages.count else { return }
         pickedImages.remove(at: index)
@@ -595,10 +900,19 @@ final class SendMessageInputViewController: UIViewController {
         updatePreviewVisibility()
     }
 
+    private func removePickedFile(at index: Int) {
+        guard index >= 0, index < pickedFiles.count else { return }
+        let file = pickedFiles.remove(at: index)
+        attachmentPreviewView.removeFile(at: index)
+        try? FileManager.default.removeItem(at: file.url)
+        updatePreviewVisibility()
+    }
+
     func clearPickedImages() {
         pickedImages.removeAll()
-        attachmentPreviewView.removeAll()
         pickedFileURLs.removeAll()
+        pickedFiles.removeAll()
+        attachmentPreviewView.removeAll()
         Self.channelAttachmentCache.removeValue(forKey: cacheKey)
         updatePreviewVisibility()
     }
@@ -615,15 +929,17 @@ final class SendMessageInputViewController: UIViewController {
         guard let cached = Self.channelAttachmentCache[cacheKey], !cached.isEmpty else { return }
         pickedImages = cached
         attachmentPreviewView.setImages(cached)
-        let targetH = Self.previewHeight
+        let targetH = AttachmentPreviewView.preferredHeight(
+            imageCount: pickedImages.count, fileCount: pickedFiles.count)
         previewHeightConstraint?.constant = targetH
         onHeightChanged?(totalHeight)
         view.layoutIfNeeded()
+        syncAttachControlsWithTypedText()
     }
 
     private func updatePreviewVisibility() {
-        let shouldShow = !pickedImages.isEmpty
-        let targetH = shouldShow ? Self.previewHeight : 0
+        let shouldShow = attachmentPreviewView.hasAnyAttachment
+        let targetH = shouldShow ? attachmentPreviewView.preferredPreviewHeight : 0
         let heightChanged = previewHeightConstraint?.constant != targetH
         if heightChanged {
             previewHeightConstraint?.constant = targetH
@@ -634,6 +950,19 @@ final class SendMessageInputViewController: UIViewController {
         }, completion: { _ in
             self.attachmentPreviewView.forceReload()
         })
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
+    }
+
+    private func syncAttachControlsWithTypedText() {
+        let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasText {
+            if !isAttachControlCollapsed {
+                collapseAttachControls()
+            }
+        } else {
+            expandAttachControls()
+        }
     }
 
     private func setupUI() {
@@ -644,11 +973,16 @@ final class SendMessageInputViewController: UIViewController {
         view.addSubview(attachmentPreviewView)
         view.addSubview(inputBarView)
         inputBarView.addSubview(topSeparator)
+        inputBarView.addSubview(chevronButton)
         inputBarView.addSubview(attachButton)
+        inputBarView.addSubview(advanceButton)
         inputBarView.addSubview(textView)
         inputBarView.addSubview(placeholderLabel)
         inputBarView.addSubview(emojiButton)
+        inputBarView.addSubview(voiceButton)
         inputBarView.addSubview(sendButton)
+        inputBarView.addSubview(anonymousIndicatorButton)
+        inputBarView.insertSubview(anonymousIndicatorButton, aboveSubview: textView)
 
         let bottomConstraint = inputBarView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         inputBarBottomConstraint = bottomConstraint
@@ -695,12 +1029,19 @@ final class SendMessageInputViewController: UIViewController {
             topSeparator.heightAnchor.constraint(equalToConstant: 0.5),
             bottomConstraint,
 
-            attachButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 4.sw),
+            chevronButton.leadingAnchor.constraint(equalTo: inputBarView.leadingAnchor, constant: 4.sw),
+            chevronButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
+            chevronButton.heightAnchor.constraint(equalToConstant: btnSize),
+
+            attachButton.leadingAnchor.constraint(equalTo: chevronButton.trailingAnchor, constant: 4.sw),
             attachButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
-            attachButton.widthAnchor.constraint(equalToConstant: btnSize),
             attachButton.heightAnchor.constraint(equalToConstant: btnSize),
 
-            textView.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
+            advanceButton.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4.sw),
+            advanceButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
+            advanceButton.heightAnchor.constraint(equalToConstant: btnSize),
+
+            textView.leadingAnchor.constraint(equalTo: advanceButton.trailingAnchor, constant: 4.sw),
             textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6.sw),
             textView.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             tvHeight,
@@ -713,15 +1054,124 @@ final class SendMessageInputViewController: UIViewController {
             emojiButton.widthAnchor.constraint(equalToConstant: 28.swh),
             emojiButton.heightAnchor.constraint(equalToConstant: 28.swh),
 
+            anonymousIndicatorButton.widthAnchor.constraint(equalToConstant: 22),
+            anonymousIndicatorButton.heightAnchor.constraint(equalToConstant: 22),
+            anonymousIndicatorButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -4.sw),
+            anonymousIndicatorButton.topAnchor.constraint(equalTo: textView.topAnchor, constant: -5),
+
             sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
             sendButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             sendButton.widthAnchor.constraint(equalToConstant: btnSize),
             sendButton.heightAnchor.constraint(equalToConstant: btnSize),
+
+            voiceButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
+            voiceButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
+            voiceButton.widthAnchor.constraint(equalToConstant: btnSize),
+            voiceButton.heightAnchor.constraint(equalToConstant: btnSize),
         ])
 
         let phc = attachmentPreviewView.heightAnchor.constraint(equalToConstant: 0)
         phc.isActive = true
         previewHeightConstraint = phc
+
+        let chevW = chevronButton.widthAnchor.constraint(equalToConstant: 0)
+        chevronButtonWidthConstraint = chevW
+        chevW.isActive = true
+        chevronButton.alpha = 0
+
+        let attW = attachButton.widthAnchor.constraint(equalToConstant: btnSize)
+        attachButtonWidthConstraint = attW
+        attW.isActive = true
+
+        let advW = advanceButton.widthAnchor.constraint(equalToConstant: btnSize)
+        advanceButtonWidthConstraint = advW
+        advW.isActive = true
+
+        voiceRecordingOverlay.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(voiceRecordingOverlay)
+        view.insertSubview(voiceRecordingOverlay, aboveSubview: inputBarView)
+        NSLayoutConstraint.activate([
+            voiceRecordingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            voiceRecordingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            voiceRecordingOverlay.topAnchor.constraint(equalTo: inputBarView.topAnchor),
+            voiceRecordingOverlay.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor),
+        ])
+
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleVoiceLongPress(_:)))
+        longPress.minimumPressDuration = 0.4
+        longPress.allowableMovement = 2000
+        longPress.cancelsTouchesInView = false
+        voiceButton.addGestureRecognizer(longPress)
+        voiceLongPressGesture = longPress
+
+        let tapHint = UITapGestureRecognizer(target: self, action: #selector(handleVoiceTapForHint))
+        tapHint.require(toFail: longPress)
+        voiceButton.addGestureRecognizer(tapHint)
+    }
+
+    private func collapseAttachControls() {
+        guard !isAttachControlCollapsed else { return }
+        isAttachControlCollapsed = true
+        let btnSize: CGFloat = 40.swh
+
+        chevronButtonWidthConstraint?.constant = btnSize
+        attachButtonWidthConstraint?.constant = 0
+        advanceButtonWidthConstraint?.constant = 0
+
+        UIView.performWithoutAnimation {
+            self.chevronButton.alpha = 1
+            self.chevronButton.transform = .identity
+            self.attachButton.alpha = 0
+            self.advanceButton.alpha = 0
+            self.attachButton.transform = .identity
+            self.advanceButton.transform = .identity
+            self.inputBarView.layoutIfNeeded()
+        }
+    }
+
+    private func expandAttachControls() {
+        guard isAttachControlCollapsed else { return }
+        isAttachControlCollapsed = false
+        let btnSize: CGFloat = 40.swh
+
+        chevronButtonWidthConstraint?.constant = 0
+        attachButtonWidthConstraint?.constant = btnSize
+        advanceButtonWidthConstraint?.constant = btnSize
+
+        UIView.performWithoutAnimation {
+            self.chevronButton.alpha = 0
+            self.chevronButton.transform = .identity
+            self.attachButton.alpha = 1
+            self.advanceButton.alpha = 1
+            self.attachButton.transform = .identity
+            self.advanceButton.transform = .identity
+            self.inputBarView.layoutIfNeeded()
+        }
+    }
+
+    private func updateSendVoiceToggle() {
+        let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pickedImages.isEmpty || !pickedFiles.isEmpty
+        let shouldShowSend = hasContent
+
+        guard sendButton.isHidden == shouldShowSend else { return }
+
+        if shouldShowSend {
+            sendButton.isHidden = false
+            UIView.animate(withDuration: 0.15) {
+                self.sendButton.alpha = 1
+                self.voiceButton.alpha = 0
+            } completion: { _ in
+                self.voiceButton.isHidden = true
+            }
+        } else {
+            voiceButton.isHidden = false
+            UIView.animate(withDuration: 0.15) {
+                self.sendButton.alpha = 0
+                self.voiceButton.alpha = 1
+            } completion: { _ in
+                self.sendButton.isHidden = true
+            }
+        }
     }
 
     private func setupMentionSuggestion() {
@@ -1638,6 +2088,13 @@ final class SendMessageInputViewController: UIViewController {
         placeholderLabel.textColor = t.textDisabled
         attachButton.backgroundColor = t.tertiary
         attachButton.tintColor = t.textStrong
+        advanceButton.backgroundColor = t.tertiary
+        advanceButton.tintColor = t.textStrong
+        voiceButton.backgroundColor = t.tertiary
+        voiceMicImageView.tintColor = t.textStrong
+        voiceRecordingOverlay.applyTheme()
+        chevronButton.backgroundColor = t.tertiary
+        chevronButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
         attachmentPreviewView.applyTheme()
         replyBannerView.backgroundColor = t.secondary
@@ -1646,6 +2103,25 @@ final class SendMessageInputViewController: UIViewController {
         mentionSuggestionView?.applyTheme()
         emojiSuggestionView?.applyTheme()
         hashtagSuggestionView?.applyTheme()
+        anonymousIndicatorButton.backgroundColor = t.secondaryWeight
+        anonymousIndicatorButton.tintColor = t.textStrong
+    }
+
+    func setClanAnonymousPolicy(preventAnonymous: Bool) {
+        clanPreventAnonymous = preventAnonymous
+        if clanPreventAnonymous {
+            AnonymousMessageStore.setEnabled(false, clanId: clanId)
+        }
+        refreshAnonymousUI()
+    }
+
+    func refreshAnonymousUI() {
+        let on = clanId != 0 && !clanPreventAnonymous && AnonymousMessageStore.isEnabled(clanId: clanId)
+        anonymousIndicatorButton.isHidden = !on
+    }
+
+    private var shouldSendAsAnonymousMessage: Bool {
+        clanId != 0 && !clanPreventAnonymous && AnonymousMessageStore.isEnabled(clanId: clanId)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1656,11 +2132,232 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     deinit {
+        voiceAudioRecorder?.stop()
+        voiceRecordingOverlay.tearDown()
+        if let u = voiceRecordingFileURL {
+            try? FileManager.default.removeItem(at: u)
+        }
         disposables.dispose()
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: Self.emojiListDidUpdateNotification, object: nil)
     }
 
+
+    private static let voiceCancelSwipeThreshold: CGFloat = 80
+    private static let voiceMinRecordDuration: TimeInterval = 0.55
+
+    @objc private func handleVoiceTapForHint() {
+        onVoiceTapped?()
+    }
+
+    @objc private func handleVoiceLongPress(_ g: UILongPressGestureRecognizer) {
+        let slideRef = voiceButton.superview ?? view
+        switch g.state {
+        case .began:
+            voiceRecordingCancelled = false
+            voiceRecordingStartAborted = false
+            voiceSlideAnchorX = g.location(in: slideRef).x
+            requestVoiceRecordingPermission { [weak self] granted in
+                guard let self else { return }
+                if self.voiceRecordingStartAborted { return }
+                guard granted else {
+                    self.presentMicrophoneDeniedAlert()
+                    return
+                }
+                self.startVoiceRecording()
+            }
+        case .changed:
+            guard let anchorX = voiceSlideAnchorX else { return }
+            let x = g.location(in: slideRef).x
+            let delta = x - anchorX
+            if delta < -Self.voiceCancelSwipeThreshold {
+                if !voiceRecordingCancelled {
+                    voiceRecordingCancelled = true
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+                if isVoiceRecordingActive { voiceRecordingOverlay.setSlideCancelledHighlight(true) }
+            } else {
+                if voiceRecordingCancelled {
+                    voiceRecordingCancelled = false
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                }
+                if isVoiceRecordingActive { voiceRecordingOverlay.setSlideCancelledHighlight(false) }
+            }
+        case .ended, .cancelled, .failed:
+            voiceRecordingStartAborted = true
+            voiceSlideAnchorX = nil
+            voiceRecordingOverlay.setSlideCancelledHighlight(false)
+            if isVoiceRecordingActive {
+                if voiceRecordingCancelled {
+                    cancelVoiceRecording(deleteFile: true)
+                } else {
+                    finishVoiceRecordingAndSend()
+                }
+            } else {
+                cancelVoiceRecording(deleteFile: false)
+            }
+        default:
+            break
+        }
+    }
+
+    private func requestVoiceRecordingPermission(completion: @escaping (Bool) -> Void) {
+        switch AVAudioSession.sharedInstance().recordPermission {
+        case .granted:
+            completion(true)
+        case .denied:
+            completion(false)
+        case .undetermined:
+            AVAudioSession.sharedInstance().requestRecordPermission { ok in
+                DispatchQueue.main.async { completion(ok) }
+            }
+        @unknown default:
+            completion(false)
+        }
+    }
+
+    private func presentMicrophoneDeniedAlert() {
+        let ac = UIAlertController(
+            title: "Microphone",
+            message: "Allow microphone access in Settings to send voice messages.",
+            preferredStyle: .alert
+        )
+        ac.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        ac.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        present(ac, animated: true)
+    }
+
+    private func startVoiceRecording() {
+        guard !voiceRecordingStartAborted else { return }
+        let keyboardWasVisible = textView.isFirstResponder
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            onError?(error.localizedDescription)
+            return
+        }
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString).m4a")
+        voiceRecordingFileURL = url
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 44_100,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+        ]
+        do {
+            let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.prepareToRecord()
+            guard recorder.record() else {
+                onError?("Could not record")
+                try? FileManager.default.removeItem(at: url)
+                voiceRecordingFileURL = nil
+                return
+            }
+            voiceAudioRecorder = recorder
+        } catch {
+            onError?(error.localizedDescription)
+            try? FileManager.default.removeItem(at: url)
+            voiceRecordingFileURL = nil
+            return
+        }
+
+        guard !voiceRecordingStartAborted else {
+            cancelVoiceRecording(deleteFile: true)
+            return
+        }
+
+        voiceRecordingStartDate = Date()
+        isVoiceRecordingActive = true
+        voiceRecordingOverlay.prepareForRecording()
+        voiceRecordingOverlay.markRecordingStarted()
+        view.bringSubviewToFront(voiceRecordingOverlay)
+        voiceRecordingOverlay.isHidden = false
+        voiceRecordingOverlay.runAppearAnimation()
+        emojiButton.isUserInteractionEnabled = false
+        if keyboardWasVisible {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isVoiceRecordingActive, !self.textView.isFirstResponder else { return }
+                self.textView.becomeFirstResponder()
+            }
+        }
+    }
+
+    private func cancelVoiceRecording(deleteFile: Bool) {
+        voiceAudioRecorder?.stop()
+        voiceAudioRecorder = nil
+        if deleteFile, let url = voiceRecordingFileURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        voiceRecordingFileURL = nil
+        isVoiceRecordingActive = false
+        voiceRecordingOverlay.tearDown()
+        UIView.performWithoutAnimation {
+            self.voiceRecordingOverlay.isHidden = true
+        }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        emojiButton.isUserInteractionEnabled = true
+    }
+
+    private func finishVoiceRecordingAndSend() {
+        let url = voiceRecordingFileURL
+        let start = voiceRecordingStartDate
+        voiceRecordingFileURL = nil
+        isVoiceRecordingActive = false
+        voiceAudioRecorder?.stop()
+        voiceAudioRecorder = nil
+        voiceRecordingOverlay.tearDown()
+        UIView.performWithoutAnimation {
+            self.voiceRecordingOverlay.isHidden = true
+        }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        emojiButton.isUserInteractionEnabled = true
+
+        guard let url, let start else { return }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed < Self.voiceMinRecordDuration {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        let durationSec = max(1, Int(round(elapsed)))
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        if size < 200 {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        sendVoiceAttachment(from: url, durationSeconds: durationSec)
+    }
+
+    private func sendVoiceAttachment(from fileURL: URL, durationSeconds: Int) {
+        let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.intValue ?? 0
+        let file = PickedFileInfo(url: fileURL, filename: fileURL.lastPathComponent, filesize: size, filetype: "audio/mp4")
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.onError?("No session")
+                try? FileManager.default.removeItem(at: fileURL)
+                return
+            }
+            do {
+                let uploaded = try await self.uploadFileAttachments([file], token: token)
+                guard !uploaded.isEmpty else {
+                    try? FileManager.default.removeItem(at: fileURL)
+                    return
+                }
+                var att = uploaded[0]
+                att.duration = Int32(durationSeconds)
+                sendChannelMessageWithAttachments(text: "", attachments: [att])
+            } catch {
+                self.onError?(error.localizedDescription)
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+    }
 
     private func uploadAttachments(_ images: [UIImage], fileURLs: [Int: URL], token: String) async throws -> [Mezon_Api_MessageAttachment] {
         var attachments: [Mezon_Api_MessageAttachment] = []
@@ -1714,7 +2411,45 @@ final class SendMessageInputViewController: UIViewController {
         return attachments
     }
 
-    private static func mimeType(for ext: String) -> String {
+    private func uploadFileAttachments(_ files: [PickedFileInfo], token: String) async throws -> [Mezon_Api_MessageAttachment] {
+        var attachments: [Mezon_Api_MessageAttachment] = []
+
+        for file in files {
+            guard let fileData = try? Data(contentsOf: file.url) else { continue }
+
+            let sanitizedFilename = file.filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+
+            let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                filename: sanitizedFilename,
+                filetype: file.filetype,
+                size: fileData.count,
+                width: 0,
+                height: 0,
+                token: token
+            )
+
+            try await context.account.network.uploadToMinIO(
+                url: uploadInfo.url,
+                data: fileData,
+                contentType: file.filetype
+            )
+
+            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+
+            var att = Mezon_Api_MessageAttachment()
+            att.filename = file.filename
+            att.url = cdnURL
+            att.filetype = file.filetype
+            att.size = Int32(fileData.count)
+            attachments.append(att)
+
+            try? FileManager.default.removeItem(at: file.url)
+        }
+
+        return attachments
+    }
+
+    static func mimeType(for ext: String) -> String {
         switch ext {
         case "jpg", "jpeg": return "image/jpeg"
         case "png":         return "image/png"
@@ -1725,19 +2460,55 @@ final class SendMessageInputViewController: UIViewController {
         case "mov":         return "video/quicktime"
         case "m4v":         return "video/x-m4v"
         case "avi":         return "video/avi"
+        case "pdf":         return "application/pdf"
+        case "doc":         return "application/msword"
+        case "docx":        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        case "xls":         return "application/vnd.ms-excel"
+        case "xlsx":        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        case "ppt":         return "application/vnd.ms-powerpoint"
+        case "pptx":        return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        case "zip":         return "application/zip"
+        case "rar":         return "application/x-rar-compressed"
+        case "7z":          return "application/x-7z-compressed"
+        case "tar":         return "application/x-tar"
+        case "gz":          return "application/gzip"
+        case "txt":         return "text/plain"
+        case "rtf":         return "application/rtf"
+        case "csv":         return "text/csv"
+        case "mp3":         return "audio/mpeg"
+        case "wav":         return "audio/wav"
+        case "aac":         return "audio/aac"
+        case "m4a":         return "audio/mp4"
+        case "ogg":         return "audio/ogg"
         default:            return "application/octet-stream"
         }
     }
 
 
     private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription) {
+        let sendAsAnonymous = shouldSendAsAnonymousMessage
         let localId = "pending-\(UUID().uuidString)"
         let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
 
         let imagesToUpload = images
         let fileURLsToUpload = pickedFileURLs
-        if !imagesToUpload.isEmpty {
+        let filesToUpload = pickedFiles
+        if !imagesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
+        }
+        if !filesToUpload.isEmpty, !sendAsAnonymous {
+            ParsedAttachment.pendingDocumentPlaceholders[localId] = filesToUpload.map { file in
+                ParsedAttachment(
+                    url: "",
+                    filename: file.filename,
+                    filetype: file.filetype,
+                    width: nil,
+                    height: nil,
+                    durationSeconds: nil,
+                    localImage: nil,
+                    isUploading: true
+                )
+            }
         }
 
         let replyRef: Mezon_Api_MessageRef? = buildReplyRef()
@@ -1760,7 +2531,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         let outgoingContentData = (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
 
-        if let sender = context.currentUser {
+        if !sendAsAnonymous, let sender = context.currentUser {
             let referencesData: Data = {
                 guard let ref = replyRef else { return Data() }
                 var list = Mezon_Api_MessageRefList()
@@ -1845,8 +2616,11 @@ final class SendMessageInputViewController: UIViewController {
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
-                ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                if !sendAsAnonymous {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+                    ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                }
                 self.onError?("No session")
                 return
             }
@@ -1854,6 +2628,10 @@ final class SendMessageInputViewController: UIViewController {
                 var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
                 if !imagesToUpload.isEmpty {
                     uploadedAttachments = try await self.uploadAttachments(imagesToUpload, fileURLs: fileURLsToUpload, token: token)
+                }
+                if !filesToUpload.isEmpty {
+                    let fileAttachments = try await self.uploadFileAttachments(filesToUpload, token: token)
+                    uploadedAttachments.append(contentsOf: fileAttachments)
                 }
 
                 _ = try await self.context.account.network.sendChannelMessage(
@@ -1865,24 +2643,30 @@ final class SendMessageInputViewController: UIViewController {
                     mentions: mentionList,
                     attachments: uploadedAttachments,
                     references: references,
-                    anonymous: false,
+                    anonymous: sendAsAnonymous,
                     mentionEveryone: false,
                     avatar: avatar,
                     topicId: self.topicId,
                     token: token
                 )
-                self.context.account.postbox.write { tx in
-                    let msgs = tx.getMessages(channelId: channelIdStr)
-                    let pendingStillExists = msgs.contains { $0.id == localId }
-                    if pendingStillExists {
-                        tx.markMessageSent(id: localId)
-                    } else {
-                        ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                if !sendAsAnonymous {
+                    self.context.account.postbox.write { tx in
+                        let msgs = tx.getMessages(channelId: channelIdStr)
+                        let pendingStillExists = msgs.contains { $0.id == localId }
+                        if pendingStillExists {
+                            tx.markMessageSent(id: localId)
+                        } else {
+                            ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                            ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                        }
                     }
                 }
             } catch {
-                self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
-                ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                if !sendAsAnonymous {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+                    ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                }
                 self.onError?(error.localizedDescription)
             }
         }
@@ -1937,7 +2721,7 @@ final class SendMessageInputViewController: UIViewController {
                     mentions: [],
                     attachments: attachments,
                     references: references,
-                    anonymous: false,
+                    anonymous: self.shouldSendAsAnonymousMessage,
                     mentionEveryone: false,
                     avatar: avatar,
                     topicId: self.topicId,
@@ -1975,6 +2759,12 @@ extension SendMessageInputViewController: UITextViewDelegate {
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
         updateInlineSuggestions()
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
+    }
+
+    func textViewDidEndEditing(_ textView: UITextView) {
+        syncAttachControlsWithTypedText()
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -1982,6 +2772,9 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        if isVoiceRecordingActive {
+            return false
+        }
         if text == "\n" {
             send()
             return false
@@ -2112,6 +2905,17 @@ final class PastableTextView: UITextView {
     var onImagesPasted: (([UIImage]) -> Void)?
     var onGIFPasted: ((Data) -> Void)?
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let h = bounds.height
+        guard h > 0 else { return }
+        let cap = 20.swh
+        layer.cornerRadius = min(h * 0.5, cap)
+        if #available(iOS 13.0, *) {
+            layer.cornerCurve = .continuous
+        }
+    }
+
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(paste(_:)) {
             let pb = UIPasteboard.general
@@ -2164,3 +2968,26 @@ private final class OverflowHitTestView: UIView {
         return super.hitTest(point, with: event)
     }
 }
+
+
+extension SendMessageInputViewController: UIDocumentPickerDelegate {
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        for url in urls {
+            let filename = url.lastPathComponent
+            let ext = url.pathExtension.lowercased()
+            let filetype = Self.mimeType(for: ext)
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+
+            let fileInfo = PickedFileInfo(url: url, filename: filename, filesize: fileSize, filetype: filetype)
+            pickedFiles.append(fileInfo)
+            attachmentPreviewView.addFile(fileInfo)
+        }
+        updatePreviewVisibility()
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        // No action needed
+    }
+}
+

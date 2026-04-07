@@ -53,11 +53,35 @@ enum RichTextBuilder {
                 .systemFont(ofSize: 14.sf, weight: .bold)
             ]
         }
+        static func buzz(from base: Style) -> Style {
+            let red = UIColor(red: 0.93, green: 0.11, blue: 0.14, alpha: 1.0)
+            let bf = base.boldFont
+            let mentionBg = red.withAlphaComponent(0.14)
+            let codeDesc = base.codeFont.fontDescriptor.withSymbolicTraits([.traitBold])
+            let codeBuzz = codeDesc.map { UIFont(descriptor: $0, size: base.codeFont.pointSize) } ?? bf
+            return Style(
+                bodyFont: bf,
+                bodyColor: red,
+                mentionFont: bf,
+                mentionColor: red,
+                mentionBgColor: mentionBg,
+                roleMentionColor: red,
+                roleMentionBgColor: mentionBg,
+                linkColor: red,
+                codeBgColor: base.codeBgColor,
+                codeFont: codeBuzz,
+                boldFont: bf,
+                headingFonts: base.headingFonts,
+                emojiSize: base.emojiSize,
+                emojiImgproxyFitSide: base.emojiImgproxyFitSide
+            )
+        }
 
         static func fromTheme() -> Style {
             let t = UIColor.theme
+            let body = UIFont.systemFont(ofSize: 14.sf)
             return Style(
-                bodyFont: .systemFont(ofSize: 14.sf),
+                bodyFont: body,
                 bodyColor: t.textStrong,
                 mentionFont: .systemFont(ofSize: 14.sf, weight: .semibold),
                 mentionColor: t.textLink,
@@ -67,15 +91,15 @@ enum RichTextBuilder {
                 linkColor: t.textLink,
                 codeBgColor: t.tertiary,
                 codeFont: UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular),
-                boldFont: .systemFont(ofSize: 14.sf, weight: .bold),
-                headingFonts: Self.defaultHeadingFonts(),
+                boldFont: body,
+                headingFonts: Array(repeating: body, count: 6),
                 emojiSize: 20.sf,
                 emojiImgproxyFitSide: 50
             )
         }
     }
 
-    static func build(from content: ParsedContent, style: Style? = nil) -> NSAttributedString {
+    static func build(from content: ParsedContent, style: Style? = nil, buzzStyled: Bool = false) -> NSAttributedString {
         var s = style ?? .fromTheme()
         if content.isOnlyEmoji {
             s = Style(
@@ -88,6 +112,9 @@ enum RichTextBuilder {
                 emojiSize: 48.sf,
                 emojiImgproxyFitSide: 100
             )
+        }
+        if buzzStyled {
+            s = Style.buzz(from: s)
         }
         let text = content.text
 
@@ -157,11 +184,16 @@ enum RichTextBuilder {
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
                 attrs[.backgroundColor] = s.codeBgColor
+                let paraStyle = NSMutableParagraphStyle()
+                paraStyle.lineHeightMultiple = 1.4
+                attrs[.paragraphStyle] = paraStyle
+                attrs[.baselineOffset] = 1
                 var displayText = rawText
                 if displayText.hasPrefix("`") && displayText.hasSuffix("`") {
                     displayText = String(displayText.dropFirst().dropLast())
                 }
-                result.append(NSAttributedString(string: " \(displayText) ", attributes: attrs))
+                let thin = "\u{2009}"
+                result.append(NSAttributedString(string: "\(thin)\(displayText)\(thin)", attributes: attrs))
 
             case .codeBlock:
                 var attrs = bodyAttributes(s)
@@ -208,8 +240,11 @@ enum RichTextBuilder {
         return result
     }
 
-    static func buildSegments(from content: ParsedContent, style: Style? = nil) -> [RichTextSegment] {
-        let s = style ?? .fromTheme()
+    static func buildSegments(from content: ParsedContent, style: Style? = nil, buzzStyled: Bool = false) -> [RichTextSegment] {
+        var s = style ?? .fromTheme()
+        if buzzStyled {
+            s = Style.buzz(from: s)
+        }
         let text = content.text
 
         guard !text.isEmpty else { return [] }
@@ -219,7 +254,7 @@ enum RichTextBuilder {
             .sorted { $0.start < $1.start }
 
         guard !codeBlockTokens.isEmpty else {
-            return [.text(build(from: content, style: s))]
+            return [.text(build(from: content, style: s, buzzStyled: false))]
         }
 
         var segments: [RichTextSegment] = []
@@ -230,7 +265,7 @@ enum RichTextBuilder {
         for token in codeBlockTokens {
             if token.start > lastIndex {
                 let beforeContent = sliceContent(content, from: lastIndex, to: token.start)
-                let attrText = build(from: beforeContent, style: s)
+                let attrText = build(from: beforeContent, style: s, buzzStyled: false)
                 if attrText.length > 0 {
                     segments.append(.text(attrText))
                 }
@@ -256,7 +291,7 @@ enum RichTextBuilder {
 
         if lastIndex < utf16Len {
             let afterContent = sliceContent(content, from: lastIndex, to: utf16Len)
-            let attrText = build(from: afterContent, style: s)
+            let attrText = build(from: afterContent, style: s, buzzStyled: false)
             if attrText.length > 0 {
                 segments.append(.text(attrText))
             }

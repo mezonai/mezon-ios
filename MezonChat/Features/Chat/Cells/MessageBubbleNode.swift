@@ -16,9 +16,11 @@ final class MessageBubbleNode: ASDisplayNode {
     private var topicNode: MessageTopicNode?
     private var textContentNode: MessageTextContentNode?
     private var mediaContentNode: MessageMediaContentNode?
+    private var audioAttachmentNode: MessageAudioAttachmentNode?
     private var fileAttachmentNode: MessageFileAttachmentNode?
     private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
+    private var locationNode: MessageLocationNode?
     private var errorTextNode: ASTextNode2?
 
     private(set) var display: ChatMessageDisplay
@@ -28,11 +30,13 @@ final class MessageBubbleNode: ASDisplayNode {
     private let hasTopic: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
+    private let hasAudio: Bool
     private let hasFiles: Bool
     private let hasEmbeds: Bool
-    private let hasReactions: Bool
+    private let showsReactionStrip: Bool
     private let hasReply: Bool
     private let hasDeletedReply: Bool
+    private let hasLocation: Bool
     private var isFailed: Bool = false
 
     private static let avatarSize: CGFloat = 40
@@ -45,9 +49,11 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedTopicSize: CGSize = .zero
     private var cachedTextSize: CGSize = .zero
     private var cachedMediaSize: CGSize = .zero
+    private var cachedAudioSize: CGSize = .zero
     private var cachedFileSize: CGSize = .zero
     private var cachedEmbedSize: CGSize = .zero
     private var cachedReactionsSize: CGSize = .zero
+    private var cachedLocationSize: CGSize = .zero
     private var cachedErrorSize: CGSize = .zero
     private var cachedForwardHeaderSize: CGSize = .zero
     private var cachedForwardLabelSize: CGSize = .zero
@@ -71,13 +77,25 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let parsed = display.parsedContent
         let mediaAttachments = display.attachments.filter { $0.isMedia }
-        let fileAttachments = display.attachments.filter { !$0.isMedia && !$0.url.isEmpty }
+        let audioAttachments = display.attachments.filter { $0.isAudio && !$0.url.isEmpty }
+        let fileAttachments = display.attachments.filter {
+            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading)
+        }
 
         if display.isCallLog {
             self.hasContent = false
             self.hasMedia = false
+            self.hasAudio = false
             self.hasFiles = false
             self.hasEmbeds = false
+            self.hasLocation = false
+        } else if display.isLocation {
+            self.hasContent = false
+            self.hasMedia = false
+            self.hasAudio = false
+            self.hasFiles = false
+            self.hasEmbeds = false
+            self.hasLocation = true
         } else {
             if display.checkOneLinkImage {
                 self.hasContent = false
@@ -85,10 +103,12 @@ final class MessageBubbleNode: ASDisplayNode {
                 self.hasContent = !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
             self.hasMedia = !mediaAttachments.isEmpty
+            self.hasAudio = !audioAttachments.isEmpty
             self.hasFiles = !fileAttachments.isEmpty
             self.hasEmbeds = !parsed.embeds.isEmpty
+            self.hasLocation = false
         }
-        self.hasReactions = !display.reactions.isEmpty
+        self.showsReactionStrip = Self.shouldShowReactionStrip(for: display)
 
         if display.isForward {
             let b = ASDisplayNode()
@@ -115,6 +135,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         super.init()
+        automaticallyManagesSubnodes = false
         backgroundColor = .clear
 
         if display.hasIncludeMention {
@@ -213,7 +234,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if hasContent {
             let tcn = MessageTextContentNode()
-            tcn.configure(parsedContent: parsed)
+            tcn.configure(parsedContent: parsed, buzzStyled: display.isBuzzMessage)
             tcn.onMentionTapped = { interaction.onMentionTapped($0) }
             tcn.onHashtagTapped = { interaction.onHashtagTapped($0) }
             tcn.onLinkTapped = { UIApplication.shared.open($0) }
@@ -229,6 +250,13 @@ final class MessageBubbleNode: ASDisplayNode {
             }
             mediaContentNode = mcn
             addSubnode(mcn)
+        }
+
+        if hasAudio {
+            let an = MessageAudioAttachmentNode()
+            an.configure(audio: audioAttachments, messageId: display.message.id)
+            audioAttachmentNode = an
+            addSubnode(an)
         }
 
         if hasFiles {
@@ -249,13 +277,17 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(en)
         }
 
-        if hasReactions {
+        if hasLocation, let locData = display.locationData {
+            let ln = MessageLocationNode()
+            ln.configure(locationData: locData)
+            locationNode = ln
+            addSubnode(ln)
+        }
+
+        if showsReactionStrip {
             let rn = MessageReactionsNode()
-            rn.configure(reactions: display.reactions)
-            rn.onReactionTapped = { [weak self] reaction in
-                guard let self else { return }
-                interaction.onReactionTapped(reaction, self.display)
-            }
+            rn.configure(reactions: display.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(rn)
             reactionsNode = rn
             addSubnode(rn)
         }
@@ -280,18 +312,17 @@ final class MessageBubbleNode: ASDisplayNode {
     func updateReactions(newDisplay: ChatMessageDisplay) {
         self.display = newDisplay
 
-        if newDisplay.reactions.isEmpty {
+        let strip = Self.shouldShowReactionStrip(for: newDisplay)
+        if !strip {
             reactionsNode?.removeFromSupernode()
             reactionsNode = nil
         } else if let existing = reactionsNode {
-            existing.updateReactions(newDisplay.reactions)
+            existing.updateReactions(newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(existing)
         } else {
             let rn = MessageReactionsNode()
-            rn.configure(reactions: newDisplay.reactions)
-            rn.onReactionTapped = { [weak self] reaction in
-                guard let self else { return }
-                self.interaction.onReactionTapped(reaction, self.display)
-            }
+            rn.configure(reactions: newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(rn)
             reactionsNode = rn
             addSubnode(rn)
         }
@@ -304,6 +335,8 @@ final class MessageBubbleNode: ASDisplayNode {
         let oldFailed = self.isFailed
         self.display = newDisplay
         self.isFailed = newDisplay.isFailed
+
+        syncReactionStripWithDisplay(newDisplay)
 
         if oldFailed && !newDisplay.isFailed {
             errorTextNode?.removeFromSupernode()
@@ -327,14 +360,60 @@ final class MessageBubbleNode: ASDisplayNode {
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
+        audioAttachmentNode?.alpha = contentAlpha
         fileAttachmentNode?.alpha = contentAlpha
         embedNode?.alpha = contentAlpha
+        locationNode?.alpha = contentAlpha
         forwardHeaderIconNode?.alpha = contentAlpha
         forwardHeaderLabelNode?.alpha = contentAlpha
         forwardLeftBarNode?.alpha = contentAlpha
 
         let _ = measureSize(width: cachedTotalSize.width)
         setNeedsLayout()
+    }
+
+    private func syncReactionStripWithDisplay(_ newDisplay: ChatMessageDisplay) {
+        let strip = Self.shouldShowReactionStrip(for: newDisplay)
+        if !strip {
+            reactionsNode?.removeFromSupernode()
+            reactionsNode = nil
+            return
+        }
+        if let existing = reactionsNode {
+            existing.updateReactions(newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(existing)
+        } else {
+            let rn = MessageReactionsNode()
+            rn.configure(reactions: newDisplay.reactions, showAddButton: true)
+            wireReactionNodeCallbacks(rn)
+            reactionsNode = rn
+            addSubnode(rn)
+        }
+    }
+
+    private func wireReactionNodeCallbacks(_ rn: MessageReactionsNode) {
+        rn.onReactionTapped = { [weak self] reaction in
+            guard let self else { return }
+            interaction.onReactionTapped(reaction, self.display)
+        }
+        rn.onReactionLongPressed = { [weak self] reaction in
+            guard let self else { return }
+            interaction.onReactionDetailRequested(reaction, self.display)
+        }
+        rn.onAddReactionTapped = { [weak self] in
+            guard let self else { return }
+            interaction.onAddReactionTapped(self.display)
+        }
+        rn.onStripBackgroundLongPressed = { [weak self] in
+            self?.handleLongPressOnReactionStripBackground()
+        }
+    }
+
+    private func handleLongPressOnReactionStripBackground() {
+        guard !hasCallLog, !hasLocation else { return }
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+        interaction.onMessageLongPressed(display)
     }
 
     private func loadAvatar() {
@@ -393,6 +472,7 @@ final class MessageBubbleNode: ASDisplayNode {
         super.didLoad()
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.25
+        longPress.delegate = self
         view.addGestureRecognizer(longPress)
 
         highlightNode.backgroundColor = UIColor.mezonBorder.withAlphaComponent(0.3)
@@ -420,6 +500,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
+        guard let touch = touches.first, !touchIsOnReactionsStrip(touch) else { return }
         showHighlight(true)
     }
 
@@ -438,7 +519,8 @@ final class MessageBubbleNode: ASDisplayNode {
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began:
-            guard !hasCallLog else { return }
+            guard !hasCallLog, !hasLocation else { return }
+            if touchIsInsideReactions(gesture) { return }
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
             interaction.onMessageLongPressed(display)
@@ -447,6 +529,26 @@ final class MessageBubbleNode: ASDisplayNode {
         default:
             break
         }
+    }
+
+    private func touchIsInsideReactions(_ gesture: UIGestureRecognizer) -> Bool {
+        guard let rn = reactionsNode, rn.isNodeLoaded else { return false }
+        let p = gesture.location(in: rn.view)
+        return rn.view.bounds.contains(p)
+    }
+
+    private func touchIsOnReactionsStrip(_ touch: UITouch) -> Bool {
+        guard let rn = reactionsNode, rn.isNodeLoaded else { return false }
+        let p = touch.location(in: view)
+        let frameInBubble = rn.view.convert(rn.view.bounds, to: view)
+        return frameInBubble.contains(p)
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer.view === view, gestureRecognizer is UILongPressGestureRecognizer, touchIsInsideReactions(gestureRecognizer) {
+            return false
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
     }
 
     func showHighlight(_ show: Bool) {
@@ -540,6 +642,13 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedMediaSize = .zero
         }
 
+        if let audioAttachmentNode {
+            cachedAudioSize = audioAttachmentNode.measureSize(maxWidth: bodyContentWidth)
+            totalH += cachedAudioSize.height + vertSpacing
+        } else {
+            cachedAudioSize = .zero
+        }
+
         if let fileAttachmentNode {
             cachedFileSize = fileAttachmentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedFileSize.height + vertSpacing
@@ -552,6 +661,13 @@ final class MessageBubbleNode: ASDisplayNode {
             totalH += cachedEmbedSize.height + vertSpacing
         } else {
             cachedEmbedSize = .zero
+        }
+
+        if let locationNode {
+            cachedLocationSize = locationNode.measureSize(maxWidth: bodyContentWidth)
+            totalH += cachedLocationSize.height + vertSpacing
+        } else {
+            cachedLocationSize = .zero
         }
 
         if let reactionsNode {
@@ -666,6 +782,12 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedMediaSize.height + vertSpacing
         }
 
+        if let audioAttachmentNode {
+            audioAttachmentNode.frame = CGRect(x: contentInnerX, y: y, width: cachedAudioSize.width, height: cachedAudioSize.height)
+            noteForwardBlock(topY: y, height: cachedAudioSize.height)
+            y += cachedAudioSize.height + vertSpacing
+        }
+
         if let fileAttachmentNode {
             fileAttachmentNode.frame = CGRect(x: contentInnerX, y: y, width: cachedFileSize.width, height: cachedFileSize.height)
             noteForwardBlock(topY: y, height: cachedFileSize.height)
@@ -676,6 +798,12 @@ final class MessageBubbleNode: ASDisplayNode {
             embedNode.frame = CGRect(x: contentInnerX, y: y, width: cachedEmbedSize.width, height: cachedEmbedSize.height)
             noteForwardBlock(topY: y, height: cachedEmbedSize.height)
             y += cachedEmbedSize.height + vertSpacing
+        }
+
+        if let locationNode {
+            locationNode.frame = CGRect(x: contentInnerX, y: y, width: cachedLocationSize.width, height: cachedLocationSize.height)
+            noteForwardBlock(topY: y, height: cachedLocationSize.height)
+            y += cachedLocationSize.height + vertSpacing
         }
 
         if let reactionsNode {
@@ -715,8 +843,10 @@ final class MessageBubbleNode: ASDisplayNode {
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
+        audioAttachmentNode?.alpha = contentAlpha
         fileAttachmentNode?.alpha = contentAlpha
         embedNode?.alpha = contentAlpha
+        locationNode?.alpha = contentAlpha
         forwardHeaderIconNode?.alpha = contentAlpha
         forwardHeaderLabelNode?.alpha = contentAlpha
         forwardLeftBarNode?.alpha = contentAlpha
@@ -756,4 +886,19 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         return fullFormatter.string(from: date)
     }
+
+    private static func reactionStripAllowed(for display: ChatMessageDisplay) -> Bool {
+        if display.isFailed { return false }
+        if display.isSystemMessage { return false }
+        if display.isCallLog { return false }
+        if display.isTopic { return false }
+        if display.message.isDeleted { return false }
+        return true
+    }
+
+    private static func shouldShowReactionStrip(for display: ChatMessageDisplay) -> Bool {
+        reactionStripAllowed(for: display) && !display.reactions.isEmpty
+    }
 }
+
+extension MessageBubbleNode: UIGestureRecognizerDelegate {}

@@ -212,6 +212,20 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum ThreadList {
+        static let searchPlaceholder = "threadList.searchPlaceholder"
+        static let empty = "threadList.empty"
+        static let joinedThread = "threadList.joinedThread"
+        static let joinedThreads = "threadList.joinedThreads"
+        static let otherActiveThread = "threadList.otherActiveThread"
+        static let otherActiveThreads = "threadList.otherActiveThreads"
+        static let olderThread = "threadList.olderThread"
+        static let olderThreads = "threadList.olderThreads"
+        static let searchThread = "threadList.searchThread"
+        static let searchThreads = "threadList.searchThreads"
+        static let createThreadSoon = "threadList.createThreadSoon"
+    }
+
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
@@ -250,6 +264,9 @@ enum L10n {
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
+        static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
+        static let yourLocation          = "channelMessages.yourLocation"
+        static let locationOf            = "channelMessages.locationOf"
     }
 
     enum DirectMessage {
@@ -279,6 +296,11 @@ enum L10n {
         static let markMessage      = "messageAction.markMessage"
         static let quickMenu        = "messageAction.quickMenu"
         static let report           = "messageAction.report"
+        static let pinMessageConfirm = "messageAction.pinMessageConfirm"
+        static let pinSuccess       = "messageAction.pinSuccess"
+        static let pinError         = "messageAction.pinError"
+        static let yes              = "messageAction.yes"
+        static let no               = "messageAction.no"
     }
 
     enum Error {
@@ -289,6 +311,27 @@ enum L10n {
         static let sessionExpiredOrNetwork = "error.sessionExpiredOrNetwork"
         static let sessionExpiredContent  = "error.sessionExpiredContent"
         static let sessionExpiredConfirm  = "error.sessionExpiredConfirm"
+    }
+
+    enum ChannelDetail {
+        static let members = "channelDetail.members"
+        static let media   = "channelDetail.media"
+        static let files   = "channelDetail.files"
+        static let pins    = "channelDetail.pins"
+        static let canvas  = "channelDetail.canvas"
+        static let online  = "channelDetail.online"
+        static let offline = "channelDetail.offline"
+        static let inviteMembers = "channelDetail.inviteMembers"
+        static let newGroup = "channelDetail.newGroup"
+        static let addMembers = "channelDetail.addMembers"
+        static let untitledCanvas = "channelDetail.untitledCanvas"
+        static let searchFilesPlaceholder = "channelDetail.searchFilesPlaceholder"
+        static let fileSharedBy = "channelDetail.fileSharedBy"
+        static let noFilesYet = "channelDetail.noFilesYet"
+        static let noMediaYet = "channelDetail.noMediaYet"
+        static let pinAttachmentPreview = "channelDetail.pinAttachmentPreview"
+        static let pinEmbedPreview = "channelDetail.pinEmbedPreview"
+        static let noPinsYet = "channelDetail.noPinsYet"
     }
 }
 
@@ -440,6 +483,18 @@ extension L10n {
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
 
+        "threadList.searchPlaceholder": "Search for Thread Name",
+        "threadList.empty": "No threads yet",
+        "threadList.joinedThread": "joined thread",
+        "threadList.joinedThreads": "joined threads",
+        "threadList.otherActiveThread": "other active thread",
+        "threadList.otherActiveThreads": "other active threads",
+        "threadList.olderThread": "older thread",
+        "threadList.olderThreads": "older threads",
+        "threadList.searchThread": "search result",
+        "threadList.searchThreads": "search results",
+        "threadList.createThreadSoon": "Create thread is not available here yet.",
+
         "channel.label":  "channel",
         "channel.thread": "Threads",
         "channel.settings": "Channel Settings",
@@ -471,6 +526,9 @@ extension L10n {
         "channelMessages.userIsTyping": "%@ is typing…",
         "channelMessages.usersAreTyping": "%@ are typing…",
         "channelMessages.severalPeopleTyping": "Several people are typing…",
+        "channelMessages.voiceMessageA11y": "Voice message. Tap to play or pause.",
+        "channelMessages.yourLocation": "Your location",
+        "channelMessages.locationOf": "%@'s location",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -495,6 +553,11 @@ extension L10n {
         "messageAction.markMessage": "Mark Message",
         "messageAction.quickMenu": "Quick Menu",
         "messageAction.report": "Report",
+        "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
+        "messageAction.pinSuccess": "Message pinned successfully",
+        "messageAction.pinError": "Failed to pin message",
+        "messageAction.yes": "Yes",
+        "messageAction.no": "No",
 
         "profile.addStatus": "Add Status",
         "profile.editProfile": "Edit Profile",
@@ -539,6 +602,25 @@ extension L10n {
         "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
+
+        "channelDetail.members": "Members",
+        "channelDetail.media":   "Media",
+        "channelDetail.files":   "Files",
+        "channelDetail.pins":    "Pins",
+        "channelDetail.canvas":  "Canvas",
+        "channelDetail.online":  "Online",
+        "channelDetail.offline": "Offline",
+        "channelDetail.inviteMembers": "Invite Members",
+        "channelDetail.newGroup": "New Group",
+        "channelDetail.addMembers": "Add Members",
+        "channelDetail.untitledCanvas": "Untitled Canvas",
+        "channelDetail.searchFilesPlaceholder": "Search files",
+        "channelDetail.fileSharedBy": "Shared by %@",
+        "channelDetail.noFilesYet": "No files yet",
+        "channelDetail.noMediaYet": "No photos or videos yet",
+        "channelDetail.pinAttachmentPreview": "Attachment",
+        "channelDetail.pinEmbedPreview": "Embed",
+        "channelDetail.noPinsYet": "No pinned messages",
     ]
 
     private static let vi: [String: String] = [
@@ -682,6 +764,18 @@ extension L10n {
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
 
+        "threadList.searchPlaceholder": "Tìm theo tên chủ đề",
+        "threadList.empty": "Chưa có chủ đề",
+        "threadList.joinedThread": "chủ đề đã tham gia",
+        "threadList.joinedThreads": "chủ đề đã tham gia",
+        "threadList.otherActiveThread": "chủ đề hoạt động khác",
+        "threadList.otherActiveThreads": "chủ đề hoạt động khác",
+        "threadList.olderThread": "chủ đề cũ",
+        "threadList.olderThreads": "chủ đề cũ",
+        "threadList.searchThread": "kết quả",
+        "threadList.searchThreads": "kết quả",
+        "threadList.createThreadSoon": "Tạo chủ đề từ đây sẽ có trong bản cập nhật sau.",
+
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",
         "channel.settings": "Cài đặt kênh",
@@ -713,6 +807,9 @@ extension L10n {
         "channelMessages.userIsTyping": "%@ đang nhập…",
         "channelMessages.usersAreTyping": "%@ đang nhập…",
         "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",
+        "channelMessages.voiceMessageA11y": "Tin nhắn thoại. Chạm để phát hoặc tạm dừng.",
+        "channelMessages.yourLocation": "Vị trí của bạn",
+        "channelMessages.locationOf": "Vị trí của %@",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
@@ -737,6 +834,11 @@ extension L10n {
         "messageAction.markMessage": "Đánh dấu tin nhắn",
         "messageAction.quickMenu": "Menu nhanh",
         "messageAction.report": "Báo cáo",
+        "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
+        "messageAction.pinSuccess": "Ghim tin nhắn thành công",
+        "messageAction.pinError": "Ghim tin nhắn thất bại",
+        "messageAction.yes": "Đồng ý",
+        "messageAction.no": "Không",
 
         "profile.addStatus": "Thêm trạng thái",
         "profile.editProfile": "Chỉnh sửa hồ sơ",
@@ -789,5 +891,24 @@ extension L10n {
         "error.sessionExpiredContent":
             "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
         "error.sessionExpiredConfirm": "Đăng nhập lại",
+
+        "channelDetail.members": "Thành viên",
+        "channelDetail.media":   "Phương tiện",
+        "channelDetail.files":   "Tệp",
+        "channelDetail.pins":    "Ghim",
+        "channelDetail.canvas":  "Canvas",
+        "channelDetail.online":  "Trực tuyến",
+        "channelDetail.offline": "Ngoại tuyến",
+        "channelDetail.inviteMembers": "Mời thành viên",
+        "channelDetail.newGroup": "Nhóm mới",
+        "channelDetail.addMembers": "Thêm thành viên",
+        "channelDetail.untitledCanvas": "Bản vẽ chưa đặt tên",
+        "channelDetail.searchFilesPlaceholder": "Tìm tệp",
+        "channelDetail.fileSharedBy": "Chia sẻ bởi %@",
+        "channelDetail.noFilesYet": "Chưa có tệp",
+        "channelDetail.noMediaYet": "Chưa có ảnh hay video",
+        "channelDetail.pinAttachmentPreview": "Tệp đính kèm",
+        "channelDetail.pinEmbedPreview": "Nội dung nhúng",
+        "channelDetail.noPinsYet": "Chưa có tin nhắn ghim",
     ]
 }

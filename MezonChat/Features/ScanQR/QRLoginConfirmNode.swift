@@ -96,7 +96,6 @@ final class QRLoginConfirmNode: ASDisplayNode {
     private func setupBackgroundGradient() {
         backgroundGradientLayer.locations = [0, 0.5, 1]
         backgroundGradientLayer.colors = theme.loginGradientColors.map { $0.cgColor }
-        // Frame will be handled in layout()
         layer.insertSublayer(backgroundGradientLayer, at: 0)
     }
 

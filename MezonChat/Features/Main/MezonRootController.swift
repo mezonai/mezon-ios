@@ -83,8 +83,10 @@ final class MezonRootController: NavigationController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRSelectClanRoot(_:)), name: .mezonQRSelectClan, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSharedContent(_:)), name: .mezonDidReceiveSharedContent, object: nil)
 
         processPendingNavigation()
+        checkPendingSharedContentOnLaunch()
     }
 
     private func processPendingNavigation() {
@@ -196,6 +198,27 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    private func resolvedClanIdForOpenChat(
+        notificationClanId: Int64?,
+        channel: Mezon_Api_ChannelDescription,
+        fallbackClanId: Int64
+    ) -> Int64 {
+        if channel.type == MezonConstants.ChannelType.dm.rawValue {
+            return 0
+        }
+        if channel.type == MezonConstants.ChannelType.group.rawValue && channel.clanID == 0 {
+            return 0
+        }
+        if channel.clanID != 0 {
+            if let n = notificationClanId, n != 0, n != channel.clanID {
+                AppLogger.network.warning("[NavigateChannel] push clanId \(n) != channel.clanID \(channel.clanID); using channel")
+            }
+            return channel.clanID
+        }
+        if let n = notificationClanId, n != 0 { return n }
+        return fallbackClanId
+    }
+
     private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
         if isChatAlreadyVisible(channelId: channelIdInt) { return }
@@ -209,7 +232,11 @@ final class MezonRootController: NavigationController {
         let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
 
         if let (cachedClanId, cachedChannel) = context.account.postbox.getChannelDescription(channelId: channelIdInt) {
-            let resolvedClanId = notificationClanId ?? cachedClanId
+            let resolvedClanId = resolvedClanIdForOpenChat(
+                notificationClanId: notificationClanId,
+                channel: cachedChannel,
+                fallbackClanId: cachedClanId
+            )
             switchClanIfNeeded(homeVC: homeVC, toClanId: resolvedClanId)
             homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
             var parentName: String?
@@ -223,7 +250,11 @@ final class MezonRootController: NavigationController {
         }
 
         if let ch = homeVC.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
-            let resolvedClanId = notificationClanId ?? (ch.clanID != 0 ? ch.clanID : homeVC.channelListVC.clanId)
+            let resolvedClanId = resolvedClanIdForOpenChat(
+                notificationClanId: notificationClanId,
+                channel: ch,
+                fallbackClanId: homeVC.channelListVC.clanId
+            )
             homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
             var parentName: String?
             if ch.parentID != 0 {
@@ -234,7 +265,9 @@ final class MezonRootController: NavigationController {
             return
         }
 
-        let targetClanId: Int64 = notificationClanId ?? homeVC.channelListVC.clanId
+        let listClanId = homeVC.channelListVC.clanId
+        let fallbackWhenNoPushClan: Int64 = context.currentClanId != 0 ? context.currentClanId : listClanId
+        let targetClanId: Int64 = notificationClanId ?? fallbackWhenNoPushClan
 
         if let notificationClanId, notificationClanId != homeVC.clanListVC.selectedClanId,
            let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == notificationClanId }) {
@@ -257,7 +290,12 @@ final class MezonRootController: NavigationController {
                     if ch.parentID != 0 {
                         parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
                     }
-                    let chatVC = ChatViewController(clanId: targetClanId, channel: ch, context: self.context, parentName: parentName)
+                    let resolved = self.resolvedClanIdForOpenChat(
+                        notificationClanId: notificationClanId,
+                        channel: ch,
+                        fallbackClanId: targetClanId
+                    )
+                    let chatVC = ChatViewController(clanId: resolved, channel: ch, context: self.context, parentName: parentName)
                     self.pushViewController(chatVC, animated: false)
                 } else {
                     homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
@@ -343,7 +381,46 @@ final class MezonRootController: NavigationController {
         return result
     }
 
-    deinit { navigationDisposable.dispose() }
+
+    @objc private func handleSharedContent(_ notification: Notification) {
+        let type = notification.userInfo?["type"] as? String ?? "unknown"
+        presentSharingUI(type: type)
+    }
+
+    private func checkPendingSharedContentOnLaunch() {
+        guard SharingManager.shared.hasPendingSharedContent() else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            guard SharingManager.shared.hasPendingSharedContent() else { return }
+            self.presentSharingUI(type: "unknown")
+        }
+    }
+
+    private func presentSharingUI(type: String) {
+        guard let content = SharingManager.shared.loadSharedContent(type: type) else {
+            AppLogger.network.info("[Sharing] No shared content found for type: \(type)")
+            return
+        }
+
+        if let presented = self.view.window?.rootViewController?.presentedViewController,
+           presented is SharingViewController {
+            presented.dismiss(animated: false)
+        }
+
+        let sharingVC = SharingViewController(context: context, sharedContent: content)
+        if let windowRoot = self.view.window?.rootViewController {
+            var topVC = windowRoot
+            while let presented = topVC.presentedViewController {
+                topVC = presented
+            }
+            topVC.present(sharingVC, animated: true)
+        }
+    }
+
+    deinit {
+        navigationDisposable.dispose()
+        NotificationCenter.default.removeObserver(self, name: .mezonDidReceiveSharedContent, object: nil)
+    }
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
         let actualTheme = theme ?? ThemeManager.shared.current

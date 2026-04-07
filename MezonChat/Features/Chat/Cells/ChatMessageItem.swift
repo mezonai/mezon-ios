@@ -192,12 +192,8 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             }()
 
             if let existing = currentBubble, isSameLogicalMessage, !attachmentsChanged {
-                if existing.display.reactions == item.display.reactions
-                    && existing.display.sendingState == item.display.sendingState
-                    && existing.display.id == item.display.id {
-                    bubble = existing
-                } else if existing.display.sendingState == item.display.sendingState
-                            && existing.display.id == item.display.id {
+                if existing.display.sendingState == item.display.sendingState,
+                   existing.display.id == item.display.id {
                     existing.updateReactions(newDisplay: item.display)
                     bubble = existing
                 } else {

@@ -21,4 +21,13 @@ enum MezonConstants {
         case clan = 5
         case thread = 6
     }
+
+    enum MessageCode: Int32 {
+        case welcome = 5
+        case createThread = 6
+        case createPin = 7
+        case buzz = 8
+        case auditLog = 10
+        case upcomingEvent = 13
+    }
 }
