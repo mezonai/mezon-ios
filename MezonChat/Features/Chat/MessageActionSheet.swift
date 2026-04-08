@@ -233,6 +233,8 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private var didBuildContent = false
+    private var actionByTag: [Int: MessageAction] = [:]
+    private var nextActionTag = 300
 
     private var panGesture: UIPanGestureRecognizer!
     private var panStartY: CGFloat = 0
@@ -603,9 +605,15 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         let btn = UIButton(type: .system)
         btn.frame = CGRect(x: 0, y: y, width: width, height: height)
-        btn.addAction(UIAction { [weak self] _ in
-            self?.onAction(action)
-        }, for: .touchUpInside)
+        btn.tag = nextActionTag
+        actionByTag[nextActionTag] = action
+        nextActionTag += 1
+        btn.addTarget(self, action: #selector(actionButtonTapped(_:)), for: .touchUpInside)
         parent.addSubview(btn)
+    }
+
+    @objc private func actionButtonTapped(_ sender: UIButton) {
+        guard let action = actionByTag[sender.tag] else { return }
+        onAction(action)
     }
 }

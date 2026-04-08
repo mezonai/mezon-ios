@@ -2,7 +2,12 @@ import UIKit
 
 final class SocketStatusBannerView: UIView {
 
-    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let spinner: UIActivityIndicatorView = {
+        if #available(iOS 13.0, *) {
+            return UIActivityIndicatorView(style: .medium)
+        }
+        return UIActivityIndicatorView(style: .gray)
+    }()
     private let dotView = UIView()
     private let label = UILabel()
 
@@ -69,7 +74,7 @@ final class SocketStatusBannerView: UIView {
         spinner.stopAnimating()
         spinner.isHidden = true
         dotView.isHidden = false
-        dotView.backgroundColor = UIColor.systemGreen
+        dotView.backgroundColor = UIColor(red: 0.2, green: 0.78, blue: 0.35, alpha: 1)
         label.text = "Connected"
         showBanner()
 

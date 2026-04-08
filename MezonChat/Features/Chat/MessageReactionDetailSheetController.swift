@@ -163,11 +163,9 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
         emojiTitleLabel.lineBreakMode = .byTruncatingTail
         headerContainer.addSubview(emojiTitleLabel)
 
-        var trashCfg = UIButton.Configuration.plain()
-        trashCfg.image = UIImage(systemName: "trash.fill")
-        trashCfg.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        trashCfg.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
-        trashButton.configuration = trashCfg
+        let trashImage = UIImage(systemName: "trash.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
+        trashButton.setImage(trashImage, for: .normal)
+        trashButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         trashButton.tintColor = .white
         trashButton.backgroundColor = UIColor.systemRed
         trashButton.layer.cornerRadius = 6

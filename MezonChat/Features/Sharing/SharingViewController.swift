@@ -21,8 +21,6 @@ final class SharingViewController: UIViewController {
         static func == (lhs: Self, rhs: Self) -> Bool { lhs.channelID == rhs.channelID }
     }
 
-    private enum Section: Int, CaseIterable { case suggestions }
-
     private var allSuggestions: [SuggestionItem] = []
     private var filteredSuggestions: [SuggestionItem] = []
     private var channelMap: [Int64: Mezon_Api_ChannelDescription] = [:]
@@ -32,8 +30,6 @@ final class SharingViewController: UIViewController {
     private var searchText: String = ""
     private var isUploading = false
     private var searchDebounceTimer: Foundation.Timer?
-
-    private var diffableDataSource: UITableViewDiffableDataSource<Section, SuggestionItem>!
 
     private var sharedMediaFiles: [SharingManager.SharedMediaFile] = []
     private var sharedTexts: [String] = []
@@ -46,8 +42,6 @@ final class SharingViewController: UIViewController {
 
     private let closeButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        b.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
@@ -72,7 +66,7 @@ final class SharingViewController: UIViewController {
     }()
 
     private let searchIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.tintColor = UIColor.white.withAlphaComponent(0.5)
         iv.contentMode = .scaleAspectFit
@@ -96,8 +90,6 @@ final class SharingViewController: UIViewController {
 
     private let searchClearButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        b.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
         b.tintColor = UIColor.white.withAlphaComponent(0.6)
         b.backgroundColor = UIColor.white.withAlphaComponent(0.15)
         b.layer.cornerRadius = 12
@@ -139,8 +131,6 @@ final class SharingViewController: UIViewController {
 
     private let filterButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        b.setImage(UIImage(systemName: "slider.horizontal.3", withConfiguration: config), for: .normal)
         b.tintColor = UIColor.white.withAlphaComponent(0.6)
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
@@ -220,8 +210,6 @@ final class SharingViewController: UIViewController {
     private let sendButton: UIButton = {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)
-        b.setImage(UIImage(systemName: "arrow.up", withConfiguration: config), for: .normal)
         b.tintColor = .white
         b.layer.cornerRadius = 20
         b.isEnabled = false
@@ -239,7 +227,12 @@ final class SharingViewController: UIViewController {
     }()
 
     private let activityIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai: UIActivityIndicatorView
+        if #available(iOS 13.0, *) {
+            ai = UIActivityIndicatorView(style: .medium)
+        } else {
+            ai = UIActivityIndicatorView(style: .gray)
+        }
         ai.translatesAutoresizingMaskIntoConstraints = false
         ai.color = .white
         ai.hidesWhenStopped = true
@@ -301,6 +294,8 @@ final class SharingViewController: UIViewController {
     }
 
     private func setupUI() {
+        applySharingToolbarImages()
+
         view.addSubview(headerView)
         headerView.addSubview(closeButton)
         headerView.addSubview(titleLabel)
@@ -469,9 +464,9 @@ final class SharingViewController: UIViewController {
         }
 
         tableView.delegate = self
+        tableView.dataSource = self
         tableView.prefetchDataSource = self
         tableView.register(SharingChannelCell.self, forCellReuseIdentifier: SharingChannelCell.reuseId)
-        setupDiffableDataSource()
 
         searchTextField.delegate = self
         searchTextField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
@@ -479,30 +474,27 @@ final class SharingViewController: UIViewController {
         textField.delegate = self
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
+        textField.addTarget(self, action: #selector(commentTextChanged), for: .editingChanged)
 
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
-    private func setupDiffableDataSource() {
-        diffableDataSource = UITableViewDiffableDataSource<Section, SuggestionItem>(tableView: tableView) {
-            [weak self] tableView, indexPath, item in
-            let cell = tableView.dequeueReusableCell(withIdentifier: SharingChannelCell.reuseId, for: indexPath) as! SharingChannelCell
-            guard let self else { return cell }
-            if let channel = self.channelMap[item.channelID] {
-                let isSelected = self.selectedChannel?.channelID == item.channelID
-                cell.configure(channel: channel, clanName: item.clanName, isSelected: isSelected)
-            }
-            return cell
-        }
-        diffableDataSource.defaultRowAnimation = .none
+    private func applySnapshot(animated: Bool = false) {
+        _ = animated
+        tableView.reloadData()
     }
 
-    private func applySnapshot(animated: Bool = false) {
-        var snapshot = NSDiffableDataSourceSnapshot<Section, SuggestionItem>()
-        snapshot.appendSections([.suggestions])
-        snapshot.appendItems(filteredSuggestions, toSection: .suggestions)
-        diffableDataSource.apply(snapshot, animatingDifferences: animated)
+    private func applySharingToolbarImages() {
+        closeButton.setImage(SharingChrome.xMark(pointSize: 18, weight: .medium), for: .normal)
+        searchIconView.image = SharingChrome.magnifyingGlass()
+        searchClearButton.setImage(SharingChrome.xMark(pointSize: 12, weight: .semibold), for: .normal)
+        filterButton.setImage(SharingChrome.horizontalSliders(), for: .normal)
+        sendButton.setImage(SharingChrome.arrowUp(), for: .normal)
+    }
+
+    @objc private func commentTextChanged() {
+        updateSendButton()
     }
 
     private func buildAttachmentPreviews() {
@@ -567,7 +559,7 @@ final class SharingViewController: UIViewController {
                     overlay.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
                     overlay.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
                 ])
-                let playIcon = UIImageView(image: UIImage(systemName: "play.fill"))
+                let playIcon = UIImageView(image: SharingChrome.playFillTemplate())
                 playIcon.translatesAutoresizingMaskIntoConstraints = false
                 playIcon.tintColor = .white
                 playIcon.contentMode = .scaleAspectFit
@@ -581,9 +573,9 @@ final class SharingViewController: UIViewController {
 
             case .file:
                 wrapper.backgroundColor = UIColor.white.withAlphaComponent(0.1)
-                let fileIcon = UIImageView(image: UIImage(systemName: "doc.fill"))
+                let fileIcon = UIImageView(image: SharingChrome.docFillTemplate())
                 fileIcon.translatesAutoresizingMaskIntoConstraints = false
-                fileIcon.tintColor = .systemBlue
+                fileIcon.tintColor = UIColor(red: 0, green: 0.48, blue: 1, alpha: 1)
                 fileIcon.contentMode = .scaleAspectFit
                 wrapper.addSubview(fileIcon)
                 NSLayoutConstraint.activate([
@@ -611,8 +603,7 @@ final class SharingViewController: UIViewController {
 
             let removeBtn = UIButton(type: .system)
             removeBtn.translatesAutoresizingMaskIntoConstraints = false
-            let removeConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-            removeBtn.setImage(UIImage(systemName: "xmark", withConfiguration: removeConfig), for: .normal)
+            removeBtn.setImage(SharingChrome.xMark(pointSize: 10, weight: .bold), for: .normal)
             removeBtn.tintColor = .white
             removeBtn.backgroundColor = UIColor.black.withAlphaComponent(0.5)
             removeBtn.layer.cornerRadius = 10
@@ -768,15 +759,66 @@ final class SharingViewController: UIViewController {
     }
 
     private func loadChannels() {
-        Task { @MainActor [weak self] in
+        if #available(iOS 13.0, *) {
+            Task { @MainActor [weak self] in
+                await self?.loadChannelsAsync()
+            }
+        } else {
+            loadChannelsLegacy()
+        }
+    }
+
+    @available(iOS 13.0, *)
+    @MainActor
+    private func loadChannelsAsync() async {
+        guard let token = await context.getToken() else { return }
+
+        var dmList: [Mezon_Api_ChannelDescription] = []
+        var clanList: [Mezon_Api_ChannelDescription] = []
+
+        do {
+            let dms = try await context.account.network.listDirectMessageChannels(token: token)
+            dmList = dms
+                .filter { $0.type != MezonConstants.ChannelType.mezonVoice.rawValue }
+                .sorted { ch1, ch2 in
+                    let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
+                    let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
+                    return t1 > t2
+                }
+        } catch {
+        }
+
+        if let allChannelsList = context.engine.clanData.getAllChannelsByUser() {
+            clanList = allChannelsList.channeldesc.filter { ch in
+                let t = ch.type
+                return t == MezonConstants.ChannelType.channel.rawValue
+                    || t == MezonConstants.ChannelType.thread.rawValue
+                    || t == MezonConstants.ChannelType.announcement.rawValue
+            }
+        }
+
+        do {
+            let clanDescs = try await context.account.network.listClanDescs(token: token)
+            for clan in clanDescs {
+                clanNames[clan.clanID] = clan.clanName
+                if !clan.logo.isEmpty {
+                    clanLogos[clan.clanID] = clan.logo
+                }
+            }
+        } catch {
+        }
+
+        applyLoadedChannels(dmList: dmList, clanList: clanList)
+    }
+
+    private func loadChannelsLegacy() {
+        let token = context.session?.token ?? ""
+        guard !token.isEmpty else { return }
+
+        context.account.network.listDirectMessageChannelsLegacy(token: token) { [weak self] dmsResult in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-
             var dmList: [Mezon_Api_ChannelDescription] = []
-            var clanList: [Mezon_Api_ChannelDescription] = []
-
-            do {
-                let dms = try await self.context.account.network.listDirectMessageChannels(token: token)
+            if case .success(let dms) = dmsResult {
                 dmList = dms
                     .filter { $0.type != MezonConstants.ChannelType.mezonVoice.rawValue }
                     .sorted { ch1, ch2 in
@@ -784,65 +826,67 @@ final class SharingViewController: UIViewController {
                         let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
                         return t1 > t2
                     }
-            } catch {
-                AppLogger.network.error("[Sharing] Failed to load DM channels: \(error)")
             }
-
-            if let allChannelsList = self.context.engine.clanData.getAllChannelsByUser() {
-                clanList = allChannelsList.channeldesc.filter { ch in
-                    let t = ch.type
-                    return t == MezonConstants.ChannelType.channel.rawValue
-                        || t == MezonConstants.ChannelType.thread.rawValue
-                        || t == MezonConstants.ChannelType.announcement.rawValue
-                }
-            }
-
-            do {
-                let clanDescs = try await self.context.account.network.listClanDescs(token: token)
-                for clan in clanDescs {
-                    self.clanNames[clan.clanID] = clan.clanName
-                    if !clan.logo.isEmpty {
-                        self.clanLogos[clan.clanID] = clan.logo
+            self.context.account.network.listClanDescsLegacy(token: token) { [weak self] clanResult in
+                guard let self else { return }
+                if case .success(let clanDescs) = clanResult {
+                    for clan in clanDescs {
+                        self.clanNames[clan.clanID] = clan.clanName
+                        if !clan.logo.isEmpty {
+                            self.clanLogos[clan.clanID] = clan.logo
+                        }
                     }
                 }
-            } catch {
-                AppLogger.network.error("[Sharing] Failed to load clan names: \(error)")
+                var clanList: [Mezon_Api_ChannelDescription] = []
+                if let allChannelsList = self.context.engine.clanData.getAllChannelsByUser() {
+                    clanList = allChannelsList.channeldesc.filter { ch in
+                        let t = ch.type
+                        return t == MezonConstants.ChannelType.channel.rawValue
+                            || t == MezonConstants.ChannelType.thread.rawValue
+                            || t == MezonConstants.ChannelType.announcement.rawValue
+                    }
+                }
+                DispatchQueue.main.async {
+                    self.applyLoadedChannels(dmList: dmList, clanList: clanList)
+                }
             }
-
-            var suggestions: [SuggestionItem] = []
-            suggestions.reserveCapacity(dmList.count + clanList.count)
-
-            for ch in dmList {
-                self.channelMap[ch.channelID] = ch
-                suggestions.append(SuggestionItem(
-                    channelID: ch.channelID,
-                    clanID: ch.clanID,
-                    type: ch.type,
-                    displayName: SharingChannelCell.displayName(for: ch),
-                    avatarURL: ch.avatars.first,
-                    channelAvatar: ch.channelAvatar,
-                    channelPrivate: ch.channelPrivate,
-                    clanName: nil
-                ))
-            }
-            for ch in clanList {
-                self.channelMap[ch.channelID] = ch
-                suggestions.append(SuggestionItem(
-                    channelID: ch.channelID,
-                    clanID: ch.clanID,
-                    type: ch.type,
-                    displayName: SharingChannelCell.displayName(for: ch),
-                    avatarURL: ch.avatars.first,
-                    channelAvatar: ch.channelAvatar,
-                    channelPrivate: ch.channelPrivate,
-                    clanName: self.clanNames[ch.clanID]
-                ))
-            }
-
-            self.allSuggestions = suggestions
-            self.filteredSuggestions = suggestions
-            self.applySnapshot()
         }
+    }
+
+    private func applyLoadedChannels(dmList: [Mezon_Api_ChannelDescription], clanList: [Mezon_Api_ChannelDescription]) {
+        var suggestions: [SuggestionItem] = []
+        suggestions.reserveCapacity(dmList.count + clanList.count)
+
+        for ch in dmList {
+            channelMap[ch.channelID] = ch
+            suggestions.append(SuggestionItem(
+                channelID: ch.channelID,
+                clanID: ch.clanID,
+                type: ch.type,
+                displayName: SharingChannelCell.displayName(for: ch),
+                avatarURL: ch.avatars.first,
+                channelAvatar: ch.channelAvatar,
+                channelPrivate: ch.channelPrivate,
+                clanName: nil
+            ))
+        }
+        for ch in clanList {
+            channelMap[ch.channelID] = ch
+            suggestions.append(SuggestionItem(
+                channelID: ch.channelID,
+                clanID: ch.clanID,
+                type: ch.type,
+                displayName: SharingChannelCell.displayName(for: ch),
+                avatarURL: ch.avatars.first,
+                channelAvatar: ch.channelAvatar,
+                channelPrivate: ch.channelPrivate,
+                clanName: clanNames[ch.clanID]
+            ))
+        }
+
+        allSuggestions = suggestions
+        filteredSuggestions = suggestions
+        applySnapshot()
     }
 
     private func filterChannels() {
@@ -872,134 +916,263 @@ final class SharingViewController: UIViewController {
         sendButton.alpha = enabled ? 1.0 : 0.5
     }
 
+    private func resetSendBusyState() {
+        isUploading = false
+        loadingOverlay.isHidden = true
+        activityIndicator.stopAnimating()
+        updateSendButton()
+    }
+
+    private static func shareContentJSONString(messageText: String) -> String {
+        var contentJSON: [String: Any] = [:]
+        if !messageText.isEmpty {
+            contentJSON["t"] = messageText
+        }
+        if contentJSON.isEmpty { return "{}" }
+        if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        return "{}"
+    }
+
+    private static func shareRoutingParameters(for channel: Mezon_Api_ChannelDescription) -> (clanId: Int64, mode: Int32, isPublic: Bool) {
+        let isDM = channel.type == MezonConstants.ChannelType.dm.rawValue
+        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
+        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
+        let clanId: Int64 = isDM || isGroup ? 0 : channel.clanID
+        let mode: Int32
+        if isThread {
+            mode = MezonConstants.ChannelStreamMode.thread.rawValue
+        } else if isDM {
+            mode = MezonConstants.ChannelStreamMode.dm.rawValue
+        } else if isGroup {
+            mode = MezonConstants.ChannelStreamMode.group.rawValue
+        } else {
+            mode = clanId == 0
+                ? MezonConstants.ChannelStreamMode.group.rawValue
+                : MezonConstants.ChannelStreamMode.channel.rawValue
+        }
+        let isPublic = channel.channelPrivate == 0
+        return (clanId, mode, isPublic)
+    }
+
     private func performSend(to channel: Mezon_Api_ChannelDescription) {
         isUploading = true
         loadingOverlay.isHidden = false
         activityIndicator.startAnimating()
         updateSendButton()
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                self.showError("Session expired")
-                self.isUploading = false
-                self.loadingOverlay.isHidden = true
-                self.activityIndicator.stopAnimating()
-                self.updateSendButton()
-                return
+        if #available(iOS 13.0, *) {
+            Task { @MainActor [weak self] in
+                await self?.performSendAsync(to: channel)
             }
+        } else {
+            performSendLegacy(to: channel)
+        }
+    }
 
-            do {
-                var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
+    @available(iOS 13.0, *)
+    @MainActor
+    private func performSendAsync(to channel: Mezon_Api_ChannelDescription) async {
+        guard let token = await context.getToken() else {
+            showError("Session expired")
+            resetSendBusyState()
+            return
+        }
 
-                for file in self.sharedMediaFiles {
-                    guard let fileURL = SharingManager.shared.localFileURL(from: file.path),
-                          let fileData = try? Data(contentsOf: fileURL) else { continue }
+        do {
+            var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
 
-                    let filename = fileURL.lastPathComponent
-                    let ext = fileURL.pathExtension.lowercased()
-                    let filetype = SendMessageInputViewController.mimeType(for: ext)
+            for file in sharedMediaFiles {
+                guard let fileURL = SharingManager.shared.localFileURL(from: file.path),
+                      let fileData = try? Data(contentsOf: fileURL) else { continue }
 
-                    var width = 0
-                    var height = 0
-                    if file.type == .image, let image = UIImage(data: fileData) {
-                        width = Int(image.size.width)
-                        height = Int(image.size.height)
-                    }
+                let filename = fileURL.lastPathComponent
+                let ext = fileURL.pathExtension.lowercased()
+                let filetype = SendMessageInputViewController.mimeType(for: ext)
 
-                    let sanitized = filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
-
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                        filename: sanitized,
-                        filetype: filetype,
-                        size: fileData.count,
-                        width: width,
-                        height: height,
-                        token: token
-                    )
-
-                    try await self.context.account.network.uploadToMinIO(
-                        url: uploadInfo.url,
-                        data: fileData,
-                        contentType: filetype
-                    )
-
-                    let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-                    var att = Mezon_Api_MessageAttachment()
-                    att.filename = filename
-                    att.url = cdnURL
-                    att.filetype = filetype
-                    att.size = Int32(fileData.count)
-                    if width > 0 { att.width = Int32(width) }
-                    if height > 0 { att.height = Int32(height) }
-                    if let duration = file.duration { att.duration = Int32(duration / 1000) }
-                    uploadedAttachments.append(att)
+                var width = 0
+                var height = 0
+                if file.type == .image, let image = UIImage(data: fileData) {
+                    width = Int(image.size.width)
+                    height = Int(image.size.height)
                 }
 
-                let messageText = (self.textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                var contentJSON: [String: Any] = [:]
-                if !messageText.isEmpty {
-                    contentJSON["t"] = messageText
-                }
-                let contentStr: String
-                if contentJSON.isEmpty {
-                    contentStr = "{}"
-                } else if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
-                          let str = String(data: data, encoding: .utf8) {
-                    contentStr = str
-                } else {
-                    contentStr = "{}"
-                }
+                let sanitized = filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
 
-                let isDM = channel.type == MezonConstants.ChannelType.dm.rawValue
-                let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
-                let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
-
-                let clanId: Int64 = isDM || isGroup ? 0 : channel.clanID
-                let mode: Int32
-                if isThread {
-                    mode = MezonConstants.ChannelStreamMode.thread.rawValue
-                } else if isDM {
-                    mode = MezonConstants.ChannelStreamMode.dm.rawValue
-                } else if isGroup {
-                    mode = MezonConstants.ChannelStreamMode.group.rawValue
-                } else {
-                    mode = clanId == 0
-                        ? MezonConstants.ChannelStreamMode.group.rawValue
-                        : MezonConstants.ChannelStreamMode.channel.rawValue
-                }
-                let isPublic = channel.channelPrivate == 0
-
-                _ = try await self.context.account.network.sendChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    content: contentStr,
-                    mentions: [],
-                    attachments: uploadedAttachments,
-                    references: [],
-                    anonymous: false,
-                    mentionEveryone: false,
-                    avatar: self.context.currentUser?.avatarURL?.absoluteString ?? "",
-                    topicId: 0,
+                let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                    filename: sanitized,
+                    filetype: filetype,
+                    size: fileData.count,
+                    width: width,
+                    height: height,
                     token: token
                 )
 
-                SharingManager.shared.cleanupSharedFiles(self.sharedMediaFiles)
-                self.isUploading = false
-                self.loadingOverlay.isHidden = true
-                self.activityIndicator.stopAnimating()
-                self.dismiss(animated: true)
+                try await context.account.network.uploadToMinIO(
+                    url: uploadInfo.url,
+                    data: fileData,
+                    contentType: filetype
+                )
 
-            } catch {
-                self.isUploading = false
-                self.loadingOverlay.isHidden = true
-                self.activityIndicator.stopAnimating()
-                self.updateSendButton()
-                self.showError(error.localizedDescription)
+                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                var att = Mezon_Api_MessageAttachment()
+                att.filename = filename
+                att.url = cdnURL
+                att.filetype = filetype
+                att.size = Int32(fileData.count)
+                if width > 0 { att.width = Int32(width) }
+                if height > 0 { att.height = Int32(height) }
+                if let duration = file.duration { att.duration = Int32(duration / 1000) }
+                uploadedAttachments.append(att)
+            }
+
+            let messageText = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let contentStr = Self.shareContentJSONString(messageText: messageText)
+            let route = Self.shareRoutingParameters(for: channel)
+
+            _ = try await context.account.network.sendChannelMessage(
+                clanId: route.clanId,
+                channelId: channel.channelID,
+                mode: route.mode,
+                isPublic: route.isPublic,
+                content: contentStr,
+                mentions: [],
+                attachments: uploadedAttachments,
+                references: [],
+                anonymous: false,
+                mentionEveryone: false,
+                avatar: context.currentUser?.avatarURL?.absoluteString ?? "",
+                topicId: 0,
+                token: token
+            )
+
+            SharingManager.shared.cleanupSharedFiles(sharedMediaFiles)
+            isUploading = false
+            loadingOverlay.isHidden = true
+            activityIndicator.stopAnimating()
+            dismiss(animated: true)
+
+        } catch {
+            resetSendBusyState()
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func performSendLegacy(to channel: Mezon_Api_ChannelDescription) {
+        guard let token = context.session?.token, !token.isEmpty else {
+            showError("Session expired")
+            resetSendBusyState()
+            return
+        }
+
+        let network = context.account.network
+        let files = sharedMediaFiles
+        let messageText = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var uploaded: [Mezon_Api_MessageAttachment] = []
+
+        func fail(_ msg: String) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.resetSendBusyState()
+                self.showError(msg)
             }
         }
+
+        func succeedSend() {
+            let contentStr = Self.shareContentJSONString(messageText: messageText)
+            let route = Self.shareRoutingParameters(for: channel)
+            network.sendChannelMessageLegacy(
+                clanId: route.clanId,
+                channelId: channel.channelID,
+                mode: route.mode,
+                isPublic: route.isPublic,
+                content: contentStr,
+                mentions: [],
+                attachments: uploaded,
+                references: [],
+                anonymous: false,
+                mentionEveryone: false,
+                avatar: context.currentUser?.avatarURL?.absoluteString ?? "",
+                topicId: 0,
+                token: token
+            ) { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        SharingManager.shared.cleanupSharedFiles(self.sharedMediaFiles)
+                        self.isUploading = false
+                        self.loadingOverlay.isHidden = true
+                        self.activityIndicator.stopAnimating()
+                        self.dismiss(animated: true)
+                    case .failure(let e):
+                        self.resetSendBusyState()
+                        self.showError(e.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        func uploadAt(_ index: Int) {
+            if index >= files.count {
+                succeedSend()
+                return
+            }
+            let file = files[index]
+            guard let fileURL = SharingManager.shared.localFileURL(from: file.path),
+                  let fileData = try? Data(contentsOf: fileURL) else {
+                uploadAt(index + 1)
+                return
+            }
+
+            let filename = fileURL.lastPathComponent
+            let ext = fileURL.pathExtension.lowercased()
+            let filetype = SendMessageInputViewController.mimeType(for: ext)
+            var width = 0
+            var height = 0
+            if file.type == .image, let image = UIImage(data: fileData) {
+                width = Int(image.size.width)
+                height = Int(image.size.height)
+            }
+            let sanitized = filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+
+            network.uploadAttachmentFileLegacy(
+                filename: sanitized,
+                filetype: filetype,
+                size: fileData.count,
+                width: width,
+                height: height,
+                token: token
+            ) { result in
+                switch result {
+                case .failure(let e):
+                    fail(e.localizedDescription)
+                case .success(let uploadInfo):
+                    network.uploadToMinIOLegacy(url: uploadInfo.url, data: fileData, contentType: filetype) { upResult in
+                        switch upResult {
+                        case .failure(let e):
+                            fail(e.localizedDescription)
+                        case .success:
+                            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                            var att = Mezon_Api_MessageAttachment()
+                            att.filename = filename
+                            att.url = cdnURL
+                            att.filetype = filetype
+                            att.size = Int32(fileData.count)
+                            if width > 0 { att.width = Int32(width) }
+                            if height > 0 { att.height = Int32(height) }
+                            if let duration = file.duration { att.duration = Int32(duration / 1000) }
+                            uploaded.append(att)
+                            uploadAt(index + 1)
+                        }
+                    }
+                }
+            }
+        }
+
+        uploadAt(0)
     }
 
     private func showError(_ message: String) {
@@ -1014,11 +1187,29 @@ final class SharingViewController: UIViewController {
     }
 }
 
+extension SharingViewController: UITableViewDataSource {
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        filteredSuggestions.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: SharingChannelCell.reuseId, for: indexPath) as! SharingChannelCell
+        let item = filteredSuggestions[indexPath.row]
+        if let channel = channelMap[item.channelID] {
+            let isSelected = selectedChannel?.channelID == item.channelID
+            cell.configure(channel: channel, clanName: item.clanName, isSelected: isSelected)
+        }
+        return cell
+    }
+}
+
 extension SharingViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        guard let item = diffableDataSource.itemIdentifier(for: indexPath),
-              let channel = channelMap[item.channelID] else { return }
+        guard indexPath.row < filteredSuggestions.count else { return }
+        let item = filteredSuggestions[indexPath.row]
+        guard let channel = channelMap[item.channelID] else { return }
 
         let previousSelectedID = selectedChannel?.channelID
 
@@ -1037,11 +1228,7 @@ extension SharingViewController: UITableViewDelegate {
            let prevIndex = filteredSuggestions.firstIndex(where: { $0.channelID == prevID }) {
             indexPathsToReload.append(IndexPath(row: prevIndex, section: 0))
         }
-
-        var snapshot = diffableDataSource.snapshot()
-        let itemsToReload = indexPathsToReload.compactMap { diffableDataSource.itemIdentifier(for: $0) }
-        snapshot.reloadItems(itemsToReload)
-        diffableDataSource.apply(snapshot, animatingDifferences: false)
+        tableView.reloadRows(at: indexPathsToReload, with: .none)
     }
 }
 
@@ -1049,7 +1236,8 @@ extension SharingViewController: UITableViewDataSourcePrefetching {
 
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
-            guard let item = diffableDataSource.itemIdentifier(for: indexPath) else { continue }
+            guard indexPath.row < filteredSuggestions.count else { continue }
+            let item = filteredSuggestions[indexPath.row]
             if let urlStr = item.avatarURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
                 let proxyURL = ImgproxyURL.create(from: url.absoluteString)
                 if ImageCache.shared.cachedImage(forURL: proxyURL) == nil {
@@ -1070,10 +1258,173 @@ extension SharingViewController: UITextFieldDelegate {
         }
         return false
     }
+}
 
-    func textFieldDidChangeSelection(_ textField: UITextField) {
-        if textField == self.textField {
-            updateSendButton()
+private enum SharingIconWeight {
+    case medium, semibold, bold
+}
+
+private enum SharingChrome {
+
+    static func xMark(pointSize: CGFloat, weight: SharingIconWeight) -> UIImage {
+        if #available(iOS 13.0, *) {
+            let sw: UIImage.SymbolWeight
+            switch weight {
+            case .medium: sw = .medium
+            case .semibold: sw = .semibold
+            case .bold: sw = .bold
+            }
+            let c = UIImage.SymbolConfiguration(pointSize: pointSize, weight: sw)
+            if let img = UIImage(systemName: "xmark", withConfiguration: c) { return img }
         }
+        return SharingChromeDrawn.xMarkStroke(side: max(pointSize, 8))
+    }
+
+    static func magnifyingGlass() -> UIImage {
+        if #available(iOS 13.0, *) {
+            if let img = UIImage(systemName: "magnifyingglass") {
+                return img.withRenderingMode(.alwaysTemplate)
+            }
+        }
+        if let img = UIImage(named: "Channel/Search", in: Bundle.main, compatibleWith: nil) {
+            return img.withRenderingMode(.alwaysTemplate)
+        }
+        return SharingChromeDrawn.magnifyingGlassDrawn()
+    }
+
+    static func horizontalSliders() -> UIImage {
+        if #available(iOS 13.0, *) {
+            let c = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            if let img = UIImage(systemName: "slider.horizontal.3", withConfiguration: c) { return img }
+        }
+        return SharingChromeDrawn.threeSliders()
+    }
+
+    static func arrowUp() -> UIImage {
+        if #available(iOS 13.0, *) {
+            let c = UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)
+            if let img = UIImage(systemName: "arrow.up", withConfiguration: c) { return img }
+        }
+        return SharingChromeDrawn.arrowUpFill()
+    }
+
+    static func playFillTemplate() -> UIImage {
+        if #available(iOS 13.0, *) {
+            if let img = UIImage(systemName: "play.fill") {
+                return img.withRenderingMode(.alwaysTemplate)
+            }
+        }
+        if let img = UIImage(named: "Chat/IconPlay", in: Bundle.main, compatibleWith: nil) {
+            return img.withRenderingMode(.alwaysTemplate)
+        }
+        return SharingChromeDrawn.playTriangle()
+    }
+
+    static func docFillTemplate() -> UIImage {
+        if #available(iOS 13.0, *) {
+            if let img = UIImage(systemName: "doc.fill") {
+                return img.withRenderingMode(.alwaysTemplate)
+            }
+        }
+        return SharingChromeDrawn.docPage()
+    }
+}
+
+private enum SharingChromeDrawn {
+
+    static func xMarkStroke(side: CGFloat) -> UIImage {
+        let s = CGSize(width: side + 4, height: side + 4)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.setStroke()
+            let inset: CGFloat = 2
+            let p = UIBezierPath()
+            p.move(to: CGPoint(x: inset, y: inset))
+            p.addLine(to: CGPoint(x: s.width - inset, y: s.height - inset))
+            p.move(to: CGPoint(x: s.width - inset, y: inset))
+            p.addLine(to: CGPoint(x: inset, y: s.height - inset))
+            p.lineWidth = 1.8
+            p.lineCapStyle = .round
+            p.stroke()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    static func magnifyingGlassDrawn() -> UIImage {
+        let s = CGSize(width: 20, height: 20)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.setStroke()
+            let circle = UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 10, height: 10))
+            circle.lineWidth = 1.8
+            circle.stroke()
+            let handle = UIBezierPath()
+            handle.move(to: CGPoint(x: 11, y: 11))
+            handle.addLine(to: CGPoint(x: 17, y: 17))
+            handle.lineWidth = 1.8
+            handle.lineCapStyle = .round
+            handle.stroke()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    static func threeSliders() -> UIImage {
+        let s = CGSize(width: 22, height: 22)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.setStroke()
+            for i in 0..<3 {
+                let y: CGFloat = 5 + CGFloat(i) * 6
+                let line = UIBezierPath()
+                line.move(to: CGPoint(x: 4, y: y))
+                line.addLine(to: CGPoint(x: 18, y: y))
+                line.lineWidth = 1.6
+                line.lineCapStyle = .round
+                line.stroke()
+                let dot = UIBezierPath(ovalIn: CGRect(x: 4 + CGFloat(i % 2) * 6, y: y - 2, width: 4, height: 4))
+                UIColor.white.setFill()
+                dot.fill()
+            }
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    static func arrowUpFill() -> UIImage {
+        let s = CGSize(width: 22, height: 22)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.setFill()
+            let p = UIBezierPath()
+            p.move(to: CGPoint(x: 11, y: 4))
+            p.addLine(to: CGPoint(x: 17, y: 13))
+            p.addLine(to: CGPoint(x: 5, y: 13))
+            p.close()
+            p.fill()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    static func playTriangle() -> UIImage {
+        let s = CGSize(width: 24, height: 24)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.setFill()
+            let p = UIBezierPath()
+            p.move(to: CGPoint(x: 8, y: 5))
+            p.addLine(to: CGPoint(x: 19, y: 12))
+            p.addLine(to: CGPoint(x: 8, y: 19))
+            p.close()
+            p.fill()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    static func docPage() -> UIImage {
+        let s = CGSize(width: 24, height: 24)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.setStroke()
+            let page = UIBezierPath(roundedRect: CGRect(x: 6, y: 3, width: 12, height: 16), cornerRadius: 1.5)
+            page.lineWidth = 1.6
+            page.stroke()
+            UIColor.white.setStroke()
+            for i in 0..<3 {
+                let y: CGFloat = 8 + CGFloat(i) * 3
+                let line = UIBezierPath()
+                line.move(to: CGPoint(x: 8, y: y))
+                line.addLine(to: CGPoint(x: 16, y: y))
+                line.lineWidth = 1
+                line.stroke()
+            }
+        }.withRenderingMode(.alwaysTemplate)
     }
 }

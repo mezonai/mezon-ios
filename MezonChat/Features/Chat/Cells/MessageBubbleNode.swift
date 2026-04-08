@@ -586,7 +586,7 @@ final class MessageBubbleNode: ASDisplayNode {
         if isCombine {
             totalH += 1.sh
         } else {
-            totalH += 6.sh
+            totalH += 4.sh
         }
 
         if let replyNode {
@@ -710,7 +710,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let contentX = isCombine ? combineLeading : contentLeadingTotal
         let contentInnerX = contentX + forwardInset
-        var y: CGFloat = isCombine ? 1.sh : 6.sh
+        var y: CGFloat = isCombine ? 1.sh : 4.sh
         var forwardBarMinY: CGFloat?
         var forwardBarMaxY: CGFloat?
         func noteForwardBlock(topY: CGFloat, height: CGFloat) {

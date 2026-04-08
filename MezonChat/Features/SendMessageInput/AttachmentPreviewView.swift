@@ -180,6 +180,8 @@ private final class AttachmentThumbCell: UICollectionViewCell {
 
     var onClose: (() -> Void)?
 
+    @objc private func closeTapped() { onClose?() }
+
     private let thumbImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
@@ -221,7 +223,7 @@ private final class AttachmentThumbCell: UICollectionViewCell {
         btn.layer.borderWidth = 2
         btn.layer.borderColor = UIColor.theme.secondary.cgColor
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -268,6 +270,8 @@ private final class AttachmentFileCell: UICollectionViewCell {
     static let reuseId = "AttachmentFileCell"
 
     var onClose: (() -> Void)?
+
+    @objc private func closeTapped() { onClose?() }
 
     private let containerView: UIView = {
         let v = UIView()
@@ -316,7 +320,7 @@ private final class AttachmentFileCell: UICollectionViewCell {
         btn.layer.borderWidth = 2
         btn.layer.borderColor = UIColor.theme.secondary.cgColor
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         return btn
     }()
 

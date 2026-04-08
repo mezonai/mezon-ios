@@ -55,9 +55,17 @@ public final class PresentationContext {
                     case .White:
                         style = .lightContent
                     case .Black:
-                        style = .darkContent
+                        if #available(iOS 13.0, *) {
+                            style = .darkContent
+                        } else {
+                            style = .default
+                        }
                     case .Ignore, .Hide:
-                        style = .darkContent
+                        if #available(iOS 13.0, *) {
+                            style = .darkContent
+                        } else {
+                            style = .default
+                        }
                         isHidden = true
                     }
                     return (style, isHidden)

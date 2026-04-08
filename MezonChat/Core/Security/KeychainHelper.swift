@@ -17,7 +17,6 @@ final class KeychainHelper {
             SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
         }
         guard result == errSecSuccess else {
-            AppLogger.app.error("[Keychain] SecRandomCopyBytes failed for \(identifier)")
 
             return Data(repeating: 0xAB, count: 32)
         }
@@ -36,7 +35,6 @@ final class KeychainHelper {
         SecItemDelete(query as CFDictionary)
         let status = SecItemAdd(query as CFDictionary, nil)
         if status != errSecSuccess {
-            AppLogger.app.error("[Keychain] Save failed for \(account) — \(status)")
         }
     }
 

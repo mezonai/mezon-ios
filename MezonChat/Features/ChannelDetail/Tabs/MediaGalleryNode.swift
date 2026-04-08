@@ -108,7 +108,6 @@ final class MediaGalleryNode: ASDisplayNode {
                 self.setNeedsLayout()
                 Self.logMediaDiagnostic("reloadData done items=\(self.attachments.count)")
             } catch {
-                AppLogger.network.error("Fetch media failed: \(error)")
                 Self.logMediaDiagnostic("fetch ERROR: \(error)")
                 self.mediaFetchCompleted = true
                 self.setNeedsLayout()
@@ -118,13 +117,11 @@ final class MediaGalleryNode: ASDisplayNode {
 
     private static func logMediaDiagnostic(_ message: String) {
         let line = "[ChannelDetail.Media] \(message)"
-        AppLogger.network.info("\(line)")
         #if DEBUG
         print(line)
         #endif
     }
 
-    /// Drops audio and other non-visual types that still appear under `image` filter (e.g. MP3 with ID3).
     private static func isVisualAttachment(_ att: Mezon_Api_ChannelAttachment) -> Bool {
         let ft = att.filetype.lowercased()
         if ft.contains("audio") || ft.hasPrefix("audio/") { return false }

@@ -279,6 +279,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
 #if DEBUG
 import SwiftUI
 
+@available(iOS 14.0, *)
 struct LoginViewController_Previews: PreviewProvider {
     static var previews: some View {
         UIViewControllerPreview {

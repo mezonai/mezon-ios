@@ -284,7 +284,7 @@ final class CodeBlockContainerNode: ASDisplayNode {
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
 
-        let codeFont = UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular)
+        let codeFont = UIFont.systemFont(ofSize: 14.sf)
         codeTextNode.attributedText = NSAttributedString(
             string: code,
             attributes: [

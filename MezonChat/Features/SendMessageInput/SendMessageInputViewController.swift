@@ -47,6 +47,7 @@ final class SendMessageInputViewController: UIViewController {
     private static let replyBannerHeight: CGFloat = 40
 
     private static var channelAttachmentCache: [String: [UIImage]] = [:]
+    private static var channelDraftTextCache: [String: String] = [:]
 
     private var cacheKey: String { "\(clanId)-\(channel.channelID)" }
 
@@ -90,9 +91,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
         btn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: config), for: .normal)
-        btn.addAction(UIAction { [weak self] _ in
-            self?.clearReply()
-        }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(clearReplyTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -139,7 +138,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.expandAttachControls() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(expandAttachControlsTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -149,7 +148,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.openPhotoPicker() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(openPhotoPickerTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -181,7 +180,6 @@ final class SendMessageInputViewController: UIViewController {
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    /// Matches circular action buttons (`40.swh`); corner radius is synced in `PastableTextView.layoutSubviews`.
     private static var textViewMinHeight: CGFloat { 40.swh }
     private static let inputBarPadding: CGFloat = 16
 
@@ -192,14 +190,16 @@ final class SendMessageInputViewController: UIViewController {
     var onToggleEmojiPicker: ((Bool, CGFloat) -> Void)?
     var onToggleAdvancePanel: ((Bool, CGFloat) -> Void)?
     var onAnonymousModeChanged: (() -> Void)?
+    var onTextSelectionLocksChatScroll: ((Bool) -> Void)?
     private var clanPreventAnonymous = false
+    private var chatScrollLockedForTextSelection = false
 
     private lazy var advanceButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
-        btn.addAction(UIAction { [weak self] _ in self?.toggleAdvancePanel() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleAdvancePanelTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -207,7 +207,7 @@ final class SendMessageInputViewController: UIViewController {
         let btn = UIButton(type: .system)
         btn.setImage(UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.addAction(UIAction { [weak self] _ in self?.toggleEmojiPicker() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleEmojiPickerTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -220,12 +220,7 @@ final class SendMessageInputViewController: UIViewController {
         b.layer.cornerRadius = 11
         b.clipsToBounds = true
         b.accessibilityLabel = "Anonymous message"
-        b.addAction(UIAction { [weak self] _ in
-            guard let self, self.clanId != 0, !self.clanPreventAnonymous else { return }
-            _ = AnonymousMessageStore.toggle(clanId: self.clanId)
-            self.refreshAnonymousUI()
-            self.onAnonymousModeChanged?()
-        }, for: .touchUpInside)
+        b.addTarget(self, action: #selector(anonymousIndicatorTapped), for: .touchUpInside)
         return b
     }()
 
@@ -237,7 +232,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.setImage(UIImage(systemName: "paperplane.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.tintColor = .white
         btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        btn.addAction(UIAction { [weak self] _ in self?.send() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
         btn.alpha = 0
         btn.isHidden = true
         return btn
@@ -405,6 +400,19 @@ final class SendMessageInputViewController: UIViewController {
                     self.rebuildMentionSuggestionItems()
                 })
         )
+    }
+
+    @objc private func clearReplyTapped() { clearReply() }
+    @objc private func expandAttachControlsTapped() { expandAttachControls() }
+    @objc private func openPhotoPickerTapped() { openPhotoPicker() }
+    @objc private func toggleAdvancePanelTapped() { toggleAdvancePanel() }
+    @objc private func toggleEmojiPickerTapped() { toggleEmojiPicker() }
+    @objc private func sendTapped() { send() }
+    @objc private func anonymousIndicatorTapped() {
+        guard clanId != 0, !clanPreventAnonymous else { return }
+        _ = AnonymousMessageStore.toggle(clanId: clanId)
+        refreshAnonymousUI()
+        onAnonymousModeChanged?()
     }
 
     func send() {
@@ -625,8 +633,13 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func openFilePicker() {
-        let supportedTypes: [UTType] = [.item]
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
+        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            let supportedTypes: [UTType] = [.item]
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
+        } else {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+        }
         picker.allowsMultipleSelection = true
         picker.delegate = self
 
@@ -925,15 +938,33 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private func saveDraftToCache() {
+        if text.isEmpty {
+            Self.channelDraftTextCache.removeValue(forKey: cacheKey)
+        } else {
+            Self.channelDraftTextCache[cacheKey] = text
+        }
+    }
+
     private func restoreFromCache() {
-        guard let cached = Self.channelAttachmentCache[cacheKey], !cached.isEmpty else { return }
-        pickedImages = cached
-        attachmentPreviewView.setImages(cached)
-        let targetH = AttachmentPreviewView.preferredHeight(
-            imageCount: pickedImages.count, fileCount: pickedFiles.count)
-        previewHeightConstraint?.constant = targetH
-        onHeightChanged?(totalHeight)
-        view.layoutIfNeeded()
+        if let cachedImages = Self.channelAttachmentCache[cacheKey], !cachedImages.isEmpty {
+            pickedImages = cachedImages
+            attachmentPreviewView.setImages(cachedImages)
+            let targetH = AttachmentPreviewView.preferredHeight(
+                imageCount: pickedImages.count, fileCount: pickedFiles.count)
+            previewHeightConstraint?.constant = targetH
+            onHeightChanged?(totalHeight)
+            view.layoutIfNeeded()
+        }
+
+        if let cachedText = Self.channelDraftTextCache[cacheKey], !cachedText.isEmpty {
+            text = cachedText
+            textView.text = cachedText
+            placeholderLabel.isHidden = true
+            updateTextViewHeight()
+            updateSendVoiceToggle()
+        }
+
         syncAttachControlsWithTypedText()
     }
 
@@ -1313,7 +1344,6 @@ final class SendMessageInputViewController: UIViewController {
                     ensureRolesLoadedIfNeeded()
                     rebuildMentionSuggestionItems()
                 } catch {
-                    AppLogger.network.warning("[MentionSuggestion] loadClanMembers failed: \(error)")
                 }
             }
         }
@@ -1340,7 +1370,6 @@ final class SendMessageInputViewController: UIViewController {
                 }
                 rebuildMentionSuggestionItems()
             } catch {
-                AppLogger.network.warning("[MentionSuggestion] listRoles failed: \(error)")
             }
         }
     }
@@ -2132,6 +2161,10 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     deinit {
+        if chatScrollLockedForTextSelection {
+            chatScrollLockedForTextSelection = false
+            onTextSelectionLocksChatScroll?(false)
+        }
         voiceAudioRecorder?.stop()
         voiceRecordingOverlay.tearDown()
         if let u = voiceRecordingFileURL {
@@ -2585,6 +2618,7 @@ final class SendMessageInputViewController: UIViewController {
         textView.isScrollEnabled = false
         resetTextViewHeight()
         clearPickedImages()
+        Self.channelDraftTextCache.removeValue(forKey: cacheKey)
         clearReply()
         hideMentionSuggestions()
         hideEmojiSuggestions()
@@ -2761,14 +2795,27 @@ extension SendMessageInputViewController: UITextViewDelegate {
         updateInlineSuggestions()
         updateSendVoiceToggle()
         syncAttachControlsWithTypedText()
+        saveDraftToCache()
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
         syncAttachControlsWithTypedText()
+        if chatScrollLockedForTextSelection {
+            chatScrollLockedForTextSelection = false
+            onTextSelectionLocksChatScroll?(false)
+        }
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
         updateInlineSuggestions()
+        updateChatScrollLockForTextSelection()
+    }
+
+    private func updateChatScrollLockForTextSelection() {
+        let lock = textView.isFirstResponder && textView.selectedRange.length > 0
+        guard lock != chatScrollLockedForTextSelection else { return }
+        chatScrollLockedForTextSelection = lock
+        onTextSelectionLocksChatScroll?(lock)
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {

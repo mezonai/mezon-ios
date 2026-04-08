@@ -119,7 +119,6 @@ final class ClanListViewController: ViewController {
             setClans(next)
             persistClanRecordsToPostbox(next)
         } catch {
-            AppLogger.network.debug("[ClanList] ListClanBadgeCount: \(error)")
         }
     }
 
@@ -351,14 +350,12 @@ final class ClanListViewController: ViewController {
                         .channeldesc
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
                 } catch {
-                    AppLogger.network.debug("[ClanList] DM ListChannelBadgeCount: \(error)")
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
 
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
-                AppLogger.network.error("fetchUnreadDMs: \(error)")
             }
         }
     }

@@ -144,6 +144,8 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private var didBuildContent = false
+    private var actionByTag: [Int: ClanAction] = [:]
+    private var nextActionTag = 200
 
     private var panGesture: UIPanGestureRecognizer!
     private var panStartY: CGFloat = 0
@@ -557,7 +559,10 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
-        btn.addAction(UIAction { [weak self] _ in self?.onAction(action) }, for: .touchUpInside)
+        btn.tag = nextActionTag
+        actionByTag[nextActionTag] = action
+        nextActionTag += 1
+        btn.addTarget(self, action: #selector(actionButtonTapped(_:)), for: .touchUpInside)
 
         return v
     }
@@ -601,10 +606,18 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         let btn = UIButton(type: .custom)
         btn.frame = v.bounds
-        btn.addAction(UIAction { [weak self] _ in self?.onAction(action) }, for: .touchUpInside)
+        btn.tag = nextActionTag
+        actionByTag[nextActionTag] = action
+        nextActionTag += 1
+        btn.addTarget(self, action: #selector(actionButtonTapped(_:)), for: .touchUpInside)
         v.addSubview(btn)
 
         return v
+    }
+
+    @objc private func actionButtonTapped(_ sender: UIButton) {
+        guard let action = actionByTag[sender.tag] else { return }
+        onAction(action)
     }
 
     private func createToggleRow(action: ClanAction, width: CGFloat) -> UIView {

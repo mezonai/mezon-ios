@@ -1,10 +1,18 @@
 import UIKit
+import ImageIO
 import MobileCoreServices
-import UniformTypeIdentifiers
 import AVFoundation
 import os.log
 
 private let logger = OSLog(subsystem: "mezon.mobile.MezonSharing", category: "ShareExtension")
+
+private enum ShareUTI {
+    static let image = kUTTypeImage as String
+    static let movie = kUTTypeMovie as String
+    static let fileURL = kUTTypeFileURL as String
+    static let url = kUTTypeURL as String
+    static let plainText = kUTTypePlainText as String
+}
 
 class ShareViewController: UIViewController {
 
@@ -56,19 +64,19 @@ class ShareViewController: UIViewController {
             let identifiers = attachment.registeredTypeIdentifiers
             NSLog("[MezonSharing] Attachment %d types: %@", index, identifiers.joined(separator: ", "))
 
-            if attachment.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+            if attachment.hasItemConformingToTypeIdentifier(ShareUTI.image) {
                 NSLog("[MezonSharing] Handling as IMAGE")
                 handleImages(attachment: attachment, index: index)
-            } else if attachment.hasItemConformingToTypeIdentifier(UTType.movie.identifier) {
+            } else if attachment.hasItemConformingToTypeIdentifier(ShareUTI.movie) {
                 NSLog("[MezonSharing] Handling as VIDEO")
                 handleVideos(attachment: attachment, index: index)
-            } else if attachment.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            } else if attachment.hasItemConformingToTypeIdentifier(ShareUTI.fileURL) {
                 NSLog("[MezonSharing] Handling as FILE")
                 handleFiles(attachment: attachment, index: index)
-            } else if attachment.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+            } else if attachment.hasItemConformingToTypeIdentifier(ShareUTI.url) {
                 NSLog("[MezonSharing] Handling as URL")
                 handleUrl(attachment: attachment, index: index)
-            } else if attachment.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
+            } else if attachment.hasItemConformingToTypeIdentifier(ShareUTI.plainText) {
                 NSLog("[MezonSharing] Handling as TEXT")
                 handleText(attachment: attachment, index: index)
             } else {
@@ -79,7 +87,7 @@ class ShareViewController: UIViewController {
     }
 
     private func handleImages(attachment: NSItemProvider, index: Int) {
-        attachment.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { [weak self] data, error in
+        attachment.loadItem(forTypeIdentifier: ShareUTI.image, options: nil) { [weak self] data, error in
             guard let self = self else { return }
 
             if let error = error {
@@ -100,21 +108,25 @@ class ShareViewController: UIViewController {
                 url = self.saveScreenshot(image)
             } else {
                 NSLog("[MezonSharing] Image loaded as unknown type: %@, trying Data fallback", String(describing: type(of: data)))
-                attachment.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { rawData, rawError in
-                    if let rawData = rawData, let image = UIImage(data: rawData) {
-                        NSLog("[MezonSharing] Fallback: loaded image from raw data (%d bytes)", rawData.count)
-                        let savedURL = self.saveScreenshot(image)
-                        if let savedURL = savedURL {
-                            self.sharedMedia.append(SharedMediaFile(
-                                path: savedURL.absoluteString,
-                                thumbnail: nil,
-                                duration: nil,
-                                type: .image
-                            ))
+                if #available(iOSApplicationExtension 14.0, iOS 14.0, *) {
+                    attachment.loadDataRepresentation(forTypeIdentifier: ShareUTI.image) { rawData, rawError in
+                        if let rawData = rawData, let image = UIImage(data: rawData) {
+                            NSLog("[MezonSharing] Fallback: loaded image from raw data (%d bytes)", rawData.count)
+                            let savedURL = self.saveScreenshot(image)
+                            if let savedURL = savedURL {
+                                self.sharedMedia.append(SharedMediaFile(
+                                    path: savedURL.absoluteString,
+                                    thumbnail: nil,
+                                    duration: nil,
+                                    type: .image
+                                ))
+                            }
+                        } else {
+                            NSLog("[MezonSharing] Fallback failed: %@", rawError?.localizedDescription ?? "unknown")
                         }
-                    } else {
-                        NSLog("[MezonSharing] Fallback failed: %@", rawError?.localizedDescription ?? "unknown")
+                        self.itemProcessed()
                     }
+                } else {
                     self.itemProcessed()
                 }
                 return
@@ -149,7 +161,7 @@ class ShareViewController: UIViewController {
     }
 
     private func handleVideos(attachment: NSItemProvider, index: Int) {
-        attachment.loadItem(forTypeIdentifier: UTType.movie.identifier, options: nil) { [weak self] data, error in
+        attachment.loadItem(forTypeIdentifier: ShareUTI.movie, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let url = data as? URL else {
                 NSLog("[MezonSharing] Video load error: %@", error?.localizedDescription ?? "unknown")
                 self?.itemProcessed()
@@ -174,7 +186,7 @@ class ShareViewController: UIViewController {
     }
 
     private func handleFiles(attachment: NSItemProvider, index: Int) {
-        attachment.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] data, error in
+        attachment.loadItem(forTypeIdentifier: ShareUTI.fileURL, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let url = data as? URL else {
                 NSLog("[MezonSharing] File load error: %@", error?.localizedDescription ?? "unknown")
                 self?.itemProcessed()
@@ -201,7 +213,7 @@ class ShareViewController: UIViewController {
     }
 
     private func handleText(attachment: NSItemProvider, index: Int) {
-        attachment.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { [weak self] data, error in
+        attachment.loadItem(forTypeIdentifier: ShareUTI.plainText, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let text = data as? String else {
                 self?.itemProcessed()
                 return
@@ -213,7 +225,7 @@ class ShareViewController: UIViewController {
     }
 
     private func handleUrl(attachment: NSItemProvider, index: Int) {
-        attachment.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] data, error in
+        attachment.loadItem(forTypeIdentifier: ShareUTI.url, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let url = data as? URL else {
                 self?.itemProcessed()
                 return
@@ -295,11 +307,22 @@ class ShareViewController: UIViewController {
         return url
     }
 
+    private func pngData(from image: UIImage) -> Data? {
+        if #available(iOSApplicationExtension 13.0, iOS 13.0, *) {
+            return image.pngData()
+        }
+        guard let cgImage = image.cgImage else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, kUTTypePNG, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, cgImage, nil)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
+    }
+
     private func saveScreenshot(_ image: UIImage) -> URL? {
-        guard let data = image.pngData(),
-              let containerURL = sharedContainerURL() else { return nil }
+        guard let png = pngData(from: image), let containerURL = sharedContainerURL() else { return nil }
         let path = containerURL.appendingPathComponent("Screenshot_\(UUID().uuidString).png")
-        try? data.write(to: path)
+        try? png.write(to: path)
         return path
     }
 
@@ -351,7 +374,8 @@ class ShareViewController: UIViewController {
 
         do {
             let img = try assetImgGenerate.copyCGImage(at: CMTimeMakeWithSeconds(0, preferredTimescale: 1), actualTime: nil)
-            try UIImage(cgImage: img).pngData()?.write(to: thumbnailPath)
+            let thumbData = pngData(from: UIImage(cgImage: img))
+            try thumbData?.write(to: thumbnailPath)
             return SharedMediaFile(path: videoURL.absoluteString, thumbnail: thumbnailPath.absoluteString, duration: duration, type: .video)
         } catch {
             NSLog("[MezonSharing] Failed to generate video thumbnail: %@", error.localizedDescription)

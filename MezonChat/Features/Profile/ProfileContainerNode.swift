@@ -43,7 +43,10 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let nameLabel = UILabel()
     private let chevronDown: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "chevron.down")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
+        let img = (UIImage(named: "Channel/ChevronBottom", in: Bundle.main, compatibleWith: nil)
+            ?? ProfileContainerNode.systemChevronDownFallback())
+            .withRenderingMode(.alwaysTemplate)
+        let iv = UIImageView(image: img)
         iv.tintColor = .mezonTextPrimary
         iv.contentMode = .scaleAspectFit
         return iv
@@ -76,13 +79,12 @@ final class ProfileContainerNode: ASDisplayNode {
     private let historyRow = ProfileIconRow()
     private let editProfileButton: UIButton = {
         let btn = UIButton(type: .system)
-        var cfg = UIButton.Configuration.filled()
-        cfg.cornerStyle = .capsule
-        cfg.baseForegroundColor = .white
-        cfg.baseBackgroundColor = .outgoingBubble
-        cfg.imagePadding = 8
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0)
-        btn.configuration = cfg
+        btn.tintColor = .white
+        btn.backgroundColor = .outgoingBubble
+        btn.layer.cornerRadius = 20
+        btn.clipsToBounds = true
+        btn.titleEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
         return btn
     }()
 
@@ -122,7 +124,10 @@ final class ProfileContainerNode: ASDisplayNode {
     }()
     private let friendsAvatarStack = UIStackView()
     private let friendsChevron: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "chevron.right")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)))
+        let img = (UIImage(named: "Channel/ChevronRight", in: Bundle.main, compatibleWith: nil)
+            ?? ProfileContainerNode.systemChevronRightFallback())
+            .withRenderingMode(.alwaysTemplate)
+        let iv = UIImageView(image: img)
         iv.tintColor = .mezonTextSecondary
         iv.contentMode = .scaleAspectFit
         return iv
@@ -135,23 +140,49 @@ final class ProfileContainerNode: ASDisplayNode {
         UIImage(named: "Profile/\(named)", in: Bundle.main, compatibleWith: nil)
     }
 
+    private static func systemChevronDownFallback() -> UIImage {
+        if #available(iOS 13.0, *) {
+            let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            return UIImage(systemName: "chevron.down", withConfiguration: cfg) ?? UIImage()
+        }
+        return UIImage()
+    }
+
+    private static func systemChevronRightFallback() -> UIImage {
+        if #available(iOS 13.0, *) {
+            let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+            return UIImage(systemName: "chevron.right", withConfiguration: cfg) ?? UIImage()
+        }
+        return UIImage()
+    }
+
     private static func makePlusIconInCircle(containerColor: UIColor, iconColor: UIColor, size: CGFloat = 24) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
         return renderer.image { ctx in
             let rect = CGRect(origin: .zero, size: CGSize(width: size, height: size))
             containerColor.setFill()
             UIBezierPath(roundedRect: rect, cornerRadius: 2).fill()
-            let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
-            if let plus = UIImage(systemName: "plus", withConfiguration: cfg)?
-                .withTintColor(iconColor, renderingMode: .alwaysOriginal) {
-                let iconSize = plus.size
-                let iconRect = CGRect(
-                    x: (size - iconSize.width) / 2,
-                    y: (size - iconSize.height) / 2,
-                    width: iconSize.width,
-                    height: iconSize.height
-                )
-                plus.draw(in: iconRect)
+            if #available(iOS 13.0, *) {
+                let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
+                if let plus = UIImage(systemName: "plus", withConfiguration: cfg)?
+                    .withTintColor(iconColor, renderingMode: .alwaysOriginal) {
+                    let iconSize = plus.size
+                    let iconRect = CGRect(
+                        x: (size - iconSize.width) / 2,
+                        y: (size - iconSize.height) / 2,
+                        width: iconSize.width,
+                        height: iconSize.height
+                    )
+                    plus.draw(in: iconRect)
+                }
+            } else {
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 12, weight: .bold),
+                    .foregroundColor: iconColor,
+                ]
+                let str = NSAttributedString(string: "+", attributes: attrs)
+                let sz = str.size()
+                str.draw(at: CGPoint(x: (size - sz.width) / 2, y: (size - sz.height) / 2 - 1))
             }
         }.withRenderingMode(.alwaysOriginal)
     }
@@ -236,17 +267,16 @@ final class ProfileContainerNode: ASDisplayNode {
         }
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
 
-        var statusCfg = addStatusButton.configuration ?? UIButton.Configuration.plain()
-        statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-        statusCfg.baseForegroundColor = .mezonTextPrimary
-        statusCfg.attributedTitle = AttributedString(
-            L(L10n.Profile.addStatus),
-            attributes: AttributeContainer([
+        addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
+        addStatusButton.tintColor = .mezonTextPrimary
+        let statusTitle = NSAttributedString(
+            string: L(L10n.Profile.addStatus),
+            attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
                 .foregroundColor: UIColor.mezonTextPrimary
-            ])
+            ]
         )
-        addStatusButton.configuration = statusCfg
+        addStatusButton.setAttributedTitle(statusTitle, for: .normal)
     }
 
     private func setupHeader() {
@@ -272,19 +302,18 @@ final class ProfileContainerNode: ASDisplayNode {
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
         statusBubbleContainer.layer.insertSublayer(statusBubbleShapeLayer, at: 0)
 
-        var statusCfg = UIButton.Configuration.plain()
-        statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-        statusCfg.imagePadding = 6
-        statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
-        statusCfg.baseForegroundColor = .mezonTextPrimary
-        statusCfg.attributedTitle = AttributedString(
-            L(L10n.Profile.addStatus),
-            attributes: AttributeContainer([
+        addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
+        addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 6)
+        addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
+        addStatusButton.tintColor = .mezonTextPrimary
+        let statusTitle = NSAttributedString(
+            string: L(L10n.Profile.addStatus),
+            attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
                 .foregroundColor: UIColor.mezonTextPrimary
-            ])
+            ]
         )
-        addStatusButton.configuration = statusCfg
+        addStatusButton.setAttributedTitle(statusTitle, for: .normal)
         statusBubbleContainer.addSubview(addStatusButton)
         fixedHeaderView.addSubview(statusBubbleContainer)
     }
@@ -446,17 +475,15 @@ final class ProfileContainerNode: ASDisplayNode {
         let user = context.currentUser
 
         if let url = user?.avatarURL {
-            Task {
-                if let data = try? await URLSession.shared.data(from: url).0,
-                   let img = UIImage.decodeImage(from: data) {
-                    let color = img.dominantColor()
-                    await MainActor.run {
-                        self.avatarImageView.image = img
-                        self.headerBackgroundView.backgroundColor = color ?? .mezonBackground
-                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
-                    }
+            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                guard let data, let img = UIImage.decodeImage(from: data) else { return }
+                let color = img.dominantColor()
+                DispatchQueue.main.async {
+                    self?.avatarImageView.image = img
+                    self?.headerBackgroundView.backgroundColor = color ?? .mezonBackground
+                    self?.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 }
-            }
+            }.resume()
         } else {
             avatarImageView.image = nil
             headerBackgroundView.backgroundColor = .mezonSecondaryBackground
@@ -491,14 +518,22 @@ final class ProfileContainerNode: ASDisplayNode {
             textColor: .mezonTextStrong
         )
 
-        let editIcon = Self.profileImageResized(named: "EditIcon", size: 20)?.withRenderingMode(.alwaysOriginal)
-            ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold))
-        editProfileButton.configuration?.image = editIcon
-        editProfileButton.configuration?.title = L(L10n.Profile.editProfile)
-        editProfileButton.configuration?.attributedTitle = AttributedString(
-            L(L10n.Profile.editProfile),
-            attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold)])
+        let editIcon: UIImage? = {
+            if let img = Self.profileImageResized(named: "EditIcon", size: 20)?.withRenderingMode(.alwaysOriginal) {
+                return img
+            }
+            if #available(iOS 13.0, *) {
+                let cfg = UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold)
+                return UIImage(systemName: "pencil", withConfiguration: cfg)
+            }
+            return nil
+        }()
+        editProfileButton.setImage(editIcon, for: .normal)
+        let editTitle = NSAttributedString(
+            string: L(L10n.Profile.editProfile),
+            attributes: [.font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold)]
         )
+        editProfileButton.setAttributedTitle(editTitle, for: .normal)
 
         aboutMeTitleLabel.text = L(L10n.Profile.aboutMe)
         aboutMeContentLabel.text = user?.bio ?? "—"
@@ -770,8 +805,12 @@ private final class ProfileIconRow: UIView {
             iconViewWidthConstraint.constant = 22.swh
             labelLeadingConstraint.constant = 12.sw
         } else if let name = icon {
-            let cfg = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-            iconView.image = UIImage(systemName: name, withConfiguration: cfg)
+            if #available(iOS 13.0, *) {
+                let cfg = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+                iconView.image = UIImage(systemName: name, withConfiguration: cfg)
+            } else {
+                iconView.image = nil
+            }
             iconView.tintColor = iconColor
             iconView.isHidden = false
             iconViewWidthConstraint.constant = 22.swh
@@ -791,7 +830,11 @@ private final class ProfileIconRow: UIView {
             trailingView.tintColor = .mezonTextStrong
             trailingView.isHidden = false
         } else if let trailing = trailingIcon {
-            trailingView.image = UIImage(systemName: trailing)
+            if #available(iOS 13.0, *) {
+                trailingView.image = UIImage(systemName: trailing)
+            } else {
+                trailingView.image = nil
+            }
             trailingView.tintColor = .mezonTextStrong
             trailingView.isHidden = false
         } else {

@@ -14,6 +14,14 @@ final class ChatHeaderNode: ASDisplayNode {
 
     private var isDM = false
 
+    var statusBarClearance: CGFloat = 0 {
+        didSet {
+            if oldValue != statusBarClearance {
+                setNeedsLayout()
+            }
+        }
+    }
+
     var onBackTapped: (() -> Void)?
     var onHeaderTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
@@ -66,7 +74,7 @@ final class ChatHeaderNode: ASDisplayNode {
         titleNode.attributedText = NSAttributedString(
             string: title,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
+                .font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
                 .foregroundColor: t.textStrong,
             ]
         )
@@ -130,7 +138,7 @@ final class ChatHeaderNode: ASDisplayNode {
             titleNode.attributedText = NSAttributedString(
                 string: currentTitle.string,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
+                    .font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
                     .foregroundColor: t.textStrong,
                 ]
             )
@@ -163,10 +171,10 @@ final class ChatHeaderNode: ASDisplayNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        backButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
-        channelIconNode.style.preferredSize = CGSize(width: 16.swh, height: 16.swh)
-        callButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
-        searchButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
+        backButtonNode.style.preferredSize = CGSize(width: 36, height: 36)
+        channelIconNode.style.preferredSize = CGSize(width: 15.swh, height: 15.swh)
+        callButtonNode.style.preferredSize = CGSize(width: 36, height: 36)
+        searchButtonNode.style.preferredSize = CGSize(width: 36, height: 36)
         titleNode.style.flexShrink = 1
         subtitleNode.style.flexShrink = 1
 
@@ -207,19 +215,23 @@ final class ChatHeaderNode: ASDisplayNode {
             children: rowChildren
         )
 
-        let insets = UIEdgeInsets(top: 0, left: 12.sw, bottom: 0, right: 4.sw)
+        let insets = UIEdgeInsets(top: 0, left: 10.sw, bottom: 0, right: 2.sw)
         let insetSpec = ASInsetLayoutSpec(insets: insets, child: row)
-        insetSpec.style.height = ASDimensionMake(44)
+        insetSpec.style.height = ASDimensionMake(36)
 
         separatorNode.style.height = ASDimensionMake(0.5)
         separatorNode.style.alignSelf = .stretch
 
-        return ASStackLayoutSpec(
+        let barStack = ASStackLayoutSpec(
             direction: .vertical,
             spacing: 0,
             justifyContent: .start,
             alignItems: .stretch,
             children: [insetSpec, separatorNode]
+        )
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: statusBarClearance, left: 0, bottom: 0, right: 0),
+            child: barStack
         )
     }
 }

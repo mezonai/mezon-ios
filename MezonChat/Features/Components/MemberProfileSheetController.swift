@@ -84,7 +84,6 @@ final class MemberProfileSheetController: ViewController {
                 animateDismiss()
                 onSendMessage?(channel)
             } catch {
-                AppLogger.network.warning("[MemberProfile] createDirectMessage failed: \(error)")
             }
         }
     }

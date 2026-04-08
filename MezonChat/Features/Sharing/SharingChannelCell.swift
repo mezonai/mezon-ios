@@ -43,7 +43,7 @@ final class SharingChannelCell: UITableViewCell {
     }()
 
     private let checkmarkView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
+        let iv = UIImageView(image: SharingChannelCell.selectionCheckmarkImage())
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.tintColor = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0)
         iv.contentMode = .scaleAspectFit
@@ -128,7 +128,7 @@ final class SharingChannelCell: UITableViewCell {
         } else if isGroup {
             avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
-            channelIconView.image = UIImage(systemName: "person.2.fill")
+            channelIconView.image = SharingChannelCell.groupChannelIconImage()
             if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
                let url = URL(string: channel.channelAvatar) {
                 channelIconView.isHidden = true
@@ -167,6 +167,42 @@ final class SharingChannelCell: UITableViewCell {
         if let first = channel.usernames.first, !first.isEmpty { return first }
         if !channel.creatorName.isEmpty { return "\(channel.creatorName)'s Group" }
         return "Chat"
+    }
+
+    private static func selectionCheckmarkImage() -> UIImage {
+        if #available(iOS 13.0, *) {
+            return UIImage(systemName: "checkmark.circle.fill") ?? UIImage()
+        }
+        let size = CGSize(width: 22, height: 22)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            let circle = UIBezierPath(ovalIn: CGRect(x: 1, y: 1, width: 20, height: 20))
+            UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1).setFill()
+            circle.fill()
+            UIColor.white.setStroke()
+            let check = UIBezierPath()
+            check.move(to: CGPoint(x: 6, y: 11))
+            check.addLine(to: CGPoint(x: 10, y: 15))
+            check.addLine(to: CGPoint(x: 16, y: 8))
+            check.lineWidth = 2
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            check.stroke()
+        }
+    }
+
+    private static func groupChannelIconImage() -> UIImage {
+        if #available(iOS 13.0, *) {
+            return UIImage(systemName: "person.2.fill") ?? UIImage()
+        }
+        if let img = UIImage(named: "Channel/channel", in: Bundle.main, compatibleWith: nil) {
+            return img.withRenderingMode(.alwaysTemplate)
+        }
+        let s = CGSize(width: 20, height: 20)
+        return UIGraphicsImageRenderer(size: s).image { _ in
+            UIColor.white.withAlphaComponent(0.85).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 2, y: 5, width: 8, height: 8)).fill()
+            UIBezierPath(ovalIn: CGRect(x: 10, y: 5, width: 8, height: 8)).fill()
+        }.withRenderingMode(.alwaysTemplate)
     }
 
     private func colorFor(name: String) -> UIColor {

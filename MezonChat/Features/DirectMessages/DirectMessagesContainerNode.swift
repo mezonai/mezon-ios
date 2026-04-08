@@ -77,25 +77,22 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
         titleLabel.textColor = .mezonTextPrimary
 
-        var addCfg = UIButton.Configuration.filled()
-        addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
-        addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
-        addCfg.baseForegroundColor = UIColor.theme.textStrong
-        addCfg.baseBackgroundColor = UIColor.theme.secondary
-        addCfg.cornerStyle = .capsule
-        addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
-        addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
-        }
-        addFriendButton.configuration = addCfg
+        addFriendButton.setImage(UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf)), for: .normal)
+        addFriendButton.setTitle(" \(L(L10n.DirectMessage.addFriend))", for: .normal)
+        addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        addFriendButton.tintColor = UIColor.theme.textStrong
+        addFriendButton.backgroundColor = UIColor.theme.secondary
+        addFriendButton.layer.cornerRadius = 16
+        addFriendButton.clipsToBounds = true
+        addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
+        addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
 
-        var searchCfg = UIButton.Configuration.filled()
-        searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-        searchCfg.baseForegroundColor = UIColor.theme.textDisabled
-        searchCfg.baseBackgroundColor = UIColor.theme.secondary
-        searchCfg.cornerStyle = .capsule
-        searchButton.configuration = searchCfg
+        searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
+        searchButton.tintColor = UIColor.theme.textDisabled
+        searchButton.backgroundColor = UIColor.theme.secondary
+        searchButton.layer.cornerRadius = 18
+        searchButton.clipsToBounds = true
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
 
@@ -158,24 +155,21 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         guard isNodeLoaded else { return }
 
-        var addCfg = UIButton.Configuration.filled()
-        addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
-        addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
-        addCfg.baseForegroundColor = UIColor.theme.textStrong
-        addCfg.baseBackgroundColor = UIColor.theme.secondary
-        addCfg.cornerStyle = .capsule
-        addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
-        addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
-        }
-        addFriendButton.configuration = addCfg
+        addFriendButton.setImage(UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf)), for: .normal)
+        addFriendButton.setTitle(" \(L(L10n.DirectMessage.addFriend))", for: .normal)
+        addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        addFriendButton.tintColor = UIColor.theme.textStrong
+        addFriendButton.backgroundColor = UIColor.theme.secondary
+        addFriendButton.layer.cornerRadius = 16
+        addFriendButton.clipsToBounds = true
+        addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
+        addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
 
-        var searchCfg = UIButton.Configuration.filled()
-        searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-        searchCfg.baseForegroundColor = UIColor.theme.textDisabled
-        searchCfg.baseBackgroundColor = UIColor.theme.secondary
-        searchCfg.cornerStyle = .capsule
-        searchButton.configuration = searchCfg
+        searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
+        searchButton.tintColor = UIColor.theme.textDisabled
+        searchButton.backgroundColor = UIColor.theme.secondary
+        searchButton.layer.cornerRadius = 18
+        searchButton.clipsToBounds = true
 
         tableView.reloadData()
     }

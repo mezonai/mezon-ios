@@ -24,12 +24,30 @@ final class MezonHTTPClient {
         urlSession = URLSession(configuration: config)
     }
 
+    private func urlSessionData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        if #available(iOS 15.0, *) {
+            return try await urlSession.data(for: request)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            urlSession.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let data, let response else {
+                    continuation.resume(throwing: MezonError.invalidResponse)
+                    return
+                }
+                continuation.resume(returning: (data, response))
+            }.resume()
+        }
+    }
+
     func updateBaseURL(from session: MezonSession) {
         guard let apiURL = session.apiURL else { return }
         let cleaned = stripDefaultPort(apiURL)
         guard let url = URL(string: cleaned) else { return }
         protoBaseURL = url
-        AppLogger.network.info("MezonHTTPClient protoBaseURL updated to \(url)")
     }
 
     private func stripDefaultPort(_ urlString: String) -> String {
@@ -626,10 +644,8 @@ final class MezonHTTPClient {
         request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
         request.httpBody = data
 
-        AppLogger.network.debug("→ PUT (minio) \(url)")
-        let (_, response) = try await urlSession.data(for: request)
+        let (_, response) = try await urlSessionData(for: request)
         guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
-        AppLogger.network.debug("← \(http.statusCode) (minio)")
         guard (200..<300).contains(http.statusCode) else {
             throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")
         }
@@ -771,6 +787,23 @@ final class MezonHTTPClient {
         )
     }
 
+    func listPinMessagesLegacy(
+        clanId: Int64,
+        channelId: Int64,
+        token: String,
+        completion: @escaping (Result<Mezon_Api_PinMessagesList, Error>) -> Void
+    ) {
+        var req = Mezon_Api_PinMessageRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        postProtoViaDataTask(
+            path: "/mezon.api.Mezon/GetPinMessagesList",
+            message: req,
+            auth: .bearer(token),
+            completion: completion
+        )
+    }
+
     func listChannelAttachments(
         clanId: Int64,
         channelId: Int64,
@@ -852,11 +885,9 @@ final class MezonHTTPClient {
         }
         request.httpBody = try message.serializedData()
 
-        AppLogger.network.debug("→ POST (proto) \(url.absoluteString)")
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSessionData(for: request)
 
         guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
-        AppLogger.network.debug("← \(http.statusCode) \(url.path) (\(data.count) bytes)")
 
         if (200..<300).contains(http.statusCode) {
             return try Response(serializedBytes: data)
@@ -867,7 +898,6 @@ final class MezonHTTPClient {
             case .bearer = auth,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            AppLogger.network.info("[HTTP] \(http.statusCode) on proto \(url.path); retrying with refreshed session token")
             return try await postProto(
                 path: path,
                 message: message,
@@ -879,6 +909,215 @@ final class MezonHTTPClient {
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+    }
+
+    private func postProtoViaDataTask<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod,
+        completion: @escaping (Result<Response, Error>) -> Void
+    ) {
+        let urlRequest: URLRequest
+        do {
+            let url = protoBaseURL.appendingPathComponent(path)
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/proto", forHTTPHeaderField: "Accept")
+            switch auth {
+            case .serverKey:
+                request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
+            case .bearer(let token):
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request.httpBody = try message.serializedData()
+            urlRequest = request
+        } catch {
+            completion(.failure(error))
+            return
+        }
+
+        urlSession.dataTask(with: urlRequest) { data, response, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+            guard let data, let http = response as? HTTPURLResponse else {
+                completion(.failure(MezonError.invalidResponse))
+                return
+            }
+            if (200..<300).contains(http.statusCode) {
+                do {
+                    let decoded = try Response(serializedBytes: data)
+                    completion(.success(decoded))
+                } catch {
+                    completion(.failure(error))
+                }
+                return
+            }
+            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            completion(.failure(MezonError.httpError(statusCode: http.statusCode, message: msg)))
+        }.resume()
+    }
+
+    func listChannelDescsLegacy(
+        clanId: Int64,
+        token: String,
+        completion: @escaping (Result<[Mezon_Api_ChannelDescription], Error>) -> Void
+    ) {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID = clanId
+        req.limit = 500
+        req.state = 1
+        req.page = 0
+        req.channelType = 1
+        req.isMobile = true
+        postProtoViaDataTask(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        ) { (result: Result<Mezon_Api_ChannelDescList, Error>) in
+            switch result {
+            case .success(let list): completion(.success(list.channeldesc))
+            case .failure(let e): completion(.failure(e))
+            }
+        }
+    }
+
+    func listDirectMessageChannelsLegacy(
+        token: String,
+        completion: @escaping (Result<[Mezon_Api_ChannelDescription], Error>) -> Void
+    ) {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID = 0
+        req.limit = 500
+        req.state = 1
+        req.page = 0
+        req.channelType = 3
+        req.isMobile = true
+        postProtoViaDataTask(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        ) { (result: Result<Mezon_Api_ChannelDescList, Error>) in
+            switch result {
+            case .success(let list): completion(.success(list.channeldesc))
+            case .failure(let e): completion(.failure(e))
+            }
+        }
+    }
+
+    func listClanDescsLegacy(
+        token: String,
+        completion: @escaping (Result<[Mezon_Api_ClanDesc], Error>) -> Void
+    ) {
+        var req = Mezon_Api_ListClanDescRequest()
+        req.limit = 100
+        postProtoViaDataTask(
+            path: "/mezon.api.Mezon/ListClanDescs",
+            message: req,
+            auth: .bearer(token)
+        ) { (result: Result<Mezon_Api_ClanDescList, Error>) in
+            switch result {
+            case .success(let list): completion(.success(list.clandesc))
+            case .failure(let e): completion(.failure(e))
+            }
+        }
+    }
+
+    func uploadAttachmentFileLegacy(
+        filename: String,
+        filetype: String,
+        size: Int,
+        width: Int = 0,
+        height: Int = 0,
+        token: String,
+        completion: @escaping (Result<Mezon_Api_UploadAttachment, Error>) -> Void
+    ) {
+        var req = Mezon_Api_UploadAttachmentRequest()
+        req.filename = filename
+        req.filetype = filetype
+        req.size = Int32(size)
+        req.width = Int32(width)
+        req.height = Int32(height)
+        postProtoViaDataTask(
+            path: "/mezon.api.Mezon/UploadAttachmentFile",
+            message: req,
+            auth: .bearer(token),
+            completion: completion
+        )
+    }
+
+    func uploadToMinIOLegacy(
+        url: String,
+        data: Data,
+        contentType: String,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let uploadURL = URL(string: url) else {
+            completion(.failure(MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")))
+            return
+        }
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
+        request.httpBody = data
+        urlSession.dataTask(with: request) { _, response, error in
+            if let error {
+                completion(.failure(error))
+                return
+            }
+            guard let http = response as? HTTPURLResponse else {
+                completion(.failure(MezonError.invalidResponse))
+                return
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                completion(.failure(MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")))
+                return
+            }
+            completion(.success(()))
+        }.resume()
+    }
+
+    func sendChannelMessageLegacy(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        content: String,
+        mentions: [Mezon_Api_MessageMention] = [],
+        attachments: [Mezon_Api_MessageAttachment] = [],
+        references: [Mezon_Api_MessageRef] = [],
+        anonymous: Bool = false,
+        mentionEveryone: Bool = false,
+        avatar: String = "",
+        topicId: Int64 = 0,
+        code: Int32 = 0,
+        token: String,
+        completion: @escaping (Result<Mezon_Realtime_ChannelMessageAck, Error>) -> Void
+    ) {
+        var req = Mezon_Realtime_ChannelMessageSend()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.mode = mode
+        req.isPublic = isPublic
+        req.content = content
+        req.mentions = mentions
+        req.attachments = attachments
+        req.references = references
+        req.anonymousMessage = anonymous
+        req.mentionEveryone = mentionEveryone
+        req.avatar = avatar
+        req.topicID = topicId
+        req.code = code
+        postProtoViaDataTask(
+            path: "/mezon.api.Mezon/SendChannelMessage",
+            message: req,
+            auth: .bearer(token),
+            completion: completion
+        )
     }
 
     enum AuthMethod {
@@ -914,13 +1153,11 @@ final class MezonHTTPClient {
     }
 
     private func execute<T: Decodable>(_ request: URLRequest, allowBearerRetry: Bool = true) async throws -> T {
-        AppLogger.network.debug("→ \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "")")
-        let (data, response) = try await urlSession.data(for: request)
+        let (data, response) = try await urlSessionData(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw MezonError.invalidResponse
         }
-        AppLogger.network.debug("← \(http.statusCode) \(request.url?.path ?? "")")
 
         if (200..<300).contains(http.statusCode) {
             if T.self == EmptyResponse.self { return EmptyResponse() as! T }
@@ -932,7 +1169,6 @@ final class MezonHTTPClient {
             request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            AppLogger.network.info("[HTTP] \(http.statusCode) on \(request.url?.path ?? ""); retrying JSON request with refreshed token")
             var retry = request
             retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
             return try await execute(retry, allowBearerRetry: false)

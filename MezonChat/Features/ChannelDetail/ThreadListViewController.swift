@@ -63,7 +63,9 @@ final class ThreadListViewController: ViewController {
         tableView.keyboardDismissMode = .onDrag
         tableView.backgroundColor = UIColor.theme.primary
         tableView.separatorStyle = .none
-        tableView.sectionHeaderTopPadding = 0
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
         tableView.estimatedRowHeight = 76
         tableView.rowHeight = UITableView.automaticDimension
         tableView.register(ThreadListItemCell.self, forCellReuseIdentifier: ThreadListItemCell.reuseId)
@@ -291,7 +293,6 @@ final class ThreadListViewController: ViewController {
             rebuildSections()
             tableView.reloadData()
         } catch {
-            AppLogger.network.warning("[ThreadList] searchThread failed: \(error)")
         }
     }
 
@@ -336,7 +337,6 @@ final class ThreadListViewController: ViewController {
                 self.rebuildSections()
                 self.tableView.reloadData()
             } catch {
-                AppLogger.network.warning("[ThreadList] listThreadDescs failed: \(error)")
             }
         }
     }
@@ -394,8 +394,6 @@ final class ThreadListViewController: ViewController {
         "\(count) \(count == 1 ? singular : plural)"
     }
 
-    // MARK: - Grouping (React Native `helper.ts`)
-
     private static func filterPrivateThreads(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
         threads.filter { ch in
             if ch.channelPrivate != 0 {
@@ -441,8 +439,6 @@ final class ThreadListViewController: ViewController {
             return now - ts >= thirtyDays
         })
     }
-
-    // MARK: - Cache encoding (per parent channel, like RN `byChannels`)
 
     private static func encodeThreadListCache(_ channels: [Mezon_Api_ChannelDescription]) -> Data {
         var result = Data()
@@ -502,8 +498,6 @@ final class ThreadListViewController: ViewController {
         return relativeTimeFormatter.localizedString(for: date, relativeTo: Date())
     }
 }
-
-// MARK: - RN `GroupThread` card + `ThreadItem` row layout
 
 private enum ThreadCardPosition {
     case single, first, middle, last

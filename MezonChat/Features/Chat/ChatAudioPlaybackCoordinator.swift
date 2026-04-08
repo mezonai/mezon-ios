@@ -1,12 +1,9 @@
 import AVFoundation
-import OSLog
 import UIKit
 
 final class ChatAudioPlaybackCoordinator: NSObject {
 
     static let shared = ChatAudioPlaybackCoordinator()
-
-    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MezonChat", category: "ChatAudio")
 
     static func resolvePlaybackURL(from string: String) -> URL? {
         let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22,8 +19,6 @@ final class ChatAudioPlaybackCoordinator: NSObject {
     private var endObserver: NSObjectProtocol?
     private(set) var currentPlaybackId: String?
     private var stableItemDuration: TimeInterval = 0
-    private var emitLogCounter = 0
-    private var didLogFailedItem = false
 
     private override init() {
         super.init()
@@ -38,11 +33,7 @@ final class ChatAudioPlaybackCoordinator: NSObject {
 
     func toggle(urlString: String, playbackId: String, sink: ChatAudioPlaybackProgressSink) {
         guard !urlString.isEmpty else { return }
-        guard let url = Self.resolvePlaybackURL(from: urlString) else {
-            let prefix = String(urlString.prefix(120))
-            Self.log.error("toggle: could not resolve URL. prefix=\(prefix, privacy: .public)")
-            return
-        }
+        guard let url = Self.resolvePlaybackURL(from: urlString) else { return }
 
         if currentPlaybackId == playbackId, player != nil {
             self.sink = sink
@@ -68,9 +59,6 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         let item = AVPlayerItem(url: url)
         let p = AVPlayer(playerItem: item)
         player = p
-        emitLogCounter = 0
-        didLogFailedItem = false
-        Self.log.info("toggle: start playbackId=\(playbackId, privacy: .public) url=\(url.absoluteString, privacy: .public)")
 
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -100,11 +88,6 @@ final class ChatAudioPlaybackCoordinator: NSObject {
             sink?.playbackProgress(0, playing: playing, duration: 0)
             return
         }
-        if item.status == .failed, !didLogFailedItem {
-            didLogFailedItem = true
-            let desc = item.error.map { $0.localizedDescription } ?? "unknown"
-            Self.log.error("AVPlayerItem failed (often matches FigFilePlayer -12864): \(desc, privacy: .public)")
-        }
         let d = CMTimeGetSeconds(item.duration)
         if d.isFinite, d > 0 {
             stableItemDuration = max(stableItemDuration, d)
@@ -113,15 +96,6 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         let t = CMTimeGetSeconds(item.currentTime())
         let time = t.isFinite ? t : 0
         let fraction: CGFloat = total > 0 ? CGFloat(max(0, min(1, time / total))) : 0
-        emitLogCounter += 1
-        let n = emitLogCounter
-        if n <= 5 {
-            let ts = String(format: "%.2f", time)
-            let totS = String(format: "%.2f", total)
-            let dS = String(format: "%.2f", d)
-            let stS = String(format: "%.2f", stableItemDuration)
-            Self.log.info("emit #\(n, privacy: .public) playing=\(playing, privacy: .public) time=\(ts, privacy: .public) total=\(totS, privacy: .public) rawD=\(dS, privacy: .public) stable=\(stS, privacy: .public)")
-        }
         sink?.playbackProgress(fraction, playing: playing, duration: total)
     }
 
@@ -138,8 +112,6 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         player = nil
         currentPlaybackId = nil
         stableItemDuration = 0
-        emitLogCounter = 0
-        didLogFailedItem = false
     }
 
     private func ensureSession() {

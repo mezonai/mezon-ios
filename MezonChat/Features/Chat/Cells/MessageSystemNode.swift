@@ -13,9 +13,9 @@ final class MessageSystemNode: ASDisplayNode {
 
     private static let iconSize: CGFloat = 20
     private static let hPadding: CGFloat = 12
-    private static let vPadding: CGFloat = 8
+    private static let vPadding: CGFloat = 3
     private static let iconTextGap: CGFloat = 8
-    private static let timeGap: CGFloat = 6
+    private static let timeGap: CGFloat = 3
 
     let display: ChatMessageDisplay
     private let interaction: ChatInteraction

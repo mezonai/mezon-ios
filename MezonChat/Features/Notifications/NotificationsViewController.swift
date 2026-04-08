@@ -103,7 +103,6 @@ final class NotificationsViewController: ViewController {
                     try await context.engine.topicDiscussion.listTopics(
                         clanId: clanId, token: token)
                 } catch {
-                    AppLogger.network.error("fetchTopics error: \(error)")
                 }
             }
 
@@ -146,7 +145,6 @@ final class NotificationsViewController: ViewController {
                 token: token
             )
         } catch {
-            AppLogger.network.error("fetchNotifications error: \(error)")
         }
     }
 

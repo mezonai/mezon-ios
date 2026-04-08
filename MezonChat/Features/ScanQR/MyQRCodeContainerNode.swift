@@ -126,12 +126,20 @@ final class MyQRCodeContainerNode: ASDisplayNode {
                 .foregroundColor: UIColor.mezonTextMuted,
             ])
 
-        downloadButton.setImage(UIImage(systemName: "square.and.arrow.down"), for: .normal)
+        if #available(iOS 13.0, *) {
+            downloadButton.setImage(UIImage(systemName: "square.and.arrow.down"), for: .normal)
+        } else {
+            downloadButton.setImage(nil, for: .normal)
+        }
         downloadButton.backgroundColor = .mezonTertiary
         downloadButton.cornerRadius = 4.swh
         downloadButton.tintColor = UIColor.mezonTextPrimary
 
-        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        if #available(iOS 13.0, *) {
+            shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
+        } else {
+            shareButton.setImage(nil, for: .normal)
+        }
         shareButton.backgroundColor = .mezonTertiary
         shareButton.cornerRadius = 4.swh
         shareButton.tintColor = UIColor.mezonTextPrimary

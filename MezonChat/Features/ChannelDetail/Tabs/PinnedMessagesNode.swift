@@ -47,25 +47,62 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     private func fetchPins() {
-        Task {
-            do {
-                let token = await context.getToken() ?? ""
-                let targetClanId =
-                    (channelType == MezonConstants.ChannelType.dm.rawValue
-                        || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+        if #available(iOS 13.0, *) {
+            Task { await fetchPinsAsync() }
+        } else {
+            fetchPinsLegacy()
+        }
+    }
 
-                let res = try await context.account.network.listPinMessages(
-                    clanId: targetClanId,
-                    channelId: channelId,
-                    token: token
-                )
-                self.pinnedMessages = res.pinMessagesList
+    @available(iOS 13.0, *)
+    private func fetchPinsAsync() async {
+        do {
+            let token = await context.getToken() ?? ""
+            let targetClanId =
+                (channelType == MezonConstants.ChannelType.dm.rawValue
+                    || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+
+            let res = try await context.account.network.listPinMessages(
+                clanId: targetClanId,
+                channelId: channelId,
+                token: token
+            )
+            pinnedMessages = res.pinMessagesList
+            pinsFetchCompleted = true
+            await tableNode.reloadData()
+        } catch {
+            pinsFetchCompleted = true
+            await tableNode.reloadData()
+        }
+    }
+
+    private func fetchPinsLegacy() {
+        let token = context.session?.token ?? ""
+        let targetClanId =
+            (channelType == MezonConstants.ChannelType.dm.rawValue
+                || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+
+        guard !token.isEmpty else {
+            pinsFetchCompleted = true
+            tableNode.reloadData()
+            return
+        }
+
+        context.account.network.listPinMessagesLegacy(
+            clanId: targetClanId,
+            channelId: channelId,
+            token: token
+        ) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success(let res):
+                    self.pinnedMessages = res.pinMessagesList
+                case .failure:
+                    break
+                }
                 self.pinsFetchCompleted = true
-                await self.tableNode.reloadData()
-            } catch {
-                AppLogger.network.error("Fetch pinned messages failed: \(error)")
-                self.pinsFetchCompleted = true
-                await self.tableNode.reloadData()
+                self.tableNode.reloadData()
             }
         }
     }
@@ -186,7 +223,12 @@ private final class PinsLoadingCellNode: ASCellNode {
         selectionStyle = .none
         spinnerHost.style.preferredSize = CGSize(width: 44, height: 44)
         spinnerHost.setViewBlock {
-            let v = UIActivityIndicatorView(style: .medium)
+            let v: UIActivityIndicatorView
+            if #available(iOS 13.0, *) {
+                v = UIActivityIndicatorView(style: .medium)
+            } else {
+                v = UIActivityIndicatorView(style: .gray)
+            }
             v.color = UIColor.theme.textStrong
             v.startAnimating()
             return v
@@ -324,7 +366,6 @@ private final class PinnedMessageCellNode: ASCellNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let avatarSize = 40.sf
         let placeholderCentered = ASCenterLayoutSpec(
             centeringOptions: .XY,
             sizingOptions: .minimumXY,

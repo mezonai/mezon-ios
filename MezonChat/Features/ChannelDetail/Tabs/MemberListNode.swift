@@ -174,7 +174,6 @@ final class MemberListNode: ASDisplayNode {
                     }
                 }
             } catch {
-                AppLogger.network.error("Fetch members failed")
             }
         }
     }

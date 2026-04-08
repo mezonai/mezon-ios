@@ -68,7 +68,7 @@ final class MezonSocket: NSObject {
     var onConnected:          (() -> Void)?
     var onError:              ((Error) -> Void)?
 
-    private var webSocketTask: URLSessionWebSocketTask?
+    private var webSocketTaskStorage: Any?
     private var urlSession: URLSession?
     private var token: String?
     private var wsHostOverride: String?
@@ -85,11 +85,15 @@ final class MezonSocket: NSObject {
     private override init() { super.init() }
 
     func connect(token: String, wsHostOverride: String? = nil) {
+        guard #available(iOS 13.0, *) else {
+            isConnected = false
+            return
+        }
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
-        if let old = webSocketTask {
+        if let old = webSocketTaskStorage as? URLSessionWebSocketTask {
             old.cancel(with: .normalClosure, reason: nil)
-            webSocketTask = nil
+            webSocketTaskStorage = nil
         }
         urlSession?.invalidateAndCancel()
 
@@ -100,17 +104,19 @@ final class MezonSocket: NSObject {
         let url = MezonConfig.wsURL(token: token, wsHostOverride: wsHostOverride)
         let config = URLSessionConfiguration.default
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-        webSocketTask = urlSession?.webSocketTask(with: url)
-        webSocketTask?.resume()
+        let task = urlSession?.webSocketTask(with: url)
+        webSocketTaskStorage = task
+        task?.resume()
         receiveLoop()
-        AppLogger.app.info("MezonSocket connecting to \(url)")
     }
 
     func disconnect() {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
-        webSocketTask?.cancel(with: .normalClosure, reason: nil)
-        webSocketTask = nil
+        if #available(iOS 13.0, *) {
+            (webSocketTaskStorage as? URLSessionWebSocketTask)?.cancel(with: .normalClosure, reason: nil)
+        }
+        webSocketTaskStorage = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
         isConnected = false
@@ -123,12 +129,12 @@ final class MezonSocket: NSObject {
     }
 
     func reconnectFromForeground() {
+        guard #available(iOS 13.0, *) else { return }
         guard token != nil || tokenProvider != nil else { return }
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
-        AppLogger.app.info("MezonSocket reconnecting from foreground")
         Task { @MainActor in
             await performReconnect(useTokenRefresh: tokenProvider != nil)
         }
@@ -137,21 +143,22 @@ final class MezonSocket: NSObject {
     private func cleanupForReconnect() {
         isConnected = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
-        webSocketTask?.cancel(with: .goingAway, reason: nil)
-        webSocketTask = nil
+        if #available(iOS 13.0, *) {
+            (webSocketTaskStorage as? URLSessionWebSocketTask)?.cancel(with: .goingAway, reason: nil)
+        }
+        webSocketTaskStorage = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
     }
 
     func send(_ envelope: Mezon_Realtime_Envelope) {
-        guard let task = webSocketTask else { return }
+        guard #available(iOS 13.0, *) else { return }
+        guard let task = webSocketTaskStorage as? URLSessionWebSocketTask else { return }
         do {
             let data = try envelope.serializedData()
-            task.send(.data(data)) { error in
-                if let error { AppLogger.app.error("MezonSocket send error: \(error)") }
+            task.send(.data(data)) { _ in
             }
         } catch {
-            AppLogger.app.error("MezonSocket encode error: \(error)")
         }
     }
 
@@ -184,7 +191,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.handleParticipantMeetStateEvent = ev
         send(envelope)
-        AppLogger.app.info("[MezonSocket] voice meet state clan=\(clanId) channel=\(channelId) join=\(join)")
     }
 
     func sendMessageTyping(
@@ -222,7 +228,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.channelMessageRemove = remove
         send(envelope)
-        AppLogger.app.info("[MezonSocket] removeChannelMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
     func writeLastSeenMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, timestampSeconds: UInt32, badgeCount: Int32) {
@@ -236,11 +241,12 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.lastSeenMessageEvent = event
         send(envelope)
-        AppLogger.app.info("[MezonSocket] writeLastSeenMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
+    @available(iOS 13.0, *)
     private func receiveLoop() {
-        webSocketTask?.receive { [weak self] result in
+        guard let task = webSocketTaskStorage as? URLSessionWebSocketTask else { return }
+        task.receive { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let message):
@@ -251,7 +257,6 @@ final class MezonSocket: NSObject {
             case .failure(let error):
                 let nsErr = error as NSError
                 guard nsErr.code != NSURLErrorCancelled else { return }
-                AppLogger.app.error("MezonSocket receive error: \(error) (code=\(nsErr.code))")
                 Task { @MainActor in
                     self.cleanupForReconnect()
                     self.onError?(error)
@@ -261,6 +266,7 @@ final class MezonSocket: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
         switch message {
         case .data(let data):       decodeEnvelope(data)
@@ -276,7 +282,6 @@ final class MezonSocket: NSObject {
             let envelope = try Mezon_Realtime_Envelope(serializedBytes: data)
             routeEnvelope(envelope)
         } catch {
-            AppLogger.app.error("MezonSocket decode error: \(error)")
         }
     }
 
@@ -345,6 +350,7 @@ final class MezonSocket: NSObject {
         case .streamingLeavedEvent(let m):
             onStreamingLeaved?(m)
         case .webrtcSignalingFwd(let m):
+            print("[CALL-DEBUG] 📩 Socket RECV webrtcSignalingFwd dataType=\(m.dataType) callerID=\(m.callerID) channelID=\(m.channelID) jsonLen=\(m.jsonData.count)")
             onWebRTC?(m)
         case .customStatusEvent(let m):
             onCustomStatus?(m)
@@ -396,6 +402,7 @@ final class MezonSocket: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     func listDataSocket(_ request: Mezon_Realtime_ListDataSocket) async throws -> Mezon_Realtime_ListDataSocket {
         return try await withCheckedThrowingContinuation { continuation in
             let id = UUID().uuidString
@@ -422,8 +429,8 @@ final class MezonSocket: NSObject {
     }
 
     private func scheduleReconnect() {
+        guard #available(iOS 13.0, *) else { return }
         guard reconnectAttempts < maxReconnectAttempts || (tokenProvider != nil && !hasTriedRefreshSinceConnect) else {
-            AppLogger.app.error("MezonSocket reconnect abandoned after max attempts")
             return
         }
         reconnectAttempts += 1
@@ -442,6 +449,7 @@ final class MezonSocket: NSObject {
     }
 
     private func performReconnect(useTokenRefresh: Bool = false) async {
+        guard #available(iOS 13.0, *) else { return }
         var tokenToUse = token
         if useTokenRefresh, let provider = tokenProvider {
             do {
@@ -449,26 +457,19 @@ final class MezonSocket: NSObject {
                 reconnectAttempts = 0
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, code == 401 || code == 403 {
-                    AppLogger.app.warning("MezonSocket token refresh failed with \(code) — session expired")
                     NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
                     return
                 }
-                AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
             } catch {
-                AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
             }
         }
         guard let token = tokenToUse else {
-            AppLogger.app.error("MezonSocket reconnect aborted: no token")
             return
         }
         connect(token: token, wsHostOverride: wsHostOverride)
         onReconnect?()
     }
 
-    // MARK: - WebRTC Signaling
-
-    /// Forward a WebRTC signaling message to a remote peer (SDP offer/answer, ICE candidate, quit, etc.)
     func forwardWebrtcSignaling(
         receiverId: Int64,
         dataType: WebRTCSignalingType,
@@ -476,52 +477,39 @@ final class MezonSocket: NSObject {
         channelId: Int64,
         callerId: Int64
     ) {
-        var fwd = Mezon_Realtime_WebrtcSignalingFwd()
-        fwd.receiverID = receiverId
-        fwd.dataType = dataType.rawValue
-        fwd.jsonData = jsonData
-        fwd.channelID = channelId
-        fwd.callerID = callerId
-        var envelope = Mezon_Realtime_Envelope()
-        envelope.webrtcSignalingFwd = fwd
-        send(envelope)
-        let signalingTypeCode = Int(dataType.rawValue)
-        AppLogger.app.info("[MezonSocket] forwardWebrtcSignaling type=\(signalingTypeCode) to=\(receiverId)")
+        print("[CALL-PAYLOAD] ═══════════════════════════════════════")
+        print("[CALL-PAYLOAD] forwardWebrtcSignaling")
+        print("[CALL-PAYLOAD]   receiverId : \(receiverId)")
+        print("[CALL-PAYLOAD]   dataType   : \(dataType) (raw=\(dataType.rawValue))")
+        print("[CALL-PAYLOAD]   channelId  : \(channelId)")
+        print("[CALL-PAYLOAD]   callerId   : \(callerId)")
+        print("[CALL-PAYLOAD]   connected  : \(isConnected)")
+        print("[CALL-PAYLOAD]   jsonData   : \(jsonData)")
+        print("[CALL-PAYLOAD] ═══════════════════════════════════════")
+        return
     }
 
-    /// Send VoIP push to receiver to trigger incoming call (CallKit on iOS)
     func makeCallPush(
         receiverId: Int64,
         jsonData: String,
         channelId: Int64,
         callerId: Int64
     ) {
-        var push = Mezon_Realtime_IncomingCallPush()
-        push.receiverID = receiverId
-        push.jsonData = jsonData
-        push.channelID = channelId
-        push.callerID = callerId
-        var envelope = Mezon_Realtime_Envelope()
-        envelope.incomingCallPush = push
-        send(envelope)
-        AppLogger.app.info("[MezonSocket] makeCallPush to=\(receiverId)")
-    }
-
-    func fetchListChannelBadgeCount(clanId: Int64) async throws -> [Mezon_Api_ChannelDescription] {
-        guard isConnected else {
-            throw MezonError.socketError("Socket not connected")
-        }
-        var socketReq = Mezon_Realtime_ListDataSocket()
-        socketReq.apiName = "ListChannelBadgeCount"
-        var inner = Mezon_Api_ListChannelBadgeCountRequest()
-        inner.clanID = clanId
-        socketReq.listChannelBadgeCountReq = inner
-        let response = try await listDataSocket(socketReq)
-        guard response.hasChannelBadgeCount else { return [] }
-        return response.channelBadgeCount.channeldesc
+        print("[CALL-PAYLOAD] ═══════════════════════════════════════")
+        print("[CALL-PAYLOAD] makeCallPush")
+        print("[CALL-PAYLOAD]   receiverId : \(receiverId)")
+        print("[CALL-PAYLOAD]   channelId  : \(channelId)")
+        print("[CALL-PAYLOAD]   callerId   : \(callerId)")
+        print("[CALL-PAYLOAD]   connected  : \(isConnected)")
+        print("[CALL-PAYLOAD]   jsonData   : \(jsonData)")
+        print("[CALL-PAYLOAD] ═══════════════════════════════════════")
+        return
     }
 
     func fetchListClanBadgeCount() async throws -> [Mezon_Api_ClanBadgeCount] {
+        guard #available(iOS 13.0, *) else {
+            return []
+        }
         guard isConnected else {
             throw MezonError.socketError("Socket not connected")
         }
@@ -533,6 +521,7 @@ final class MezonSocket: NSObject {
     }
 }
 
+@available(iOS 13.0, *)
 extension MezonSocket: URLSessionWebSocketDelegate {
     nonisolated func urlSession(
         _ session: URLSession,
@@ -583,12 +572,19 @@ enum ChannelUnreadBadgeSync {
                 var inc = b.lastSentMessage
                 if channels[i].hasLastSentMessage {
                     let ex = channels[i].lastSentMessage
-                    if inc.content.isEmpty, !ex.content.isEmpty {
-                        inc.content = ex.content
-                        if inc.senderID == 0 { inc.senderID = ex.senderID }
-                        if inc.id == 0 { inc.id = ex.id }
+                    let badgeSparse = inc.content.isEmpty && inc.id == 0 && inc.senderID == 0
+                    if badgeSparse {
+                        let ts = inc.timestampSeconds
+                        inc = ex
+                        inc.timestampSeconds = max(ts, ex.timestampSeconds)
+                    } else {
+                        if inc.content.isEmpty, !ex.content.isEmpty {
+                            inc.content = ex.content
+                            if inc.senderID == 0 { inc.senderID = ex.senderID }
+                            if inc.id == 0 { inc.id = ex.id }
+                        }
+                        inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
                     }
-                    inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
                 }
                 channels[i].lastSentMessage = inc
             }

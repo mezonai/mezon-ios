@@ -398,11 +398,12 @@ final class NotificationsContainerNode: ASDisplayNode {
         titleLabel.textColor = .mezonTextPrimary
 
 
-        var cfg = UIButton.Configuration.plain()
-        cfg.cornerStyle = .capsule
-        cfg.background.strokeColor = .mezonBorder
-        cfg.background.strokeWidth = 1.5
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        addFriendButton.layer.cornerRadius = 18
+        addFriendButton.clipsToBounds = true
+        addFriendButton.layer.borderColor = UIColor.mezonBorder.cgColor
+        addFriendButton.layer.borderWidth = 1.5
+        addFriendButton.tintColor = .mezonTextPrimary
         if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
             let iconSize = CGSize(width: 20, height: 20)
             let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
@@ -414,10 +415,8 @@ final class NotificationsContainerNode: ASDisplayNode {
             let resized = renderer.image { _ in
                 raw.draw(in: CGRect(origin: origin, size: drawSize))
             }
-            cfg.image = resized.withRenderingMode(.alwaysTemplate)
+            addFriendButton.setImage(resized.withRenderingMode(.alwaysTemplate), for: .normal)
         }
-        cfg.baseForegroundColor = .mezonTextPrimary
-        addFriendButton.configuration = cfg
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
         addFriendButton.accessibilityIdentifier = "notif_add_friend"
 
@@ -565,17 +564,15 @@ final class NotificationsContainerNode: ASDisplayNode {
             let btn = UIButton(type: .system)
             btn.tag = index
 
-            var cfg = UIButton.Configuration.filled()
-            cfg.cornerStyle = .fixed
-            cfg.background.cornerRadius = 8
-            cfg.imagePadding = 2
-            cfg.contentInsets = NSDirectionalEdgeInsets(
-                top: 8, leading: 12, bottom: 6, trailing: 10)
-            cfg.attributedTitle = AttributedString(
-                tab.title,
-                attributes: AttributeContainer([
+            btn.layer.cornerRadius = 8
+            btn.clipsToBounds = true
+            btn.titleEdgeInsets = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 0)
+            btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 6, right: 10)
+            btn.setAttributedTitle(
+                NSAttributedString(string: tab.title, attributes: [
                     .font: UIFont.systemFont(ofSize: 12, weight: .medium)
-                ])
+                ]),
+                for: .normal
             )
 
             if let raw = UIImage(named: tab.iconName) {
@@ -590,10 +587,8 @@ final class NotificationsContainerNode: ASDisplayNode {
                 let resized = renderer.image { _ in
                     raw.draw(in: CGRect(origin: origin, size: drawSize))
                 }
-                cfg.image = resized.withRenderingMode(.alwaysOriginal)
+                btn.setImage(resized.withRenderingMode(.alwaysOriginal), for: .normal)
             }
-
-            btn.configuration = cfg
             btn.clipsToBounds = false
             btn.layer.masksToBounds = false
             btn.setContentHuggingPriority(.required, for: .horizontal)
@@ -611,18 +606,18 @@ final class NotificationsContainerNode: ASDisplayNode {
         for (i, btn) in tabButtons.enumerated() {
             let selected = i == selectedTabIndex
 
-            var cfg = btn.configuration
             if selected {
-                cfg?.baseBackgroundColor = t.bgViolet
-                cfg?.baseForegroundColor = t.channelUnread
-                cfg?.background.strokeWidth = 0
+                btn.backgroundColor = t.bgViolet
+                btn.tintColor = t.channelUnread
+                btn.setTitleColor(t.channelUnread, for: .normal)
+                btn.layer.borderWidth = 0
             } else {
-                cfg?.baseBackgroundColor = t.secondaryLight
-                cfg?.baseForegroundColor = t.textDisabled
-                cfg?.background.strokeColor = t.borderDim
-                cfg?.background.strokeWidth = 1
+                btn.backgroundColor = t.secondaryLight
+                btn.tintColor = t.textDisabled
+                btn.setTitleColor(t.textDisabled, for: .normal)
+                btn.layer.borderColor = t.borderDim.cgColor
+                btn.layer.borderWidth = 1
             }
-            btn.configuration = cfg
         }
     }
 
@@ -652,10 +647,8 @@ final class NotificationsContainerNode: ASDisplayNode {
         tabScrollView.backgroundColor = .clear
 
         titleLabel.textColor = t.textStrong
-        var addCfg = addFriendButton.configuration
-        addCfg?.baseForegroundColor = t.textStrong
-        addCfg?.background.strokeColor = t.border
-        addFriendButton.configuration = addCfg
+        addFriendButton.tintColor = t.textStrong
+        addFriendButton.layer.borderColor = t.border.cgColor
 
         emptyTitleLabel.textColor = t.textStrong
         emptyDescLabel.textColor = t.textDisabled

@@ -450,7 +450,6 @@ final class ChannelListViewController: ViewController {
             )
             needsReloadPipe.putNext(())
         } catch {
-            AppLogger.network.debug("[ChannelList] ListChannelBadgeCount: \(error)")
         }
     }
 
@@ -830,19 +829,10 @@ final class ChannelListViewController: ViewController {
         )
         sheet.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
-            sheet.sheetPresentationController?.prefersGrabberVisible = false
-            if #available(iOS 16.0, *) {
-                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
-                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
-                    safeAreaBottomInset: bottomInset)
-                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
-                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
-                    min(targetHeight, context.maximumDetentValue)
-                }
-                sheet.sheetPresentationController?.detents = [contentDetent]
-                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
-            } else {
-                sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            if let spc = sheet.sheetPresentationController {
+                spc.prefersGrabberVisible = false
+                spc.detents = [.medium(), .large()]
+                spc.selectedDetentIdentifier = .medium
             }
         }
         CATransaction.begin()
@@ -954,7 +944,6 @@ final class ChannelListViewController: ViewController {
                             ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &mergedChannels, badgeRows: rows)
                         }
                     } catch {
-                        AppLogger.network.debug("[ChannelList] ListChannelBadgeCount (batched with list): \(error)")
                     }
                     subscriber.putNext(ChannelListFetchPayload(
                         channels: mergedChannels,
@@ -972,7 +961,6 @@ final class ChannelListViewController: ViewController {
         do {
             return try await network.listCategoryDescs(clanId: clanId, token: token)
         } catch {
-            AppLogger.network.debug("[ChannelList] ListCategoryDescs: \(error)")
             return []
         }
     }
@@ -981,7 +969,6 @@ final class ChannelListViewController: ViewController {
         do {
             return try await network.listFavoriteChannelIds(clanId: clanId, token: token)
         } catch {
-            AppLogger.network.debug("[ChannelList] GetListFavoriteChannel: \(error)")
             return []
         }
     }
@@ -1020,7 +1007,6 @@ final class ChannelListViewController: ViewController {
                     self.context.account.postbox.setPreferenceData(key: key, value: encoded)
                 }
             } catch {
-                AppLogger.network.error("Failed to fetch channel apps: \(error)")
             }
         }
     }

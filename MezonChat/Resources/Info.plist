@@ -75,13 +75,8 @@
 		<string>audio</string>
 		<string>fetch</string>
 	</array>
-	<key>UILaunchScreen</key>
-	<dict>
-		<key>ImageName</key>
-		<string>SplashScreen</string>
-		<key>UIColorName</key>
-		<string>LaunchBackground</string>
-	</dict>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

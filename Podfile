@@ -1,16 +1,28 @@
-platform :ios, '16.0'
-use_frameworks! :linkage => :static
+platform :ios, '13.0'
+use_frameworks!
 inhibit_all_warnings!
 
 project 'MezonChat.xcodeproj'
 
 target 'MezonChat' do
-  pod 'Texture', '~> 3.2.0'
+  pod 'Texture', '>= 3.1.0', '< 3.2.0'
   pod 'SQLCipher', '~> 4.0'
-  pod 'FirebaseMessaging', '~> 11.0'
+  pod 'FirebaseMessaging', '~> 10.0'
 end
 
 post_install do |installer|
+  texture_src = File.join(installer.sandbox.root, 'Texture/Source')
+  unless File.directory?(texture_src)
+    abort <<~MSG
+
+      CocoaPods: Texture checkout is incomplete (expected #{texture_src}).
+      AsyncDisplayKit cannot build. Try:
+        rm -rf Pods/Texture Pods/Pods.xcodeproj Podfile.lock
+        pod cache clean Texture --all
+        pod install
+    MSG
+  end
+
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
       xcconfig_path = config.base_configuration_reference&.real_path
@@ -20,7 +32,7 @@ post_install do |installer|
       new_xcconfig = new_xcconfig.gsub(%r{"\$\(SDKROOT\)/usr/lib/libsqlite3\.tbd"}, '')
       File.open(xcconfig_path, 'w') { |f| f << new_xcconfig }
 
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
   end
 end

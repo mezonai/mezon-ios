@@ -153,7 +153,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
             scroll.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 40.sh),
             contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 40.sw),
             contentStack.trailingAnchor.constraint(
@@ -323,11 +323,12 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         changeLink.setTitle(changeTitle, for: .normal)
         changeLink.titleLabel?.font = .systemFont(ofSize: 14.sf)
         changeLink.setTitleColor(UIColor(hex: 0x2e22ff), for: .normal)
-        changeLink.addAction(
-            UIAction { [weak self] _ in
-                self?.navigationController?.popToRootViewController(animated: true)
-            }, for: .touchUpInside)
+        changeLink.addTarget(self, action: #selector(changeLinkTapped), for: .touchUpInside)
         alternativeSection.addArrangedSubview(changeLink)
+    }
+
+    @objc private func changeLinkTapped() {
+        navigationController?.popToRootViewController(animated: true)
     }
 
     private func updateActionButton() {

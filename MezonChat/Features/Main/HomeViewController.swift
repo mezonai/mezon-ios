@@ -185,13 +185,7 @@ final class HomeViewController: BaseViewController {
         let shared = UserDefaults(suiteName: "group.mezon.mobile")
         shared?.set(badgeCount, forKey: "badgeCount")
 
-        if #available(iOS 16.0, *) {
-            UNUserNotificationCenter.current().setBadgeCount(badgeCount)
-        } else {
-            DispatchQueue.main.async {
-                UIApplication.shared.applicationIconBadgeNumber = badgeCount
-            }
-        }
+        ApplicationBadge.setCount(badgeCount)
     }
 
     deinit { disposables.dispose() }

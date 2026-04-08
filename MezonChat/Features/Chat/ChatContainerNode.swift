@@ -537,12 +537,21 @@ final class ChatContainerNode: ASDisplayNode {
     private func applyFrameLayout(transition: ContainedViewLayoutTransition) {
         guard let layout = lastLayout else { return }
         let inputBarHeight = lastInputBarHeight
-        let realSafeTop = view.safeAreaInsets.top
-        let safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
-
         let fullWidth = view.bounds.width > 0 ? view.bounds.width : layout.size.width
-        let headerH: CGFloat = 44
-        let headerFrame = CGRect(x: 0, y: safeTop, width: fullWidth, height: headerH)
+        let rt = view.safeAreaInsets.top
+        let systemTop: CGFloat
+        if rt > 0.5 {
+            systemTop = rt
+        } else if layout.safeInsets.top > 0.5 {
+            systemTop = layout.safeInsets.top
+        } else {
+            systemTop = layout.statusBarHeight ?? layout.deviceMetrics.statusBarHeight(for: layout.size) ?? layout.deviceMetrics.statusBarHeight
+        }
+        headerNode.statusBarClearance = systemTop
+        let headerBodyH: CGFloat = 36
+        let headerSeparatorH: CGFloat = 0.5
+        let headerH = systemTop + headerBodyH + headerSeparatorH
+        let headerFrame = CGRect(x: 0, y: 0, width: fullWidth, height: headerH)
         transition.updateFrame(node: headerNode, frame: headerFrame)
 
         let tvFrame = CGRect(
@@ -553,7 +562,7 @@ final class ChatContainerNode: ASDisplayNode {
         )
         transition.updateFrame(node: listView, frame: tvFrame)
 
-        let listInsets = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
+        let listInsets = UIEdgeInsets(top: 8.sh, left: 0, bottom: 0, right: 0)
         let animDuration: Double
         if case let .animated(duration, _) = transition {
             animDuration = duration
@@ -576,7 +585,7 @@ final class ChatContainerNode: ASDisplayNode {
         let liS: CGFloat = 24
         transition.updateFrame(node: loadingOlderNode, frame: CGRect(
             x: (fullWidth - liS) / 2,
-            y: headerFrame.maxY + 12,
+            y: headerFrame.maxY + 3,
             width: liS,
             height: liS
         ))

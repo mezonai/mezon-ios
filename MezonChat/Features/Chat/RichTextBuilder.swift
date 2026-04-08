@@ -90,7 +90,7 @@ enum RichTextBuilder {
                 roleMentionBgColor: t.darkMossGreen,
                 linkColor: t.textLink,
                 codeBgColor: t.tertiary,
-                codeFont: UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular),
+                codeFont: body,
                 boldFont: body,
                 headingFonts: Array(repeating: body, count: 6),
                 emojiSize: 20.sf,

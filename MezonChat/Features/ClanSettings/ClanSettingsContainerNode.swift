@@ -5,6 +5,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     var onClose: (() -> Void)?
 
+    @objc private func closeTapped() { onClose?() }
+
     private let context: AccountContext
     private let clanId: Int64
     private let clanName: String
@@ -111,7 +113,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         closeBtn.setImage(
             UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = UIColor.theme.textStrong
-        closeBtn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         v.addSubview(closeBtn)
 
         let titleLabel = UILabel()
@@ -316,8 +318,6 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
-        btn.addAction(
-            UIAction { _ in }, for: .touchUpInside)
 
         return v
     }

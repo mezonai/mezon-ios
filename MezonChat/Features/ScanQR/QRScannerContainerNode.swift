@@ -32,14 +32,14 @@ final class QRScannerContainerNode: ASDisplayNode {
         scannerOverlay.isLayerBacked = true
         scannerOverlay.isUserInteractionEnabled = false
 
-        let arrowConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        closeButton.setImage(UIImage(systemName: "arrow.left", withConfiguration: arrowConfig)?.withTintColor(.white, renderingMode: .alwaysTemplate), for: .normal)
+        closeButton.setImage(Self.qrCloseButtonImage(), for: .normal)
         closeButton.tintColor = .white
 
-        flashButton.setImage(UIImage(systemName: "flashlight.off.fill")?.withTintColor(.white, renderingMode: .alwaysTemplate), for: .normal)
+        flashButton.setImage(Self.qrFlashButtonImage(isOn: false, tint: .white), for: .normal)
         flashButton.tintColor = .white
 
-        mezonLogoIcon.image = UIImage(named: "Setting/LogoMezon")?.withTintColor(.white, renderingMode: .alwaysTemplate)
+        mezonLogoIcon.image = Self.qrMezonLogoImage()
+        mezonLogoIcon.tintColor = .white
         mezonLogoIcon.contentMode = .scaleAspectFit
         
         titleLabel.attributedText = NSAttributedString(
@@ -60,8 +60,7 @@ final class QRScannerContainerNode: ASDisplayNode {
                 .paragraphStyle: paragraphStyle
             ])
 
-        let photoConfig = UIImage.SymbolConfiguration(pointSize: 16)
-        galleryButton.setImage(UIImage(systemName: "photo.on.rectangle", withConfiguration: photoConfig)?.withTintColor(.white, renderingMode: .alwaysTemplate), for: .normal)
+        galleryButton.setImage(Self.qrGalleryButtonImage(), for: .normal)
         galleryButton.setTitle(L(L10n.QRScanner.chooseFromGallery), with: .systemFont(ofSize: 14, weight: .regular), with: .white, for: .normal)
         galleryButton.imageAlignment = .beginning
         galleryButton.contentMode = .center
@@ -108,8 +107,75 @@ final class QRScannerContainerNode: ASDisplayNode {
 
     func updateFlashButton(isOn: Bool) {
         let color: UIColor = isOn ? .mezonPrimary : .white
-        flashButton.setImage(UIImage(systemName: isOn ? "flashlight.on.fill" : "flashlight.off.fill")?.withTintColor(color, renderingMode: .alwaysTemplate), for: .normal)
+        flashButton.setImage(Self.qrFlashButtonImage(isOn: isOn, tint: color), for: .normal)
         flashButton.tintColor = color
+    }
+
+    private static func qrCloseButtonImage() -> UIImage? {
+        if #available(iOS 13.0, *) {
+            let c = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+            return UIImage(systemName: "arrow.left", withConfiguration: c)?
+                .withTintColor(.white, renderingMode: .alwaysTemplate)
+        }
+        return UIImage(named: "Channel/ArrowLeft", in: Bundle.main, compatibleWith: nil)?
+            .withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func qrFlashButtonImage(isOn: Bool, tint: UIColor) -> UIImage? {
+        if #available(iOS 13.0, *) {
+            let name = isOn ? "flashlight.on.fill" : "flashlight.off.fill"
+            return UIImage(systemName: name)?.withTintColor(tint, renderingMode: .alwaysTemplate)
+        }
+        return qrFallbackFlashTemplate()?.withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func qrGalleryButtonImage() -> UIImage? {
+        if #available(iOS 13.0, *) {
+            let c = UIImage.SymbolConfiguration(pointSize: 16)
+            return UIImage(systemName: "photo.on.rectangle", withConfiguration: c)?
+                .withTintColor(.white, renderingMode: .alwaysTemplate)
+        }
+        return qrFallbackGalleryTemplate()?.withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func qrMezonLogoImage() -> UIImage? {
+        if #available(iOS 13.0, *) {
+            return UIImage(named: "Setting/LogoMezon", in: Bundle.main, compatibleWith: nil)?
+                .withTintColor(.white, renderingMode: .alwaysTemplate)
+        }
+        return UIImage(named: "Setting/LogoMezon", in: Bundle.main, compatibleWith: nil)?
+            .withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func qrFallbackFlashTemplate() -> UIImage? {
+        let s = CGSize(width: 24, height: 24)
+        let r = UIGraphicsImageRenderer(size: s)
+        return r.image { _ in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 13, y: 3))
+            path.addLine(to: CGPoint(x: 8, y: 13))
+            path.addLine(to: CGPoint(x: 11, y: 13))
+            path.addLine(to: CGPoint(x: 9, y: 21))
+            path.addLine(to: CGPoint(x: 16, y: 10))
+            path.addLine(to: CGPoint(x: 12, y: 10))
+            path.close()
+            UIColor.white.setFill()
+            path.fill()
+        }
+    }
+
+    private static func qrFallbackGalleryTemplate() -> UIImage? {
+        let s = CGSize(width: 22, height: 22)
+        let r = UIGraphicsImageRenderer(size: s)
+        return r.image { _ in
+            UIColor.white.setStroke()
+            let outer = UIBezierPath(rect: CGRect(x: 2, y: 4, width: 14, height: 12))
+            outer.lineWidth = 1.5
+            outer.stroke()
+            let inner = UIBezierPath(rect: CGRect(x: 6, y: 2, width: 14, height: 12))
+            inner.lineWidth = 1.5
+            inner.stroke()
+        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

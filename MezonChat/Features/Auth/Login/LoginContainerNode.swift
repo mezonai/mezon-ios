@@ -348,10 +348,9 @@ final class PhoneInputComponent: Component {
             container.layer.borderWidth = 1
             addSubview(container)
 
-            var cfg = UIButton.Configuration.plain()
-            cfg.baseForegroundColor = .mezonTextStrong
-            cfg.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 4)
-            prefixButton.configuration = cfg
+            prefixButton.setTitleColor(.mezonTextStrong, for: .normal)
+            prefixButton.tintColor = .mezonTextStrong
+            prefixButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 4)
             prefixButton.addTarget(self, action: #selector(prefixTap), for: .touchUpInside)
             container.addSubview(prefixButton)
 
@@ -384,7 +383,7 @@ final class PhoneInputComponent: Component {
                 ? "🇻🇳 +84"
                 : (component.prefix == "+81"
                     ? "🇯🇵 +81" : (component.prefix == "+1" ? "🇺🇸 +1" : component.prefix))
-            prefixButton.configuration?.title = "\(prefixTitle)   "
+            prefixButton.setTitle("\(prefixTitle)   ", for: .normal)
             prefixButton.titleLabel?.textColor = attrs.loginInputTextColor
             prefixButton.frame = CGRect(x: 0, y: 0, width: 100, height: size.height)
             separator.frame = CGRect(x: 84, y: 8, width: 1, height: size.height - 16)

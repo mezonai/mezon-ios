@@ -1,5 +1,5 @@
 {
-  "originHash" : "0319658a0780883e922e7ae739ac717210a8ac16cdc4c94a52a01a0b2b151d08",
+  "originHash" : "c18cc50a70401857746d4652013c41dc187807666ab147e49d724d01f97f3ae0",
   "pins" : [
     {
       "identity" : "client-sdk-swift",
@@ -33,8 +33,17 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-protobuf",
       "state" : {
-        "revision" : "5596511fce902e649c403cd4d6d5da1254f142b7",
-        "version" : "1.35.1"
+        "revision" : "a008af1a102ff3dd6cc3764bb69bf63226d0f5f6",
+        "version" : "1.36.1"
+      }
+    },
+    {
+      "identity" : "webrtc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stasel/WebRTC.git",
+      "state" : {
+        "revision" : "0062ca8032c43ec65e3ae51792aa531a2807dd72",
+        "version" : "146.0.0"
       }
     },
     {

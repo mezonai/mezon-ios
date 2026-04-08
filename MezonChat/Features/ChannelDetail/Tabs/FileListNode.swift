@@ -20,6 +20,10 @@ final class FileListNode: ASDisplayNode {
     private var rawAttachments: [Mezon_Api_ChannelAttachment] = []
     private var sections: [FileDaySection] = []
     private var searchQuery: String = ""
+    @objc private func searchFieldChanged(_ sender: UITextField) {
+        searchQuery = sender.text ?? ""
+        rebuildSectionsAndReload()
+    }
     private var isLoading = false
     private var loadFailed = false
     private var filesTabActivated = false
@@ -111,13 +115,7 @@ final class FileListNode: ASDisplayNode {
         field.leftView = leftWrap
         field.leftViewMode = .always
 
-        field.addAction(
-            UIAction { [weak self] _ in
-                self?.searchQuery = field.text ?? ""
-                self?.rebuildSectionsAndReload()
-            },
-            for: .editingChanged
-        )
+        field.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
 
         header.addSubview(field)
         NSLayoutConstraint.activate([
@@ -163,7 +161,6 @@ final class FileListNode: ASDisplayNode {
                 self.rawAttachments = docs
                 self.rebuildSectionsAndReload()
             } catch {
-                AppLogger.network.error("Fetch files failed: \(error)")
                 self.loadFailed = true
                 self.rawAttachments = []
                 self.sections = []

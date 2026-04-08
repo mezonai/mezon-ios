@@ -124,6 +124,8 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private var didBuildContent = false
+    private var actionByTag: [Int: ChannelAction] = [:]
+    private var nextActionTag = 100
 
     init(channelName: String, clanName: String, clanAvatarURL: String, isFavorite: Bool, isMuted: Bool, onAction: @escaping (ChannelAction) -> Void, onDismiss: @escaping () -> Void) {
         self.channelName = channelName
@@ -325,9 +327,17 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         ])
 
         v.heightAnchor.constraint(equalToConstant: 56.sh).isActive = true
-        v.addAction(UIAction { [weak self] _ in self?.onAction(action) }, for: .touchUpInside)
+        v.tag = nextActionTag
+        actionByTag[nextActionTag] = action
+        nextActionTag += 1
+        v.addTarget(self, action: #selector(actionRowTapped(_:)), for: .touchUpInside)
 
         return v
+    }
+
+    @objc private func actionRowTapped(_ sender: UIButton) {
+        guard let action = actionByTag[sender.tag] else { return }
+        onAction(action)
     }
 
     func animateIn() {

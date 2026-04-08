@@ -56,9 +56,7 @@ extension MezonEngine {
                 }
 
                 clanUsersUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched \(response.clanUsers.count) clan users for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchClanUsers failed: \(error)")
             }
         }
 
@@ -69,9 +67,7 @@ extension MezonEngine {
                     postbox.setPreferenceData(key: PreferencesKeys.clanRoles(clanId: clanId), value: data)
                 }
                 clanRolesUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched \(response.roles.roles.count) roles for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchRoles failed: \(error)")
             }
         }
 
@@ -82,9 +78,7 @@ extension MezonEngine {
                     postbox.setPreferenceData(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
                 }
                 clanEventsUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched events for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchEvents failed: \(error)")
             }
         }
 
@@ -95,9 +89,7 @@ extension MezonEngine {
                     postbox.setPreferenceData(key: PreferencesKeys.clanUserPermissions(clanId: clanId), value: data)
                 }
                 clanPermissionsUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched user permissions for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchUserPermissions failed: \(error)")
             }
         }
 
@@ -107,9 +99,7 @@ extension MezonEngine {
                 if let data = try? response.serializedData() {
                     postbox.setPreferenceData(key: PreferencesKeys.allPermissions, value: data)
                 }
-                AppLogger.network.debug("[ClanData] fetched \(response.permissions.count) permissions")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchAllPermissions failed: \(error)")
             }
         }
 
@@ -120,9 +110,7 @@ extension MezonEngine {
                     postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
                 }
                 clanVoiceUsersUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched voice users for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchVoiceChannelUsers failed: \(error)")
             }
         }
 
@@ -133,9 +121,7 @@ extension MezonEngine {
                     postbox.setPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId), value: data)
                 }
                 clanStreamUsersUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched stream users for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchStreamChannelUsers failed: \(error)")
             }
         }
 
@@ -152,9 +138,7 @@ extension MezonEngine {
                     postbox.setPreferenceData(key: PreferencesKeys.clanDefaultNotification(clanId: clanId), value: data)
                 }
                 clanNotificationUpdated.putNext(clanId)
-                AppLogger.network.debug("[ClanData] fetched default notification for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchDefaultNotification failed: \(error)")
             }
         }
 
@@ -164,9 +148,7 @@ extension MezonEngine {
                 if let data = try? response.serializedData() {
                     postbox.setPreferenceData(key: PreferencesKeys.clanCategoryNotification(clanId: clanId), value: data)
                 }
-                AppLogger.network.debug("[ClanData] fetched category notification settings for clan \(clanId)")
             } catch {
-                AppLogger.network.warning("[ClanData] fetchCategoryNotification failed: \(error)")
             }
         }
 

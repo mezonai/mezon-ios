@@ -49,13 +49,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var memberCount: Int = 0
     private var onlineCount: Int = 0
 
-    private let channelListLoadingOverlay = UIView()
-    private let channelListLoadingSpinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .large)
-        s.translatesAutoresizingMaskIntoConstraints = false
-        s.hidesWhenStopped = true
-        return s
-    }()
+
 
     init(signal: Signal<ChannelListState, NoError>, interaction: ChannelListInteraction) {
         tableNode = ASTableNode(style: .plain)
@@ -105,23 +99,12 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
                 }
 
-                self.updateChannelListLoadingOverlay(isLoading: newState.isLoading)
+
             })
         )
     }
 
-    private func updateChannelListLoadingOverlay(isLoading: Bool) {
-        let t = UIColor.theme
-        channelListLoadingOverlay.backgroundColor = t.secondary.withAlphaComponent(0.94)
-        channelListLoadingSpinner.color = t.textStrong
-        if isLoading {
-            channelListLoadingOverlay.isHidden = false
-            channelListLoadingSpinner.startAnimating()
-        } else {
-            channelListLoadingSpinner.stopAnimating()
-            channelListLoadingOverlay.isHidden = true
-        }
-    }
+
 
     private func safeReloadData() {
         CATransaction.begin()
@@ -441,16 +424,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             self?.presentClanActionSheet()
         }
 
-        channelListLoadingOverlay.isUserInteractionEnabled = true
-        channelListLoadingOverlay.isHidden = true
-        channelListLoadingOverlay.layer.zPosition = 80
-        channelListLoadingOverlay.addSubview(channelListLoadingSpinner)
-        NSLayoutConstraint.activate([
-            channelListLoadingSpinner.centerXAnchor.constraint(equalTo: channelListLoadingOverlay.centerXAnchor),
-            channelListLoadingSpinner.centerYAnchor.constraint(equalTo: channelListLoadingOverlay.centerYAnchor),
-        ])
-        view.addSubview(channelListLoadingOverlay)
-        updateChannelListLoadingOverlay(isLoading: state.isLoading)
+
     }
 
     private func scheduleReload() {
@@ -533,7 +507,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         stickyTopOffset = topInset
         let tableFrame = CGRect(x: 0, y: topInset, width: layout.size.width, height: layout.size.height - topInset - layout.intrinsicInsets.bottom)
         transition.updateFrame(node: tableNode, frame: tableFrame)
-        channelListLoadingOverlay.frame = tableFrame
+
         updateTableHeaderLayout()
     }
 
@@ -667,9 +641,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         tableNode.backgroundColor = .clear
         headerUIView.applyTheme()
         headerUIView.backgroundColor = t.primaryGradient
-        if !channelListLoadingOverlay.isHidden {
-            channelListLoadingOverlay.backgroundColor = t.secondary.withAlphaComponent(0.94)
-        }
+
         scheduleReload()
     }
 
