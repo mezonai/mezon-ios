@@ -64,7 +64,7 @@ final class GifsPanel: UIView {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.image = UIImage(systemName: "magnifyingglass")
-        iv.tintColor = .secondaryLabel
+        iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
     }()
@@ -109,13 +109,13 @@ final class GifsPanel: UIView {
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.image = UIImage(systemName: "photo.on.rectangle.angled")
-        icon.tintColor = UIColor.label.withAlphaComponent(0.2)
+        icon.tintColor = UIColor.mezonLabel.withAlphaComponent(0.2)
         icon.contentMode = .scaleAspectFit
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 48), icon.heightAnchor.constraint(equalToConstant: 48)])
         let label = UILabel()
         label.text = "GIFs will appear here"
         label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = UIColor.label.withAlphaComponent(0.3)
+        label.textColor = UIColor.mezonLabel.withAlphaComponent(0.3)
         label.textAlignment = .center
         let sv = UIStackView(arrangedSubviews: [icon, label])
         sv.translatesAutoresizingMaskIntoConstraints = false
@@ -124,6 +124,8 @@ final class GifsPanel: UIView {
         sv.spacing = 12
         return sv
     }()
+    
+    private let emptyLabel = UILabel()
 
 
     override init(frame: CGRect) {
@@ -169,7 +171,9 @@ final class GifsPanel: UIView {
         } else {
             displayMode = .categories
         }
-
+        if categories.isEmpty && featuredGifs.isEmpty {
+            loadInitialDataIfNeeded()
+        }
         updateUI()
     }
 
@@ -193,6 +197,20 @@ final class GifsPanel: UIView {
         addSubview(collectionView)
         addSubview(loadingIndicator)
         addSubview(emptyStack)
+        if let label = emptyStack.arrangedSubviews.compactMap({ $0 as? UILabel }).first {
+            emptyLabel.font = label.font
+            emptyLabel.textColor = label.textColor
+            emptyLabel.textAlignment = label.textAlignment
+            emptyLabel.numberOfLines = 0
+            label.removeFromSuperview()
+        } else {
+            emptyLabel.font = .systemFont(ofSize: 15, weight: .medium)
+            emptyLabel.textColor = UIColor.mezonLabel.withAlphaComponent(0.3)
+            emptyLabel.textAlignment = .center
+            emptyLabel.numberOfLines = 0
+        }
+        emptyLabel.text = "GIFs will appear here"
+        emptyStack.addArrangedSubview(emptyLabel)
 
         NSLayoutConstraint.activate([
             searchBarContainer.topAnchor.constraint(equalTo: topAnchor, constant: 6),
@@ -224,6 +242,11 @@ final class GifsPanel: UIView {
     }
 
     private func updateUI() {
+        if !TenorGIFClient.isConfigured {
+            emptyLabel.text = "GIF is not configured (missing TENOR_API_KEY / TENOR_CLIENT_KEY)."
+        } else {
+            emptyLabel.text = "GIFs will appear here"
+        }
         switch displayMode {
         case .loading:
             loadingIndicator.startAnimating()
@@ -241,6 +264,37 @@ final class GifsPanel: UIView {
             collectionView.isHidden = !hasData
             emptyStack.isHidden = hasData
             collectionView.reloadData()
+        }
+    }
+    
+    private func loadInitialDataIfNeeded() {
+        guard TenorGIFClient.isConfigured else { return }
+        displayMode = .loading
+        updateUI()
+        if #available(iOS 13.0, *) {
+            Task {
+                async let categoriesTask = TenorGIFClient.fetchCategoriesData()
+                async let featuredTask = TenorGIFClient.fetchFeaturedData()
+                let categoriesData = try? await categoriesTask
+                let featuredData = try? await featuredTask
+                await MainActor.run {
+                    if let categoriesData,
+                       let resp = try? JSONDecoder().decode(TenorCategoriesResponse.self, from: categoriesData) {
+                        self.categories = resp.tags ?? []
+                    }
+                    if let featuredData,
+                       let resp = try? JSONDecoder().decode(TenorSearchResponse.self, from: featuredData) {
+                        self.featuredGifs = resp.results ?? []
+                    }
+                    if self.categories.isEmpty && !self.featuredGifs.isEmpty {
+                        self.searchResultGifs = self.featuredGifs
+                        self.displayMode = .searchResults
+                    } else {
+                        self.displayMode = .categories
+                    }
+                    self.updateUI()
+                }
+            }
         }
     }
 
@@ -285,20 +339,20 @@ final class GifsPanel: UIView {
         displayMode = .loading
         updateUI()
 
-        Task {
-            do {
-                let data = try await TenorGIFClient.fetchSearchData(query: query)
-                let resp = try JSONDecoder().decode(TenorSearchResponse.self, from: data)
-                await MainActor.run {
-                    self.searchResultGifs = resp.results ?? []
-                    self.displayMode = .searchResults
-                    self.updateUI()
-                }
-            } catch {
-                await MainActor.run {
-                    self.searchResultGifs = []
-                    self.displayMode = .searchResults
-                    self.updateUI()
+            Task {
+                do {
+                    let data = try await TenorGIFClient.fetchSearchData(query: query)
+                    let resp = try JSONDecoder().decode(TenorSearchResponse.self, from: data)
+                    await MainActor.run {
+                        self.searchResultGifs = resp.results ?? []
+                        self.displayMode = .searchResults
+                        self.updateUI()
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.searchResultGifs = []
+                        self.displayMode = .searchResults
+                        self.updateUI()
                 }
             }
         }
@@ -565,7 +619,7 @@ private final class GifItemCell: UICollectionViewCell {
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.layer.cornerRadius = 10
-        iv.backgroundColor = UIColor.label.withAlphaComponent(0.05)
+        iv.backgroundColor = UIColor.mezonLabel.withAlphaComponent(0.05)
         return iv
     }()
 

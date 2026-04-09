@@ -69,7 +69,7 @@ final class EmojisPanel: UIView {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.image = UIImage(systemName: "magnifyingglass")
-        iv.tintColor = .secondaryLabel
+        iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
     }()
@@ -558,7 +558,9 @@ extension EmojisPanel {
         case EmojiCategoryOrdering.recent: return UIImage(systemName: "clock", withConfiguration: config)
         case EmojiCategoryOrdering.forSale: return UIImage(systemName: "bag.fill", withConfiguration: config)
         case EmojiCategoryOrdering.frequently: return UIImage(systemName: "star.fill", withConfiguration: config)
-        case "People": return UIImage(systemName: "face.smiling", withConfiguration: config)
+        case "People":
+            return UIImage(named: "Chat/FaceIcon")
+                ?? UIImage(systemName: "face.smiling", withConfiguration: config)
         case "Nature": return UIImage(systemName: "leaf.fill", withConfiguration: config)
         case "Food": return UIImage(systemName: "fork.knife", withConfiguration: config)
         case "Activities": return UIImage(systemName: "figure.run", withConfiguration: config)

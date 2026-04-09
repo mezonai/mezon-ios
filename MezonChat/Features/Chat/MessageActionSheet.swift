@@ -475,13 +475,19 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
             x += btnSize + spacing
         }
 
-        let pickerBtn = UIButton(type: .system)
+        let pickerBtn = UIButton(type: .custom)
         pickerBtn.frame = CGRect(x: x, y: btnY, width: btnSize, height: btnSize)
         pickerBtn.backgroundColor = t.secondary
         pickerBtn.layer.cornerRadius = btnSize / 2
         pickerBtn.clipsToBounds = true
-        let smileyConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        pickerBtn.setImage(UIImage(systemName: "face.smiling", withConfiguration: smileyConfig), for: .normal)
+        let smiley: UIImage
+        if let pdf = UIImage(named: "Chat/FaceIcon") {
+            smiley = resizedEmoji(pdf)
+        } else {
+            let symCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+            smiley = UIImage(systemName: "face.smiling", withConfiguration: symCfg) ?? UIImage()
+        }
+        pickerBtn.setImage(smiley, for: .normal)
         pickerBtn.tintColor = t.textStrong
         pickerBtn.addTarget(self, action: #selector(fullEmojiPickerTapped), for: .touchUpInside)
         scrollView.addSubview(pickerBtn)

@@ -51,6 +51,10 @@
 	<string>Mezon app needs access to the photo library to select and send images in messages</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Mezon app needs access to the photo library to select and send images in messages</string>
+	<key>TENOR_API_KEY</key>
+	<string>$(TENOR_API_KEY)</string>
+	<key>TENOR_CLIENT_KEY</key>
+	<string>$(TENOR_CLIENT_KEY)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

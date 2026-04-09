@@ -59,7 +59,7 @@ final class StickersPanel: UIView {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.image = UIImage(systemName: "magnifyingglass")
-        iv.tintColor = .secondaryLabel
+        iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
     }()
@@ -117,14 +117,15 @@ final class StickersPanel: UIView {
     private let emptyStack: UIStackView = {
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.image = UIImage(systemName: "face.smiling")
-        icon.tintColor = UIColor.label.withAlphaComponent(0.2)
+        icon.image = UIImage(named: "Chat/FaceIcon")
+            ?? UIImage(systemName: "face.smiling")
+        icon.tintColor = UIColor.mezonLabel.withAlphaComponent(0.2)
         icon.contentMode = .scaleAspectFit
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 48), icon.heightAnchor.constraint(equalToConstant: 48)])
         let label = UILabel()
         label.text = "Stickers will appear here"
         label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = UIColor.label.withAlphaComponent(0.3)
+        label.textColor = UIColor.mezonLabel.withAlphaComponent(0.3)
         label.textAlignment = .center
         let sv = UIStackView(arrangedSubviews: [icon, label])
         sv.translatesAutoresizingMaskIntoConstraints = false
@@ -506,7 +507,9 @@ private final class StickerSectionHeaderCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
 
         chevronView.translatesAutoresizingMaskIntoConstraints = false
-        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        if #available(iOS 13.0, *) {
+            chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        }
         chevronView.contentMode = .scaleAspectFit
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false

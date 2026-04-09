@@ -129,6 +129,10 @@ private final class MentionSuggestionCell: UITableViewCell {
         return lbl
     }()
 
+    private var avatarWidthConstraint: NSLayoutConstraint!
+    private var nameLeadingToAvatarConstraint: NSLayoutConstraint!
+    private var nameLeadingToContentConstraint: NSLayoutConstraint!
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupViews()
@@ -143,16 +147,20 @@ private final class MentionSuggestionCell: UITableViewCell {
         contentView.addSubview(nameLabel)
         contentView.addSubview(usernameLabel)
 
+        avatarWidthConstraint = avatarImageView.widthAnchor.constraint(equalToConstant: 28)
+        nameLeadingToAvatarConstraint = nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 10)
+        nameLeadingToContentConstraint = nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+
         NSLayoutConstraint.activate([
             avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 28),
+            avatarWidthConstraint,
             avatarImageView.heightAnchor.constraint(equalToConstant: 28),
 
             placeholderLabel.centerXAnchor.constraint(equalTo: avatarImageView.centerXAnchor),
             placeholderLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
 
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 10),
+            nameLeadingToAvatarConstraint,
             nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: usernameLabel.leadingAnchor, constant: -8),
 
@@ -172,6 +180,9 @@ private final class MentionSuggestionCell: UITableViewCell {
         avatarImageView.tintColor = nil
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.layer.cornerRadius = 14
+        avatarWidthConstraint.constant = 28
+        nameLeadingToContentConstraint.isActive = false
+        nameLeadingToAvatarConstraint.isActive = true
 
         switch item {
         case .user(let member):
@@ -212,10 +223,10 @@ private final class MentionSuggestionCell: UITableViewCell {
             nameLabel.textColor = t.textRoleLink
             usernameLabel.text = ""
             nameLabel.text = "@here"
-            avatarImageView.backgroundColor = t.tertiary
-            placeholderLabel.textColor = t.textRoleLink
-            placeholderLabel.isHidden = false
-            placeholderLabel.text = "@"
+            avatarImageView.isHidden = true
+            avatarWidthConstraint.constant = 0
+            nameLeadingToAvatarConstraint.isActive = false
+            nameLeadingToContentConstraint.isActive = true
         }
     }
 

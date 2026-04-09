@@ -53,7 +53,7 @@ final class MediaPickerViewController: UIViewController {
     private lazy var dragIndicator: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = UIColor.label.withAlphaComponent(0.3)
+        v.backgroundColor = UIColor.mezonLabel.withAlphaComponent(0.3)
         v.layer.cornerRadius = 2.5
         return v
     }()
@@ -1247,7 +1247,7 @@ private final class AlbumCell: UITableViewCell {
         let lbl = UILabel()
         lbl.translatesAutoresizingMaskIntoConstraints = false
         lbl.font = .systemFont(ofSize: 12)
-        lbl.textColor = .secondaryLabel
+        lbl.textColor = UIColor.mezonSecondaryLabel
         return lbl
     }()
 
