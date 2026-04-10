@@ -475,6 +475,31 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
         clanId: Int64
     ) -> (name: String, avatarURL: String?) {
         let uid = sender.userId
+
+        if clanId != 0, let id64 = Int64(uid) {
+            let clanMember: ClanMemberRecord? = {
+                let members = context.account.postbox.read { tx in tx.getClanMembers(clanId: clanId) }
+                return members.first(where: { $0.userId == id64 })
+            }()
+            if let m = clanMember {
+                let name: String = {
+                    if !m.clanNick.isEmpty { return m.clanNick }
+                    if !m.displayName.isEmpty { return m.displayName }
+                    if !m.username.isEmpty { return m.username }
+                    return uid
+                }()
+                let avatar: String? = {
+                    if !m.clanAvatar.isEmpty { return m.clanAvatar }
+                    if let cur = context.currentUser, cur.id == uid {
+                        return cur.avatarURL?.absoluteString
+                    }
+                    let profile = context.account.postbox.read { tx in tx.getProfile(userId: uid) }
+                    return profile?.avatarUrl
+                }()
+                return (name, avatar)
+            }
+        }
+
         if let cur = context.currentUser, cur.id == uid {
             let name: String = {
                 if !cur.displayName.isEmpty { return cur.displayName }
@@ -483,22 +508,8 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             }()
             return (name, cur.avatarURL?.absoluteString)
         }
-        if clanId != 0, let id64 = Int64(uid), let list = context.engine.clanData.getClanUsers(clanId: clanId) {
-            for cu in list.clanUsers where cu.user.id == id64 {
-                let name: String = {
-                    if !cu.clanNick.isEmpty { return cu.clanNick }
-                    if !cu.user.displayName.isEmpty { return cu.user.displayName }
-                    if !cu.user.username.isEmpty { return cu.user.username }
-                    return uid
-                }()
-                let avatar: String? = {
-                    if !cu.clanAvatar.isEmpty { return cu.clanAvatar }
-                    if !cu.user.avatarURL.isEmpty { return cu.user.avatarURL }
-                    return nil
-                }()
-                return (name, avatar)
-            }
-        }
+
+        // 3. Fallback to profile / name hint
         let profile = context.account.postbox.read { tx in tx.getProfile(userId: uid) }
         let name: String = {
             if let h = sender.nameHint, !h.isEmpty { return h }

@@ -70,6 +70,13 @@ final class HashtagSuggestionView: UIView, UITableViewDataSource, UITableViewDel
 
 private final class HashtagSuggestionCell: UITableViewCell {
     static let reuseId = "HashtagSuggestionCell"
+    
+    private let iconView: UIImageView = {
+        let iv = UIImageView()
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.contentMode = .scaleAspectFit
+        return iv
+    }()
 
     private let hashLabel: UILabel = {
         let lbl = UILabel()
@@ -88,10 +95,16 @@ private final class HashtagSuggestionCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
+        contentView.addSubview(iconView)
         contentView.addSubview(hashLabel)
         contentView.addSubview(subLabel)
         NSLayoutConstraint.activate([
-            hashLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            iconView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 9),
+            iconView.widthAnchor.constraint(equalToConstant: 14),
+            iconView.heightAnchor.constraint(equalToConstant: 14),
+            
+            hashLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10),
             hashLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
             hashLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
 
@@ -109,10 +122,33 @@ private final class HashtagSuggestionCell: UITableViewCell {
         contentView.backgroundColor = t.secondary
         hashLabel.textColor = t.textStrong
         subLabel.textColor = t.textDisabled
+        iconView.tintColor = t.channelNormal
 
         let name = channel.channelLabel.isEmpty ? "#" : "#\(channel.channelLabel)"
         hashLabel.text = name
         let sub = channel.categoryName.isEmpty ? channel.clanName : channel.categoryName
         subLabel.text = sub.uppercased()
+        
+        let iconName: String = {
+            switch channel.type {
+            case MezonConstants.ChannelType.mezonVoice.rawValue:
+                return "Channel/channelVoice"
+            case MezonConstants.ChannelType.streaming.rawValue:
+                return "Channel/channelStream"
+            case MezonConstants.ChannelType.app.rawValue:
+                return "Channel/channelApp"
+            case MezonConstants.ChannelType.group.rawValue:
+                return "Channel/ChevronRight"
+            case MezonConstants.ChannelType.thread.rawValue:
+                return channel.channelPrivate == 1 ? "Channel/channelThreadPrivate" : "Channel/channelThread"
+            case MezonConstants.ChannelType.channel.rawValue:
+                if channel.channelPrivate == 1 { return "Channel/channelPrivate" }
+                if channel.ageRestricted == 1 { return "Channel/channelWarning" }
+                return "Channel/channel"
+            default:
+                return "Channel/channel"
+            }
+        }()
+        iconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
     }
 }
