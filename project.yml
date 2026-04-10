@@ -83,7 +83,7 @@ targets:
     postBuildScripts:
       - name: Generate LiveKitWebRTC dSYM
         script: |
-          /bin/sh "${SRCROOT}/Scripts/generate_livekit_webrtc_dsym.sh"
+          /bin/sh "${SRCROOT}/scripts/generate_livekit_webrtc_dsym.sh"
         shell: /bin/sh
         basedOnDependencyAnalysis: false
     settings:
