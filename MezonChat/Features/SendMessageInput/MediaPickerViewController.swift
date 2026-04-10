@@ -61,19 +61,28 @@ final class MediaPickerViewController: UIViewController {
     private lazy var titleButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        var config = UIButton.Configuration.plain()
-        config.title = "Recent Photos"
-        config.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
-        config.imagePlacement = .trailing
-        config.imagePadding = 4
-        config.baseForegroundColor = UIColor.theme.textStrong
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var outgoing = incoming
-            outgoing.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
-            return outgoing
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.plain()
+            config.title = "Recent Photos"
+            config.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+            config.imagePlacement = .trailing
+            config.imagePadding = 4
+            config.baseForegroundColor = UIColor.theme.textStrong
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var outgoing = incoming
+                outgoing.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+                return outgoing
+            }
+            btn.configuration = config
+        } else {
+            btn.setTitle("Recent Photos", for: .normal)
+            btn.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)), for: .normal)
+            btn.semanticContentAttribute = .forceRightToLeft
+            btn.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+            btn.setTitleColor(UIColor.theme.textStrong, for: .normal)
+            btn.tintColor = UIColor.theme.textStrong
         }
-        btn.configuration = config
-        btn.addAction(UIAction { [weak self] _ in self?.toggleAlbumDropdown() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleAlbumDropdownAction), for: .touchUpInside)
         return btn
     }()
 
@@ -103,7 +112,7 @@ final class MediaPickerViewController: UIViewController {
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
         btn.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: config), for: .normal)
         btn.tintColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        btn.addAction(UIAction { [weak self] _ in self?.confirmSelection() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(confirmSelectionAction), for: .touchUpInside)
         btn.isHidden = true
         return btn
     }()
@@ -114,7 +123,7 @@ final class MediaPickerViewController: UIViewController {
         btn.setTitle("Cancel", for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
         btn.tintColor = UIColor.theme.textStrong
-        btn.addAction(UIAction { [weak self] _ in self?.dismiss(animated: true) }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(cancelButtonTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -150,17 +159,22 @@ final class MediaPickerViewController: UIViewController {
 
         let settingsBtn = UIButton(type: .system)
         settingsBtn.translatesAutoresizingMaskIntoConstraints = false
-        var config = UIButton.Configuration.filled()
-        config.title = "Go to Settings"
-        config.baseBackgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        config.baseForegroundColor = .white
-        config.cornerStyle = .capsule
-        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 24, bottom: 10, trailing: 24)
-        settingsBtn.configuration = config
-        settingsBtn.addAction(UIAction { _ in
-            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-            UIApplication.shared.open(url)
-        }, for: .touchUpInside)
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.title = "Go to Settings"
+            config.baseBackgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+            config.baseForegroundColor = .white
+            config.cornerStyle = .capsule
+            config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 24, bottom: 10, trailing: 24)
+            settingsBtn.configuration = config
+        } else {
+            settingsBtn.setTitle("Go to Settings", for: .normal)
+            settingsBtn.setTitleColor(.white, for: .normal)
+            settingsBtn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+            settingsBtn.contentEdgeInsets = UIEdgeInsets(top: 10, left: 24, bottom: 10, right: 24)
+            settingsBtn.layer.cornerRadius = 20
+        }
+        settingsBtn.addTarget(self, action: #selector(openSettingsAction), for: .touchUpInside)
 
         stack.addArrangedSubview(iconView)
         stack.addArrangedSubview(titleLabel)
@@ -198,19 +212,28 @@ final class MediaPickerViewController: UIViewController {
 
         let manageBtn = UIButton(type: .system)
         manageBtn.translatesAutoresizingMaskIntoConstraints = false
-        var config = UIButton.Configuration.filled()
-        config.title = "MANAGE"
-        config.baseBackgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        config.baseForegroundColor = .white
-        config.cornerStyle = .capsule
-        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14)
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var out = incoming
-            out.font = UIFont.systemFont(ofSize: 12, weight: .bold)
-            return out
+        if #available(iOS 15.0, *) {
+            var config = UIButton.Configuration.filled()
+            config.title = "MANAGE"
+            config.baseBackgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+            config.baseForegroundColor = .white
+            config.cornerStyle = .capsule
+            config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 14, bottom: 6, trailing: 14)
+            config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var out = incoming
+                out.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+                return out
+            }
+            manageBtn.configuration = config
+        } else {
+            manageBtn.setTitle("MANAGE", for: .normal)
+            manageBtn.setTitleColor(.white, for: .normal)
+            manageBtn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+            manageBtn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+            manageBtn.contentEdgeInsets = UIEdgeInsets(top: 6, left: 14, bottom: 6, right: 14)
+            manageBtn.layer.cornerRadius = 14
         }
-        manageBtn.configuration = config
-        manageBtn.addAction(UIAction { [weak self] _ in self?.manageLimitedAccess() }, for: .touchUpInside)
+        manageBtn.addTarget(self, action: #selector(manageLimitedAccessAction), for: .touchUpInside)
 
         manageBtn.setContentCompressionResistancePriority(.required, for: .horizontal)
         manageBtn.setContentHuggingPriority(.required, for: .horizontal)
@@ -331,25 +354,47 @@ final class MediaPickerViewController: UIViewController {
     }
 
     private func checkPermissionAndLoad() {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if #available(iOS 14.0, *) {
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            switch status {
+            case .authorized:
+                loadAssets()
+            case .limited:
+                showLimitedBanner()
+                loadAssets()
+                PHPhotoLibrary.shared().register(self)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
+                    DispatchQueue.main.async {
+                        switch newStatus {
+                        case .authorized:
+                            self?.loadAssets()
+                        case .limited:
+                            self?.showLimitedBanner()
+                            self?.loadAssets()
+                            if let self { PHPhotoLibrary.shared().register(self) }
+                        default:
+                            self?.showPermissionDenied()
+                        }
+                    }
+                }
+            case .denied, .restricted:
+                showPermissionDenied()
+            @unknown default:
+                showPermissionDenied()
+            }
+            return
+        }
+        let status = PHPhotoLibrary.authorizationStatus()
         switch status {
         case .authorized:
             loadAssets()
-        case .limited:
-            showLimitedBanner()
-            loadAssets()
-            PHPhotoLibrary.shared().register(self)
         case .notDetermined:
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { [weak self] newStatus in
+            PHPhotoLibrary.requestAuthorization { [weak self] newStatus in
                 DispatchQueue.main.async {
-                    switch newStatus {
-                    case .authorized:
+                    if newStatus == .authorized {
                         self?.loadAssets()
-                    case .limited:
-                        self?.showLimitedBanner()
-                        self?.loadAssets()
-                        if let self { PHPhotoLibrary.shared().register(self) }
-                    default:
+                    } else {
                         self?.showPermissionDenied()
                     }
                 }
@@ -368,6 +413,7 @@ final class MediaPickerViewController: UIViewController {
     }
 
     private func manageLimitedAccess() {
+        guard #available(iOS 14.0, *) else { return }
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
         sheet.addAction(UIAlertAction(title: "Select More Photos...", style: .default) { [weak self] _ in
@@ -493,9 +539,13 @@ final class MediaPickerViewController: UIViewController {
             self.albumDropdownView.alpha = 1
             self.albumDropdownView.transform = .identity
         }
+        let upImg = UIImage(systemName: "chevron.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
         UIView.animate(withDuration: 0.2) {
-            self.titleButton.configuration?.image = UIImage(systemName: "chevron.up",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+            if #available(iOS 15.0, *) {
+                self.titleButton.configuration?.image = upImg
+            } else {
+                self.titleButton.setImage(upImg, for: .normal)
+            }
         }
     }
 
@@ -508,14 +558,39 @@ final class MediaPickerViewController: UIViewController {
             self.dropdownOverlay.isHidden = true
             self.albumDropdownView.transform = .identity
         })
+        let downImg = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
         UIView.animate(withDuration: 0.2) {
-            self.titleButton.configuration?.image = UIImage(systemName: "chevron.down",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+            if #available(iOS 15.0, *) {
+                self.titleButton.configuration?.image = downImg
+            } else {
+                self.titleButton.setImage(downImg, for: .normal)
+            }
         }
     }
 
     @objc private func dismissDropdown() {
         hideDropdown()
+    }
+
+    @objc private func toggleAlbumDropdownAction() {
+        toggleAlbumDropdown()
+    }
+
+    @objc private func confirmSelectionAction() {
+        confirmSelection()
+    }
+
+    @objc private func cancelButtonTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func openSettingsAction() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    @objc private func manageLimitedAccessAction() {
+        manageLimitedAccess()
     }
 
     private func selectAlbum(at index: Int) {
@@ -524,7 +599,11 @@ final class MediaPickerViewController: UIViewController {
             return
         }
         selectedAlbumIndex = index
-        titleButton.configuration?.title = albums[index].title
+        if #available(iOS 15.0, *) {
+            titleButton.configuration?.title = albums[index].title
+        } else {
+            titleButton.setTitle(albums[index].title, for: .normal)
+        }
         hideDropdown()
         loadAssetsForCurrentAlbum()
     }
@@ -1015,11 +1094,12 @@ extension MediaPickerViewController {
         picker.onPicked = onPicked
         picker.modalPresentationStyle = .pageSheet
 
-        if let sheet = picker.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.preferredCornerRadius = 16
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
-
+        if #available(iOS 15.0, *) {
+            if let sheet = picker.sheetPresentationController {
+                sheet.detents = [.medium(), .large()]
+                sheet.preferredCornerRadius = 16
+                sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+            }
         }
 
 

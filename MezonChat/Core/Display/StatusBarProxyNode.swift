@@ -24,11 +24,7 @@ public enum StatusBarStyle {
     public var systemStyle: UIStatusBarStyle {
         switch self {
             case .Black:
-                if #available(iOS 13.0, *) {
-                    return .darkContent
-                } else {
-                    return .default
-                }
+                return .darkContent
             case .White:
                 return .lightContent
             default:

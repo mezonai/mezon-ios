@@ -557,7 +557,17 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
-        btn.addAction(UIAction { [weak self] _ in self?.onAction(action) }, for: .touchUpInside)
+        let wrapper = ClanActionButton(type: .custom)
+        wrapper.actionHandler = { [weak self] in self?.onAction(action) }
+        wrapper.addTarget(wrapper, action: #selector(ClanActionButton.performAction), for: .touchUpInside)
+        v.addSubview(wrapper)
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            wrapper.topAnchor.constraint(equalTo: v.topAnchor),
+            wrapper.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+            wrapper.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            wrapper.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+        ])
 
         return v
     }
@@ -599,9 +609,10 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
             l.centerYAnchor.constraint(equalTo: v.centerYAnchor),
         ])
 
-        let btn = UIButton(type: .custom)
+        let btn = ClanActionButton(type: .custom)
         btn.frame = v.bounds
-        btn.addAction(UIAction { [weak self] _ in self?.onAction(action) }, for: .touchUpInside)
+        btn.actionHandler = { [weak self] in self?.onAction(action) }
+        btn.addTarget(btn, action: #selector(ClanActionButton.performAction), for: .touchUpInside)
         v.addSubview(btn)
 
         return v
@@ -653,4 +664,9 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         let hash = abs(name.hashValue)
         return colors[hash % colors.count]
     }
+}
+
+private final class ClanActionButton: UIButton {
+    var actionHandler: (() -> Void)?
+    @objc func performAction() { actionHandler?() }
 }

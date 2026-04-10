@@ -57,6 +57,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         return s
     }()
 
+    var voiceMemberResolver: ((String) -> VoiceMemberDisplay?)?
+
     init(signal: Signal<ChannelListState, NoError>, interaction: ChannelListInteraction) {
         tableNode = ASTableNode(style: .plain)
         self.interaction = interaction
@@ -556,12 +558,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         self.memberCount = memberCount
         self.onlineCount = onlineCount
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
-        let hadAppsSection = hasChannelAppsSection
-        channelApps = []
         isChannelAppsExpanded = true
-        if hadAppsSection && !isClanSwitching {
-            safeReloadData()
-        }
 
         UIView.performWithoutAnimation {
             if let url = bannerURL, !url.isEmpty {
@@ -599,21 +596,34 @@ final class ChannelListContainerNode: ASDisplayNode {
         if channelAppsUIEqual(channelApps, apps) { return }
 
         let beforeHad = hasChannelAppsSection
-        let beforeCompact = channelApps.count <= compactViewThreshold
-        let beforeRows = appsSectionRowCount(apps: channelApps, expanded: isChannelAppsExpanded)
-
         channelApps = apps
-
         let afterHad = hasChannelAppsSection
-        let afterCompact = channelApps.count <= compactViewThreshold
-        let afterRows = appsSectionRowCount(apps: channelApps, expanded: isChannelAppsExpanded)
 
         guard !isClanSwitching else { return }
 
-        if beforeHad, afterHad, beforeCompact == afterCompact, beforeRows == afterRows {
+        cachedRows = [:]
+        cachedHeaders = [:]
+
+        if !beforeHad && afterHad {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tableNode.performBatch(animated: false) {
+                self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+            }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+            CATransaction.commit()
+            committedSectionCount = totalSections
+        } else if beforeHad && !afterHad {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tableNode.performBatch(animated: false) {
+                self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+            }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+            CATransaction.commit()
+            committedSectionCount = totalSections
+        } else if beforeHad && afterHad {
             reloadChannelAppsSectionOnly()
-        } else {
-            scheduleReload()
         }
     }
 
@@ -690,16 +700,51 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
 
+    private static let voiceChannelTypes: Set<Int32> = [
+        MezonConstants.ChannelType.mezonVoice.rawValue,
+        MezonConstants.ChannelType.streaming.rawValue,
+        MezonConstants.ChannelType.app.rawValue,
+    ]
+
     private func computeRows(
         for category: ChannelCategory,
         allChannels: [Mezon_Api_ChannelDescription],
         selectedChannelId: Int64?
     ) -> [ChannelListRow] {
         let lookup = buildThreadLookup(allChannels)
-        let allRows = flattenCategoryToRows(category, threadLookup: lookup)
+        let baseRows = flattenCategoryToRows(category, threadLookup: lookup)
+        let isExpanded = !category.isCollapsed
+
+        var allRows: [ChannelListRow] = []
+        for row in baseRows {
+            allRows.append(row)
+            if case .channel(let ch, _) = row,
+               Self.voiceChannelTypes.contains(ch.type) {
+                let userIds = (state.voiceUsersByChannel[ch.channelID] ?? [])
+                    .filter { voiceMemberResolver?($0) != nil }
+                if !userIds.isEmpty {
+                    if isExpanded {
+                        for uid in userIds {
+                            allRows.append(.voiceMemberExpanded(ch, userId: uid))
+                        }
+                    } else {
+                        allRows.append(.voiceMembersCollapsed(ch, userIds: userIds))
+                    }
+                }
+            }
+        }
+
         guard category.isCollapsed else { return allRows }
         return allRows.filter { row in
+            switch row {
+            case .voiceMembersCollapsed, .voiceMemberExpanded: return true
+            default: break
+            }
             let ch = row.channelDesc
+            if Self.voiceChannelTypes.contains(ch.type) {
+                let hasMembers = !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
+                return hasMembers
+            }
             if ch.countMessUnread > 0 { return true }
             if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }
             if ch.channelID == selectedChannelId { return true }
@@ -767,8 +812,10 @@ extension ChannelListContainerNode: ASTableDataSource {
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
         switch row {
         case .channel(let ch, let inFav):
+            let hasVoiceMembers = Self.voiceChannelTypes.contains(ch.type)
+                && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
             return {
-                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected)
+                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers)
                 if !inFav {
                     node.onLongPress = { [weak self] in
                         self?.interaction.onLongPressChannel(ch)
@@ -785,6 +832,21 @@ extension ChannelListContainerNode: ASTableDataSource {
                     }
                 }
                 return node
+            }
+        case .voiceMembersCollapsed(_, let userIds):
+            let totalCount = userIds.count
+            let visible = Array(userIds.prefix(6))
+            let resolver = voiceMemberResolver
+            let members: [VoiceMemberDisplay] = visible.compactMap { resolver?($0) }
+            return {
+                VoiceChannelMembersCollapsedCellNode(members: members, totalCount: totalCount)
+            }
+        case .voiceMemberExpanded(_, let userId):
+            guard let member = voiceMemberResolver?(userId) else {
+                return { ASCellNode() }
+            }
+            return {
+                VoiceMemberExpandedCellNode(member: member)
             }
         }
     }
@@ -836,7 +898,12 @@ extension ChannelListContainerNode: ASTableDelegate {
         let catIdx = categoryIndex(forSection: indexPath.section)
         let rows = rowsForSection(catIdx)
         guard indexPath.row < rows.count else { return }
-        interaction.onSelectChannel(rows[indexPath.row].channelDesc)
+        let row = rows[indexPath.row]
+        switch row {
+        case .voiceMembersCollapsed, .voiceMemberExpanded: return
+        default: break
+        }
+        interaction.onSelectChannel(row.channelDesc)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

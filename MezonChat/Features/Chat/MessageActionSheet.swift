@@ -607,11 +607,17 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         label.textColor = textColor
         parent.addSubview(label)
 
-        let btn = UIButton(type: .system)
+        let btn = ActionButton(type: .system)
         btn.frame = CGRect(x: 0, y: y, width: width, height: height)
-        btn.addAction(UIAction { [weak self] _ in
+        btn.actionHandler = { [weak self] in
             self?.onAction(action)
-        }, for: .touchUpInside)
+        }
+        btn.addTarget(btn, action: #selector(ActionButton.performAction), for: .touchUpInside)
         parent.addSubview(btn)
     }
+}
+
+private final class ActionButton: UIButton {
+    var actionHandler: (() -> Void)?
+    @objc func performAction() { actionHandler?() }
 }

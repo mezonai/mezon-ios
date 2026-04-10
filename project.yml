@@ -33,7 +33,7 @@ packages:
 options:
   bundleIdPrefix: mezon
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "13.0"
   defaultConfig: Debug
   xcodeVersion: "16.0"
   createIntermediateGroups: true
@@ -53,7 +53,7 @@ targets:
   MezonChat:
     type: application
     platform: iOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "13.0"
     configFiles:
       Debug: Pods/Target Support Files/Pods-MezonChat/Pods-MezonChat.debug.xcconfig
       Release: Pods/Target Support Files/Pods-MezonChat/Pods-MezonChat.release.xcconfig
@@ -100,6 +100,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_OBJC_BRIDGING_HEADER: "MezonChat/MezonChat-Bridging-Header.h"
+        OTHER_SWIFT_FLAGS: "$(inherited) -Xfrontend -disable-target-os-checking"
+        OTHER_LDFLAGS: "$(inherited)"
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/MezonChat/Core/SSignalKit/SSignalKit/Source $(SRCROOT)/MezonChat/Core/Display $(SRCROOT)/MezonChat/Core/Display/UIKitRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/ObjCRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/AppBundle"
         TENOR_API_KEY: AIzaSyA7PmFsiGws1XF-t6jXsVuF6O2DQLa8BpE
         TENOR_CLIENT_KEY: mezon.ai
@@ -107,16 +109,18 @@ targets:
         Debug:
           DEBUG_INFORMATION_FORMAT: dwarf
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ENABLE_LIVEKIT
         Release:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
           SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ENABLE_LIVEKIT
     info:
       path: MezonChat/Resources/Info.plist
       properties:
         CFBundleDisplayName: Mezon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchStoryboardName: LaunchScreen
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: SplashScreen
@@ -125,7 +129,7 @@ targets:
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
-                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).AppDelegate
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - "mezon.mobile.sharing"
@@ -158,7 +162,7 @@ targets:
   NotificationService:
     type: app-extension
     platform: iOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "13.0"
     sources:
       - path: NotificationService
     settings:
@@ -179,7 +183,7 @@ targets:
   MezonSharing:
     type: app-extension
     platform: iOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "13.0"
     sources:
       - path: MezonSharing
     settings:

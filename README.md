@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="MezonChat/Resources/Assets.xcassets/SplashScreen.imageset/mezon_splash.png" alt="Mezon" width="120" />
+  <img src="https://cdn.mezon.ai/landing-page-mezon/logodefault.webp" alt="Mezon" width="120" />
 </p>
 
 <h1 align="center">Mezon iOS</h1>
@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://apps.apple.com/vn/app/mezon/id6502750046"><img src="https://img.shields.io/badge/App_Store-Available-blue?logo=apple&logoColor=white" alt="App Store" /></a>
-  <img src="https://img.shields.io/badge/iOS-16.0+-000000?logo=apple" alt="iOS 16+" />
+  <img src="https://img.shields.io/badge/iOS-13.0+-000000?logo=apple" alt="iOS 13+" />
   <img src="https://img.shields.io/badge/Swift-5.9-FA7343?logo=swift&logoColor=white" alt="Swift 5.9" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License" />
 </p>
@@ -33,7 +33,7 @@ Mezon iOS is the native Apple platform client for [Mezon](https://github.com/mez
 | **Networking** | HTTP REST (Protobuf) + WebSocket (real-time) |
 | **Serialization** | [swift-protobuf](https://github.com/apple/swift-protobuf) 1.35 |
 | **Build** | Xcode 16+ · CocoaPods · Swift Package Manager |
-| **Min Target** | iOS 16.0 |
+| **Min Target** | iOS 13.0 |
 
 ## Architecture
 
@@ -281,7 +281,7 @@ final class ProfileContentComponent: CombinedComponent {
 
 - Xcode 16.0+
 - CocoaPods (`gem install cocoapods`)
-- iOS 16.0+ simulator or device
+- iOS 13.0+ simulator or device
 
 ### Build & Run
 

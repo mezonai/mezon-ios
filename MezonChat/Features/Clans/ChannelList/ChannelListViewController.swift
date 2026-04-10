@@ -8,6 +8,7 @@ struct ChannelListState: Equatable {
     var selectedChannelId: Int64?
     var isLoading: Bool
     var errorMessage: String?
+    var voiceUsersByChannel: [Int64: [String]] = [:]
 
     static let empty = ChannelListState(categories: [], allChannels: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
 
@@ -17,6 +18,7 @@ struct ChannelListState: Equatable {
             && lhs.errorMessage == rhs.errorMessage
             && lhs.categories.count == rhs.categories.count
             && lhs.allChannels.count == rhs.allChannels.count
+            && lhs.voiceUsersByChannel == rhs.voiceUsersByChannel
             && zip(lhs.categories, rhs.categories).allSatisfy({
                 $0.id == $1.id && $0.isCollapsed == $1.isCollapsed
                     && $0.channels.count == $1.channels.count
@@ -61,11 +63,15 @@ struct ChannelCategory {
 enum ChannelListRow {
     case channel(Mezon_Api_ChannelDescription, isInFavoriteSection: Bool)
     case thread(Mezon_Api_ChannelDescription, isLast: Bool, isInFavoriteSection: Bool)
+    case voiceMembersCollapsed(Mezon_Api_ChannelDescription, userIds: [String])
+    case voiceMemberExpanded(Mezon_Api_ChannelDescription, userId: String)
 
     var channelDesc: Mezon_Api_ChannelDescription {
         switch self {
         case .channel(let ch, _): return ch
         case .thread(let ch, _, _): return ch
+        case .voiceMembersCollapsed(let ch, _): return ch
+        case .voiceMemberExpanded(let ch, _): return ch
         }
     }
 }
@@ -362,7 +368,11 @@ final class ChannelListViewController: ViewController {
                 self.enclosingNavigationController?.pushViewController(vc, animated: true)
             }
         )
-        displayNode = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
+        let container = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
+        container.voiceMemberResolver = { [weak self] uid in
+            self?.resolveVoiceMember(uid)
+        }
+        displayNode = container
     }
 
     override func viewDidLoad() {
@@ -402,7 +412,7 @@ final class ChannelListViewController: ViewController {
 
     private func channelListRowsVisuallyEqual(_ a: [Mezon_Api_ChannelDescription], _ b: [Mezon_Api_ChannelDescription]) -> Bool {
         guard a.count == b.count else { return false }
-        var byId = Dictionary(uniqueKeysWithValues: b.map { ($0.channelID, $0) })
+        let byId = Dictionary(uniqueKeysWithValues: b.map { ($0.channelID, $0) })
         for ch in a {
             guard let o = byId[ch.channelID] else { return false }
             if ch.countMessUnread != o.countMessUnread { return false }
@@ -466,8 +476,8 @@ final class ChannelListViewController: ViewController {
             return
         }
         channelListNode.markClanSwitching()
-        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
         restoreCachedChannelApps(clanId: clanId)
+        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
         load(clanId: clanId, clanName: clanName)
     }
 
@@ -733,7 +743,9 @@ final class ChannelListViewController: ViewController {
 
         let hadCache = restoreCachedChannels(clanId: clanId)
         isLoading = !hadCache
-        needsReloadPipe.putNext(())
+        if !hadCache {
+            needsReloadPipe.putNext(())
+        }
 
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
@@ -817,13 +829,67 @@ final class ChannelListViewController: ViewController {
         select(channel: channel)
     }
 
+    private func resolveVoiceMember(_ uid: String) -> VoiceMemberDisplay? {
+        guard let uidInt = Int64(uid) else { return nil }
+
+        let member = context.account.postbox.read {
+            $0.getClanMembers(clanId: self.clanId)
+        }.first(where: { $0.userId == uidInt })
+
+        let name: String
+        if let m = member {
+            if !m.clanNick.isEmpty {
+                name = m.clanNick
+            } else if !m.displayName.isEmpty {
+                name = m.displayName
+            } else if !m.username.isEmpty {
+                name = m.username
+            } else {
+                return nil
+            }
+        } else if let profile = context.account.postbox.read({ $0.getProfile(userId: uid) }) {
+            name = profile.displayName ?? profile.username
+        } else {
+            return nil
+        }
+
+        let avatar: String?
+        if let m = member {
+            if !m.clanAvatar.isEmpty {
+                avatar = m.clanAvatar
+            } else {
+                avatar = context.account.postbox.read({ $0.getProfile(userId: uid) })?.avatarUrl
+            }
+        } else {
+            avatar = context.account.postbox.read({ $0.getProfile(userId: uid) })?.avatarUrl
+        }
+
+        return VoiceMemberDisplay(name: name, avatarURL: avatar)
+    }
+
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
         let title = channel.channelLabel.isEmpty
             ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
             : channel.channelLabel
+
+        var voiceUserIds: [String] = []
+        let sources: [Mezon_Api_VoiceChannelUserList?] = [
+            context.engine.clanData.getVoiceUsers(clanId: clanId),
+            context.engine.clanData.getStreamUsers(clanId: clanId),
+        ]
+        for list in sources.compactMap({ $0 }) {
+            for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !voiceUserIds.contains(uid) {
+                    voiceUserIds.append(uid)
+                }
+            }
+        }
+        let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember($0) }
+
         let sheet = JoinVoiceChannelSheetViewController(
             channelTitle: title,
             chatUnreadCount: Int(channel.countMessUnread),
+            members: resolvedMembers,
             onChat: { [weak self] in self?.pushChatViewController(for: channel) },
             onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
             onInvite: {}
@@ -834,7 +900,7 @@ final class ChannelListViewController: ViewController {
             if #available(iOS 16.0, *) {
                 let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
                 let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
-                    safeAreaBottomInset: bottomInset)
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
                 let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
                 let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
                     min(targetHeight, context.maximumDetentValue)
@@ -867,13 +933,30 @@ final class ChannelListViewController: ViewController {
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
         select(channel: channel)
         guard let nav = enclosingNavigationController else { return }
-        var parentName: String?
-        if channel.parentID != 0 {
-            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+
+        let pip = VoiceChannelPiPOverlay.shared
+        if pip.isActive {
+            if pip.channel?.channelID == channel.channelID {
+                let vc = VoiceChannelRoomViewController(
+                    context: context, channel: channel,
+                    parentChannelName: parentChannelName(for: channel),
+                    existingPiPOverlay: pip)
+                nav.pushViewController(vc, animated: true)
+                return
+            } else {
+                pip.dismiss()
+            }
         }
+
         let vc = VoiceChannelRoomViewController(
-            context: context, channel: channel, parentChannelName: parentName)
+            context: context, channel: channel,
+            parentChannelName: parentChannelName(for: channel))
         nav.pushViewController(vc, animated: true)
+    }
+
+    private func parentChannelName(for channel: Mezon_Api_ChannelDescription) -> String? {
+        guard channel.parentID != 0 else { return nil }
+        return allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
     }
 
     func selectWithoutNavigation(channelId: Int64) {
@@ -908,7 +991,31 @@ final class ChannelListViewController: ViewController {
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
 
     var currentState: ChannelListState {
-        ChannelListState(categories: categories, allChannels: allChannels, selectedChannelId: selectedChannelId, isLoading: isLoading, errorMessage: errorMessage)
+        var voiceMap: [Int64: [String]] = [:]
+        let sources: [Mezon_Api_VoiceChannelUserList?] = [
+            context.engine.clanData.getVoiceUsers(clanId: clanId),
+            context.engine.clanData.getStreamUsers(clanId: clanId),
+        ]
+        for list in sources.compactMap({ $0 }) {
+            for vu in list.voiceChannelUsers {
+                let filtered = vu.userIds.filter { !$0.isEmpty && Int64($0) != nil }
+                if !filtered.isEmpty {
+                    var existing = voiceMap[vu.channelID] ?? []
+                    for uid in filtered where !existing.contains(uid) {
+                        existing.append(uid)
+                    }
+                    voiceMap[vu.channelID] = existing
+                }
+            }
+        }
+        return ChannelListState(
+            categories: categories,
+            allChannels: allChannels,
+            selectedChannelId: selectedChannelId,
+            isLoading: isLoading,
+            errorMessage: errorMessage,
+            voiceUsersByChannel: voiceMap
+        )
     }
 
     func stateSignal() -> Signal<ChannelListState, NoError> {

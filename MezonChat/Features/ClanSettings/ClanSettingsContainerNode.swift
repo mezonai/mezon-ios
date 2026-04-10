@@ -111,7 +111,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         closeBtn.setImage(
             UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = UIColor.theme.textStrong
-        closeBtn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         v.addSubview(closeBtn)
 
         let titleLabel = UILabel()
@@ -316,11 +316,16 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
-        btn.addAction(
-            UIAction { _ in }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(rowButtonTapped), for: .touchUpInside)
 
         return v
     }
+
+    @objc private func closeTapped() {
+        onClose?()
+    }
+
+    @objc private func rowButtonTapped() {}
 
     private func initials(for name: String) -> String {
         let words = name.split(separator: " ").prefix(2)

@@ -5,17 +5,19 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     static let sheetTransitionDuration: CFTimeInterval = 0.22
 
+    @available(iOS 15.0, *)
     static let contentSizedDetentIdentifier = UISheetPresentationController.Detent.Identifier("mezon.joinVoice.content")
 
-    static func preferredSheetHeight(safeAreaBottomInset: CGFloat) -> CGFloat {
+    static func preferredSheetHeight(safeAreaBottomInset: CGFloat, hasMembers: Bool) -> CGFloat {
         let grabberBlock: CGFloat = 8 + 5 + 12
         let header: CGFloat = 72
         let gapAfterHeader: CGFloat = 20
+        let membersRow: CGFloat = hasMembers ? 44 + 8 : 0
         let iconCircle: CGFloat = 20 + 36 + 20
         let stackSpacing: CGFloat = 6 + 6
         let voiceTitleLine: CGFloat = 26
         let statusLines: CGFloat = 48
-        let centerBlock = iconCircle + stackSpacing + voiceTitleLine + statusLines
+        let centerBlock = membersRow + iconCircle + stackSpacing + voiceTitleLine + statusLines
         let contentBottomPad: CGFloat = 8
         let footerGap: CGFloat = 12
         let footerRow: CGFloat = 50 + 10
@@ -24,6 +26,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     private let channelTitle: String
     private let chatUnreadCount: Int
+    private let members: [VoiceMemberDisplay]
     private let onChat: () -> Void
     private let onJoinVoice: () -> Void
     private let onInvite: () -> Void
@@ -36,6 +39,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let inviteButton = UIButton(type: .custom)
     private let titleLabel = UILabel()
     private let centerStack = UIStackView()
+    private let membersContainer = UIView()
     private let iconOuter = UIView()
     private let iconView = UIImageView()
     private let voiceTitleLabel = UILabel()
@@ -52,12 +56,14 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     init(
         channelTitle: String,
         chatUnreadCount: Int = 0,
+        members: [VoiceMemberDisplay] = [],
         onChat: @escaping () -> Void,
         onJoinVoice: @escaping () -> Void,
         onInvite: @escaping () -> Void = {}
     ) {
         self.channelTitle = channelTitle
         self.chatUnreadCount = chatUnreadCount
+        self.members = members
         self.onChat = onChat
         self.onJoinVoice = onJoinVoice
         self.onInvite = onInvite
@@ -133,15 +139,26 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.isUserInteractionEnabled = false
         statusLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-        statusLabel.text = NSLocalizedString(
-            "voiceChannel.joinSheet.emptyRoom", tableName: nil, bundle: .main,
-            value: "No one is currently in room", comment: "")
+        if members.isEmpty {
+            statusLabel.text = NSLocalizedString(
+                "voiceChannel.joinSheet.emptyRoom", tableName: nil, bundle: .main,
+                value: "No one is currently in room", comment: "")
+        } else {
+            statusLabel.text = NSLocalizedString(
+                "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
+                value: "Everyone is waiting for you inside", comment: "")
+        }
+
+        buildMembersRow()
 
         centerStack.axis = .vertical
         centerStack.alignment = .center
         centerStack.spacing = 6
         centerStack.isUserInteractionEnabled = false
         centerStack.translatesAutoresizingMaskIntoConstraints = false
+        if !members.isEmpty {
+            centerStack.addArrangedSubview(membersContainer)
+        }
         centerStack.addArrangedSubview(iconOuter)
         centerStack.addArrangedSubview(voiceTitleLabel)
         centerStack.addArrangedSubview(statusLabel)
@@ -291,6 +308,119 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         button.tintColor = UIColor.theme.textStrong
         button.imageView?.contentMode = .scaleAspectFit
         button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+    }
+
+    private static let memberAvatarSize: CGFloat = 40
+    private static let memberOverlap: CGFloat = 10
+    private static let maxVisibleMembers = 5
+
+    private func buildMembersRow() {
+        guard !members.isEmpty else { return }
+        membersContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        let avatarSize = Self.memberAvatarSize
+        let overlap = Self.memberOverlap
+        let maxVisible = Self.maxVisibleMembers
+        let visible = Array(members.prefix(maxVisible))
+        let overflowCount = members.count - visible.count
+
+        let showBadge = overflowCount > 0
+        let totalItems = visible.count + (showBadge ? 1 : 0)
+        let totalWidth = avatarSize + CGFloat(totalItems - 1) * (avatarSize - overlap)
+
+        NSLayoutConstraint.activate([
+            membersContainer.heightAnchor.constraint(equalToConstant: avatarSize + 4),
+            membersContainer.widthAnchor.constraint(equalToConstant: totalWidth),
+        ])
+
+        for (i, member) in visible.enumerated() {
+            let container = UIView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.layer.cornerRadius = avatarSize / 2
+            container.clipsToBounds = true
+            container.backgroundColor = UIColor.theme.tertiary
+            container.layer.borderWidth = 2
+            container.layer.borderColor = UIColor.theme.secondary.cgColor
+
+            let imageView = UIImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            imageView.layer.cornerRadius = avatarSize / 2
+
+            let initialLabel = UILabel()
+            initialLabel.translatesAutoresizingMaskIntoConstraints = false
+            initialLabel.font = .systemFont(ofSize: 16, weight: .bold)
+            initialLabel.textColor = .white
+            initialLabel.textAlignment = .center
+
+            if let av = member.avatarURL, !av.isEmpty {
+                let px = Int(avatarSize * UIScreen.main.scale)
+                let proxy = ImgproxyURL.create(from: av, width: px, height: px)
+                ImageCache.shared.loadAvatar(urlString: proxy) { img in
+                    imageView.image = img
+                    if img == nil {
+                        imageView.isHidden = true
+                        initialLabel.isHidden = false
+                        initialLabel.text = String(member.name.prefix(1)).uppercased()
+                    }
+                }
+                initialLabel.isHidden = true
+            } else {
+                imageView.isHidden = true
+                initialLabel.text = String(member.name.prefix(1)).uppercased()
+            }
+
+            container.addSubview(imageView)
+            container.addSubview(initialLabel)
+            membersContainer.addSubview(container)
+
+            let xOffset = CGFloat(i) * (avatarSize - overlap)
+            NSLayoutConstraint.activate([
+                container.leadingAnchor.constraint(equalTo: membersContainer.leadingAnchor, constant: xOffset),
+                container.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
+                container.widthAnchor.constraint(equalToConstant: avatarSize),
+                container.heightAnchor.constraint(equalToConstant: avatarSize),
+                imageView.topAnchor.constraint(equalTo: container.topAnchor),
+                imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                initialLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                initialLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            ])
+
+            membersContainer.bringSubviewToFront(container)
+        }
+
+        if showBadge {
+            let badge = UIView()
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            badge.layer.cornerRadius = avatarSize / 2
+            badge.clipsToBounds = true
+            badge.backgroundColor = UIColor.theme.tertiary
+            badge.layer.borderWidth = 2
+            badge.layer.borderColor = UIColor.theme.secondary.cgColor
+
+            let badgeLabel = UILabel()
+            badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+            badgeLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+            badgeLabel.textColor = UIColor.theme.textStrong
+            badgeLabel.textAlignment = .center
+            badgeLabel.text = "+\(overflowCount)"
+
+            badge.addSubview(badgeLabel)
+            membersContainer.addSubview(badge)
+
+            let xOffset = CGFloat(visible.count) * (avatarSize - overlap)
+            NSLayoutConstraint.activate([
+                badge.leadingAnchor.constraint(equalTo: membersContainer.leadingAnchor, constant: xOffset),
+                badge.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
+                badge.widthAnchor.constraint(equalToConstant: avatarSize),
+                badge.heightAnchor.constraint(equalToConstant: avatarSize),
+                badgeLabel.centerXAnchor.constraint(equalTo: badge.centerXAnchor),
+                badgeLabel.centerYAnchor.constraint(equalTo: badge.centerYAnchor),
+            ])
+        }
     }
 
     @objc private func applyTheme() {

@@ -149,12 +149,19 @@ final class QRScannerViewController: ViewController {
     }
     
     @objc private func openGallery() {
-        var config = PHPickerConfiguration()
-        config.filter = .images
-        config.selectionLimit = 1
-        let picker = PHPickerViewController(configuration: config)
-        picker.delegate = self
-        present(picker, animated: true)
+        if #available(iOS 14.0, *) {
+            var config = PHPickerConfiguration()
+            config.filter = .images
+            config.selectionLimit = 1
+            let picker = PHPickerViewController(configuration: config)
+            picker.delegate = self
+            present(picker, animated: true)
+        } else {
+            let picker = UIImagePickerController()
+            picker.sourceType = .photoLibrary
+            picker.delegate = self
+            present(picker, animated: true)
+        }
     }
     
     private func navigateToMyQRCode() {
@@ -454,6 +461,7 @@ extension QRScannerViewController: AVCaptureMetadataOutputObjectsDelegate {
     }
 }
 
+@available(iOS 14.0, *)
 extension QRScannerViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
@@ -462,17 +470,32 @@ extension QRScannerViewController: PHPickerViewControllerDelegate {
         
         provider.loadObject(ofClass: UIImage.self) { [weak self] image, error in
             guard let image = image as? UIImage else { return }
-            
-            let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
-            let ciImage = CIImage(image: image)
-            let features = detector?.features(in: ciImage!) as? [CIQRCodeFeature]
-            
-            DispatchQueue.main.async {
-                if let firstFeature = features?.first, let data = firstFeature.messageString {
-                    self?.handleScannedData(data)
-                } else {
-                    self?.showAlert(message: L(L10n.QRScanner.invalidQR))
-                }
+            self?.processQRFromImage(image)
+        }
+    }
+}
+
+extension QRScannerViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        picker.dismiss(animated: true)
+        guard let image = info[.originalImage] as? UIImage else { return }
+        processQRFromImage(image)
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
+
+    private func processQRFromImage(_ image: UIImage) {
+        let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
+        let ciImage = CIImage(image: image)
+        let features = detector?.features(in: ciImage!) as? [CIQRCodeFeature]
+
+        DispatchQueue.main.async { [weak self] in
+            if let firstFeature = features?.first, let data = firstFeature.messageString {
+                self?.handleScannedData(data)
+            } else {
+                self?.showAlert(message: L(L10n.QRScanner.invalidQR))
             }
         }
     }

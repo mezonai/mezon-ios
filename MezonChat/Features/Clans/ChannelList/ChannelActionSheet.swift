@@ -325,7 +325,17 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         ])
 
         v.heightAnchor.constraint(equalToConstant: 56.sh).isActive = true
-        v.addAction(UIAction { [weak self] _ in self?.onAction(action) }, for: .touchUpInside)
+        let wrapper = ChannelActionButton(type: .custom)
+        wrapper.actionHandler = { [weak self] in self?.onAction(action) }
+        wrapper.addTarget(wrapper, action: #selector(ChannelActionButton.performAction), for: .touchUpInside)
+        v.addSubview(wrapper)
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            wrapper.topAnchor.constraint(equalTo: v.topAnchor),
+            wrapper.bottomAnchor.constraint(equalTo: v.bottomAnchor),
+            wrapper.leadingAnchor.constraint(equalTo: v.leadingAnchor),
+            wrapper.trailingAnchor.constraint(equalTo: v.trailingAnchor),
+        ])
 
         return v
     }
@@ -404,4 +414,9 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let hash = abs(name.hashValue)
         return colors[hash % colors.count]
     }
+}
+
+private final class ChannelActionButton: UIButton {
+    var actionHandler: (() -> Void)?
+    @objc func performAction() { actionHandler?() }
 }

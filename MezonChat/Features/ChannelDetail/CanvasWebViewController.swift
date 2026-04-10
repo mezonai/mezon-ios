@@ -128,7 +128,11 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
 
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        if #available(iOS 14.0, *) {
+            config.defaultWebpagePreferences.allowsContentJavaScript = true
+        } else {
+            config.preferences.javaScriptEnabled = true
+        }
 
         let beforeLoad = Self.authInjectionScript(session: session, themeToken: Self.webThemeToken())
         let afterLoad = Self.canvasChromeHideScript()
