@@ -124,31 +124,35 @@ private final class HashtagSuggestionCell: UITableViewCell {
         subLabel.textColor = t.textDisabled
         iconView.tintColor = t.channelNormal
 
-        let name = channel.channelLabel.isEmpty ? "#" : "#\(channel.channelLabel)"
+        let name = channel.channelLabel.isEmpty ? "" : channel.channelLabel
         hashLabel.text = name
         let sub = channel.categoryName.isEmpty ? channel.clanName : channel.categoryName
         subLabel.text = sub.uppercased()
         
-        let iconName: String = {
-            switch channel.type {
-            case MezonConstants.ChannelType.mezonVoice.rawValue:
-                return "Channel/channelVoice"
-            case MezonConstants.ChannelType.streaming.rawValue:
-                return "Channel/channelStream"
-            case MezonConstants.ChannelType.app.rawValue:
-                return "Channel/channelApp"
-            case MezonConstants.ChannelType.group.rawValue:
-                return "Channel/ChevronRight"
-            case MezonConstants.ChannelType.thread.rawValue:
-                return channel.channelPrivate == 1 ? "Channel/channelThreadPrivate" : "Channel/channelThread"
-            case MezonConstants.ChannelType.channel.rawValue:
-                if channel.channelPrivate == 1 { return "Channel/channelPrivate" }
-                if channel.ageRestricted == 1 { return "Channel/channelWarning" }
-                return "Channel/channel"
-            default:
-                return "Channel/channel"
-            }
-        }()
+        let iconName = channel.channelListIconAssetName()
         iconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+    }
+}
+
+extension Mezon_Api_ChannelDescription {
+    func channelListIconAssetName() -> String {
+        switch type {
+        case MezonConstants.ChannelType.mezonVoice.rawValue:
+            return "Channel/channelVoice"
+        case MezonConstants.ChannelType.streaming.rawValue:
+            return "Channel/channelStream"
+        case MezonConstants.ChannelType.app.rawValue:
+            return "Channel/channelApp"
+        case MezonConstants.ChannelType.group.rawValue:
+            return "Channel/ChevronRight"
+        case MezonConstants.ChannelType.thread.rawValue:
+            return channelPrivate == 1 ? "Channel/channelThreadPrivate" : "Channel/channelThread"
+        case MezonConstants.ChannelType.channel.rawValue:
+            if channelPrivate == 1 { return "Channel/channelPrivate" }
+            if ageRestricted == 1 { return "Channel/channelWarning" }
+            return "Channel/channel"
+        default:
+            return "Channel/channel"
+        }
     }
 }

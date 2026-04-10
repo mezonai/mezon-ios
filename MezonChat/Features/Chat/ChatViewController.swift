@@ -762,9 +762,12 @@ final class ChatViewController: ViewController {
 
         let channelIdStr = storageChannelId
 
-        setIsLoading(true)
-        context.account.postbox.write { tx in
-            tx.replaceAllMessages([], channelId: channelIdStr)
+        let cachedMessages = context.account.postbox.read { tx in
+            tx.getMessages(channelId: channelIdStr)
+        }
+        let hasCache = !cachedMessages.isEmpty
+        if !hasCache {
+            setIsLoading(true)
         }
 
         stateDisposables.add(
@@ -962,7 +965,10 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages(token: String? = nil) {
-        setIsLoading(true)
+        let hadCachedMessages = !messages.isEmpty
+        if !hadCachedMessages {
+            setIsLoading(true)
+        }
         setErrorMessage(nil)
 
         Task { @MainActor in
@@ -2136,7 +2142,12 @@ final class ChatViewController: ViewController {
     }
 
     private func handleSendLocation() {
-        let status = locationManager.authorizationStatus
+        let status: CLAuthorizationStatus
+        if #available(iOS 14.0, *) {
+            status = locationManager.authorizationStatus
+        } else {
+            status = CLLocationManager.authorizationStatus()
+        }
         switch status {
         case .notDetermined:
             locationManager.delegate = self
@@ -2682,7 +2693,12 @@ extension ChatViewController: CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
+        let status: CLAuthorizationStatus
+        if #available(iOS 14.0, *) {
+            status = manager.authorizationStatus
+        } else {
+            status = CLLocationManager.authorizationStatus()
+        }
         guard status != .notDetermined else { return }
         if status == .authorizedWhenInUse || status == .authorizedAlways {
             manager.requestLocation()

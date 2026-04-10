@@ -5,6 +5,8 @@ final class SharingChannelCell: UITableViewCell {
 
     static let reuseId = "SharingChannelCell"
 
+    static let groupDefaultAvatarBackground = UIColor(red: 249 / 255, green: 115 / 255, blue: 22 / 255, alpha: 1)
+
     private let avatarView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -128,22 +130,26 @@ final class SharingChannelCell: UITableViewCell {
         } else if isGroup {
             avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
-            channelIconView.image = UIImage(systemName: "person.2.fill")
+            channelIconView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            channelIconView.tintColor = .white
             if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
                let url = URL(string: channel.channelAvatar) {
                 channelIconView.isHidden = true
                 avatarView.backgroundColor = .clear
                 loadImage(url: url)
             } else {
-                avatarView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+                avatarView.image = nil
+                avatarView.backgroundColor = Self.groupDefaultAvatarBackground
             }
         } else {
-            channelIconView.isHidden = true
-            avatarPlaceholder.isHidden = false
-            let cName = clanName ?? displayName
-            avatarPlaceholder.text = String(cName.prefix(1)).uppercased()
-            avatarView.backgroundColor = colorFor(name: cName)
-
+            imageTask?.cancel()
+            avatarView.image = nil
+            avatarPlaceholder.isHidden = true
+            channelIconView.isHidden = false
+            let iconName = channel.channelListIconAssetName()
+            channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
+            channelIconView.tintColor = UIColor.theme.channelNormal
+            avatarView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
             nameLabel.text = displayName
         }
 
@@ -151,7 +157,8 @@ final class SharingChannelCell: UITableViewCell {
     }
 
     private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString)
+        let side = Int(ceil(36 * UIScreen.main.scale))
+        let urlString = ImgproxyURL.create(from: url.absoluteString, width: side, height: side)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
             avatarView.image = cached
             return

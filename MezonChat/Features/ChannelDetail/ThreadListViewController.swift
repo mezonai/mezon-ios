@@ -63,7 +63,7 @@ final class ThreadListViewController: ViewController {
         tableView.keyboardDismissMode = .onDrag
         tableView.backgroundColor = UIColor.theme.primary
         tableView.separatorStyle = .none
-        tableView.sectionHeaderTopPadding = 0
+        if #available(iOS 15.0, *) { tableView.sectionHeaderTopPadding = 0 }
         tableView.estimatedRowHeight = 76
         tableView.rowHeight = UITableView.automaticDimension
         tableView.register(ThreadListItemCell.self, forCellReuseIdentifier: ThreadListItemCell.reuseId)

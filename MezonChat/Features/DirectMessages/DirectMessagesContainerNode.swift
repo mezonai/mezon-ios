@@ -77,25 +77,43 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
         titleLabel.textColor = .mezonTextPrimary
 
-        var addCfg = UIButton.Configuration.filled()
-        addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
-        addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
-        addCfg.baseForegroundColor = UIColor.theme.textStrong
-        addCfg.baseBackgroundColor = UIColor.theme.secondary
-        addCfg.cornerStyle = .capsule
-        addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
-        addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
+        if #available(iOS 15.0, *) {
+            var addCfg = UIButton.Configuration.filled()
+            addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
+            addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
+            addCfg.baseForegroundColor = UIColor.theme.textStrong
+            addCfg.baseBackgroundColor = UIColor.theme.secondary
+            addCfg.cornerStyle = .capsule
+            addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
+            addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+                var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
+            }
+            addFriendButton.configuration = addCfg
+        } else {
+            addFriendButton.setImage(UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf)), for: .normal)
+            addFriendButton.setTitle(" \(L(L10n.DirectMessage.addFriend))", for: .normal)
+            addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
+            addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+            addFriendButton.tintColor = UIColor.theme.textStrong
+            addFriendButton.backgroundColor = UIColor.theme.secondary
+            addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
+            addFriendButton.layer.cornerRadius = 16
         }
-        addFriendButton.configuration = addCfg
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
 
-        var searchCfg = UIButton.Configuration.filled()
-        searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-        searchCfg.baseForegroundColor = UIColor.theme.textDisabled
-        searchCfg.baseBackgroundColor = UIColor.theme.secondary
-        searchCfg.cornerStyle = .capsule
-        searchButton.configuration = searchCfg
+        if #available(iOS 15.0, *) {
+            var searchCfg = UIButton.Configuration.filled()
+            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.baseForegroundColor = UIColor.theme.textDisabled
+            searchCfg.baseBackgroundColor = UIColor.theme.secondary
+            searchCfg.cornerStyle = .capsule
+            searchButton.configuration = searchCfg
+        } else {
+            searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
+            searchButton.tintColor = UIColor.theme.textDisabled
+            searchButton.backgroundColor = UIColor.theme.secondary
+            searchButton.layer.cornerRadius = 16
+        }
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
 
@@ -158,24 +176,35 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         guard isNodeLoaded else { return }
 
-        var addCfg = UIButton.Configuration.filled()
-        addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
-        addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
-        addCfg.baseForegroundColor = UIColor.theme.textStrong
-        addCfg.baseBackgroundColor = UIColor.theme.secondary
-        addCfg.cornerStyle = .capsule
-        addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
-        addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-            var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
+        if #available(iOS 15.0, *) {
+            var addCfg = UIButton.Configuration.filled()
+            addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
+            addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
+            addCfg.baseForegroundColor = UIColor.theme.textStrong
+            addCfg.baseBackgroundColor = UIColor.theme.secondary
+            addCfg.cornerStyle = .capsule
+            addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
+            addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
+                var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
+            }
+            addFriendButton.configuration = addCfg
+        } else {
+            addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+            addFriendButton.tintColor = UIColor.theme.textStrong
+            addFriendButton.backgroundColor = UIColor.theme.secondary
         }
-        addFriendButton.configuration = addCfg
 
-        var searchCfg = UIButton.Configuration.filled()
-        searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-        searchCfg.baseForegroundColor = UIColor.theme.textDisabled
-        searchCfg.baseBackgroundColor = UIColor.theme.secondary
-        searchCfg.cornerStyle = .capsule
-        searchButton.configuration = searchCfg
+        if #available(iOS 15.0, *) {
+            var searchCfg = UIButton.Configuration.filled()
+            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.baseForegroundColor = UIColor.theme.textDisabled
+            searchCfg.baseBackgroundColor = UIColor.theme.secondary
+            searchCfg.cornerStyle = .capsule
+            searchButton.configuration = searchCfg
+        } else {
+            searchButton.tintColor = UIColor.theme.textDisabled
+            searchButton.backgroundColor = UIColor.theme.secondary
+        }
 
         tableView.reloadData()
     }

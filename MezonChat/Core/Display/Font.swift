@@ -164,7 +164,7 @@ public struct Font {
         if let cachedFont = self.cache.get(key) {
             return cachedFont
         }
-        if #available(iOS 13.0, *), design != .camera {
+        if design != .camera {
             let descriptor: UIFontDescriptor
             if #available(iOS 14.0, *) {
                 descriptor = UIFont.systemFont(ofSize: size).fontDescriptor

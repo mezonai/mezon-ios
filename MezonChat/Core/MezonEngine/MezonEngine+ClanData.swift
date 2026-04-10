@@ -201,6 +201,11 @@ extension MezonEngine {
             return try? Mezon_Api_VoiceChannelUserList(serializedBytes: data)
         }
 
+        func getStreamUsers(clanId: Int64) -> Mezon_Api_VoiceChannelUserList? {
+            guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId)) else { return nil }
+            return try? Mezon_Api_VoiceChannelUserList(serializedBytes: data)
+        }
+
         func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
             await fetchVoiceChannelUsers(clanId: clanId, token: token)
         }

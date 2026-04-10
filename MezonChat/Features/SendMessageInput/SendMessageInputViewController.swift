@@ -102,9 +102,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
         btn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: config), for: .normal)
-        btn.addAction(UIAction { [weak self] _ in
-            self?.clearReply()
-        }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(clearReplyAction), for: .touchUpInside)
         return btn
     }()
 
@@ -151,7 +149,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.expandAttachControls() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(expandAttachControlsAction), for: .touchUpInside)
         return btn
     }()
 
@@ -161,7 +159,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.openPhotoPicker() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(openPhotoPickerAction), for: .touchUpInside)
         return btn
     }()
 
@@ -211,7 +209,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
-        btn.addAction(UIAction { [weak self] _ in self?.toggleAdvancePanel() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleAdvancePanelAction), for: .touchUpInside)
         return btn
     }()
 
@@ -219,7 +217,7 @@ final class SendMessageInputViewController: UIViewController {
         let btn = UIButton(type: .system)
         btn.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.addAction(UIAction { [weak self] _ in self?.toggleEmojiPicker() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleEmojiPickerAction), for: .touchUpInside)
         return btn
     }()
 
@@ -235,12 +233,7 @@ final class SendMessageInputViewController: UIViewController {
         b.layer.cornerRadius = 11
         b.clipsToBounds = true
         b.accessibilityLabel = "Anonymous message"
-        b.addAction(UIAction { [weak self] _ in
-            guard let self, self.clanId != 0, !self.clanPreventAnonymous else { return }
-            _ = AnonymousMessageStore.toggle(clanId: self.clanId)
-            self.refreshAnonymousUI()
-            self.onAnonymousModeChanged?()
-        }, for: .touchUpInside)
+        b.addTarget(self, action: #selector(anonymousIndicatorTapped), for: .touchUpInside)
         return b
     }()
 
@@ -252,7 +245,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.setImage(UIImage(systemName: "paperplane.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.tintColor = .white
         btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        btn.addAction(UIAction { [weak self] _ in self?.send() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(sendAction), for: .touchUpInside)
         btn.alpha = 0
         btn.isHidden = true
         return btn
@@ -427,6 +420,19 @@ final class SendMessageInputViewController: UIViewController {
         let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
         guard !trimmed.isEmpty || hasAttachments else { return }
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
+    }
+
+    @objc private func clearReplyAction() { clearReply() }
+    @objc private func expandAttachControlsAction() { expandAttachControls() }
+    @objc private func openPhotoPickerAction() { openPhotoPicker() }
+    @objc private func toggleAdvancePanelAction() { toggleAdvancePanel() }
+    @objc private func toggleEmojiPickerAction() { toggleEmojiPicker() }
+    @objc private func sendAction() { send() }
+    @objc private func anonymousIndicatorTapped() {
+        guard clanId != 0, !clanPreventAnonymous else { return }
+        _ = AnonymousMessageStore.toggle(clanId: clanId)
+        refreshAnonymousUI()
+        onAnonymousModeChanged?()
     }
 
 
@@ -639,8 +645,12 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func openFilePicker() {
-        let supportedTypes: [UTType] = [.item]
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
+        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        } else {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+        }
         picker.allowsMultipleSelection = true
         picker.delegate = self
 

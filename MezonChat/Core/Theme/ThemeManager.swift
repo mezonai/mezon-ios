@@ -23,6 +23,7 @@ final class ThemeManager {
     @objc private func handleSystemAppearanceChange() {
         if current == .system {
             NotificationCenter.default.post(name: Self.didChangeNotification, object: current)
+            applyStatusBarStyle()
         }
     }
 
@@ -37,7 +38,7 @@ final class ThemeManager {
     }
 
     var preferredStatusBarStyle: UIStatusBarStyle {
-        current == .light ? .darkContent : .lightContent
+        return current.usesLightStatusBarContent ? .lightContent : .darkContent
     }
 
     func applyStatusBarStyle() {

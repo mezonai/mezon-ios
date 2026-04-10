@@ -53,21 +53,28 @@ final class CallViewController: UIViewController {
 
         let endButton = UIButton(type: .system)
         endButton.translatesAutoresizingMaskIntoConstraints = false
-        var endCfg = UIButton.Configuration.plain()
-        endCfg.title = "End"
-        endCfg.baseForegroundColor = .white
-        endCfg.background.backgroundColor = UIColor.mezonError
-        endCfg.background.cornerRadius = 28
-        endCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 32, bottom: 14, trailing: 32)
-        endCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-            var out = incoming
-            out.font = .systemFont(ofSize: 17, weight: .semibold)
-            return out
+        if #available(iOS 15.0, *) {
+            var endCfg = UIButton.Configuration.plain()
+            endCfg.title = "End"
+            endCfg.baseForegroundColor = .white
+            endCfg.background.backgroundColor = UIColor.mezonError
+            endCfg.background.cornerRadius = 28
+            endCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 32, bottom: 14, trailing: 32)
+            endCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var out = incoming
+                out.font = .systemFont(ofSize: 17, weight: .semibold)
+                return out
+            }
+            endButton.configuration = endCfg
+        } else {
+            endButton.setTitle("End", for: .normal)
+            endButton.setTitleColor(.white, for: .normal)
+            endButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+            endButton.backgroundColor = UIColor.mezonError
+            endButton.layer.cornerRadius = 28
+            endButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 32, bottom: 14, right: 32)
         }
-        endButton.configuration = endCfg
-        endButton.addAction(UIAction { [weak self] _ in
-            self?.dismiss(animated: true)
-        }, for: .touchUpInside)
+        endButton.addTarget(self, action: #selector(endButtonTapped), for: .touchUpInside)
 
         view.addSubview(titleLabel)
         view.addSubview(subtitle)
@@ -88,5 +95,9 @@ final class CallViewController: UIViewController {
         AppLogger.app.info(
             "[Call] UI remote=\(self.remoteUserId) channel=\(self.dmChannelId) outgoing=\(self.isOutgoing) loggedIn=\(self.accountContext.isLoggedIn) avatar=\(self.remoteAvatarURL ?? "-")"
         )
+    }
+
+    @objc private func endButtonTapped() {
+        dismiss(animated: true)
     }
 }

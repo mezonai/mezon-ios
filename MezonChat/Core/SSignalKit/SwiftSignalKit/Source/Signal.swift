@@ -120,7 +120,6 @@ public final class Signal<T, E> {
     }
 }
 
-@available(iOS 13.0, macOS 10.15, *)
 public extension Signal where E == NoError {
     func get() async -> T {
         let disposable = MetaDisposable()

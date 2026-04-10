@@ -68,7 +68,7 @@ final class BuzzMessageViewController: UIViewController {
         btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
         btn.layer.cornerRadius = 10
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.handleSend() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(handleSend), for: .touchUpInside)
         return btn
     }()
 
@@ -171,7 +171,7 @@ final class BuzzMessageViewController: UIViewController {
         dismiss(animated: true)
     }
 
-    private func handleSend() {
+    @objc private func handleSend() {
         let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         onSend?(text)

@@ -14,10 +14,12 @@ final class ChannelItemCellNode: ASCellNode {
 
     private let channel: Mezon_Api_ChannelDescription
     private let cellSelected: Bool
+    private let isVoiceActive: Bool
 
-    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool) {
+    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false) {
         self.channel = channel
         self.cellSelected = isSelected
+        self.isVoiceActive = isVoiceActive
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
@@ -25,20 +27,37 @@ final class ChannelItemCellNode: ASCellNode {
         setupContent()
     }
 
+    private static let voiceTypes: Set<Int32> = [
+        MezonConstants.ChannelType.mezonVoice.rawValue,
+        MezonConstants.ChannelType.streaming.rawValue,
+        MezonConstants.ChannelType.app.rawValue,
+    ]
+
     private func setupContent() {
         let t = UIColor.theme
         let chType = ChannelType(rawValue: channel.type) ?? .unknown
-        let isUnread =
+        let isVoiceType = Self.voiceTypes.contains(channel.type)
+        let isUnread = !isVoiceType && (
             channel.countMessUnread > 0
             || (channel.hasLastSentMessage
                 && channel.lastSeenMessage.timestampSeconds
-                    < channel.lastSentMessage.timestampSeconds)
-        let unread = channel.countMessUnread
+                    < channel.lastSentMessage.timestampSeconds))
+        let unread = isVoiceType ? 0 : channel.countMessUnread
 
-        let iconColor =
-            isUnread ? t.channelUnread : t.channelNormal
+        let voiceActiveGreen = UIColor(red: 22/255, green: 163/255, blue: 74/255, alpha: 1)
+        let iconColor: UIColor
+        if isVoiceActive {
+            iconColor = voiceActiveGreen
+        } else if isUnread {
+            iconColor = t.channelUnread
+        } else {
+            iconColor = t.channelNormal
+        }
         if chType.isSystemImage {
             var iconName = chType.icon
+            if chType == .voice && isVoiceActive {
+                iconName = "Channel/channelVoiceActive"
+            }
             if chType == .text && channel.channelPrivate == 1 {
                 iconName = "Channel/channelPrivate"
             }
@@ -174,5 +193,187 @@ final class ChannelItemCellNode: ASCellNode {
         } else {
             return paddedContent
         }
+    }
+}
+
+struct VoiceMemberDisplay {
+    let name: String
+    let avatarURL: String?
+}
+
+private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat) -> (wrapper: ASDisplayNode, img: ASNetworkImageNode, initLabel: ASTextNode2) {
+    let wrapper = ASDisplayNode()
+    wrapper.style.preferredSize = CGSize(width: s, height: s)
+    wrapper.cornerRadius = s / 2
+    wrapper.clipsToBounds = true
+    wrapper.backgroundColor = UIColor.theme.colorAvatarDefault
+
+    let imgNode = ASNetworkImageNode()
+    imgNode.style.preferredSize = CGSize(width: s, height: s)
+    imgNode.cornerRadius = s / 2
+    imgNode.clipsToBounds = true
+    imgNode.contentMode = .scaleAspectFill
+
+    let initNode = ASTextNode2()
+    initNode.maximumNumberOfLines = 1
+
+    if let av = m.avatarURL, !av.isEmpty {
+        let px = Int(s * UIScreen.main.scale)
+        let proxy = ImgproxyURL.create(from: av, width: px, height: px)
+        imgNode.url = URL(string: proxy)
+        initNode.isHidden = true
+    } else {
+        imgNode.isHidden = true
+        let initial = String(m.name.prefix(1)).uppercased()
+        let fontSize: CGFloat = s < 20 ? 8 : 10
+        initNode.attributedText = NSAttributedString(
+            string: initial,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
+                .foregroundColor: UIColor.white,
+            ])
+    }
+
+    wrapper.addSubnode(imgNode)
+    wrapper.addSubnode(initNode)
+    return (wrapper, imgNode, initNode)
+}
+
+final class VoiceMemberExpandedCellNode: ASCellNode {
+
+    private static let avatarSize: CGFloat = 22
+
+    private let avatarWrapper: ASDisplayNode
+    private let avatarImg: ASNetworkImageNode
+    private let avatarInit: ASTextNode2
+    private let nameNode = ASTextNode2()
+
+    init(member: VoiceMemberDisplay) {
+        let nodes = makeVoiceAvatarNodes(member: member, size: Self.avatarSize)
+        avatarWrapper = nodes.wrapper
+        avatarImg = nodes.img
+        avatarInit = nodes.initLabel
+        super.init()
+        automaticallyManagesSubnodes = true
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        nameNode.maximumNumberOfLines = 1
+        nameNode.truncationMode = .byTruncatingTail
+        nameNode.attributedText = NSAttributedString(
+            string: member.name,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.channelNormal,
+            ])
+    }
+
+    override func layout() {
+        super.layout()
+        let s = Self.avatarSize
+        avatarImg.frame = CGRect(origin: .zero, size: CGSize(width: s, height: s))
+        avatarInit.frame = CGRect(origin: .zero, size: CGSize(width: s, height: s))
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        nameNode.style.flexShrink = 1
+        let row = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 10,
+            justifyContent: .start,
+            alignItems: .center,
+            children: [avatarWrapper, nameNode]
+        )
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 4, left: 40, bottom: 4, right: 12),
+            child: row
+        )
+    }
+}
+
+final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
+
+    private static let avatarSize: CGFloat = 18
+    private static let maxVisible = 5
+
+    private var avatarNodes: [ASDisplayNode] = []
+    private var overflowNode: ASTextNode2?
+    private var overflowBg: ASDisplayNode?
+
+    init(members: [VoiceMemberDisplay], totalCount: Int) {
+        super.init()
+        automaticallyManagesSubnodes = true
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        let visible = Array(members.prefix(Self.maxVisible))
+        for m in visible {
+            let nodes = makeVoiceAvatarNodes(member: m, size: Self.avatarSize)
+            avatarNodes.append(nodes.wrapper)
+        }
+
+        if totalCount > Self.maxVisible {
+            let text = "+\(totalCount - Self.maxVisible)"
+            let font = UIFont.systemFont(ofSize: 9, weight: .bold)
+            let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+            let badgeWidth = max(Self.avatarSize, ceil(textWidth) + 8)
+
+            let bg = ASDisplayNode()
+            bg.style.preferredSize = CGSize(width: badgeWidth, height: Self.avatarSize)
+            bg.cornerRadius = Self.avatarSize / 2
+            bg.clipsToBounds = true
+            bg.backgroundColor = UIColor.theme.primary
+            bg.borderWidth = 1
+            bg.borderColor = UIColor.theme.textDisabled.cgColor
+            overflowBg = bg
+
+            let node = ASTextNode2()
+            node.maximumNumberOfLines = 1
+            let para = NSMutableParagraphStyle()
+            para.alignment = .center
+            node.attributedText = NSAttributedString(
+                string: text,
+                attributes: [
+                    .font: font,
+                    .foregroundColor: UIColor.theme.channelNormal,
+                    .paragraphStyle: para,
+                ])
+            node.style.preferredSize = CGSize(width: badgeWidth, height: Self.avatarSize)
+            overflowNode = node
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let s = Self.avatarSize
+        for wrapper in avatarNodes {
+            for sub in wrapper.subnodes ?? [] {
+                sub.frame = CGRect(origin: .zero, size: CGSize(width: s, height: s))
+            }
+        }
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let s = Self.avatarSize
+        var children: [ASLayoutElement] = avatarNodes
+        if let overflow = overflowNode, let bg = overflowBg {
+            let centered = ASCenterLayoutSpec(
+                centeringOptions: .XY,
+                sizingOptions: [],
+                child: overflow
+            )
+            children.append(ASBackgroundLayoutSpec(child: centered, background: bg))
+        }
+        let row = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: -4,
+            justifyContent: .start,
+            alignItems: .center,
+            children: children
+        )
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 2, left: 38, bottom: 4, right: 12),
+            child: row
+        )
     }
 }

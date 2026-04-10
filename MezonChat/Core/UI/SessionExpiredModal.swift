@@ -104,6 +104,9 @@ private final class SessionExpiredContentView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    @objc private func loginAgainTapped() { onLoginAgain?() }
+    @objc private func cancelTapped() { onCancel?() }
+
     private func setup() {
         backgroundColor = .white
         layer.cornerRadius = 16
@@ -136,7 +139,7 @@ private final class SessionExpiredContentView: UIView {
         loginBtn.backgroundColor = t.primary
         loginBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
         loginBtn.layer.cornerRadius = 10
-        loginBtn.addAction(UIAction { [weak self] _ in self?.onLoginAgain?() }, for: .touchUpInside)
+        loginBtn.addTarget(self, action: #selector(loginAgainTapped), for: .touchUpInside)
         loginBtn.translatesAutoresizingMaskIntoConstraints = false
 
         let cancelBtn = UIButton(type: .system)
@@ -145,7 +148,7 @@ private final class SessionExpiredContentView: UIView {
         cancelBtn.backgroundColor = t.tertiary
         cancelBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
         cancelBtn.layer.cornerRadius = 10
-        cancelBtn.addAction(UIAction { [weak self] _ in self?.onCancel?() }, for: .touchUpInside)
+        cancelBtn.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
         cancelBtn.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(titleLabel)
