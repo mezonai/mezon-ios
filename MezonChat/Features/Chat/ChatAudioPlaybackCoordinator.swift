@@ -1,12 +1,11 @@
 import AVFoundation
-import OSLog
 import UIKit
 
 final class ChatAudioPlaybackCoordinator: NSObject {
 
     static let shared = ChatAudioPlaybackCoordinator()
 
-    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "MezonChat", category: "ChatAudio")
+    private static let log = AppLogger.app
 
     static func resolvePlaybackURL(from string: String) -> URL? {
         let s = string.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -40,7 +39,7 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         guard !urlString.isEmpty else { return }
         guard let url = Self.resolvePlaybackURL(from: urlString) else {
             let prefix = String(urlString.prefix(120))
-            Self.log.error("toggle: could not resolve URL. prefix=\(prefix, privacy: .public)")
+            Self.log.error("toggle: could not resolve URL. prefix=\(prefix)")
             return
         }
 
@@ -70,7 +69,7 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         player = p
         emitLogCounter = 0
         didLogFailedItem = false
-        Self.log.info("toggle: start playbackId=\(playbackId, privacy: .public) url=\(url.absoluteString, privacy: .public)")
+        Self.log.info("toggle: start playbackId=\(playbackId) url=\(url.absoluteString)")
 
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
@@ -103,7 +102,7 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         if item.status == .failed, !didLogFailedItem {
             didLogFailedItem = true
             let desc = item.error.map { $0.localizedDescription } ?? "unknown"
-            Self.log.error("AVPlayerItem failed (often matches FigFilePlayer -12864): \(desc, privacy: .public)")
+            Self.log.error("AVPlayerItem failed (often matches FigFilePlayer -12864): \(desc)")
         }
         let d = CMTimeGetSeconds(item.duration)
         if d.isFinite, d > 0 {
@@ -120,7 +119,7 @@ final class ChatAudioPlaybackCoordinator: NSObject {
             let totS = String(format: "%.2f", total)
             let dS = String(format: "%.2f", d)
             let stS = String(format: "%.2f", stableItemDuration)
-            Self.log.info("emit #\(n, privacy: .public) playing=\(playing, privacy: .public) time=\(ts, privacy: .public) total=\(totS, privacy: .public) rawD=\(dS, privacy: .public) stable=\(stS, privacy: .public)")
+            Self.log.info("emit #\(n) playing=\(playing) time=\(ts) total=\(totS) rawD=\(dS) stable=\(stS)")
         }
         sink?.playbackProgress(fraction, playing: playing, duration: total)
     }

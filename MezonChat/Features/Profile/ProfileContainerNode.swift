@@ -76,13 +76,22 @@ final class ProfileContainerNode: ASDisplayNode {
     private let historyRow = ProfileIconRow()
     private let editProfileButton: UIButton = {
         let btn = UIButton(type: .system)
-        var cfg = UIButton.Configuration.filled()
-        cfg.cornerStyle = .capsule
-        cfg.baseForegroundColor = .white
-        cfg.baseBackgroundColor = .outgoingBubble
-        cfg.imagePadding = 8
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0)
-        btn.configuration = cfg
+        if #available(iOS 15.0, *) {
+            var cfg = UIButton.Configuration.filled()
+            cfg.cornerStyle = .capsule
+            cfg.baseForegroundColor = .white
+            cfg.baseBackgroundColor = .outgoingBubble
+            cfg.imagePadding = 8
+            cfg.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0)
+            btn.configuration = cfg
+        } else {
+            btn.backgroundColor = .outgoingBubble
+            btn.setTitleColor(.white, for: .normal)
+            btn.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
+            btn.layer.cornerRadius = 20
+            btn.clipsToBounds = true
+            btn.contentEdgeInsets = UIEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        }
         return btn
     }()
 
@@ -236,17 +245,24 @@ final class ProfileContainerNode: ASDisplayNode {
         }
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
 
-        var statusCfg = addStatusButton.configuration ?? UIButton.Configuration.plain()
-        statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-        statusCfg.baseForegroundColor = .mezonTextPrimary
-        statusCfg.attributedTitle = AttributedString(
-            L(L10n.Profile.addStatus),
-            attributes: AttributeContainer([
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                .foregroundColor: UIColor.mezonTextPrimary
-            ])
-        )
-        addStatusButton.configuration = statusCfg
+        if #available(iOS 15.0, *) {
+            var statusCfg = addStatusButton.configuration ?? UIButton.Configuration.plain()
+            statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
+            statusCfg.baseForegroundColor = .mezonTextPrimary
+            statusCfg.attributedTitle = AttributedString(
+                L(L10n.Profile.addStatus),
+                attributes: AttributeContainer([
+                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
+                    .foregroundColor: UIColor.mezonTextPrimary
+                ])
+            )
+            addStatusButton.configuration = statusCfg
+        } else {
+            addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
+            addStatusButton.setTitle(L(L10n.Profile.addStatus), for: .normal)
+            addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
+            addStatusButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
+        }
     }
 
     private func setupHeader() {
@@ -272,19 +288,28 @@ final class ProfileContainerNode: ASDisplayNode {
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
         statusBubbleContainer.layer.insertSublayer(statusBubbleShapeLayer, at: 0)
 
-        var statusCfg = UIButton.Configuration.plain()
-        statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-        statusCfg.imagePadding = 6
-        statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
-        statusCfg.baseForegroundColor = .mezonTextPrimary
-        statusCfg.attributedTitle = AttributedString(
-            L(L10n.Profile.addStatus),
-            attributes: AttributeContainer([
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                .foregroundColor: UIColor.mezonTextPrimary
-            ])
-        )
-        addStatusButton.configuration = statusCfg
+        if #available(iOS 15.0, *) {
+            var statusCfg = UIButton.Configuration.plain()
+            statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
+            statusCfg.imagePadding = 6
+            statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
+            statusCfg.baseForegroundColor = .mezonTextPrimary
+            statusCfg.attributedTitle = AttributedString(
+                L(L10n.Profile.addStatus),
+                attributes: AttributeContainer([
+                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
+                    .foregroundColor: UIColor.mezonTextPrimary
+                ])
+            )
+            addStatusButton.configuration = statusCfg
+        } else {
+            addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
+            addStatusButton.setTitle(L(L10n.Profile.addStatus), for: .normal)
+            addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
+            addStatusButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
+            addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
+            addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
+        }
         statusBubbleContainer.addSubview(addStatusButton)
         fixedHeaderView.addSubview(statusBubbleContainer)
     }
@@ -493,12 +518,17 @@ final class ProfileContainerNode: ASDisplayNode {
 
         let editIcon = Self.profileImageResized(named: "EditIcon", size: 20)?.withRenderingMode(.alwaysOriginal)
             ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold))
-        editProfileButton.configuration?.image = editIcon
-        editProfileButton.configuration?.title = L(L10n.Profile.editProfile)
-        editProfileButton.configuration?.attributedTitle = AttributedString(
-            L(L10n.Profile.editProfile),
-            attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold)])
-        )
+        if #available(iOS 15.0, *) {
+            editProfileButton.configuration?.image = editIcon
+            editProfileButton.configuration?.title = L(L10n.Profile.editProfile)
+            editProfileButton.configuration?.attributedTitle = AttributedString(
+                L(L10n.Profile.editProfile),
+                attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15.sf, weight: .semibold)])
+            )
+        } else {
+            editProfileButton.setImage(editIcon, for: .normal)
+            editProfileButton.setTitle(L(L10n.Profile.editProfile), for: .normal)
+        }
 
         aboutMeTitleLabel.text = L(L10n.Profile.aboutMe)
         aboutMeContentLabel.text = user?.bio ?? "—"

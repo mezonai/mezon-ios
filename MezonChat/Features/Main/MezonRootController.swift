@@ -435,7 +435,7 @@ final class MezonRootController: NavigationController {
                 backgroundColor: UIColor.theme.secondary,
                 enableBackgroundBlur: false,
                 separatorColor: UIColor.theme.border,
-                badgeBackgroundColor: .systemRed,
+                badgeBackgroundColor: UIColor.mezonUnreadBadge,
                 badgeStrokeColor: .clear,
                 badgeTextColor: .white
             ),

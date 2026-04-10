@@ -89,11 +89,17 @@ extension LanguageSettingsViewController: UITableViewDataSource {
         let lang = languages[indexPath.row]
         let t    = UIColor.theme
 
-        var config = UIListContentConfiguration.cell()
-        config.text                = lang.displayName
-        config.textProperties.font = .systemFont(ofSize: 16.sf)
-        config.textProperties.color = t.textStrong
-        cell.contentConfiguration  = config
+        if #available(iOS 14.0, *) {
+            var config = UIListContentConfiguration.cell()
+            config.text                = lang.displayName
+            config.textProperties.font = .systemFont(ofSize: 16.sf)
+            config.textProperties.color = t.textStrong
+            cell.contentConfiguration  = config
+        } else {
+            cell.textLabel?.text      = lang.displayName
+            cell.textLabel?.font      = .systemFont(ofSize: 16.sf)
+            cell.textLabel?.textColor = t.textStrong
+        }
         cell.backgroundColor       = t.secondary
         cell.accessoryType         = lang == LanguageManager.shared.current ? .checkmark : .none
         cell.tintColor             = .outgoingBubble

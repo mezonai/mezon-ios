@@ -93,7 +93,7 @@ final class ShareLocationConfirmViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.setTitle("Cancel", for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
-        btn.addAction(UIAction { [weak self] _ in self?.handleCancel() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(handleCancel), for: .touchUpInside)
         return btn
     }()
 
@@ -102,7 +102,7 @@ final class ShareLocationConfirmViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.setTitle("Send", for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        btn.addAction(UIAction { [weak self] _ in self?.handleSend() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(handleSendTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -211,6 +211,8 @@ final class ShareLocationConfirmViewController: UIViewController {
     @objc private func handleCancel() {
         dismiss(animated: true)
     }
+
+    @objc private func handleSendTapped() { handleSend() }
 
     private func handleSend() {
         onSend?(coordinate.latitude, coordinate.longitude)

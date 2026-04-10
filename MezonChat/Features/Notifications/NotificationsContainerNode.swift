@@ -398,26 +398,47 @@ final class NotificationsContainerNode: ASDisplayNode {
         titleLabel.textColor = .mezonTextPrimary
 
 
-        var cfg = UIButton.Configuration.plain()
-        cfg.cornerStyle = .capsule
-        cfg.background.strokeColor = .mezonBorder
-        cfg.background.strokeWidth = 1.5
-        cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-        if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
-            let iconSize = CGSize(width: 20, height: 20)
-            let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
-            let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
-            let origin = CGPoint(
-                x: (iconSize.width - drawSize.width) / 2,
-                y: (iconSize.height - drawSize.height) / 2)
-            let renderer = UIGraphicsImageRenderer(size: iconSize)
-            let resized = renderer.image { _ in
-                raw.draw(in: CGRect(origin: origin, size: drawSize))
+        if #available(iOS 15.0, *) {
+            var cfg = UIButton.Configuration.plain()
+            cfg.cornerStyle = .capsule
+            cfg.background.strokeColor = .mezonBorder
+            cfg.background.strokeWidth = 1.5
+            cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+            if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
+                let iconSize = CGSize(width: 20, height: 20)
+                let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
+                let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
+                let origin = CGPoint(
+                    x: (iconSize.width - drawSize.width) / 2,
+                    y: (iconSize.height - drawSize.height) / 2)
+                let renderer = UIGraphicsImageRenderer(size: iconSize)
+                let resized = renderer.image { _ in
+                    raw.draw(in: CGRect(origin: origin, size: drawSize))
+                }
+                cfg.image = resized.withRenderingMode(.alwaysTemplate)
             }
-            cfg.image = resized.withRenderingMode(.alwaysTemplate)
+            cfg.baseForegroundColor = .mezonTextPrimary
+            addFriendButton.configuration = cfg
+        } else {
+            if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
+                let iconSize = CGSize(width: 20, height: 20)
+                let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
+                let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
+                let origin = CGPoint(
+                    x: (iconSize.width - drawSize.width) / 2,
+                    y: (iconSize.height - drawSize.height) / 2)
+                let renderer = UIGraphicsImageRenderer(size: iconSize)
+                let resized = renderer.image { _ in
+                    raw.draw(in: CGRect(origin: origin, size: drawSize))
+                }
+                addFriendButton.setImage(resized.withRenderingMode(.alwaysTemplate), for: .normal)
+            }
+            addFriendButton.tintColor = .mezonTextPrimary
+            addFriendButton.layer.cornerRadius = 16
+            addFriendButton.layer.borderWidth = 1.5
+            addFriendButton.layer.borderColor = UIColor.mezonBorder.cgColor
+            addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         }
-        cfg.baseForegroundColor = .mezonTextPrimary
-        addFriendButton.configuration = cfg
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
         addFriendButton.accessibilityIdentifier = "notif_add_friend"
 
@@ -565,35 +586,56 @@ final class NotificationsContainerNode: ASDisplayNode {
             let btn = UIButton(type: .system)
             btn.tag = index
 
-            var cfg = UIButton.Configuration.filled()
-            cfg.cornerStyle = .fixed
-            cfg.background.cornerRadius = 8
-            cfg.imagePadding = 2
-            cfg.contentInsets = NSDirectionalEdgeInsets(
-                top: 8, leading: 12, bottom: 6, trailing: 10)
-            cfg.attributedTitle = AttributedString(
-                tab.title,
-                attributes: AttributeContainer([
-                    .font: UIFont.systemFont(ofSize: 12, weight: .medium)
-                ])
-            )
+            if #available(iOS 15.0, *) {
+                var cfg = UIButton.Configuration.filled()
+                cfg.cornerStyle = .fixed
+                cfg.background.cornerRadius = 8
+                cfg.imagePadding = 2
+                cfg.contentInsets = NSDirectionalEdgeInsets(
+                    top: 8, leading: 12, bottom: 6, trailing: 10)
+                cfg.attributedTitle = AttributedString(
+                    tab.title,
+                    attributes: AttributeContainer([
+                        .font: UIFont.systemFont(ofSize: 12, weight: .medium)
+                    ])
+                )
 
-            if let raw = UIImage(named: tab.iconName) {
-                let iconSize = CGSize(width: 16, height: 18)
-                let ratio = min(16 / raw.size.width, 16 / raw.size.height)
-                let drawSize = CGSize(
-                    width: raw.size.width * ratio, height: raw.size.height * ratio)
-                let origin = CGPoint(
-                    x: (iconSize.width - drawSize.width) / 2,
-                    y: 0)
-                let renderer = UIGraphicsImageRenderer(size: iconSize)
-                let resized = renderer.image { _ in
-                    raw.draw(in: CGRect(origin: origin, size: drawSize))
+                if let raw = UIImage(named: tab.iconName) {
+                    let iconSize = CGSize(width: 16, height: 18)
+                    let ratio = min(16 / raw.size.width, 16 / raw.size.height)
+                    let drawSize = CGSize(
+                        width: raw.size.width * ratio, height: raw.size.height * ratio)
+                    let origin = CGPoint(
+                        x: (iconSize.width - drawSize.width) / 2,
+                        y: 0)
+                    let renderer = UIGraphicsImageRenderer(size: iconSize)
+                    let resized = renderer.image { _ in
+                        raw.draw(in: CGRect(origin: origin, size: drawSize))
+                    }
+                    cfg.image = resized.withRenderingMode(.alwaysOriginal)
                 }
-                cfg.image = resized.withRenderingMode(.alwaysOriginal)
-            }
 
-            btn.configuration = cfg
+                btn.configuration = cfg
+            } else {
+                btn.setTitle(tab.title, for: .normal)
+                btn.titleLabel?.font = UIFont.systemFont(ofSize: 12, weight: .medium)
+                btn.layer.cornerRadius = 8
+                btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 6, right: 10)
+                if let raw = UIImage(named: tab.iconName) {
+                    let iconSize = CGSize(width: 16, height: 18)
+                    let ratio = min(16 / raw.size.width, 16 / raw.size.height)
+                    let drawSize = CGSize(
+                        width: raw.size.width * ratio, height: raw.size.height * ratio)
+                    let origin = CGPoint(
+                        x: (iconSize.width - drawSize.width) / 2,
+                        y: 0)
+                    let renderer = UIGraphicsImageRenderer(size: iconSize)
+                    let resized = renderer.image { _ in
+                        raw.draw(in: CGRect(origin: origin, size: drawSize))
+                    }
+                    btn.setImage(resized.withRenderingMode(.alwaysOriginal), for: .normal)
+                }
+            }
             btn.clipsToBounds = false
             btn.layer.masksToBounds = false
             btn.setContentHuggingPriority(.required, for: .horizontal)
@@ -611,18 +653,31 @@ final class NotificationsContainerNode: ASDisplayNode {
         for (i, btn) in tabButtons.enumerated() {
             let selected = i == selectedTabIndex
 
-            var cfg = btn.configuration
-            if selected {
-                cfg?.baseBackgroundColor = t.bgViolet
-                cfg?.baseForegroundColor = t.channelUnread
-                cfg?.background.strokeWidth = 0
+            if #available(iOS 15.0, *) {
+                var cfg = btn.configuration
+                if selected {
+                    cfg?.baseBackgroundColor = t.bgViolet
+                    cfg?.baseForegroundColor = t.channelUnread
+                    cfg?.background.strokeWidth = 0
+                } else {
+                    cfg?.baseBackgroundColor = t.secondaryLight
+                    cfg?.baseForegroundColor = t.textDisabled
+                    cfg?.background.strokeColor = t.borderDim
+                    cfg?.background.strokeWidth = 1
+                }
+                btn.configuration = cfg
             } else {
-                cfg?.baseBackgroundColor = t.secondaryLight
-                cfg?.baseForegroundColor = t.textDisabled
-                cfg?.background.strokeColor = t.borderDim
-                cfg?.background.strokeWidth = 1
+                if selected {
+                    btn.backgroundColor = t.bgViolet
+                    btn.setTitleColor(t.channelUnread, for: .normal)
+                    btn.layer.borderWidth = 0
+                } else {
+                    btn.backgroundColor = t.secondaryLight
+                    btn.setTitleColor(t.textDisabled, for: .normal)
+                    btn.layer.borderColor = t.borderDim.cgColor
+                    btn.layer.borderWidth = 1
+                }
             }
-            btn.configuration = cfg
         }
     }
 
@@ -652,10 +707,15 @@ final class NotificationsContainerNode: ASDisplayNode {
         tabScrollView.backgroundColor = .clear
 
         titleLabel.textColor = t.textStrong
-        var addCfg = addFriendButton.configuration
-        addCfg?.baseForegroundColor = t.textStrong
-        addCfg?.background.strokeColor = t.border
-        addFriendButton.configuration = addCfg
+        if #available(iOS 15.0, *) {
+            var addCfg = addFriendButton.configuration
+            addCfg?.baseForegroundColor = t.textStrong
+            addCfg?.background.strokeColor = t.border
+            addFriendButton.configuration = addCfg
+        } else {
+            addFriendButton.tintColor = t.textStrong
+            addFriendButton.layer.borderColor = t.border.cgColor
+        }
 
         emptyTitleLabel.textColor = t.textStrong
         emptyDescLabel.textColor = t.textDisabled

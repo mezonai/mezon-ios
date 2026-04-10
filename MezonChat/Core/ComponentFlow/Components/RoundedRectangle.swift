@@ -241,13 +241,10 @@ public final class FilledRoundedRectangleComponent: Component {
                     if let previousCornerRadius, self.layer.animation(forKey: "cornerRadius") == nil {
                         self.layer.cornerRadius = previousCornerRadius
                     }
-                    if #available(iOS 13.0, *) {
-                        if component.smoothCorners {
-                            self.layer.cornerCurve = .continuous
-                        } else {
-                            self.layer.cornerCurve = .circular
-                        }
-
+                    if component.smoothCorners {
+                        self.layer.cornerCurve = .continuous
+                    } else {
+                        self.layer.cornerCurve = .circular
                     }
                     transition.setCornerRadius(layer: self.layer, cornerRadius: cornerRadius, completion: { [weak self] completed in
                         guard let self, completed else {
@@ -391,13 +388,10 @@ open class SolidRoundedCornersContainer: UIView {
                 if let previousCornerRadius, self.layer.animation(forKey: "cornerRadius") == nil {
                     self.layer.cornerRadius = previousCornerRadius
                 }
-                if #available(iOS 13.0, *) {
-                    if params.smoothCorners {
-                        self.layer.cornerCurve = .continuous
-                    } else {
-                        self.layer.cornerCurve = .circular
-                    }
-
+                if params.smoothCorners {
+                    self.layer.cornerCurve = .continuous
+                } else {
+                    self.layer.cornerCurve = .circular
                 }
                 transition.setCornerRadius(layer: self.layer, cornerRadius: params.cornerRadius, completion: { [weak self] completed in
                     guard let self, completed else {

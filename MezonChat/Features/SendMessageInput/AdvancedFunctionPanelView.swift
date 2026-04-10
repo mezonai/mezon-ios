@@ -21,7 +21,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
     private let grabberBar: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = UIColor.label.withAlphaComponent(0.25)
+        v.backgroundColor = UIColor.mezonLabel.withAlphaComponent(0.25)
         v.layer.cornerRadius = 2.5
         return v
     }()
@@ -69,7 +69,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         ]
         if includeAnonymous {
             let anonLabel = anonymousOn ? "Anonymous\nOn" : "Anonymous"
-            items.append(AdvancedFunctionItem(id: "anonymous", label: anonLabel, systemIcon: "sunglasses.fill",
+            items.append(AdvancedFunctionItem(id: "anonymous", label: anonLabel, systemIcon: "Chat/AnonymousIcon",
                                               backgroundColor: UIColor(red: 0.32, green: 0.34, blue: 0.42, alpha: 1)))
         }
         items.append(contentsOf: [
@@ -192,7 +192,9 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
 
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        let iconImageView = UIImageView(image: UIImage(systemName: action.systemIcon, withConfiguration: iconConfig))
+        let iconImage = UIImage(named: action.systemIcon)?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: action.systemIcon, withConfiguration: iconConfig)
+        let iconImageView = UIImageView(image: iconImage)
         iconImageView.tintColor = .white
         iconImageView.contentMode = .scaleAspectFit
         iconImageView.translatesAutoresizingMaskIntoConstraints = false

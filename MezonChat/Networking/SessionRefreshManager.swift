@@ -83,7 +83,6 @@ final class SessionRefreshManager {
                     return
                 } catch let error as MezonError {
                     retriesLeft -= 1
-                    AppLogger.app.warning("Session refresh failed (retries left: \(retriesLeft)): \(error)")
 
                     if retriesLeft == 0 {
                         safeOnReady(source: "MezonError")
@@ -102,13 +101,11 @@ final class SessionRefreshManager {
 
                 } catch let error as SessionError {
                     retriesLeft -= 1
-                    AppLogger.app.warning("Session refresh guard error: \(error)")
                     safeOnReady(source: "SessionError")
                     if retriesLeft == 0 { onExpired() }
                     return
                 } catch {
                     retriesLeft -= 1
-                    AppLogger.app.warning("Unexpected refresh error: \(error)")
                     safeOnReady(source: "catch")
                 }
             }

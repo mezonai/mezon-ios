@@ -80,6 +80,11 @@ final class FileListNode: ASDisplayNode {
         updateEmptyFooter()
     }
 
+    @objc private func searchFieldChanged(_ field: UITextField) {
+        searchQuery = field.text ?? ""
+        rebuildSectionsAndReload()
+    }
+
     private func installSearchHeader() {
         let t = UIColor.theme
         let header = UIView()
@@ -111,13 +116,7 @@ final class FileListNode: ASDisplayNode {
         field.leftView = leftWrap
         field.leftViewMode = .always
 
-        field.addAction(
-            UIAction { [weak self] _ in
-                self?.searchQuery = field.text ?? ""
-                self?.rebuildSectionsAndReload()
-            },
-            for: .editingChanged
-        )
+        field.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
 
         header.addSubview(field)
         NSLayoutConstraint.activate([

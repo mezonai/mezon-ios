@@ -1,6 +1,5 @@
 import UIKit
 import AVFoundation
-import UniformTypeIdentifiers
 
 private struct ComposerMention {
     var userId: Int64
@@ -21,6 +20,19 @@ private struct ComposerHashtag {
 final class SendMessageInputViewController: UIViewController {
 
     private static let mentionHereUserId: Int64 = 1_775_731_111_020_111_321
+
+    private static func composerEmojiFaceIcon(pointSize: CGFloat) -> UIImage? {
+        let sym = UIImage.SymbolConfiguration(pointSize: pointSize)
+        return UIImage(named: "Chat/FaceIcon")
+            ?? UIImage(systemName: "face.smiling", withConfiguration: sym)
+    }
+
+    private static func composerEmojiToolbarIcon(showKeyboard: Bool, pointSize: CGFloat) -> UIImage? {
+        if showKeyboard {
+            return UIImage(systemName: "keyboard", withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize))
+        }
+        return composerEmojiFaceIcon(pointSize: pointSize)
+    }
 
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
@@ -90,9 +102,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
         btn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: config), for: .normal)
-        btn.addAction(UIAction { [weak self] _ in
-            self?.clearReply()
-        }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(clearReplyAction), for: .touchUpInside)
         return btn
     }()
 
@@ -139,7 +149,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.expandAttachControls() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(expandAttachControlsAction), for: .touchUpInside)
         return btn
     }()
 
@@ -149,7 +159,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.openPhotoPicker() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(openPhotoPickerAction), for: .touchUpInside)
         return btn
     }()
 
@@ -161,7 +171,7 @@ final class SendMessageInputViewController: UIViewController {
         tv.clipsToBounds = true
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.delegate = self
-        tv.returnKeyType = .send
+        tv.returnKeyType = .default
         tv.enablesReturnKeyAutomatically = true
         tv.onImagesPasted = { [weak self] images in
             self?.handlePastedImages(images)
@@ -199,15 +209,15 @@ final class SendMessageInputViewController: UIViewController {
         btn.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
-        btn.addAction(UIAction { [weak self] _ in self?.toggleAdvancePanel() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleAdvancePanelAction), for: .touchUpInside)
         return btn
     }()
 
     private lazy var emojiButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf)), for: .normal)
+        btn.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.addAction(UIAction { [weak self] _ in self?.toggleEmojiPicker() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(toggleEmojiPickerAction), for: .touchUpInside)
         return btn
     }()
 
@@ -216,16 +226,14 @@ final class SendMessageInputViewController: UIViewController {
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isHidden = true
         let cfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        b.setImage(UIImage(systemName: "sunglasses.fill", withConfiguration: cfg), for: .normal)
+        let image = UIImage(named: "Chat/AnonymousIcon")?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: "sunglasses.fill", withConfiguration: cfg)
+        b.setImage(image, for: .normal)
+        b.transform = CGAffineTransform(rotationAngle: CGFloat.pi / 6.0)
         b.layer.cornerRadius = 11
         b.clipsToBounds = true
         b.accessibilityLabel = "Anonymous message"
-        b.addAction(UIAction { [weak self] _ in
-            guard let self, self.clanId != 0, !self.clanPreventAnonymous else { return }
-            _ = AnonymousMessageStore.toggle(clanId: self.clanId)
-            self.refreshAnonymousUI()
-            self.onAnonymousModeChanged?()
-        }, for: .touchUpInside)
+        b.addTarget(self, action: #selector(anonymousIndicatorTapped), for: .touchUpInside)
         return b
     }()
 
@@ -237,7 +245,7 @@ final class SendMessageInputViewController: UIViewController {
         btn.setImage(UIImage(systemName: "paperplane.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.tintColor = .white
         btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        btn.addAction(UIAction { [weak self] _ in self?.send() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(sendAction), for: .touchUpInside)
         btn.alpha = 0
         btn.isHidden = true
         return btn
@@ -247,8 +255,8 @@ final class SendMessageInputViewController: UIViewController {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-        iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-        iv.image = UIImage(systemName: "mic.fill")
+            iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+            iv.image = UIImage(systemName: "mic.fill")
         iv.setContentHuggingPriority(.required, for: .horizontal)
         iv.setContentHuggingPriority(.required, for: .vertical)
         return iv
@@ -346,8 +354,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         if isEmojiPickerVisible {
             isEmojiPickerVisible = false
-            let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
-            emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
+            emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
         }
         if isAdvancePanelVisible {
             isAdvancePanelVisible = false
@@ -415,6 +422,19 @@ final class SendMessageInputViewController: UIViewController {
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
     }
 
+    @objc private func clearReplyAction() { clearReply() }
+    @objc private func expandAttachControlsAction() { expandAttachControls() }
+    @objc private func openPhotoPickerAction() { openPhotoPicker() }
+    @objc private func toggleAdvancePanelAction() { toggleAdvancePanel() }
+    @objc private func toggleEmojiPickerAction() { toggleEmojiPicker() }
+    @objc private func sendAction() { send() }
+    @objc private func anonymousIndicatorTapped() {
+        guard clanId != 0, !clanPreventAnonymous else { return }
+        _ = AnonymousMessageStore.toggle(clanId: clanId)
+        refreshAnonymousUI()
+        onAnonymousModeChanged?()
+    }
+
 
     func sendLocation(latitude: Double, longitude: Double) {
         let googleMapsLink = "https://www.google.com/maps?q=\(latitude),\(longitude)&z=14&t=m&mapclient=embed"
@@ -455,30 +475,30 @@ final class SendMessageInputViewController: UIViewController {
         clearReply()
         onSent?()
 
-        Task { @MainActor in
-            guard let token = await self.context.getToken() else {
-                self.onError?("No session")
-                return
-            }
-            do {
-                _ = try await self.context.account.network.sendChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    content: contentStr,
-                    mentions: [],
-                    attachments: [],
-                    references: references,
-                    anonymous: self.shouldSendAsAnonymousMessage,
-                    mentionEveryone: false,
-                    avatar: avatar,
-                    topicId: self.topicId,
-                    code: 17,
-                    token: token
-                )
-            } catch {
-                self.onError?(error.localizedDescription)
+            Task { @MainActor in
+                guard let token = await self.context.getToken() else {
+                    self.onError?("No session")
+                    return
+                }
+                do {
+                    _ = try await self.context.account.network.sendChannelMessage(
+                        clanId: clanId,
+                        channelId: channel.channelID,
+                        mode: mode,
+                        isPublic: isPublic,
+                        content: contentStr,
+                        mentions: [],
+                        attachments: [],
+                        references: references,
+                        anonymous: self.shouldSendAsAnonymousMessage,
+                        mentionEveryone: false,
+                        avatar: avatar,
+                        topicId: self.topicId,
+                        code: 17,
+                        token: token
+                    )
+                } catch {
+                    self.onError?(error.localizedDescription)
             }
         }
     }
@@ -513,30 +533,30 @@ final class SendMessageInputViewController: UIViewController {
         let isPublic = channel.channelPrivate == 0
         let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
 
-        Task { @MainActor in
-            guard let token = await self.context.getToken() else {
-                self.onError?("No session")
-                return
-            }
-            do {
-                _ = try await self.context.account.network.sendChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    content: contentStr,
-                    mentions: [],
-                    attachments: [],
-                    references: [],
-                    anonymous: self.shouldSendAsAnonymousMessage,
-                    mentionEveryone: false,
-                    avatar: avatar,
-                    topicId: self.topicId,
-                    code: MezonConstants.MessageCode.buzz.rawValue,
-                    token: token
-                )
-            } catch {
-                self.onError?(error.localizedDescription)
+            Task { @MainActor in
+                guard let token = await self.context.getToken() else {
+                    self.onError?("No session")
+                    return
+                }
+                do {
+                    _ = try await self.context.account.network.sendChannelMessage(
+                        clanId: clanId,
+                        channelId: channel.channelID,
+                        mode: mode,
+                        isPublic: isPublic,
+                        content: contentStr,
+                        mentions: [],
+                        attachments: [],
+                        references: [],
+                        anonymous: self.shouldSendAsAnonymousMessage,
+                        mentionEveryone: false,
+                        avatar: avatar,
+                        topicId: self.topicId,
+                        code: MezonConstants.MessageCode.buzz.rawValue,
+                        token: token
+                    )
+                } catch {
+                    self.onError?(error.localizedDescription)
             }
         }
     }
@@ -625,8 +645,12 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func openFilePicker() {
-        let supportedTypes: [UTType] = [.item]
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: supportedTypes, asCopy: true)
+        let picker: UIDocumentPickerViewController
+        if #available(iOS 14.0, *) {
+            picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        } else {
+            picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .import)
+        }
         picker.allowsMultipleSelection = true
         picker.delegate = self
 
@@ -662,9 +686,10 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
-        let iconName = isEmojiPickerVisible ? "keyboard" : "face.smiling"
-        emojiButton.setImage(UIImage(systemName: iconName, withConfiguration: iconConfig), for: .normal)
+        emojiButton.setImage(
+            Self.composerEmojiToolbarIcon(showKeyboard: isEmojiPickerVisible, pointSize: 18.sf),
+            for: .normal
+        )
     }
 
     private func toggleAdvancePanel() {
@@ -674,8 +699,7 @@ final class SendMessageInputViewController: UIViewController {
             if isEmojiPickerVisible {
                 isEmojiPickerVisible = false
                 onToggleEmojiPicker?(false, 0)
-                let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
-                emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
+                emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
@@ -823,8 +847,7 @@ final class SendMessageInputViewController: UIViewController {
         guard isEmojiPickerVisible else { return }
         isEmojiPickerVisible = false
         onToggleEmojiPicker?(false, 0)
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18.sf)
-        emojiButton.setImage(UIImage(systemName: "face.smiling", withConfiguration: iconConfig), for: .normal)
+        emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
     }
 
     private func addPickedImage(_ image: UIImage) {
@@ -1056,8 +1079,8 @@ final class SendMessageInputViewController: UIViewController {
 
             anonymousIndicatorButton.widthAnchor.constraint(equalToConstant: 22),
             anonymousIndicatorButton.heightAnchor.constraint(equalToConstant: 22),
-            anonymousIndicatorButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -4.sw),
-            anonymousIndicatorButton.topAnchor.constraint(equalTo: textView.topAnchor, constant: -5),
+            anonymousIndicatorButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: 4.sw),
+            anonymousIndicatorButton.topAnchor.constraint(equalTo: textView.topAnchor, constant: -14),
 
             sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
             sendButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
@@ -1272,14 +1295,11 @@ final class SendMessageInputViewController: UIViewController {
         let cache = context.engine.data.cachedEmojiList(clanId: 0)
         let emojis = cache?.emojis ?? []
         var seenIds = Set<Int64>()
-        var seenNormShort = Set<String>()
         var unique: [CachedClanEmojiRecord] = []
         unique.reserveCapacity(emojis.count)
         for e in emojis {
             guard e.id != 0, !e.shortname.isEmpty else { continue }
             guard seenIds.insert(e.id).inserted else { continue }
-            let norm = e.shortname.split(separator: ":").joined().lowercased()
-            guard !norm.isEmpty, seenNormShort.insert(norm).inserted else { continue }
             unique.append(e)
         }
         allSuggestionEmojis = unique.sorted {
@@ -1304,17 +1324,24 @@ final class SendMessageInputViewController: UIViewController {
             buildMentionMembers(from: clanUsers)
             ensureRolesLoadedIfNeeded()
             rebuildMentionSuggestionItems()
+            if allMentionMembers.isEmpty {
+                fetchClanMembersFromNetwork()
+            }
         } else {
-            Task { @MainActor in
-                guard let token = await context.getToken() else { return }
-                do {
-                    let response = try await context.account.network.listClanUsers(clanId: clanId, token: token)
-                    buildMentionMembers(from: response)
-                    ensureRolesLoadedIfNeeded()
-                    rebuildMentionSuggestionItems()
-                } catch {
-                    AppLogger.network.warning("[MentionSuggestion] loadClanMembers failed: \(error)")
-                }
+            fetchClanMembersFromNetwork()
+        }
+    }
+
+    private func fetchClanMembersFromNetwork() {
+        guard #available(iOS 13.0, *) else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let response = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+                buildMentionMembers(from: response)
+                ensureRolesLoadedIfNeeded()
+                rebuildMentionSuggestionItems()
+            } catch {
             }
         }
     }
@@ -1367,6 +1394,10 @@ final class SendMessageInputViewController: UIViewController {
             items.append(.here)
         }
         allMentionSuggestionItems = items
+
+        if case .mention(let keyword) = dominantInlineCompletion() {
+            updateMentionSuggestions(keyword: keyword)
+        }
     }
 
 
@@ -2079,6 +2110,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private func applyTheme() {
         let t = UIColor.theme
+        view.backgroundColor = t.secondary
         inputBarView.backgroundColor = t.secondary
         topSeparator.backgroundColor = t.border
         textView.backgroundColor = t.tertiary
@@ -2773,10 +2805,6 @@ extension SendMessageInputViewController: UITextViewDelegate {
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         if isVoiceRecordingActive {
-            return false
-        }
-        if text == "\n" {
-            send()
             return false
         }
         if !handleHashtagProtection(range: range, replacementText: text) {

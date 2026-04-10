@@ -221,9 +221,11 @@ private final class AttachmentThumbCell: UICollectionViewCell {
         btn.layer.borderWidth = 2
         btn.layer.borderColor = UIColor.theme.secondary.cgColor
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         return btn
     }()
+
+    @objc private func closeTapped() { onClose?() }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -316,9 +318,11 @@ private final class AttachmentFileCell: UICollectionViewCell {
         btn.layer.borderWidth = 2
         btn.layer.borderColor = UIColor.theme.secondary.cgColor
         btn.clipsToBounds = true
-        btn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        btn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         return btn
     }()
+
+    @objc private func closeTapped() { onClose?() }
 
     override init(frame: CGRect) {
         super.init(frame: frame)

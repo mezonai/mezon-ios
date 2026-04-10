@@ -284,7 +284,7 @@ struct LoginViewController_Previews: PreviewProvider {
         UIViewControllerPreview {
             UINavigationController(rootViewController: LoginViewController(context: AccountContextImpl.preview))
         }
-        .ignoresSafeArea()
+        .edgesIgnoringSafeArea(.all)
         .previewDisplayName("Login")
     }
 }

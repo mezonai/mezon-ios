@@ -262,11 +262,13 @@ final class ChatViewController: ViewController {
             guard let self else { return }
             self.sendInputViewController.sendSticker(sticker)
             self.sendInputViewController.hideEmojiPickerIfNeeded()
+            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
         }
         v.onGifSelected = { [weak self] url in
             guard let self else { return }
             self.sendInputViewController.sendGif(url: url)
             self.sendInputViewController.hideEmojiPickerIfNeeded()
+            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
         }
         v.onHeightChanged = { [weak self] newHeight in
             self?.updateEmojiPickerOverlayHeight(newHeight)
@@ -760,9 +762,12 @@ final class ChatViewController: ViewController {
 
         let channelIdStr = storageChannelId
 
-        setIsLoading(true)
-        context.account.postbox.write { tx in
-            tx.replaceAllMessages([], channelId: channelIdStr)
+        let cachedMessages = context.account.postbox.read { tx in
+            tx.getMessages(channelId: channelIdStr)
+        }
+        let hasCache = !cachedMessages.isEmpty
+        if !hasCache {
+            setIsLoading(true)
         }
 
         stateDisposables.add(
@@ -960,7 +965,10 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages(token: String? = nil) {
-        setIsLoading(true)
+        let hadCachedMessages = !messages.isEmpty
+        if !hadCachedMessages {
+            setIsLoading(true)
+        }
         setErrorMessage(nil)
 
         Task { @MainActor in
@@ -1609,6 +1617,7 @@ final class ChatViewController: ViewController {
 
     private static func parseReactionsFromJSON(_ items: [[String: Any]], currentUserId: String?) -> [ParsedReaction] {
         var emojiMeta: [String: (emoji: String, countFromApi: Int)] = [:]
+        var insertionOrder: [String] = []
         for item in items {
             guard let key = reactionEmojiKeyJSON(item) else { continue }
             let emoji = item["emoji"] as? String ?? ""
@@ -1618,12 +1627,15 @@ final class ChatViewController: ViewController {
                 if let n = item["count"] as? Int64 { return Int(n) }
                 return 0
             }()
+            if emojiMeta[key] == nil {
+                insertionOrder.append(key)
+            }
             var meta = emojiMeta[key] ?? (emoji: "", countFromApi: 0)
             if countFromApi > meta.countFromApi { meta.countFromApi = countFromApi }
             if !emoji.isEmpty { meta.emoji = emoji }
             emojiMeta[key] = meta
         }
-        return emojiMeta.keys.sorted().compactMap { key in
+        return insertionOrder.compactMap { key in
             let meta = emojiMeta[key]!
             let senderTuples = orderedActiveSendersWithStackCountsJSON(items: items, emojiKey: key)
             let hadPerSenderRows = items.contains { item in
@@ -1731,15 +1743,19 @@ final class ChatViewController: ViewController {
 
     private static func parseReactionsFromProtobuf(_ reactions: [Mezon_Api_MessageReaction], currentUserId: String?) -> [ParsedReaction] {
         var emojiMeta: [String: (emoji: String, countFromApi: Int)] = [:]
+        var insertionOrder: [String] = []
         for r in reactions {
             guard let key = protoEmojiKey(r) else { continue }
             let c = Int(r.count)
+            if emojiMeta[key] == nil {
+                insertionOrder.append(key)
+            }
             var meta = emojiMeta[key] ?? (emoji: "", countFromApi: 0)
             if c > meta.countFromApi { meta.countFromApi = c }
             if !r.emoji.isEmpty { meta.emoji = r.emoji }
             emojiMeta[key] = meta
         }
-        return emojiMeta.keys.sorted().compactMap { key in
+        return insertionOrder.compactMap { key in
             let meta = emojiMeta[key]!
             let senderTuples = orderedActiveSendersWithStackCountsProtobuf(reactions: reactions, emojiKey: key)
             let hadPerSenderRows = reactions.contains { r in
@@ -2126,7 +2142,12 @@ final class ChatViewController: ViewController {
     }
 
     private func handleSendLocation() {
-        let status = locationManager.authorizationStatus
+        let status: CLAuthorizationStatus
+        if #available(iOS 14.0, *) {
+            status = locationManager.authorizationStatus
+        } else {
+            status = CLLocationManager.authorizationStatus()
+        }
         switch status {
         case .notDetermined:
             locationManager.delegate = self
@@ -2672,7 +2693,12 @@ extension ChatViewController: CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
+        let status: CLAuthorizationStatus
+        if #available(iOS 14.0, *) {
+            status = manager.authorizationStatus
+        } else {
+            status = CLLocationManager.authorizationStatus()
+        }
         guard status != .notDetermined else { return }
         if status == .authorizedWhenInUse || status == .authorizedAlways {
             manager.requestLocation()

@@ -51,6 +51,10 @@
 	<string>Mezon app needs access to the photo library to select and send images in messages</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Mezon app needs access to the photo library to select and send images in messages</string>
+	<key>TENOR_API_KEY</key>
+	<string>$(TENOR_API_KEY)</string>
+	<key>TENOR_CLIENT_KEY</key>
+	<string>$(TENOR_CLIENT_KEY)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -63,7 +67,7 @@
 					<key>UISceneConfigurationName</key>
 					<string>Default Configuration</string>
 					<key>UISceneDelegateClassName</key>
-					<string>$(PRODUCT_MODULE_NAME).AppDelegate</string>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
 				</dict>
 			</array>
 		</dict>
@@ -77,11 +81,13 @@
 	</array>
 	<key>UILaunchScreen</key>
 	<dict>
-		<key>ImageName</key>
-		<string>SplashScreen</string>
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>SplashScreen</string>
 	</dict>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

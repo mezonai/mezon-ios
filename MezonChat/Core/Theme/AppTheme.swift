@@ -88,10 +88,21 @@ enum AppTheme: String, CaseIterable {
         case .abyssDark:  return .abyssDark
         case .sunset:     return .sunset
         case .system:
-            if #available(iOS 13.0, *), UIScreen.main.traitCollection.userInterfaceStyle == .dark {
+            if UIScreen.main.traitCollection.userInterfaceStyle == .dark {
                 return .dark
             }
             return .light
+        }
+    }
+
+    var usesLightStatusBarContent: Bool {
+        switch self {
+        case .light, .sunrise:
+            return false
+        case .system:
+            return UITraitCollection.current.userInterfaceStyle == .dark
+        case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
+            return true
         }
     }
 }

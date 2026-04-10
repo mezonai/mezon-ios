@@ -80,6 +80,7 @@ enum RichTextBuilder {
         static func fromTheme() -> Style {
             let t = UIColor.theme
             let body = UIFont.systemFont(ofSize: 14.sf)
+            let bodyBold = UIFont.systemFont(ofSize: 14.sf, weight: .bold)
             return Style(
                 bodyFont: body,
                 bodyColor: t.textStrong,
@@ -90,9 +91,9 @@ enum RichTextBuilder {
                 roleMentionBgColor: t.darkMossGreen,
                 linkColor: t.textLink,
                 codeBgColor: t.tertiary,
-                codeFont: UIFont(name: "Menlo", size: 13.sf) ?? .monospacedSystemFont(ofSize: 13.sf, weight: .regular),
-                boldFont: body,
-                headingFonts: Array(repeating: body, count: 6),
+                codeFont: body,
+                boldFont: bodyBold,
+                headingFonts: defaultHeadingFonts(),
                 emojiSize: 20.sf,
                 emojiImgproxyFitSide: 50
             )

@@ -193,7 +193,7 @@ private final class ToastView: UIView {
         let closeBtn = UIButton(type: .system)
         closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
         closeBtn.tintColor = .init(white: 0.4, alpha: 1)
-        closeBtn.addAction(UIAction { [weak self] _ in self?.onClose?() }, for: .touchUpInside)
+        closeBtn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(leftBar)
@@ -248,6 +248,10 @@ private final class ToastView: UIView {
         case .notification:
             return (hex("#7c3aed"), hex("#1e1b2e"), hex("#3b335a"), "bell.fill", "Notification")
         }
+    }
+
+    @objc private func closeButtonTapped() {
+        onClose?()
     }
 
     @objc private func handleTap() {

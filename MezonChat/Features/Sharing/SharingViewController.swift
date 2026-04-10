@@ -23,6 +23,12 @@ final class SharingViewController: UIViewController {
 
     private enum Section: Int, CaseIterable { case suggestions }
 
+    private enum SuggestionFilter: Int {
+        case all = 0
+        case users = 1
+        case channels = 2
+    }
+
     private var allSuggestions: [SuggestionItem] = []
     private var filteredSuggestions: [SuggestionItem] = []
     private var channelMap: [Int64: Mezon_Api_ChannelDescription] = [:]
@@ -30,6 +36,9 @@ final class SharingViewController: UIViewController {
     private var clanLogos: [Int64: String] = [:]
     private var selectedChannel: Mezon_Api_ChannelDescription?
     private var searchText: String = ""
+    private var suggestionFilter: SuggestionFilter = .all
+    private var filterTooltipHost: UIView?
+    private var filterTooltipPanel: UIView?
     private var isUploading = false
     private var searchDebounceTimer: Foundation.Timer?
 
@@ -85,7 +94,7 @@ final class SharingViewController: UIViewController {
         tf.font = .systemFont(ofSize: 15)
         tf.textColor = .white
         tf.attributedPlaceholder = NSAttributedString(
-            string: "Select a channel or user...",
+            string: "",
             attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
         )
         tf.returnKeyType = .search
@@ -286,6 +295,12 @@ final class SharingViewController: UIViewController {
             let safeBottom = view.safeAreaInsets.bottom
             inputRowBottomConstraint?.constant = -(max(safeBottom, 8))
         }
+        layoutFilterTooltipPanelIfNeeded()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        dismissFilterTooltip(animated: false)
     }
 
     private func parseSharedContent() {
@@ -482,6 +497,233 @@ final class SharingViewController: UIViewController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+
+        refreshSearchPlaceholder()
+        filterButton.addTarget(self, action: #selector(filterButtonTapped), for: .touchUpInside)
+    }
+
+    private func sharingRecencyTimestamp(_ ch: Mezon_Api_ChannelDescription) -> UInt32 {
+        if ch.hasLastSeenMessage { return ch.lastSeenMessage.timestampSeconds }
+        if ch.hasLastSentMessage { return ch.lastSentMessage.timestampSeconds }
+        return 0
+    }
+
+    private func isUserFacingDMType(_ type: Int32) -> Bool {
+        type == MezonConstants.ChannelType.dm.rawValue || type == MezonConstants.ChannelType.group.rawValue
+    }
+
+    private func isSharableClanChannelType(_ type: Int32) -> Bool {
+        type == MezonConstants.ChannelType.channel.rawValue
+            || type == MezonConstants.ChannelType.thread.rawValue
+            || type == MezonConstants.ChannelType.announcement.rawValue
+    }
+
+    private func suggestionsForCurrentFilter() -> [SuggestionItem] {
+        switch suggestionFilter {
+        case .all: return allSuggestions
+        case .users: return allSuggestions.filter { isUserFacingDMType($0.type) }
+        case .channels: return allSuggestions.filter { isSharableClanChannelType($0.type) }
+        }
+    }
+
+    private func refreshSearchPlaceholder() {
+        let s: String
+        switch suggestionFilter {
+        case .all: s = "Select a channel or user..."
+        case .users: s = "Select user"
+        case .channels: s = "Select channel"
+        }
+        searchTextField.attributedPlaceholder = NSAttributedString(
+            string: s,
+            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
+        )
+    }
+
+    @objc private func filterButtonTapped() {
+        if filterTooltipHost != nil {
+            dismissFilterTooltip(animated: true)
+            return
+        }
+        showFilterTooltip()
+    }
+
+    @objc private func filterTooltipBackgroundTapped() {
+        dismissFilterTooltip(animated: true)
+    }
+
+    @objc private func filterTooltipRowTapped(_ sender: UIButton) {
+        guard let filter = SuggestionFilter(rawValue: sender.tag) else { return }
+        dismissFilterTooltip(animated: true)
+        applySuggestionFilter(filter)
+    }
+
+    private func layoutFilterTooltipPanelIfNeeded() {
+        guard let host = filterTooltipHost, let panel = filterTooltipPanel else { return }
+        host.frame = view.bounds
+        if let blocker = host.subviews.first(where: { $0 !== panel }) {
+            blocker.frame = host.bounds
+        }
+        let anchor = filterButton.convert(filterButton.bounds, to: host)
+        let width = max(170, min(220, view.bounds.width - 32))
+        var x = anchor.midX - width / 2
+        x = max(16, min(x, view.bounds.width - width - 16))
+        let marginTop: CGFloat = 8
+        var y = anchor.maxY + marginTop
+        let safeBottom = view.safeAreaLayoutGuide.layoutFrame.maxY
+        let panelH = panel.bounds.height
+        if y + panelH > safeBottom - 8 {
+            y = max(view.safeAreaInsets.top + 8, anchor.minY - marginTop - panelH)
+        }
+        var frame = panel.frame
+        frame.origin = CGPoint(x: x, y: y)
+        frame.size.width = width
+        panel.frame = frame
+    }
+
+    private func showFilterTooltip() {
+        guard filterTooltipHost == nil else { return }
+        let t = UIColor.theme
+        let host = UIView(frame: view.bounds)
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.backgroundColor = .clear
+        host.isUserInteractionEnabled = true
+
+        let blocker = UIButton(type: .custom)
+        blocker.frame = host.bounds
+        blocker.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        blocker.backgroundColor = .clear
+        blocker.addTarget(self, action: #selector(filterTooltipBackgroundTapped), for: .touchUpInside)
+        host.addSubview(blocker)
+
+        let panel = UIView()
+        panel.backgroundColor = t.primary
+        panel.layer.cornerRadius = 10
+        panel.layer.masksToBounds = true
+
+        let titleLabel = UILabel()
+        titleLabel.text = "Filter options"
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.textColor = .white
+
+        let titleLine = UIView()
+        titleLine.backgroundColor = t.borderDim
+
+        let targetWidth = max(170, min(220, view.bounds.width - 32))
+        let padX: CGFloat = 12
+        let rowH: CGFloat = 44
+        var contentY: CGFloat = 10
+        titleLabel.frame = CGRect(x: padX, y: contentY, width: targetWidth - padX * 2, height: 22)
+        contentY = titleLabel.frame.maxY + 10
+        titleLine.frame = CGRect(x: 0, y: contentY, width: targetWidth, height: 2)
+        contentY = titleLine.frame.maxY
+        panel.addSubview(titleLabel)
+        panel.addSubview(titleLine)
+
+        let rowSpecs: [(SuggestionFilter, String, String)] = [
+            (.all, "square.grid.2x2", "All"),
+            (.users, "person.2", "Users"),
+            (.channels, "bubble.left.and.bubble.right", "Channels"),
+        ]
+        for (index, spec) in rowSpecs.enumerated() {
+            let row = UIButton(type: .custom)
+            row.tag = spec.0.rawValue
+            row.frame = CGRect(x: 0, y: contentY, width: targetWidth, height: rowH)
+            let isRowSelected = spec.0 == suggestionFilter
+            let iconWeight: UIImage.SymbolWeight = isRowSelected ? .semibold : .medium
+            let sym = UIImage(systemName: spec.1, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: iconWeight))
+            row.setImage(sym, for: .normal)
+            row.tintColor = .white
+            let titleFont = UIFont.systemFont(ofSize: 14, weight: isRowSelected ? .semibold : .regular)
+            row.setAttributedTitle(
+                NSAttributedString(string: spec.2, attributes: [.font: titleFont, .foregroundColor: UIColor.white]),
+                for: .normal
+            )
+            row.contentHorizontalAlignment = .left
+            let trailingPad: CGFloat = isRowSelected ? padX + 22 : padX
+            row.contentEdgeInsets = UIEdgeInsets(top: 0, left: padX, bottom: 0, right: trailingPad)
+            row.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 10)
+            row.titleEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 0)
+            row.backgroundColor = isRowSelected ? t.borderDim : .clear
+            if isRowSelected {
+                let check = UIImageView(image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
+                check.tintColor = .white
+                check.frame = CGRect(x: targetWidth - padX - 17, y: (rowH - 16) / 2, width: 16, height: 16)
+                check.isUserInteractionEnabled = false
+                row.addSubview(check)
+            }
+            row.addTarget(self, action: #selector(filterTooltipRowTapped(_:)), for: .touchUpInside)
+            panel.addSubview(row)
+            contentY += rowH
+            if index < rowSpecs.count - 1 {
+                let sep = UIView(frame: CGRect(x: 0, y: contentY, width: targetWidth, height: 1))
+                sep.backgroundColor = t.borderDim
+                panel.addSubview(sep)
+                contentY += 1
+            }
+        }
+
+        host.addSubview(panel)
+        filterTooltipHost = host
+        filterTooltipPanel = panel
+
+        let panelH = contentY + 8
+        panel.frame = CGRect(x: 0, y: 0, width: targetWidth, height: panelH)
+        panel.alpha = 0
+        panel.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+
+        view.addSubview(host)
+        layoutFilterTooltipPanelIfNeeded()
+
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            usingSpringWithDamping: 0.92,
+            initialSpringVelocity: 0.6,
+            options: [.allowUserInteraction, .curveEaseOut]
+        ) {
+            panel.alpha = 1
+            panel.transform = .identity
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.searchTextField.becomeFirstResponder()
+        }
+    }
+
+    private func dismissFilterTooltip(animated: Bool) {
+        guard let host = filterTooltipHost else {
+            filterTooltipPanel = nil
+            return
+        }
+        let finish = {
+            host.removeFromSuperview()
+            self.filterTooltipHost = nil
+            self.filterTooltipPanel = nil
+        }
+        if animated, let panel = filterTooltipPanel {
+            UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+                panel.alpha = 0
+                panel.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
+            } completion: { _ in finish() }
+        } else {
+            finish()
+        }
+    }
+
+    private func applySuggestionFilter(_ filter: SuggestionFilter) {
+        suggestionFilter = filter
+        refreshSearchPlaceholder()
+        refreshFilterButtonAppearance()
+        filterChannels()
+    }
+
+    private func itemMatchesSearch(_ item: SuggestionItem, query: String) -> Bool {
+        if item.displayName.lowercased().contains(query) { return true }
+        if item.clanName?.lowercased().contains(query) == true { return true }
+        guard let ch = channelMap[item.channelID] else { return false }
+        for u in ch.usernames where u.lowercased().contains(query) { return true }
+        for d in ch.displayNames where d.lowercased().contains(query) { return true }
+        return false
     }
 
     private func setupDiffableDataSource() {
@@ -676,9 +918,33 @@ final class SharingViewController: UIViewController {
             attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
         )
 
-        sendButton.backgroundColor = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0) // blurple
+        sendButton.backgroundColor = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0)
 
         suggestionsTitle.textColor = .white
+
+        filterButton.backgroundColor = t.secondary
+        filterButton.layer.cornerRadius = 18
+        filterButton.clipsToBounds = true
+        refreshFilterButtonAppearance()
+    }
+
+    private func refreshFilterButtonAppearance() {
+        let t = UIColor.theme
+        filterButton.backgroundColor = t.secondary
+        switch suggestionFilter {
+        case .all:
+            filterButton.layer.borderWidth = 0
+            filterButton.tintColor = t.text.withAlphaComponent(0.85)
+        case .users, .channels:
+            filterButton.layer.borderWidth = 2
+            filterButton.layer.borderColor = UIColor.white.withAlphaComponent(0.55).cgColor
+            filterButton.tintColor = .white
+        }
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        dismissFilterTooltip(animated: false)
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
@@ -734,6 +1000,11 @@ final class SharingViewController: UIViewController {
         filterChannels()
     }
 
+    private func imgproxyAvatarURLString(_ raw: String, displayPoints: CGFloat) -> String {
+        let side = Int(ceil(displayPoints * UIScreen.main.scale))
+        return ImgproxyURL.create(from: raw, width: side, height: side)
+    }
+
     private func showSelectedChannel(_ channel: Mezon_Api_ChannelDescription) {
         searchTextField.isHidden = true
         searchIconView.isHidden = true
@@ -745,17 +1016,37 @@ final class SharingViewController: UIViewController {
         selectedNameLabel.text = name
 
         let isDM = channel.type == MezonConstants.ChannelType.dm.rawValue
+        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
+        selectedAvatarView.tintColor = .white
+
         if isDM, let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
             selectedInitialLabel.isHidden = true
-            let urlStr = ImgproxyURL.create(from: url.absoluteString)
+            selectedAvatarView.contentMode = .scaleAspectFill
+            selectedAvatarView.backgroundColor = .clear
+            let urlStr = imgproxyAvatarURLString(url.absoluteString, displayPoints: 24)
             _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
                 self?.selectedAvatarView.image = image
             }
+        } else if isGroup, !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
+                  let url = URL(string: channel.channelAvatar) {
+            selectedInitialLabel.isHidden = true
+            selectedAvatarView.contentMode = .scaleAspectFill
+            selectedAvatarView.backgroundColor = .clear
+            let urlStr = imgproxyAvatarURLString(url.absoluteString, displayPoints: 24)
+            _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
+                self?.selectedAvatarView.image = image
+            }
+        } else if isGroup {
+            selectedAvatarView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            selectedAvatarView.contentMode = .scaleAspectFit
+            selectedInitialLabel.isHidden = true
+            selectedAvatarView.backgroundColor = SharingChannelCell.groupDefaultAvatarBackground
         } else {
-            selectedAvatarView.image = nil
-            selectedAvatarView.backgroundColor = UIColor.white.withAlphaComponent(0.15)
-            selectedInitialLabel.isHidden = false
-            selectedInitialLabel.text = String(name.prefix(1)).uppercased()
+            let iconName = channel.channelListIconAssetName()
+            selectedAvatarView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
+            selectedAvatarView.contentMode = .scaleAspectFit
+            selectedInitialLabel.isHidden = true
+            selectedAvatarView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
         }
     }
 
@@ -776,14 +1067,18 @@ final class SharingViewController: UIViewController {
             var clanList: [Mezon_Api_ChannelDescription] = []
 
             do {
-                let dms = try await self.context.account.network.listDirectMessageChannels(token: token)
+                var dms = try await self.context.account.network.listDirectMessageChannels(token: token)
+                do {
+                    let badgeResponse = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &dms, badgeRows: badgeResponse.channeldesc)
+                } catch {
+                    AppLogger.network.debug("[Sharing] ListChannelBadgeCount: \(error)")
+                }
                 dmList = dms
-                    .filter { $0.type != MezonConstants.ChannelType.mezonVoice.rawValue }
-                    .sorted { ch1, ch2 in
-                        let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
-                        let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
-                        return t1 > t2
+                    .filter {
+                        $0.type != MezonConstants.ChannelType.mezonVoice.rawValue && !$0.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     }
+                    .sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             } catch {
                 AppLogger.network.error("[Sharing] Failed to load DM channels: \(error)")
             }
@@ -795,6 +1090,7 @@ final class SharingViewController: UIViewController {
                         || t == MezonConstants.ChannelType.thread.rawValue
                         || t == MezonConstants.ChannelType.announcement.rawValue
                 }
+                clanList.sort { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             }
 
             do {
@@ -840,8 +1136,7 @@ final class SharingViewController: UIViewController {
             }
 
             self.allSuggestions = suggestions
-            self.filteredSuggestions = suggestions
-            self.applySnapshot()
+            self.performFilter()
         }
     }
 
@@ -853,14 +1148,25 @@ final class SharingViewController: UIViewController {
     }
 
     private func performFilter() {
+        let base = suggestionsForCurrentFilter()
         let query = searchText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         if query.isEmpty {
-            filteredSuggestions = allSuggestions
+            filteredSuggestions = base
         } else {
-            filteredSuggestions = allSuggestions.filter { item in
-                item.displayName.lowercased().contains(query)
-                    || (item.clanName?.lowercased().contains(query) == true)
+            var matched: [SuggestionItem] = []
+            var matchedIds = Set<Int64>()
+            for item in base where itemMatchesSearch(item, query: query) {
+                matched.append(item)
+                matchedIds.insert(item.channelID)
             }
+            for item in base {
+                guard let ch = channelMap[item.channelID], ch.parentID != 0 else { continue }
+                if matchedIds.contains(ch.parentID), !matchedIds.contains(item.channelID) {
+                    matched.append(item)
+                    matchedIds.insert(item.channelID)
+                }
+            }
+            filteredSuggestions = matched
         }
         applySnapshot()
     }
@@ -937,9 +1243,16 @@ final class SharingViewController: UIViewController {
                 }
 
                 let messageText = (self.textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let built = ComposerContentPayloadBuilder.build(rawInput: messageText, emojiIdByColon: [:])
                 var contentJSON: [String: Any] = [:]
                 if !messageText.isEmpty {
-                    contentJSON["t"] = messageText
+                    contentJSON["t"] = built.displayText
+                    if !built.mk.isEmpty {
+                        contentJSON["mk"] = built.mk
+                    }
+                    if !built.ej.isEmpty {
+                        contentJSON["ej"] = built.ej
+                    }
                 }
                 let contentStr: String
                 if contentJSON.isEmpty {
@@ -1051,7 +1364,7 @@ extension SharingViewController: UITableViewDataSourcePrefetching {
         for indexPath in indexPaths {
             guard let item = diffableDataSource.itemIdentifier(for: indexPath) else { continue }
             if let urlStr = item.avatarURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                let proxyURL = ImgproxyURL.create(from: url.absoluteString)
+                let proxyURL = imgproxyAvatarURLString(url.absoluteString, displayPoints: 36)
                 if ImageCache.shared.cachedImage(forURL: proxyURL) == nil {
                     _ = ImageCache.shared.loadImage(urlString: proxyURL) { _ in }
                 }

@@ -171,41 +171,15 @@ static void setLongLongField(NSObject *object, NSString *name, long long value) 
 }
 
 UIBlurEffect *makeCustomZoomBlurEffectImpl(bool isLight) {
-    if (@available(iOS 13.0, *)) {
-        if (isLight) {
-            return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialLight];
-        } else {
-            return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
-        }
-    } else if (@available(iOS 11.0, *)) {
-        NSString *string = [@[@"_", @"UI", @"Custom", @"BlurEffect"] componentsJoinedByString:@""];
-        CustomBlurEffect *result = (CustomBlurEffect *)[NSClassFromString(string) effectWithStyle:0];
-        
-        setField(result, [@[@"set", @"BlurRadius", @":"] componentsJoinedByString:@""], 10.0);
-        setNilField(result, [@[@"set", @"Color", @"Tint", @":"] componentsJoinedByString:@""]);
-        setField(result, [@[@"set", @"Color", @"Tint", @"Alpha", @":"] componentsJoinedByString:@""], 0.0);
-        setField(result, [@[@"set", @"Darkening", @"Tint", @"Alpha", @":"] componentsJoinedByString:@""], 0.0);
-        setField(result, [@[@"set", @"Grayscale", @"Tint", @"Alpha", @":"] componentsJoinedByString:@""], 0.0);
-        setField(result, [@[@"set", @"Saturation", @"Delta", @"Factor", @":"] componentsJoinedByString:@""], 1.0);
-        
-        if ([UIScreen mainScreen].scale > 2.5f) {
-            setField(result, @"setScale:", 0.3);
-        } else {
-            setField(result, @"setScale:", 0.5);
-        }
-        
-        return result;
+    if (isLight) {
+        return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialLight];
     } else {
-        return [UIBlurEffect effectWithStyle:UIBlurEffectStyleRegular];
+        return [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
     }
 }
 
 void applySmoothRoundedCornersImpl(CALayer * _Nonnull layer) {
-    if (@available(iOS 13.0, *)) {
-        layer.cornerCurve = kCACornerCurveContinuous;
-    } else {
-        setBoolField(layer, [@[@"set", @"Continuous", @"Corners", @":"] componentsJoinedByString:@""], true);
-    }
+    layer.cornerCurve = kCACornerCurveContinuous;
 }
 
 UIView<UIKitPortalViewProtocol> * _Nullable makePortalView(bool matchPosition) {
