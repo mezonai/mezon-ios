@@ -262,11 +262,13 @@ final class ChatViewController: ViewController {
             guard let self else { return }
             self.sendInputViewController.sendSticker(sticker)
             self.sendInputViewController.hideEmojiPickerIfNeeded()
+            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
         }
         v.onGifSelected = { [weak self] url in
             guard let self else { return }
             self.sendInputViewController.sendGif(url: url)
             self.sendInputViewController.hideEmojiPickerIfNeeded()
+            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
         }
         v.onHeightChanged = { [weak self] newHeight in
             self?.updateEmojiPickerOverlayHeight(newHeight)
@@ -1609,6 +1611,7 @@ final class ChatViewController: ViewController {
 
     private static func parseReactionsFromJSON(_ items: [[String: Any]], currentUserId: String?) -> [ParsedReaction] {
         var emojiMeta: [String: (emoji: String, countFromApi: Int)] = [:]
+        var insertionOrder: [String] = []
         for item in items {
             guard let key = reactionEmojiKeyJSON(item) else { continue }
             let emoji = item["emoji"] as? String ?? ""
@@ -1618,12 +1621,15 @@ final class ChatViewController: ViewController {
                 if let n = item["count"] as? Int64 { return Int(n) }
                 return 0
             }()
+            if emojiMeta[key] == nil {
+                insertionOrder.append(key)
+            }
             var meta = emojiMeta[key] ?? (emoji: "", countFromApi: 0)
             if countFromApi > meta.countFromApi { meta.countFromApi = countFromApi }
             if !emoji.isEmpty { meta.emoji = emoji }
             emojiMeta[key] = meta
         }
-        return emojiMeta.keys.sorted().compactMap { key in
+        return insertionOrder.compactMap { key in
             let meta = emojiMeta[key]!
             let senderTuples = orderedActiveSendersWithStackCountsJSON(items: items, emojiKey: key)
             let hadPerSenderRows = items.contains { item in
@@ -1731,15 +1737,19 @@ final class ChatViewController: ViewController {
 
     private static func parseReactionsFromProtobuf(_ reactions: [Mezon_Api_MessageReaction], currentUserId: String?) -> [ParsedReaction] {
         var emojiMeta: [String: (emoji: String, countFromApi: Int)] = [:]
+        var insertionOrder: [String] = []
         for r in reactions {
             guard let key = protoEmojiKey(r) else { continue }
             let c = Int(r.count)
+            if emojiMeta[key] == nil {
+                insertionOrder.append(key)
+            }
             var meta = emojiMeta[key] ?? (emoji: "", countFromApi: 0)
             if c > meta.countFromApi { meta.countFromApi = c }
             if !r.emoji.isEmpty { meta.emoji = r.emoji }
             emojiMeta[key] = meta
         }
-        return emojiMeta.keys.sorted().compactMap { key in
+        return insertionOrder.compactMap { key in
             let meta = emojiMeta[key]!
             let senderTuples = orderedActiveSendersWithStackCountsProtobuf(reactions: reactions, emojiKey: key)
             let hadPerSenderRows = reactions.contains { r in

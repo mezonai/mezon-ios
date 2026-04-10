@@ -1,6 +1,13 @@
 import Foundation
 import SwiftProtobuf
 
+enum WebRTCSignalingType: Int32 {
+    case offer = 1
+    case answer = 2
+    case iceCandidate = 3
+    case hangUp = 4
+}
+
 @MainActor
 final class MezonSocket: NSObject {
 

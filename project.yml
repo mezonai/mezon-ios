@@ -54,6 +54,9 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "15.0"
+    configFiles:
+      Debug: Pods/Target Support Files/Pods-MezonChat/Pods-MezonChat.debug.xcconfig
+      Release: Pods/Target Support Files/Pods-MezonChat/Pods-MezonChat.release.xcconfig
     attributes:
       SystemCapabilities:
         com.apple.ApplicationGroups.iOS:
@@ -98,6 +101,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_OBJC_BRIDGING_HEADER: "MezonChat/MezonChat-Bridging-Header.h"
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/MezonChat/Core/SSignalKit/SSignalKit/Source $(SRCROOT)/MezonChat/Core/Display $(SRCROOT)/MezonChat/Core/Display/UIKitRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/ObjCRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/AppBundle"
+        TENOR_API_KEY: AIzaSyA7PmFsiGws1XF-t6jXsVuF6O2DQLa8BpE
+        TENOR_CLIENT_KEY: mezon.ai
       configs:
         Debug:
           DEBUG_INFORMATION_FORMAT: dwarf
@@ -114,7 +119,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
           UIColorName: LaunchBackground
-          ImageName: SplashScreen
+          UIImageName: SplashScreen
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:
@@ -142,6 +147,8 @@ targets:
         NSPasteboardUsageDescription: "Mezon needs access to the clipboard to paste content/images from other apps"
         NSPhotoLibraryAddUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
         NSPhotoLibraryUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
+        TENOR_API_KEY: "$(TENOR_API_KEY)"
+        TENOR_CLIENT_KEY: "$(TENOR_CLIENT_KEY)"
         UIBackgroundModes:
           - voip
           - remote-notification

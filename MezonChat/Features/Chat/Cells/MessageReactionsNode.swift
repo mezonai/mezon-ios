@@ -31,13 +31,16 @@ final class MessageReactionsNode: ASDisplayNode {
         isUserInteractionEnabled = true
 
         let t = UIColor.theme
-        addReactionButtonNode.backgroundColor = t.tertiary
-        addReactionButtonNode.tintColor = t.textStrong
+        addReactionButtonNode.backgroundColor = .clear
+        addReactionButtonNode.tintColor = t.textDisabled
         addReactionButtonNode.clipsToBounds = true
         addReactionButtonNode.contentMode = .center
-        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        if let img = UIImage(systemName: "face.smiling", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate) {
-            addReactionButtonNode.setImage(img, for: .normal)
+        let iconSize = CGSize(width: 20, height: 20)
+        if let pdf = UIImage(named: "Chat/FaceIcon")?.withRenderingMode(.alwaysTemplate) {
+            let resized = UIGraphicsImageRenderer(size: iconSize).image { _ in
+                pdf.draw(in: CGRect(origin: .zero, size: iconSize))
+            }.withRenderingMode(.alwaysTemplate)
+            addReactionButtonNode.setImage(resized, for: .normal)
         }
         addReactionButtonNode.addTarget(self, action: #selector(addReactionControlTapped), forControlEvents: .touchUpInside)
     }
@@ -342,7 +345,7 @@ final class ReactionPillNode: ASDisplayNode {
         )
         addSubnode(countNode)
 
-        let url = MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 32)
+        let url = MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100)
         if let url = url {
             emojiFallbackNode.isHidden = true
             loadEmojiImage(url: url)
@@ -414,13 +417,20 @@ final class ReactionPillNode: ASDisplayNode {
         }
 
         imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data else { return }
-            let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
-            guard let image else { return }
+            guard let self else { return }
+            guard let data,
+                  let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+            else {
+                DispatchQueue.main.async {
+                    self.emojiImageNode.isHidden = true
+                    self.emojiFallbackNode.isHidden = false
+                }
+                return
+            }
             ImageCache.shared.setImage(image, data: data, forKey: key)
             DispatchQueue.main.async {
-                self?.applyImage(image)
-                self?.emojiFallbackNode.isHidden = true
+                self.applyImage(image)
+                self.emojiFallbackNode.isHidden = true
             }
         }
         imageTask?.resume()
