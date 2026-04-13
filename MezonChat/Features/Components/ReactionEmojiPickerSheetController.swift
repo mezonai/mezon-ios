@@ -1,18 +1,20 @@
 import AsyncDisplayKit
 import UIKit
 
-final class MessageReactionEmojiPickerSheetController: ViewController {
+final class ReactionEmojiPickerSheetController: ViewController {
 
     private let engine: MezonEngine
+    private let dismissOnEmojiSelect: Bool
     private let onEmojiPicked: (String, String) -> Void
     var onDismiss: (() -> Void)?
 
-    private var sheetNode: MessageReactionEmojiPickerSheetNode {
-        displayNode as! MessageReactionEmojiPickerSheetNode
+    private var sheetNode: ReactionEmojiPickerSheetNode {
+        displayNode as! ReactionEmojiPickerSheetNode
     }
 
-    init(engine: MezonEngine, onEmojiPicked: @escaping (String, String) -> Void) {
+    init(engine: MezonEngine, dismissOnEmojiSelect: Bool = true, onEmojiPicked: @escaping (String, String) -> Void) {
         self.engine = engine
+        self.dismissOnEmojiSelect = dismissOnEmojiSelect
         self.onEmojiPicked = onEmojiPicked
         super.init(navigationBarPresentationData: nil)
         statusBar.statusBarStyle = .Hide
@@ -22,12 +24,14 @@ final class MessageReactionEmojiPickerSheetController: ViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        displayNode = MessageReactionEmojiPickerSheetNode(
+        displayNode = ReactionEmojiPickerSheetNode(
             engine: engine,
             onEmojiSelected: { [weak self] id, shortname in
                 guard let self else { return }
                 self.onEmojiPicked(id, shortname)
-                self.animateDismiss(completion: nil)
+                if self.dismissOnEmojiSelect {
+                    self.animateDismiss(completion: nil)
+                }
             },
             onDimTapped: { [weak self] in self?.animateDismiss(completion: nil) }
         )
@@ -52,7 +56,7 @@ final class MessageReactionEmojiPickerSheetController: ViewController {
     }
 }
 
-private final class MessageReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
+private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
 
     private let engine: MezonEngine
     private let onEmojiSelected: (String, String) -> Void
@@ -174,8 +178,21 @@ private final class MessageReactionEmojiPickerSheetNode: ASDisplayNode, UIGestur
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
     }
 
+    private var animateInRetryCount = 0
+
     func animateIn() {
-        guard let layout = validLayout else { return }
+        guard let layout = validLayout else {
+            animateInRetryCount += 1
+            guard animateInRetryCount < 90 else {
+                animateInRetryCount = 0
+                return
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.animateIn()
+            }
+            return
+        }
+        animateInRetryCount = 0
         let fromY = layout.size.height
         let toY = layout.size.height - containerHeight
         containerNode.frame.origin.y = fromY

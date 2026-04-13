@@ -2533,11 +2533,11 @@ final class ChatViewController: ViewController {
         writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: 1, actionDelete: false)
     }
 
-    private weak var reactionEmojiPickerSheet: MessageReactionEmojiPickerSheetController?
+    private weak var reactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
 
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
         view.endEditing(true)
-        let sheet = MessageReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
+        let sheet = ReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
             self?.handleEmojiReaction(emojiId: emojiId, shortname: shortname, display: display)
         }
         sheet.onDismiss = { [weak self] in
