@@ -400,40 +400,18 @@ final class ReactionPillNode: ASDisplayNode {
     }
 
     private func loadEmojiImage(url: URL) {
-        let key = url.absoluteString
-
-        if let diskData = ImageCache.shared.cachedData(forKey: key) {
-            let image = UIImage.animatedImage(from: diskData) ?? UIImage.decodeImage(from: diskData)
-            if let image {
-                ImageCache.shared.setImage(image, data: nil, forKey: key)
-                applyImage(image)
-                return
-            }
-        }
-
-        if let cached = ImageCache.shared.image(forKey: key) {
-            applyImage(cached)
-            return
-        }
-
-        imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        imageTask?.cancel()
+        imageTask = ReactionEmojiImageLoader.load(from: url) { [weak self] image in
             guard let self else { return }
-            guard let data,
-                  let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
-            else {
-                DispatchQueue.main.async {
-                    self.emojiImageNode.isHidden = true
-                    self.emojiFallbackNode.isHidden = false
-                }
-                return
-            }
-            ImageCache.shared.setImage(image, data: data, forKey: key)
-            DispatchQueue.main.async {
+            if let image {
                 self.applyImage(image)
+                self.emojiImageNode.isHidden = false
                 self.emojiFallbackNode.isHidden = true
+            } else {
+                self.emojiImageNode.isHidden = true
+                self.emojiFallbackNode.isHidden = false
             }
         }
-        imageTask?.resume()
     }
 
     override func layout() {

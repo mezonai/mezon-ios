@@ -126,6 +126,7 @@ final class EmojisPanel: UIView {
     }()
 
     private var categoryStripCategories: [String] = []
+    private var categoryStripLogos: [String: String] = [:]
     private var searchDebounceWorkItem: DispatchWorkItem?
 
     private var themePlacement: EmojisPanelThemePlacement = .composerInline
@@ -265,6 +266,38 @@ final class EmojisPanel: UIView {
 
     private func rebuildCategoryStrip() {
         categoryStripCategories = categoryOrder.filter { !(emojisByCategory[$0] ?? []).isEmpty }
+        var byClan: [Int64: String] = [:]
+        for e in allEmojis where e.clanID != 0 {
+            let l = e.logo.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !l.isEmpty, byClan[e.clanID] == nil { byClan[e.clanID] = l }
+        }
+        if let stickers = cacheEngine?.data.cachedStickerList(clanId: 0)?.stickers {
+            for s in stickers where s.clanID != 0 {
+                let l = s.logo.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !l.isEmpty, byClan[s.clanID] == nil { byClan[s.clanID] = l }
+            }
+        }
+        var logos: [String: String] = [:]
+        for key in categoryStripCategories {
+            if EmojiCategoryOrdering.predefinedPrefix.contains(key) || EmojiCategoryOrdering.predefinedSuffix.contains(key) { continue }
+            guard let list = emojisByCategory[key], let first = list.first, first.clanID != 0 else { continue }
+            let sLogo = first.logo.trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = !sLogo.isEmpty ? sLogo : (byClan[first.clanID] ?? "")
+            guard !raw.isEmpty else { continue }
+            let resolved = Self.resolveClanStripLogoURL(raw)
+            if !resolved.isEmpty { logos[key] = resolved }
+        }
+        categoryStripLogos = logos
+    }
+
+    private static func resolveClanStripLogoURL(_ raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return "" }
+        if let u = URL(string: t), u.scheme != nil { return t }
+        if t.hasPrefix("//") { return "https:\(t)" }
+        let base = MezonConfig.baseImgURL
+        if t.hasPrefix("/") { return "\(base)\(t)" }
+        return "\(base)/\(t)"
     }
 
 
@@ -441,7 +474,8 @@ extension EmojisPanel: UICollectionViewDataSource, UICollectionViewDelegate, UIC
                 title: displayTitle(for: key),
                 isSelected: key == selectedStripCategory,
                 symbol: Self.stripSymbol(for: key),
-                unselectedBackground: stripUnselected
+                unselectedBackground: stripUnselected,
+                logoURLString: categoryStripLogos[key]
             )
             return cell
         }
@@ -505,7 +539,7 @@ extension EmojisPanel: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
 
         if collectionView.tag == 1 {
-            return CGSize(width: 40, height: 40)
+            return CGSize(width: 36, height: 36)
         }
 
         guard indexPath.item < flatItems.count else { return .zero }
@@ -553,10 +587,12 @@ extension EmojisPanel {
 
 extension EmojisPanel {
     fileprivate static func stripSymbol(for key: String) -> UIImage? {
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
         switch key {
         case EmojiCategoryOrdering.recent: return UIImage(systemName: "clock", withConfiguration: config)
-        case EmojiCategoryOrdering.forSale: return UIImage(systemName: "bag.fill", withConfiguration: config)
+        case EmojiCategoryOrdering.forSale:
+            return UIImage(named: "Chat/StoreIcon")?.withRenderingMode(.alwaysTemplate)
+                ?? UIImage(systemName: "bag.fill", withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
         case EmojiCategoryOrdering.frequently: return UIImage(systemName: "star.fill", withConfiguration: config)
         case "People":
             return UIImage(named: "Chat/FaceIcon")
@@ -675,6 +711,7 @@ private final class EmojiCategoryStripCell: UICollectionViewCell {
 
     private let imageView = UIImageView()
     private let initialLabel = UILabel()
+    private var logoLoadKey: String?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -682,9 +719,11 @@ private final class EmojiCategoryStripCell: UICollectionViewCell {
         contentView.clipsToBounds = true
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.contentMode = .scaleAspectFit
+        imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = 6
         imageView.tintColor = UIColor.theme.textStrong
         initialLabel.translatesAutoresizingMaskIntoConstraints = false
-        initialLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        initialLabel.font = .systemFont(ofSize: 12, weight: .bold)
         initialLabel.textColor = UIColor.theme.textStrong
         initialLabel.textAlignment = .center
         contentView.addSubview(imageView)
@@ -692,8 +731,8 @@ private final class EmojiCategoryStripCell: UICollectionViewCell {
         NSLayoutConstraint.activate([
             imageView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             imageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: 22),
-            imageView.heightAnchor.constraint(equalToConstant: 22),
+            imageView.widthAnchor.constraint(equalToConstant: 24),
+            imageView.heightAnchor.constraint(equalToConstant: 24),
             initialLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             initialLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
@@ -701,21 +740,57 @@ private final class EmojiCategoryStripCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(categoryKey: String, title: String, isSelected: Bool, symbol: UIImage?, unselectedBackground: UIColor) {
-        let predefined = EmojiCategoryOrdering.predefinedPrefix.contains(categoryKey)
-            || EmojiCategoryOrdering.predefinedSuffix.contains(categoryKey)
-        if predefined, let symbol {
-            imageView.isHidden = false
-            initialLabel.isHidden = true
-            imageView.image = symbol
-        } else {
-            imageView.isHidden = true
-            initialLabel.isHidden = false
-            initialLabel.text = String(title.prefix(1)).uppercased()
-        }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        logoLoadKey = nil
+        imageView.image = nil
+        imageView.contentMode = .scaleAspectFit
+        imageView.layer.cornerRadius = 6
+        imageView.tintColor = UIColor.theme.textStrong
+    }
+
+    func configure(categoryKey: String, title: String, isSelected: Bool, symbol: UIImage?, unselectedBackground: UIColor, logoURLString: String?) {
         let t = UIColor.theme
         contentView.backgroundColor = isSelected
             ? t.bgViolet.withAlphaComponent(0.35)
             : unselectedBackground
+        let predefined = EmojiCategoryOrdering.predefinedPrefix.contains(categoryKey)
+            || EmojiCategoryOrdering.predefinedSuffix.contains(categoryKey)
+        if predefined, let symbol {
+            logoLoadKey = nil
+            imageView.isHidden = false
+            initialLabel.isHidden = true
+            imageView.contentMode = .scaleAspectFit
+            imageView.layer.cornerRadius = 0
+            imageView.tintColor = t.textStrong
+            imageView.image = symbol
+            return
+        }
+        let logo = logoURLString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !logo.isEmpty {
+            logoLoadKey = logo
+            imageView.isHidden = false
+            initialLabel.isHidden = true
+            imageView.contentMode = .scaleAspectFill
+            imageView.layer.cornerRadius = 6
+            imageView.tintColor = nil
+            imageView.image = nil
+            let px = Int(24 * UIScreen.main.scale)
+            let proxy = ImgproxyURL.create(from: logo, width: px, height: px)
+            if let mem = ImageCache.shared.memoryImage(forKey: proxy) {
+                imageView.image = mem
+            } else {
+                ImageCache.shared.loadImage(urlString: proxy) { [weak self] img in
+                    guard let self else { return }
+                    guard self.logoLoadKey == logo else { return }
+                    self.imageView.image = img
+                }
+            }
+            return
+        }
+        logoLoadKey = nil
+        imageView.isHidden = true
+        initialLabel.isHidden = false
+        initialLabel.text = String(title.prefix(1)).uppercased()
     }
 }

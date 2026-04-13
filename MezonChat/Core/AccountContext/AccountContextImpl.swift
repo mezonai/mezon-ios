@@ -143,8 +143,11 @@ final class AccountContextImpl: AccountContext {
 
     func logout() {
         account.network.bearerUnauthorizedRecovery = nil
-        if let s = session {
-            Task { try? await engine.auth.sessionLogout(session: s) }
+        let s = session
+        let deviceId = currentUser?.username ?? ""
+        account.socket.disconnect()
+        if let s = s {
+            Task { try? await engine.auth.sessionLogout(session: s, deviceId: deviceId, platform: "ios") }
         }
         SessionStore.clear()
         SessionRefreshManager.shared.reset()
@@ -152,7 +155,6 @@ final class AccountContextImpl: AccountContext {
         currentUser = nil
         currentClanId = 0
         currentChannel = nil
-        account.socket.disconnect()
         account.postbox.clearAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         setLoggedIn(false)

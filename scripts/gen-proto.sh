@@ -17,7 +17,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PROTO_REPO="/Users/thomas/Documents/Swift/mezon-protocol"
+PROTO_REPO="../mezon-protocol"
 
 OUT_API="$PROJECT_DIR/MezonChat/Generated/api"
 OUT_RTAPI="$PROJECT_DIR/MezonChat/Generated/rtapi"
