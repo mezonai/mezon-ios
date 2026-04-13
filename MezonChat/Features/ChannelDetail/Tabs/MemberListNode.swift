@@ -382,13 +382,14 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         }
 
         guard let user, user.id != 0 else { return }
-        if String(user.id) == context.currentUser?.id { return }
+        let isCurrentUser = String(user.id) == context.currentUser?.id
 
         guard let host = tableNode.view.findHostingViewController() else { return }
 
         let sheet = MemberProfileSheetController(
             user: user,
             context: context,
+            isCurrentUser: isCurrentUser,
             onSendMessage: { [weak self, weak host] dmChannel in
                 guard let self, let host else { return }
                 self.context.currentClanId = 0

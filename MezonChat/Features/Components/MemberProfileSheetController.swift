@@ -5,6 +5,7 @@ final class MemberProfileSheetController: ViewController {
 
     private let user: Mezon_Api_User
     private let context: AccountContext
+    private let isCurrentUser: Bool
     private let onDismiss: (() -> Void)?
     private let onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)?
 
@@ -13,11 +14,13 @@ final class MemberProfileSheetController: ViewController {
     init(
         user: Mezon_Api_User,
         context: AccountContext,
+        isCurrentUser: Bool = false,
         onDismiss: (() -> Void)? = nil,
         onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)? = nil
     ) {
         self.user = user
         self.context = context
+        self.isCurrentUser = isCurrentUser
         self.onDismiss = onDismiss
         self.onSendMessage = onSendMessage
         super.init(navigationBarPresentationData: nil)
@@ -30,6 +33,7 @@ final class MemberProfileSheetController: ViewController {
     override func loadDisplayNode() {
         displayNode = MemberProfileSheetNode(
             user: user,
+            isCurrentUser: isCurrentUser,
             onSendMessageTapped: { [weak self] in
                 self?.handleSendMessage()
             },
@@ -117,6 +121,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
     private let onSendMessageTapped: () -> Void
     private let onDimTapped: () -> Void
+    private let isCurrentUser: Bool
 
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
@@ -125,10 +130,12 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
     init(
         user: Mezon_Api_User,
+        isCurrentUser: Bool,
         onSendMessageTapped: @escaping () -> Void,
         onDimTapped: @escaping () -> Void
     ) {
         self.user = user
+        self.isCurrentUser = isCurrentUser
         self.onSendMessageTapped = onSendMessageTapped
         self.onDimTapped = onDimTapped
         super.init()
@@ -323,7 +330,15 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         let btnH: CGFloat = 64.sh
         let btnSpacing: CGFloat = 8.sf
         let actionW = screenW - pad * 2 - infoCardPad * 2
-        let btnW = (actionW - btnSpacing * 2) / 3
+        let showCallAndAddFriend = !isCurrentUser
+        callBtn.isHidden = !showCallAndAddFriend
+        addFriendBtn.isHidden = !showCallAndAddFriend
+        let btnW: CGFloat
+        if showCallAndAddFriend {
+            btnW = (actionW - btnSpacing * 2) / 3
+        } else {
+            btnW = actionW
+        }
 
         var infoY: CGFloat = avatarOverlap + 8.sh
         displayNameNode.frame = CGRect(x: infoCardPad, y: infoY, width: nameSize.width, height: nameSize.height)
@@ -337,8 +352,10 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         infoY += 12
         actionRow.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: btnH)
         messageBtn.frame = CGRect(x: 0, y: 0, width: btnW, height: btnH)
-        callBtn.frame = CGRect(x: btnW + btnSpacing, y: 0, width: btnW, height: btnH)
-        addFriendBtn.frame = CGRect(x: (btnW + btnSpacing) * 2, y: 0, width: btnW, height: btnH)
+        if showCallAndAddFriend {
+            callBtn.frame = CGRect(x: btnW + btnSpacing, y: 0, width: btnW, height: btnH)
+            addFriendBtn.frame = CGRect(x: (btnW + btnSpacing) * 2, y: 0, width: btnW, height: btnH)
+        }
         infoY += btnH + infoCardPad
 
         let infoCardH = infoY
