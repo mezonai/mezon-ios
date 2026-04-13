@@ -240,9 +240,16 @@ final class SendMessageInputViewController: UIViewController {
     private lazy var sendButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.layer.cornerRadius = 20.swh
+        let sendSide: CGFloat = 40.swh
+        btn.layer.cornerRadius = sendSide / 2
         btn.clipsToBounds = true
-        btn.setImage(UIImage(systemName: "paperplane.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        let sendCfg = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        let sendImg = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: "paperplane.fill", withConfiguration: sendCfg)
+        btn.setImage(sendImg, for: .normal)
+        btn.imageView?.contentMode = .scaleAspectFit
+        let iconInset: CGFloat = 9.sf
+        btn.imageEdgeInsets = UIEdgeInsets(top: iconInset, left: iconInset, bottom: iconInset, right: iconInset)
         btn.tintColor = .white
         btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
         btn.addTarget(self, action: #selector(sendAction), for: .touchUpInside)
@@ -567,7 +574,12 @@ final class SendMessageInputViewController: UIViewController {
 
         var att = Mezon_Api_MessageAttachment()
         att.url = imageUrl
-        att.filetype = "image/gif"
+        let srcLower = src.lowercased()
+        let isAudio = sticker.mediaType == StickerMediaType.audio.rawValue
+            || srcLower.hasSuffix(".mp3")
+            || srcLower.hasSuffix(".wav")
+            || srcLower.hasSuffix(".m4a")
+        att.filetype = isAudio ? "audio/mpeg" : "image/gif"
         att.filename = "\(sticker.id)"
 
         sendChannelMessageWithAttachments(text: "", attachments: [att])
@@ -1011,6 +1023,7 @@ final class SendMessageInputViewController: UIViewController {
         inputBarBottomConstraint = bottomConstraint
 
         let btnSize: CGFloat = 40.swh
+        let sendBtnSize: CGFloat = 40.swh
 
         let tvHeight = textView.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight)
         textViewHeightConstraint = tvHeight
@@ -1084,8 +1097,8 @@ final class SendMessageInputViewController: UIViewController {
 
             sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
             sendButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
-            sendButton.widthAnchor.constraint(equalToConstant: btnSize),
-            sendButton.heightAnchor.constraint(equalToConstant: btnSize),
+            sendButton.widthAnchor.constraint(equalToConstant: sendBtnSize),
+            sendButton.heightAnchor.constraint(equalToConstant: sendBtnSize),
 
             voiceButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
             voiceButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),

@@ -144,16 +144,14 @@ final class MezonHTTPClient {
     }
 
     func sessionLogout(session: MezonSession, deviceId: String = "", platform: String = "") async throws {
-        struct Body: Encodable {
-            let token: String
-            let refresh_token: String
-            let device_id: String
-            let platform: String
-        }
-        let _: EmptyResponse = try await post(
-            path: "/v2/session/logout",
-            body: Body(token: session.token, refresh_token: session.refreshToken,
-                device_id: deviceId, platform: platform),
+        var req = Mezon_Api_SessionLogoutRequest()
+        req.token = session.token
+        req.refreshToken = session.refreshToken
+        req.deviceID = deviceId
+        req.platform = platform
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/SessionLogout",
+            message: req,
             auth: .bearer(session.token)
         )
     }

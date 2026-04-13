@@ -10,18 +10,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     static func preferredSheetHeight(safeAreaBottomInset: CGFloat, hasMembers: Bool) -> CGFloat {
         let grabberBlock: CGFloat = 8 + 5 + 12
-        let header: CGFloat = 72
-        let gapAfterHeader: CGFloat = 20
-        let membersRow: CGFloat = hasMembers ? 44 + 8 : 0
-        let iconCircle: CGFloat = 20 + 36 + 20
+        let header: CGFloat = 60
+        let headerToCenter: CGFloat = 20
+        let iconOuter: CGFloat = 20 + 36 + 20
         let stackSpacing: CGFloat = 6 + 6
-        let voiceTitleLine: CGFloat = 26
-        let statusLines: CGFloat = 48
-        let centerBlock = membersRow + iconCircle + stackSpacing + voiceTitleLine + statusLines
-        let contentBottomPad: CGFloat = 8
-        let footerGap: CGFloat = 12
-        let footerRow: CGFloat = 50 + 10
-        return grabberBlock + header + gapAfterHeader + centerBlock + contentBottomPad + footerGap + footerRow + safeAreaBottomInset
+        let voiceTitleLine: CGFloat = 24
+        let statusLines: CGFloat = 40
+        let centerCore = iconOuter + stackSpacing + voiceTitleLine + statusLines
+        let middleTail: CGFloat = hasMembers ? (16 + 44 + 4) : 20
+        let footerBlock: CGFloat = 50 + 22
+        return grabberBlock + header + headerToCenter + centerCore + middleTail + footerBlock + safeAreaBottomInset
     }
 
     private let channelTitle: String
@@ -156,9 +154,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         centerStack.spacing = 6
         centerStack.isUserInteractionEnabled = false
         centerStack.translatesAutoresizingMaskIntoConstraints = false
-        if !members.isEmpty {
-            centerStack.addArrangedSubview(membersContainer)
-        }
+        centerStack.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        centerStack.setContentCompressionResistancePriority(.required, for: .vertical)
         centerStack.addArrangedSubview(iconOuter)
         centerStack.addArrangedSubview(voiceTitleLabel)
         centerStack.addArrangedSubview(statusLabel)
@@ -189,7 +186,9 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             NSLocalizedString(
                 "voiceChannel.joinSheet.joinVoice", tableName: nil, bundle: .main, value: "Join Voice", comment: ""),
             for: .normal)
-        joinButton.setTitleColor(UIColor.theme.white, for: .normal)
+        joinButton.setTitleColor(.white, for: .normal)
+        joinButton.setTitleColor(.white, for: .highlighted)
+        joinButton.tintColor = .white
         joinButton.backgroundColor = Self.joinVoiceGreen
         joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
         joinButtonHost.addSubview(joinButton)
@@ -251,16 +250,18 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         contentContainer.addSubview(headerRow)
         contentContainer.addSubview(centerStack)
         view.addSubview(footerRow)
+        if !members.isEmpty {
+            view.insertSubview(membersContainer, belowSubview: footerRow)
+        }
 
-        NSLayoutConstraint.activate([
+        var layoutConstraints: [NSLayoutConstraint] = [
             footerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
             footerRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
-            footerRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+            footerRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -22),
 
             contentContainer.topAnchor.constraint(equalTo: view.topAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: footerRow.topAnchor, constant: -12),
 
             grabber.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: 8),
             grabber.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),
@@ -279,8 +280,21 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             centerStack.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 20),
             centerStack.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor, constant: 16),
             centerStack.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -16),
-            centerStack.bottomAnchor.constraint(lessThanOrEqualTo: contentContainer.bottomAnchor, constant: -8),
-        ])
+        ]
+        if members.isEmpty {
+            layoutConstraints.append(contentsOf: [
+                centerStack.bottomAnchor.constraint(lessThanOrEqualTo: contentContainer.bottomAnchor, constant: -8),
+                contentContainer.bottomAnchor.constraint(equalTo: footerRow.topAnchor, constant: -12),
+            ])
+        } else {
+            layoutConstraints.append(contentsOf: [
+                centerStack.bottomAnchor.constraint(equalTo: membersContainer.topAnchor, constant: -16),
+                membersContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                membersContainer.bottomAnchor.constraint(equalTo: footerRow.topAnchor, constant: -4),
+                contentContainer.bottomAnchor.constraint(equalTo: membersContainer.topAnchor, constant: -4),
+            ])
+        }
+        NSLayoutConstraint.activate(layoutConstraints)
 
         view.bringSubviewToFront(footerRow)
 
@@ -436,6 +450,10 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         inviteButton.tintColor = UIColor.theme.textStrong
         chatButton.backgroundColor = UIColor.theme.tertiary
         chatButton.tintColor = UIColor.theme.textStrong
+        joinButton.setTitleColor(.white, for: .normal)
+        joinButton.setTitleColor(.white, for: .highlighted)
+        joinButton.tintColor = .white
+        joinButton.backgroundColor = Self.joinVoiceGreen
     }
 
     @objc private func closeTapped() {
