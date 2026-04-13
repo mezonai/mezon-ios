@@ -2932,11 +2932,14 @@ struct Mezon_Api_ListCategoryDescsRequest: Sendable {
   /// Max number of records to return. Between 1 and 100.
   var limit: Int32 = 0
 
-  /// Clan to list categories for (wire field 2; matches React Native / production API).
-  var clanID: Int64 = 0
+  /// The friend state to list.
+  var state: Int32 = 0
 
   /// Cursor to start from
   var cursor: String = String()
+
+  /// The clan to list categories for.
+  var clanID: Int64 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3567,6 +3570,25 @@ struct Mezon_Api_LeaveThreadRequest: Sendable {
 
   /// The channel ID to leave.
   var channelID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Set forum threads inactive (archived).
+struct Mezon_Api_ArchiveInactiveChannelThreadsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var clanID: Int64 = 0
+
+  /// Parent channel that owns the threads.
+  var parentID: Int64 = 0
+
+  /// Thread channel IDs to mark inactive.
+  var threadIds: [Int64] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -5313,6 +5335,34 @@ struct Mezon_Api_CheckDuplicateClanNameRequest: Sendable {
 }
 
 struct Mezon_Api_CheckDuplicateClanNameResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var isDuplicate: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_CheckDuplicateNameRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var name: String = String()
+
+  var type: Int32 = 0
+
+  var conditionID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_CheckDuplicateNameResponse: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -13855,7 +13905,7 @@ extension Mezon_Api_CategoryDescList: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ListCategoryDescsRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}limit\0\u{3}clan_id\0\u{1}cursor\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}limit\0\u{1}state\0\u{1}cursor\0\u{3}clan_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -13864,8 +13914,9 @@ extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtob
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt32Field(value: &self.limit) }()
-      case 2: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.state) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.cursor) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
       default: break
       }
     }
@@ -13875,19 +13926,23 @@ extension Mezon_Api_ListCategoryDescsRequest: SwiftProtobuf.Message, SwiftProtob
     if self.limit != 0 {
       try visitor.visitSingularInt32Field(value: self.limit, fieldNumber: 1)
     }
-    if self.clanID != 0 {
-      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 2)
+    if self.state != 0 {
+      try visitor.visitSingularInt32Field(value: self.state, fieldNumber: 2)
     }
     if !self.cursor.isEmpty {
       try visitor.visitSingularStringField(value: self.cursor, fieldNumber: 3)
+    }
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 4)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_ListCategoryDescsRequest, rhs: Mezon_Api_ListCategoryDescsRequest) -> Bool {
     if lhs.limit != rhs.limit {return false}
-    if lhs.clanID != rhs.clanID {return false}
+    if lhs.state != rhs.state {return false}
     if lhs.cursor != rhs.cursor {return false}
+    if lhs.clanID != rhs.clanID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -14992,6 +15047,46 @@ extension Mezon_Api_LeaveThreadRequest: SwiftProtobuf.Message, SwiftProtobuf._Me
   static func ==(lhs: Mezon_Api_LeaveThreadRequest, rhs: Mezon_Api_LeaveThreadRequest) -> Bool {
     if lhs.clanID != rhs.clanID {return false}
     if lhs.channelID != rhs.channelID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_ArchiveInactiveChannelThreadsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ArchiveInactiveChannelThreadsRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}parent_id\0\u{3}thread_ids\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.parentID) }()
+      case 3: try { try decoder.decodeRepeatedInt64Field(value: &self.threadIds) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
+    }
+    if self.parentID != 0 {
+      try visitor.visitSingularInt64Field(value: self.parentID, fieldNumber: 2)
+    }
+    if !self.threadIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.threadIds, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_ArchiveInactiveChannelThreadsRequest, rhs: Mezon_Api_ArchiveInactiveChannelThreadsRequest) -> Bool {
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.parentID != rhs.parentID {return false}
+    if lhs.threadIds != rhs.threadIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -18620,6 +18715,76 @@ extension Mezon_Api_CheckDuplicateClanNameResponse: SwiftProtobuf.Message, Swift
   }
 
   static func ==(lhs: Mezon_Api_CheckDuplicateClanNameResponse, rhs: Mezon_Api_CheckDuplicateClanNameResponse) -> Bool {
+    if lhs.isDuplicate != rhs.isDuplicate {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_CheckDuplicateNameRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CheckDuplicateNameRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}type\0\u{3}condition_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.type) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.conditionID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 1)
+    }
+    if self.type != 0 {
+      try visitor.visitSingularInt32Field(value: self.type, fieldNumber: 2)
+    }
+    if self.conditionID != 0 {
+      try visitor.visitSingularInt64Field(value: self.conditionID, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_CheckDuplicateNameRequest, rhs: Mezon_Api_CheckDuplicateNameRequest) -> Bool {
+    if lhs.name != rhs.name {return false}
+    if lhs.type != rhs.type {return false}
+    if lhs.conditionID != rhs.conditionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_CheckDuplicateNameResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".CheckDuplicateNameResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}is_duplicate\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.isDuplicate) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.isDuplicate != false {
+      try visitor.visitSingularBoolField(value: self.isDuplicate, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_CheckDuplicateNameResponse, rhs: Mezon_Api_CheckDuplicateNameResponse) -> Bool {
     if lhs.isDuplicate != rhs.isDuplicate {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

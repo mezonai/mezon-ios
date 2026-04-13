@@ -11,6 +11,7 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
     var onConnectFailed: ((Error) -> Void)?
     var onDisconnected: ((LiveKitError?) -> Void)?
     var onRoomParticipantsChanged: (() -> Void)?
+    var onParticipantStateUpdated: (() -> Void)?
 
     override init() {
         super.init()
@@ -27,11 +28,18 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         onConnectFailed = nil
         onDisconnected = nil
         onRoomParticipantsChanged = nil
+        onParticipantStateUpdated = nil
     }
 
     private func notifyParticipantsChanged() {
         DispatchQueue.main.async { [weak self] in
             self?.onRoomParticipantsChanged?()
+        }
+    }
+
+    private func notifyStateUpdated() {
+        DispatchQueue.main.async { [weak self] in
+            self?.onParticipantStateUpdated?()
         }
     }
 
@@ -104,11 +112,11 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
     }
 
     func room(_ room: Room, didUpdateSpeakingParticipants participants: [Participant]) {
-        notifyParticipantsChanged()
+        notifyStateUpdated()
     }
 
     func room(_ room: Room, participant: Participant, trackPublication: TrackPublication, didUpdateIsMuted isMuted: Bool) {
-        notifyParticipantsChanged()
+        notifyStateUpdated()
     }
 
     func room(_ room: Room, participant: LocalParticipant, didPublishTrack publication: LocalTrackPublication) {

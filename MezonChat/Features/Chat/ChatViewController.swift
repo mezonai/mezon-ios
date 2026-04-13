@@ -2360,8 +2360,8 @@ final class ChatViewController: ViewController {
 
     private func showMemberProfile(_ display: ChatMessageDisplay) {
         let senderId = display.message.senderId
-        guard senderId != context.currentUser?.id else { return }
         guard let senderIdInt = Int64(senderId) else { return }
+        let isCurrentUser = senderId == context.currentUser?.id
 
         var user = Mezon_Api_User()
         user.id = senderIdInt
@@ -2375,6 +2375,7 @@ final class ChatViewController: ViewController {
         let sheet = MemberProfileSheetController(
             user: user,
             context: context,
+            isCurrentUser: isCurrentUser,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
@@ -2388,8 +2389,8 @@ final class ChatViewController: ViewController {
     }
 
     private func showMemberProfileById(_ userId: String) {
-        guard userId != context.currentUser?.id else { return }
         guard let userIdInt = Int64(userId) else { return }
+        let isCurrentUser = userId == context.currentUser?.id
 
         var user = Mezon_Api_User()
         user.id = userIdInt
@@ -2409,6 +2410,7 @@ final class ChatViewController: ViewController {
         let sheet = MemberProfileSheetController(
             user: user,
             context: context,
+            isCurrentUser: isCurrentUser,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
@@ -2533,11 +2535,11 @@ final class ChatViewController: ViewController {
         writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: 1, actionDelete: false)
     }
 
-    private weak var reactionEmojiPickerSheet: MessageReactionEmojiPickerSheetController?
+    private weak var reactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
 
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
         view.endEditing(true)
-        let sheet = MessageReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
+        let sheet = ReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
             self?.handleEmojiReaction(emojiId: emojiId, shortname: shortname, display: display)
         }
         sheet.onDismiss = { [weak self] in

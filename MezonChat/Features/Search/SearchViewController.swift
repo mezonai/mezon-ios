@@ -507,13 +507,13 @@ final class SearchViewController: ViewController {
 
     private func navigateToMember(_ user: Mezon_Api_User) {
         let isCurrentUser = "\(user.id)" == context.currentUser?.id
-        guard !isCurrentUser else { return }
 
         view.endEditing(true)
 
         let sheet = MemberProfileSheetController(
             user: user,
             context: context,
+            isCurrentUser: isCurrentUser,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0

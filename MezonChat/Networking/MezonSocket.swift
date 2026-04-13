@@ -44,6 +44,7 @@ final class MezonSocket: NSObject {
     var onVoiceJoined:        ((Mezon_Realtime_VoiceJoinedEvent)           -> Void)?
     var onVoiceLeaved:        ((Mezon_Realtime_VoiceLeavedEvent)           -> Void)?
     var onVoiceEnded:         ((Mezon_Realtime_VoiceEndedEvent)            -> Void)?
+    var onVoiceReaction:      ((Mezon_Realtime_VoiceReactionSend)          -> Void)?
     var onStreamingJoined:    ((Mezon_Realtime_StreamingJoinedEvent)       -> Void)?
     var onStreamingLeaved:    ((Mezon_Realtime_StreamingLeavedEvent)       -> Void)?
     var onWebRTC:             ((Mezon_Realtime_WebrtcSignalingFwd)         -> Void)?
@@ -192,6 +193,18 @@ final class MezonSocket: NSObject {
         envelope.handleParticipantMeetStateEvent = ev
         send(envelope)
         AppLogger.app.info("[MezonSocket] voice meet state clan=\(clanId) channel=\(channelId) join=\(join)")
+    }
+
+    func sendVoiceReaction(channelId: Int64, senderId: Int64, emojis: [String], mediaType: Int32 = 0) {
+        guard !emojis.isEmpty else { return }
+        var r = Mezon_Realtime_VoiceReactionSend()
+        r.channelID = channelId
+        r.senderID = senderId
+        r.emojis = emojis
+        r.mediaType = mediaType
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.voiceReactionSend = r
+        send(envelope)
     }
 
     func sendMessageTyping(
@@ -347,6 +360,8 @@ final class MezonSocket: NSObject {
             onVoiceLeaved?(m)
         case .voiceEndedEvent(let m):
             onVoiceEnded?(m)
+        case .voiceReactionSend(let m):
+            onVoiceReaction?(m)
         case .streamingJoinedEvent(let m):
             onStreamingJoined?(m)
         case .streamingLeavedEvent(let m):

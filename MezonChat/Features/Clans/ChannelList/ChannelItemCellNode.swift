@@ -331,12 +331,15 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
             node.maximumNumberOfLines = 1
             let para = NSMutableParagraphStyle()
             para.alignment = .center
+            para.minimumLineHeight = Self.avatarSize
+            para.maximumLineHeight = Self.avatarSize
             node.attributedText = NSAttributedString(
                 string: text,
                 attributes: [
                     .font: font,
                     .foregroundColor: UIColor.theme.channelNormal,
                     .paragraphStyle: para,
+                    .baselineOffset: (Self.avatarSize - font.lineHeight) / 2,
                 ])
             node.style.preferredSize = CGSize(width: badgeWidth, height: Self.avatarSize)
             overflowNode = node
@@ -357,12 +360,7 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
         let s = Self.avatarSize
         var children: [ASLayoutElement] = avatarNodes
         if let overflow = overflowNode, let bg = overflowBg {
-            let centered = ASCenterLayoutSpec(
-                centeringOptions: .XY,
-                sizingOptions: [],
-                child: overflow
-            )
-            children.append(ASBackgroundLayoutSpec(child: centered, background: bg))
+            children.append(ASBackgroundLayoutSpec(child: overflow, background: bg))
         }
         let row = ASStackLayoutSpec(
             direction: .horizontal,

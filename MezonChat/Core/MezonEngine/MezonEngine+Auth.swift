@@ -18,8 +18,8 @@ extension MezonEngine {
             try await SessionRefreshManager.shared.refresh(session: session)
         }
 
-        func sessionLogout(session: MezonSession) async throws {
-            try await network.sessionLogout(session: session)
+        func sessionLogout(session: MezonSession, deviceId: String, platform: String) async throws {
+            try await network.sessionLogout(session: session, deviceId: deviceId, platform: platform)
         }
 
         func confirmLogin(loginId: String, token: String) async throws -> MezonSession {
