@@ -9,8 +9,13 @@ final class ProfileContainerNode: ASDisplayNode {
     private let contentView = UIView()
     private let context: AccountContext
 
+    private var lastLayout: ContainerViewLayout?
+
     var onBackTapped: (() -> Void)?
     var onSettingsTapped: (() -> Void)?
+    var onAvatarTapped: (() -> Void)?
+    var onDisplayNameTapped: (() -> Void)?
+    var onAddStatusTapped: (() -> Void)?
 
     private let avatarSize: CGFloat = 90.swh
     private let sideInset: CGFloat = 16.sw
@@ -29,10 +34,11 @@ final class ProfileContainerNode: ASDisplayNode {
         return v
     }()
     private let avatarImageView = UIImageView()
-    private let onlineDot: UIView = {
-        let v = UIView()
-        v.backgroundColor = .mezonSuccess
-        return v
+    private let statusBadgeImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.clipsToBounds = true
+        return iv
     }()
     private let addStatusButton: UIButton = {
         let btn = UIButton(type: .system)
@@ -41,6 +47,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let statusBubbleContainer = UIView()
     private let statusBubbleShapeLayer = CAShapeLayer()
 
+    private let nameTapArea = UIView()
     private let nameLabel = UILabel()
     private let chevronDown: UIImageView = {
         let iv = UIImageView(image: UIImage(systemName: "chevron.down")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
@@ -165,14 +172,87 @@ final class ProfileContainerNode: ASDisplayNode {
         }.withRenderingMode(.alwaysOriginal)
     }
 
-    private static func profileImageResized(named: String, size: CGFloat = 24) -> UIImage? {
+    private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {
+        switch status {
+        case .online: return "OnlineIcon"
+        case .idle: return "IdleIcon"
+        case .doNotDisturb: return "DisturbIcon"
+        case .invisible, .offline: return "OfflineIocn"
+        }
+    }
+
+    private static func statusBadgeDotSize(for status: User.OnlineStatus) -> CGFloat {
+        switch status {
+        case .idle, .doNotDisturb:
+            return 22.swh
+        case .online, .invisible, .offline:
+            return 16.swh
+        }
+    }
+
+    private static func statusBadgePositionCompensation(for status: User.OnlineStatus) -> CGPoint {
+        switch status {
+        case .idle, .doNotDisturb:
+            return CGPoint(x: 3, y: 3)
+        case .online, .invisible, .offline:
+            return .zero
+        }
+    }
+
+    private static func statusBadgeContentScale(for status: User.OnlineStatus) -> CGFloat {
+        switch status {
+        case .idle, .doNotDisturb:
+            return 1.22
+        case .online, .invisible, .offline:
+            return 1.0
+        }
+    }
+
+    private func configureAddStatusButton(user: User?) {
+        let custom = user?.customStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasCustom = !custom.isEmpty
+        if #available(iOS 15.0, *) {
+            var statusCfg = UIButton.Configuration.plain()
+            if !hasCustom {
+                statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
+                statusCfg.imagePadding = 6
+            } else {
+                statusCfg.image = nil
+                statusCfg.imagePadding = 0
+            }
+            statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
+            statusCfg.baseForegroundColor = .mezonTextPrimary
+            let title = hasCustom ? custom : L(L10n.Profile.addStatus)
+            statusCfg.attributedTitle = AttributedString(
+                title,
+                attributes: AttributeContainer([
+                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
+                    .foregroundColor: UIColor.mezonTextPrimary
+                ])
+            )
+            addStatusButton.configuration = statusCfg
+        } else {
+            if hasCustom {
+                addStatusButton.setImage(nil, for: .normal)
+            } else {
+                addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
+            }
+            addStatusButton.setTitle(hasCustom ? custom : L(L10n.Profile.addStatus), for: .normal)
+            addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
+            addStatusButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
+            addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
+            addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
+        }
+    }
+
+    private static func profileImageResized(named: String, size: CGFloat = 24, contentScale: CGFloat = 1.0) -> UIImage? {
         guard let img = profileImage(named: named) else { return nil }
         let target = CGSize(width: size, height: size)
-        let ratio = min(target.width / img.size.width, target.height / img.size.height)
+        let ratio = min(target.width / img.size.width, target.height / img.size.height) * contentScale
         let drawSize = CGSize(width: img.size.width * ratio, height: img.size.height * ratio)
         let drawRect = CGRect(x: (target.width - drawSize.width) / 2, y: (target.height - drawSize.height) / 2, width: drawSize.width, height: drawSize.height)
         let renderer = UIGraphicsImageRenderer(size: target)
-        let resized = renderer.image { ctx in
+        let resized = renderer.image { _ in
             img.draw(in: drawRect)
         }
         return resized.withRenderingMode(img.renderingMode)
@@ -204,6 +284,15 @@ final class ProfileContainerNode: ASDisplayNode {
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleCurrentUserDidChange), name: .mezonAccountCurrentUserDidChange, object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleCurrentUserDidChange() {
+        updateContent()
     }
 
     @objc private func handleThemeOrLanguageChange() {
@@ -218,7 +307,6 @@ final class ProfileContainerNode: ASDisplayNode {
         contentView.backgroundColor = .mezonSecondaryBackground
 
         avatarContainerView.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
-        onlineDot.layer.borderColor = UIColor.mezonTertiary.cgColor
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
 
         nameLabel.textColor = .mezonTextStrong
@@ -245,24 +333,7 @@ final class ProfileContainerNode: ASDisplayNode {
         }
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
 
-        if #available(iOS 15.0, *) {
-            var statusCfg = addStatusButton.configuration ?? UIButton.Configuration.plain()
-            statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-            statusCfg.baseForegroundColor = .mezonTextPrimary
-            statusCfg.attributedTitle = AttributedString(
-                L(L10n.Profile.addStatus),
-                attributes: AttributeContainer([
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                    .foregroundColor: UIColor.mezonTextPrimary
-                ])
-            )
-            addStatusButton.configuration = statusCfg
-        } else {
-            addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
-            addStatusButton.setTitle(L(L10n.Profile.addStatus), for: .normal)
-            addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
-            addStatusButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
-        }
+        configureAddStatusButton(user: context.currentUser)
     }
 
     private func setupHeader() {
@@ -278,11 +349,15 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarImageView.clipsToBounds = true
         avatarContainerView.addSubview(avatarImageView)
 
-        let dotSize: CGFloat = 16.swh
-        onlineDot.layer.cornerRadius = dotSize / 2
-        onlineDot.layer.borderWidth = 2
-        onlineDot.layer.borderColor = UIColor.mezonTertiary.cgColor
-        fixedHeaderView.addSubview(onlineDot)
+        statusBadgeImageView.layer.borderWidth = 0
+        statusBadgeImageView.layer.borderColor = nil
+        statusBadgeImageView.backgroundColor = .clear
+        statusBadgeImageView.clipsToBounds = true
+        fixedHeaderView.addSubview(statusBadgeImageView)
+
+        let avatarTap = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
+        avatarContainerView.addGestureRecognizer(avatarTap)
+        avatarContainerView.isUserInteractionEnabled = true
 
         statusBubbleContainer.backgroundColor = .clear
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
@@ -312,13 +387,21 @@ final class ProfileContainerNode: ASDisplayNode {
         }
         statusBubbleContainer.addSubview(addStatusButton)
         fixedHeaderView.addSubview(statusBubbleContainer)
+
+        addStatusButton.addTarget(self, action: #selector(addStatusButtonTapped), for: .touchUpInside)
     }
 
     private func setupNameArea() {
+        nameTapArea.backgroundColor = .clear
+        nameTapArea.isUserInteractionEnabled = true
+        let nameTap = UITapGestureRecognizer(target: self, action: #selector(displayNameTapped))
+        nameTapArea.addGestureRecognizer(nameTap)
+
         nameLabel.font = .systemFont(ofSize: 22.sf, weight: .bold)
         nameLabel.textColor = .mezonTextStrong
-        fixedHeaderView.addSubview(nameLabel)
-        fixedHeaderView.addSubview(chevronDown)
+        nameTapArea.addSubview(nameLabel)
+        nameTapArea.addSubview(chevronDown)
+        fixedHeaderView.addSubview(nameTapArea)
 
         usernameLabel.font = .systemFont(ofSize: 14.sf)
         usernameLabel.textColor = .mezonTextPrimary
@@ -488,10 +571,21 @@ final class ProfileContainerNode: ASDisplayNode {
             statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
         }
 
-        onlineDot.isHidden = user?.status != .online
+        statusBadgeImageView.isHidden = false
+        let st = user?.status ?? .offline
+        let badgeSize = Self.statusBadgeDotSize(for: st)
+        let badgeScale = Self.statusBadgeContentScale(for: st)
+        statusBadgeImageView.layer.cornerRadius = badgeSize / 2
+        statusBadgeImageView.image = Self.profileImageResized(
+            named: Self.statusBadgeAssetName(for: st),
+            size: badgeSize,
+            contentScale: badgeScale
+        )
 
         nameLabel.text = user?.displayName ?? "—"
         usernameLabel.text = user?.username.isEmpty == false ? user!.username : "—"
+
+        configureAddStatusButton(user: user)
 
         let balanceAmount = "145.776"
         balanceRow.configure(
@@ -544,6 +638,11 @@ final class ProfileContainerNode: ASDisplayNode {
             font: .systemFont(ofSize: 13.sf, weight: .bold),
             trailingIconImage: Self.profileImage(named: "IDIcon")
         )
+
+        if let layout = lastLayout {
+            let safeTop = layout.safeInsets.top
+            layoutContent(width: layout.size.width, height: layout.size.height, safeTop: safeTop)
+        }
     }
 
     private func formatMemberSince() -> String {
@@ -577,6 +676,7 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        lastLayout = layout
         let safeTop = layout.safeInsets.top
         layoutContent(width: layout.size.width, height: layout.size.height, safeTop: safeTop)
     }
@@ -593,10 +693,13 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarContainerView.frame = CGRect(x: side, y: y, width: avatarSize, height: avatarSize)
         avatarImageView.frame = avatarContainerView.bounds
 
-        let dotSize: CGFloat = 16.swh
-        onlineDot.frame = CGRect(
-            x: avatarContainerView.frame.maxX - dotSize - 2,
-            y: avatarContainerView.frame.maxY - dotSize - 2,
+        let st = context.currentUser?.status ?? .offline
+        let dotSize = Self.statusBadgeDotSize(for: st)
+        let compensation = Self.statusBadgePositionCompensation(for: st)
+        statusBadgeImageView.layer.cornerRadius = dotSize / 2
+        statusBadgeImageView.frame = CGRect(
+            x: avatarContainerView.frame.maxX - dotSize - 2 + compensation.x,
+            y: avatarContainerView.frame.maxY - dotSize - 2 + compensation.y,
             width: dotSize,
             height: dotSize
         )
@@ -627,12 +730,14 @@ final class ProfileContainerNode: ASDisplayNode {
         y = avatarContainerView.frame.maxY + 8.sh
 
         nameLabel.sizeToFit()
-        nameLabel.frame = CGRect(x: side, y: y, width: nameLabel.intrinsicContentSize.width, height: 28.sh)
-
         let chevronSize: CGFloat = 14.swh
+        let nameW = min(nameLabel.intrinsicContentSize.width, width - side * 2 - 100.sw)
+        let nameBlockW = nameW + 6.sw + chevronSize
+        nameTapArea.frame = CGRect(x: side, y: y, width: nameBlockW, height: 28.sh)
+        nameLabel.frame = CGRect(x: 0, y: 0, width: nameW, height: 28.sh)
         chevronDown.frame = CGRect(
             x: nameLabel.frame.maxX + 6.sw,
-            y: y + (28.sh - chevronSize) / 2,
+            y: (28.sh - chevronSize) / 2,
             width: chevronSize,
             height: chevronSize
         )
@@ -736,6 +841,18 @@ final class ProfileContainerNode: ASDisplayNode {
 
     @objc private func settingsTapped() {
         onSettingsTapped?()
+    }
+
+    @objc private func avatarTapped() {
+        onAvatarTapped?()
+    }
+
+    @objc private func displayNameTapped() {
+        onDisplayNameTapped?()
+    }
+
+    @objc private func addStatusButtonTapped() {
+        onAddStatusTapped?()
     }
 }
 

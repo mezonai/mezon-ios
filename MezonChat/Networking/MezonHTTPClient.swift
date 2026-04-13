@@ -114,6 +114,23 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateUserStatus(_ request: Mezon_Api_UserStatusUpdate, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateUserStatus",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func getUserStatus(token: String) async throws -> Mezon_Api_UserStatus {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetUserStatus",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func sessionRefresh(refreshToken: String) async throws -> MezonSession {
         var req = Mezon_Api_SessionRefreshRequest()
         req.token = refreshToken

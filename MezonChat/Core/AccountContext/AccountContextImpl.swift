@@ -32,6 +32,99 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    func applyCurrentUser(_ user: User) {
+        currentUser = user
+        NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
+    }
+
+    func refreshAccountProfile() async {
+        guard let token = await getToken() else { return }
+        do {
+            let apiAccount = try await engine.auth.getAccount(token: token)
+            if let data = try? apiAccount.serializedData() {
+                account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
+            }
+            applyCurrentUser(mapAccountToUser(apiAccount))
+        } catch {
+            AppLogger.network.warning("[Auth] refreshAccountProfile failed: \(error)")
+        }
+    }
+
+    func updatePresenceStatus(_ status: User.OnlineStatus) async throws {
+        guard let token = await getToken() else {
+            throw MezonError.socketError("Not authenticated")
+        }
+        let api = status.apiPresenceString
+        var req = Mezon_Api_UserStatusUpdate()
+        req.status = api
+        req.minutes = 0
+        req.untilTurnOn = true
+        AppLogger.app.info("[Profile] updatePresenceStatus → HTTP UpdateUserStatus status=\(api)")
+        try await account.network.updateUserStatus(req, token: token)
+        if var u = currentUser {
+            u.status = status
+            applyCurrentUser(u)
+        }
+        await refreshAccountProfile()
+        if var u = currentUser, u.status != status {
+            u.status = status
+            applyCurrentUser(u)
+        }
+    }
+
+    func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws {
+        guard await getToken() != nil else {
+            throw MezonError.socketError("Not authenticated")
+        }
+        let clanId = resolvedClanIdForCustomStatus()
+        AppLogger.app.info("[Profile] submitCustomStatus clanId=\(clanId) text=\(text.prefix(30)) minutes=\(minutes) noClear=\(noClear)")
+        account.socket.writeCustomStatus(
+            clanId: clanId,
+            status: text,
+            minutes: minutes,
+            noClear: noClear
+        )
+        if var u = currentUser {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                u.customStatus = nil
+                u.customStatusTimeReset = nil
+                u.customStatusNoClear = nil
+            } else {
+                u.customStatus = trimmed
+                u.customStatusTimeReset = minutes
+                u.customStatusNoClear = noClear
+            }
+            applyCurrentUser(u)
+        }
+    }
+
+    func fetchCurrentUserStatus() async {
+        guard let token = await getToken() else { return }
+        do {
+            let resp = try await account.network.getUserStatus(token: token)
+            let raw = resp.status.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else {
+                AppLogger.app.info("[Profile] fetchCurrentUserStatus: empty status from API; keeping current")
+                return
+            }
+            AppLogger.app.info("[Profile] fetchCurrentUserStatus → status=\(raw)")
+            if var u = currentUser {
+                u.status = User.presenceStatus(fromApiString: raw, onlineFallback: u.status == .online)
+                applyCurrentUser(u)
+            }
+        } catch {
+            AppLogger.network.warning("[Profile] fetchCurrentUserStatus failed: \(error)")
+        }
+    }
+
+    private func resolvedClanIdForCustomStatus() -> Int64 {
+        if currentClanId != 0 { return currentClanId }
+        if let v = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int64 { return v }
+        if let v = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int { return Int64(v) }
+        return 0
+    }
+
     func getToken() async -> String? {
         await waitForSessionReady()
 
@@ -150,6 +243,7 @@ final class AccountContextImpl: AccountContext {
         SessionRefreshManager.shared.reset()
         session = nil
         currentUser = nil
+        NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
         currentClanId = 0
         currentChannel = nil
         account.socket.disconnect()
@@ -258,12 +352,12 @@ final class AccountContextImpl: AccountContext {
         onReady: @escaping @MainActor (AccountContextImpl) -> Void
     ) {
         session = saved
-        currentUser = User(
+        applyCurrentUser(User(
             id: saved.userId ?? UUID().uuidString,
             username: saved.username ?? "me",
             displayName: saved.username ?? "Me",
-            avatarURL: nil, status: .online, bio: nil
-        )
+            avatarURL: nil, status: .online, customStatus: nil, bio: nil
+        ))
         setLoggedIn(true)
         account.network.updateBaseURL(from: saved)
 
@@ -534,9 +628,18 @@ final class AccountContextImpl: AccountContext {
                     WebRTCCallManager.shared.handleSignalingMessage(msg)
                 }
             }
+            account.socket.onCustomStatus = { [weak self] event in
+                self?.applyIncomingCustomStatusEvent(event)
+            }
+            account.socket.onUserStatus = { [weak self] event in
+                self?.applyIncomingUserStatusEvent(event)
+            }
+            account.socket.onStatusPresence = { [weak self] event in
+                self?.applyIncomingStatusPresenceEvent(event)
+            }
             account.socket.connect(token: session.token, wsHostOverride: nil)
         }
-        if let user { currentUser = user }
+        if let user { applyCurrentUser(user) }
 
         guard fetchAccount else { return }
         Task { @MainActor in
@@ -545,7 +648,7 @@ final class AccountContextImpl: AccountContext {
                 if let data = try? apiAccount.serializedData() {
                     account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
                 }
-                currentUser = mapAccountToUser(apiAccount)
+                applyCurrentUser(mapAccountToUser(apiAccount))
             } catch {
                 AppLogger.network.warning("[Auth] getAccount failed: \(error)")
             }
@@ -637,14 +740,79 @@ final class AccountContextImpl: AccountContext {
         return true
     }
 
+    private func currentUserNumericId() -> Int64? {
+        guard let id = currentUser?.id else { return nil }
+        return Int64(id)
+    }
+
+    private func applyIncomingCustomStatusEvent(_ event: Mezon_Realtime_CustomStatusEvent) {
+        guard let myId = currentUserNumericId(), event.userID == myId else { return }
+        guard var u = currentUser else { return }
+        let text = event.status.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty {
+            u.customStatus = nil
+            u.customStatusTimeReset = nil
+            u.customStatusNoClear = nil
+        } else {
+            u.customStatus = text
+            u.customStatusTimeReset = event.timeReset
+            u.customStatusNoClear = event.noClear
+        }
+        applyCurrentUser(u)
+        AppLogger.app.info("[Profile] socket CustomStatusEvent synced (self)")
+    }
+
+    private func applyIncomingUserStatusEvent(_ event: Mezon_Realtime_UserStatusEvent) {
+        guard let myId = currentUserNumericId(), event.userID == myId else { return }
+        guard var u = currentUser else { return }
+        let raw = event.customStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        if let presence = User.knownPresenceStatus(fromApiString: raw) {
+            u.status = presence
+        } else {
+            u.customStatus = raw
+        }
+        applyCurrentUser(u)
+        AppLogger.app.info("[Profile] socket UserStatusEvent synced (self)")
+    }
+
+    private func applyIncomingStatusPresenceEvent(_ event: Mezon_Realtime_StatusPresenceEvent) {
+        guard let myId = currentUserNumericId(), var u = currentUser else { return }
+        guard let presence = event.joins.first(where: { $0.userID == myId }) else { return }
+        if presence.hasStatus {
+            let raw = presence.status.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !raw.isEmpty {
+                u.status = User.presenceStatus(fromApiString: raw, onlineFallback: u.status == .online)
+            }
+        }
+        let cust = presence.userStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cust.isEmpty {
+            u.customStatus = cust
+        }
+        applyCurrentUser(u)
+        AppLogger.app.info("[Profile] socket StatusPresenceEvent synced (self)")
+    }
+
     private func mapAccountToUser(_ api: Mezon_Api_Account) -> User {
         let u = api.user
+        let presence = User.presenceStatus(fromApiString: u.status, onlineFallback: u.online)
+        let newCustom = u.userStatus.isEmpty ? nil : u.userStatus
+        let prev = currentUser
+        let newTrim = newCustom?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prevTrim = prev?.customStatus?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sameCustomText: Bool = {
+            guard let nt = newTrim, !nt.isEmpty else { return false }
+            return nt == prevTrim
+        }()
         return User(
             id: "\(u.id)",
             username: u.username.isEmpty ? "me" : u.username,
             displayName: u.displayName.isEmpty ? u.username : u.displayName,
             avatarURL: u.avatarURL.isEmpty ? nil : URL(string: u.avatarURL),
-            status: u.online ? .online : .offline,
+            status: presence,
+            customStatus: newCustom,
+            customStatusTimeReset: newCustom == nil ? nil : (sameCustomText ? prev?.customStatusTimeReset : nil),
+            customStatusNoClear: newCustom == nil ? nil : (sameCustomText ? prev?.customStatusNoClear : nil),
             bio: u.aboutMe.isEmpty ? nil : u.aboutMe,
             email: api.email.isEmpty ? nil : api.email,
             phoneNumber: u.phoneNumber.isEmpty ? nil : u.phoneNumber,
