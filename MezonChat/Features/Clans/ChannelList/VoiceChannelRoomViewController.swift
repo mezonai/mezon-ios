@@ -9,6 +9,14 @@ private enum VoiceParticipantTileKind {
     case screenShare
 }
 
+private enum VoiceMoreToolsPopoverMetrics {
+    static let buttonSide: CGFloat = 40
+    static let imageInset: CGFloat = 11
+    static var panelContentWidth: CGFloat { buttonSide + 20 }
+    static var buttonCornerRadius: CGFloat { buttonSide / 2 }
+    static var symbolPointSize: CGFloat { 16 }
+}
+
 private struct VoiceParticipantTileDescriptor {
     let rowKey: String
     let participant: Participant
@@ -68,6 +76,25 @@ private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64
         return av
     }
     return nil
+}
+
+@MainActor
+private func voiceChannelResolveDisplayNameForUserId(context: AccountContext, clanId: Int64, userId: Int64) -> String {
+    let key = "\(userId)"
+    if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: key),
+       let name = voiceChannelDisplayNameFromClanUser(cu) {
+        return name
+    }
+    if context.currentUser?.id == key {
+        if let d = context.currentUser?.displayName, !d.isEmpty { return d }
+        if let n = context.currentUser?.username, !n.isEmpty { return n }
+        return NSLocalizedString("voiceChannel.placeholderYou", tableName: nil, bundle: .main, value: "You", comment: "")
+    }
+    if let profile = context.account.postbox.read({ $0.getProfile(userId: key) }) {
+        if let d = profile.displayName, !d.isEmpty { return d }
+        if !profile.username.isEmpty { return profile.username }
+    }
+    return key
 }
 
 @MainActor
@@ -411,15 +438,6 @@ final class VoiceChannelPiPOverlay: NSObject {
             }
         }
 
-        for r in remotes {
-            if let track = r.firstCameraVideoTrack {
-                showVideo(track: track, mirror: false)
-                let name = resolveDisplayName(r)
-                showBadge(icon: r.isMicrophoneEnabled() ? "mic.fill" : "mic.slash.fill", name: name, micOn: r.isMicrophoneEnabled())
-                return
-            }
-        }
-
         if let track = local.firstScreenShareVideoTrack {
             showVideo(track: track, mirror: false)
             let name = resolveDisplayName(local)
@@ -434,10 +452,9 @@ final class VoiceChannelPiPOverlay: NSObject {
             return
         }
 
-        let first: Participant = remotes.first ?? local
-        showAvatar(participant: first)
-        let name = resolveDisplayName(first)
-        showBadge(icon: first.isMicrophoneEnabled() ? "mic.fill" : "mic.slash.fill", name: name, micOn: first.isMicrophoneEnabled())
+        showAvatar(participant: local)
+        let name = resolveDisplayName(local)
+        showBadge(icon: local.isMicrophoneEnabled() ? "mic.fill" : "mic.slash.fill", name: name, micOn: local.isMicrophoneEnabled())
     }
 
     private func showVideo(track: VideoTrack, mirror: Bool) {
@@ -874,6 +891,12 @@ final class VoiceChannelRoomViewController: ViewController {
     private var didStartVoiceConnection = false
     private var micButton: UIButton!
     private var camButton: UIButton!
+    private var raiseHandButton: UIButton!
+    private var isLocalRaiseHandActive = false
+    private var raisedHandUserIds: Set<Int64> = []
+    private var raiseHandBannerVisibleUserIds: Set<Int64> = []
+    private var raiseHandBannerHideWorkItems: [Int64: DispatchWorkItem] = [:]
+    private let raiseHandBannerAutoHideInterval: TimeInterval = 10
     private var didAnnounceMeetJoin = false
     private var didAnnounceMeetLeave = false
     private var audioRouteObserver: NSObjectProtocol?
@@ -890,6 +913,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private let connectingSpinner = UIActivityIndicatorView(style: .large)
     private let connectingLabel = UILabel()
     private let voiceReactionOverlay = VoiceCallReactionFlightView()
+    private let raiseHandBannerStack = UIStackView()
 
     private let headerBar = UIView()
     private let headerLeft = UIStackView()
@@ -901,6 +925,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private let moreButton = UIButton(type: .custom)
     private var voiceMoreToolsHost: UIView?
     private weak var voiceReactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
+    private weak var voiceReactionSoundStickerPickerSheet: ReactionSoundStickerPickerSheetController?
 
     private let contentScroll = UIScrollView()
     private let participantArea = UIView()
@@ -1023,7 +1048,9 @@ final class VoiceChannelRoomViewController: ViewController {
         let mic = makeControlBarIconButton(systemName: "mic.slash.fill", action: #selector(micTapped))
         micButton = mic
         let chat = makeControlBarIconButton(systemName: "bubble.left.and.bubble.right.fill", action: #selector(openChatTapped))
-        let hand = makeControlBarIconButton(systemName: "hand.raised.fill")
+        let hand = makeControlBarIconButton(systemName: "hand.raised.fill", action: #selector(raiseHandTapped))
+        raiseHandButton = hand
+        refreshRaiseHandButtonAppearance()
         let leave = makeEndCallButton()
         [cam, mic, chat, hand, leave].forEach { bottomControlsStack.addArrangedSubview($0) }
 
@@ -1047,6 +1074,12 @@ final class VoiceChannelRoomViewController: ViewController {
         view.addSubview(headerBar)
         view.addSubview(contentScroll)
         view.addSubview(bottomPill)
+        raiseHandBannerStack.axis = .vertical
+        raiseHandBannerStack.alignment = .trailing
+        raiseHandBannerStack.spacing = 8
+        raiseHandBannerStack.translatesAutoresizingMaskIntoConstraints = false
+        raiseHandBannerStack.isHidden = true
+        view.insertSubview(raiseHandBannerStack, aboveSubview: contentScroll)
         voiceReactionOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(voiceReactionOverlay)
         view.addSubview(connectingOverlay)
@@ -1115,6 +1148,10 @@ final class VoiceChannelRoomViewController: ViewController {
             voiceReactionOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             voiceReactionOverlay.topAnchor.constraint(equalTo: view.topAnchor),
             voiceReactionOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            raiseHandBannerStack.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 6),
+            raiseHandBannerStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            raiseHandBannerStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 72),
         ])
 
         voiceReactionOverlay.onSoundReactionTilePlayingChanged = { [weak self] userId, playing in
@@ -1128,6 +1165,12 @@ final class VoiceChannelRoomViewController: ViewController {
             for row in self.participantRows.values {
                 row.setSoundReactionCornerVisible(false)
             }
+        }
+        voiceReactionOverlay.onRaiseHandStateChanged = { [weak self] userId, raised in
+            self?.applyRaiseHandTileState(userId: userId, raised: raised)
+        }
+        voiceReactionOverlay.onRaiseHandDisplayReset = { [weak self] in
+            self?.clearAllRaiseHandTileBadges()
         }
 
         NotificationCenter.default.addObserver(
@@ -1230,6 +1273,8 @@ final class VoiceChannelRoomViewController: ViewController {
         if let audioRouteObserver {
             NotificationCenter.default.removeObserver(audioRouteObserver)
         }
+        raiseHandBannerHideWorkItems.values.forEach { $0.cancel() }
+        raiseHandBannerHideWorkItems.removeAll()
         dismissVoiceMoreToolsPopover()
     }
 
@@ -1252,6 +1297,8 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func unbindVoiceReactionSocketForPiP() {
         MezonSocket.shared.onVoiceReaction = nil
+        voiceReactionEmojiPickerSheet?.dismiss(animated: false)
+        voiceReactionSoundStickerPickerSheet?.dismiss(animated: false)
         voiceReactionOverlay.reset()
     }
 
@@ -1324,12 +1371,12 @@ final class VoiceChannelRoomViewController: ViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.isUserInteractionEnabled = true
 
-        let emojiBtn = makeVoiceMoreToolCircleButton(systemName: "face.smiling")
+        let emojiBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Chat/FaceIcon"), fallbackSystemName: "face.smiling")
         emojiBtn.addTarget(self, action: #selector(voiceMoreToolsEmojiTapped), for: .touchUpInside)
-        let lightBtn = makeVoiceMoreToolCircleButton(systemName: "lightbulb.fill")
-        lightBtn.addTarget(self, action: #selector(voiceMoreToolsLightTapped), for: .touchUpInside)
+        let soundBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Channel/channelVoice"), fallbackSystemName: "speaker.wave.2.fill")
+        soundBtn.addTarget(self, action: #selector(voiceMoreToolsSoundTapped), for: .touchUpInside)
         stack.addArrangedSubview(emojiBtn)
-        stack.addArrangedSubview(lightBtn)
+        stack.addArrangedSubview(soundBtn)
 
         panel.addSubview(stack)
         view.addSubview(host)
@@ -1347,7 +1394,7 @@ final class VoiceChannelRoomViewController: ViewController {
         host.addSubview(panel)
 
         let anchor = moreButton.convert(moreButton.bounds, to: host)
-        let blurW: CGFloat = 52 + 10 * 2
+        let blurW = VoiceMoreToolsPopoverMetrics.panelContentWidth
         let panelTrailingInset = max(0, host.bounds.width - anchor.maxX)
         NSLayoutConstraint.activate([
             dismissTap.topAnchor.constraint(equalTo: host.topAnchor),
@@ -1374,18 +1421,24 @@ final class VoiceChannelRoomViewController: ViewController {
         voiceMoreToolsHost = host
     }
 
-    private func makeVoiceMoreToolCircleButton(systemName: String) -> UIButton {
+    private func makeVoiceMoreToolCircleButton(image: UIImage?, fallbackSystemName: String) -> UIButton {
         let b = UIButton(type: .custom)
         b.translatesAutoresizingMaskIntoConstraints = false
-        let cfg = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        b.setImage(UIImage(systemName: systemName, withConfiguration: cfg), for: .normal)
+        let inset = VoiceMoreToolsPopoverMetrics.imageInset
+        b.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
+        b.imageView?.contentMode = .scaleAspectFit
+        let cfg = UIImage.SymbolConfiguration(pointSize: VoiceMoreToolsPopoverMetrics.symbolPointSize, weight: .medium)
+        let resolved = image?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: fallbackSystemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        b.setImage(resolved, for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor.white.withAlphaComponent(0.14)
-        b.layer.cornerRadius = 26
+        let side = VoiceMoreToolsPopoverMetrics.buttonSide
+        b.layer.cornerRadius = VoiceMoreToolsPopoverMetrics.buttonCornerRadius
         b.clipsToBounds = true
         NSLayoutConstraint.activate([
-            b.widthAnchor.constraint(equalToConstant: 52),
-            b.heightAnchor.constraint(equalToConstant: 52),
+            b.widthAnchor.constraint(equalToConstant: side),
+            b.heightAnchor.constraint(equalToConstant: side),
         ])
         return b
     }
@@ -1395,9 +1448,9 @@ final class VoiceChannelRoomViewController: ViewController {
         presentReactionEmojiPickerForVoiceChannel(mediaType: 0)
     }
 
-    @objc private func voiceMoreToolsLightTapped() {
+    @objc private func voiceMoreToolsSoundTapped() {
         dismissVoiceMoreToolsPopover()
-        presentReactionEmojiPickerForVoiceChannel(mediaType: 0)
+        presentReactionSoundStickerPickerForVoiceChannel()
     }
 
     private func presentReactionEmojiPickerForVoiceChannel(mediaType: Int32) {
@@ -1426,6 +1479,44 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
+    private func presentReactionSoundStickerPickerForVoiceChannel() {
+        view.endEditing(true)
+        let sheet = ReactionSoundStickerPickerSheetController(engine: context.engine, dismissOnStickerSelect: true) { [weak self] sticker in
+            self?.sendVoiceChannelSoundReaction(sticker: sticker)
+        }
+        sheet.onDismiss = { [weak self] in
+            self?.voiceReactionSoundStickerPickerSheet = nil
+        }
+        voiceReactionSoundStickerPickerSheet = sheet
+
+        let navForOverlay = navigationControllerForGlobalOverlay()
+        if let nav = navForOverlay {
+            nav.presentOverlay(controller: sheet, inGlobal: true)
+        } else if let host = presentationWindowHost() {
+            host.presentInGlobalOverlay(sheet)
+        } else {
+            return
+        }
+
+        sheet.animateIn()
+        DispatchQueue.main.async { [weak sheet] in
+            navForOverlay?.requestLayout(transition: .immediate)
+            sheet?.animateIn()
+        }
+    }
+
+    private func sendVoiceChannelSoundReaction(sticker: CachedClanStickerRecord) {
+        let urlStr = StickersPanel.resolvedStickerMediaURLString(for: sticker)
+        guard !urlStr.isEmpty, let url = URL(string: urlStr), url.scheme != nil else { return }
+        guard let uidStr = context.currentUser?.id, let senderId = Int64(uidStr) else { return }
+        MezonSocket.shared.sendVoiceReaction(
+            channelId: channel.channelID,
+            senderId: senderId,
+            emojis: ["sound:\(urlStr)"],
+            mediaType: StickerMediaType.audio.rawValue
+        )
+    }
+
     private func sendVoiceChannelEmojiReaction(emojiId: String, mediaType: Int32) {
         guard !emojiId.isEmpty, let uidStr = context.currentUser?.id, let senderId = Int64(uidStr) else { return }
         MezonSocket.shared.sendVoiceReaction(
@@ -1434,6 +1525,213 @@ final class VoiceChannelRoomViewController: ViewController {
             emojis: [emojiId],
             mediaType: mediaType
         )
+    }
+
+    @objc private func raiseHandTapped() {
+        isLocalRaiseHandActive.toggle()
+        if let uid = Int64(context.currentUser?.id ?? "") {
+            applyRaiseHandTileState(userId: uid, raised: isLocalRaiseHandActive)
+        }
+        sendRaiseHandSocket(raised: isLocalRaiseHandActive)
+        refreshRaiseHandButtonAppearance()
+    }
+
+    private func sendRaiseHandSocket(raised: Bool) {
+        guard let uidStr = context.currentUser?.id, let senderId = Int64(uidStr) else { return }
+        let cid = channel.channelID
+        let name = voiceReactionLocalDisplayName()
+        let avatar = voiceReactionLocalAvatarString()
+        let emojis: [String]
+        if raised {
+            emojis = [
+                "raising-up:\(cid)",
+                "sender-name:\(name)",
+                "sender-avatar:\(avatar)",
+            ]
+        } else {
+            emojis = [
+                "raising-down:\(cid)",
+                "sender-name:\(name)",
+                "sender-avatar:\(avatar)",
+            ]
+        }
+        MezonSocket.shared.sendVoiceReaction(
+            channelId: channel.channelID,
+            senderId: senderId,
+            emojis: emojis,
+            mediaType: 0
+        )
+    }
+
+    private func voiceReactionLocalDisplayName() -> String {
+        if let d = context.currentUser?.displayName, !d.isEmpty { return d }
+        if let n = context.currentUser?.username, !n.isEmpty { return n }
+        return ""
+    }
+
+    private func voiceReactionLocalAvatarString() -> String {
+        context.currentUser?.avatarURL?.absoluteString ?? ""
+    }
+
+    private func refreshRaiseHandButtonAppearance() {
+        guard raiseHandButton != nil else { return }
+        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        raiseHandButton.setImage(
+            UIImage(systemName: "hand.raised.fill", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate),
+            for: .normal
+        )
+        if isLocalRaiseHandActive {
+            raiseHandButton.tintColor = UIColor.theme.textLink
+            raiseHandButton.backgroundColor = UIColor.theme.textLink.withAlphaComponent(0.22)
+        } else {
+            raiseHandButton.tintColor = UIColor.theme.textStrong
+            raiseHandButton.backgroundColor = UIColor.theme.tertiary
+        }
+    }
+
+    private func lowerRaiseHandIfActive() {
+        guard isLocalRaiseHandActive else { return }
+        isLocalRaiseHandActive = false
+        if let uid = Int64(context.currentUser?.id ?? "") {
+            applyRaiseHandTileState(userId: uid, raised: false)
+        }
+        sendRaiseHandSocket(raised: false)
+        refreshRaiseHandButtonAppearance()
+    }
+
+    private func applyRaiseHandTileState(userId: Int64, raised: Bool) {
+        if raised {
+            raisedHandUserIds.insert(userId)
+            raiseHandBannerVisibleUserIds.insert(userId)
+            scheduleRaiseHandBannerAutoHide(for: userId)
+        } else {
+            raisedHandUserIds.remove(userId)
+            cancelRaiseHandBannerAutoHide(for: userId)
+            raiseHandBannerVisibleUserIds.remove(userId)
+        }
+        let idStr = "\(userId)"
+        for (key, row) in participantRows {
+            let base = key.components(separatedBy: "|").first ?? key
+            if base == idStr {
+                row.setRaiseHandCornerVisible(raised)
+            }
+        }
+        refreshRaiseHandTopBanners()
+    }
+
+    private func clearAllRaiseHandTileBadges() {
+        raisedHandUserIds.removeAll()
+        raiseHandBannerVisibleUserIds.removeAll()
+        raiseHandBannerHideWorkItems.values.forEach { $0.cancel() }
+        raiseHandBannerHideWorkItems.removeAll()
+        participantRows.values.forEach { $0.setRaiseHandCornerVisible(false) }
+        refreshRaiseHandTopBanners()
+    }
+
+    private func scheduleRaiseHandBannerAutoHide(for userId: Int64) {
+        raiseHandBannerHideWorkItems[userId]?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.raiseHandBannerHideWorkItems[userId] = nil
+            if let localId = Int64(self.context.currentUser?.id ?? ""), localId == userId {
+                self.isLocalRaiseHandActive = false
+                self.sendRaiseHandSocket(raised: false)
+                self.refreshRaiseHandButtonAppearance()
+            }
+            self.applyRaiseHandTileState(userId: userId, raised: false)
+        }
+        raiseHandBannerHideWorkItems[userId] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + raiseHandBannerAutoHideInterval, execute: work)
+    }
+
+    private func cancelRaiseHandBannerAutoHide(for userId: Int64) {
+        raiseHandBannerHideWorkItems[userId]?.cancel()
+        raiseHandBannerHideWorkItems[userId] = nil
+    }
+
+    private func refreshRaiseHandTopBanners() {
+        raiseHandBannerStack.arrangedSubviews.forEach {
+            raiseHandBannerStack.removeArrangedSubview($0)
+            $0.removeFromSuperview()
+        }
+        guard !raiseHandBannerVisibleUserIds.isEmpty else {
+            raiseHandBannerStack.isHidden = true
+            return
+        }
+        raiseHandBannerStack.isHidden = false
+        for uid in raiseHandBannerVisibleUserIds.sorted() {
+            raiseHandBannerStack.addArrangedSubview(makeRaiseHandTopBannerPill(userId: uid))
+        }
+    }
+
+    private func makeRaiseHandTopBannerPill(userId: Int64) -> UIView {
+        let wrap = UIView()
+        wrap.translatesAutoresizingMaskIntoConstraints = false
+        wrap.backgroundColor = UIColor.theme.tertiary
+        wrap.layer.cornerRadius = 14
+        wrap.clipsToBounds = true
+        wrap.layer.borderWidth = 1
+        wrap.layer.borderColor = UIColor.theme.borderHighlight.cgColor
+
+        let avatar = UIImageView()
+        avatar.translatesAutoresizingMaskIntoConstraints = false
+        avatar.contentMode = .scaleAspectFill
+        avatar.clipsToBounds = true
+        avatar.layer.cornerRadius = 16
+        avatar.backgroundColor = UIColor.theme.tertiary
+
+        let key = "\(userId)"
+        if let raw = voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: key), !raw.isEmpty {
+            let px = Int(32 * UIScreen.main.scale)
+            let proxy = ImgproxyURL.create(from: raw, width: px, height: px)
+            ImageCache.shared.loadAvatar(urlString: proxy) { img in
+                avatar.image = img
+            }
+        }
+
+        let nameLabel = UILabel()
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        nameLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        nameLabel.textColor = UIColor.theme.textStrong
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.numberOfLines = 1
+        nameLabel.text = voiceChannelResolveDisplayNameForUserId(context: context, clanId: channel.clanID, userId: userId)
+
+        let hand = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
+        hand.translatesAutoresizingMaskIntoConstraints = false
+        hand.tintColor = UIColor(red: 0.95, green: 0.58, blue: 0.2, alpha: 1)
+        hand.contentMode = .scaleAspectFit
+
+        wrap.addSubview(avatar)
+        wrap.addSubview(nameLabel)
+        wrap.addSubview(hand)
+
+        NSLayoutConstraint.activate([
+            wrap.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+            avatar.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 6),
+            avatar.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -6),
+            avatar.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 6),
+            avatar.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: 32),
+            avatar.heightAnchor.constraint(equalToConstant: 32),
+            nameLabel.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 8),
+            nameLabel.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
+            nameLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 168),
+            hand.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
+            hand.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -10),
+            hand.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
+            hand.widthAnchor.constraint(equalToConstant: 24),
+            hand.heightAnchor.constraint(equalToConstant: 24),
+        ])
+        return wrap
+    }
+
+    private func syncRaiseHandBadgesToParticipantRows() {
+        for (key, row) in participantRows {
+            let base = key.components(separatedBy: "|").first ?? key
+            guard let uid = Int64(base) else { continue }
+            row.setRaiseHandCornerVisible(raisedHandUserIds.contains(uid))
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1582,9 +1880,12 @@ final class VoiceChannelRoomViewController: ViewController {
         participantRows.values.forEach { $0.applyTheme() }
         refreshSpeakerRouteUI()
         refreshCamButtonIcon()
+        refreshRaiseHandButtonAppearance()
+        refreshRaiseHandTopBanners()
     }
 
     @objc private func popTapped() {
+        lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
         liveKitReconnectTask?.cancel()
@@ -1606,6 +1907,7 @@ final class VoiceChannelRoomViewController: ViewController {
     @objc private func minimizeToPiP() {
         print("[PiP-Debug][VC] minimizeToPiP() called — bridge=\(liveKitBridge != nil)")
         guard let bridge = liveKitBridge else { return }
+        lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
         liveKitReconnectTask?.cancel()
@@ -1980,6 +2282,8 @@ final class VoiceChannelRoomViewController: ViewController {
         orderedDescriptorKeys = orderedKeys
         if previousKeys != orderedKeys {
             rebuildGrid()
+        } else {
+            syncRaiseHandBadgesToParticipantRows()
         }
         updateCallPiPContent(room: room)
     }
@@ -2038,6 +2342,7 @@ final class VoiceChannelRoomViewController: ViewController {
         for t in tiles {
             t.applyLayoutMetrics(m)
         }
+        syncRaiseHandBadgesToParticipantRows()
     }
 
     private func voiceTileDescriptors(participants: [Participant]) -> [VoiceParticipantTileDescriptor] {
@@ -2767,6 +3072,8 @@ private struct VoiceParticipantTileLayoutMetrics: Equatable {
     var initialFontSize: CGFloat
     var soundCornerSide: CGFloat
     var soundIconSide: CGFloat
+    var raiseHandCornerSide: CGFloat
+    var raiseHandIconSide: CGFloat
     var cardCornerRadius: CGFloat
     var expandSymbolPointSize: CGFloat
 
@@ -2781,6 +3088,8 @@ private struct VoiceParticipantTileLayoutMetrics: Equatable {
         initialFontSize: 20,
         soundCornerSide: 28,
         soundIconSide: 16,
+        raiseHandCornerSide: 26,
+        raiseHandIconSide: 15,
         cardCornerRadius: 10,
         expandSymbolPointSize: 14
     )
@@ -2800,6 +3109,8 @@ private func voiceParticipantTileLayoutMetrics(gridWidth: CGFloat) -> VoiceParti
     let initialF = max(16, min(26, 20 * s))
     let soundC = max(24, min(36, 28 * s))
     let soundI = max(14, min(20, 16 * s))
+    let raiseC = max(22, min(32, 26 * s))
+    let raiseI = max(12, min(18, 15 * s))
     let cardR = max(8, min(16, 10 * s))
     let expSym = max(12, min(18, 14 * s))
     return VoiceParticipantTileLayoutMetrics(
@@ -2813,6 +3124,8 @@ private func voiceParticipantTileLayoutMetrics(gridWidth: CGFloat) -> VoiceParti
         initialFontSize: initialF,
         soundCornerSide: soundC,
         soundIconSide: soundI,
+        raiseHandCornerSide: raiseC,
+        raiseHandIconSide: raiseI,
         cardCornerRadius: cardR,
         expandSymbolPointSize: expSym
     )
@@ -2834,6 +3147,11 @@ private final class VoiceParticipantRowView: UIView {
     private let soundReactionCorner = UIView()
     private let soundReactionIcon = UIImageView()
     private var soundReactionCornerVisible = false
+    private let raiseHandCorner = UIView()
+    private let raiseHandIcon = UIImageView()
+    private var raiseHandCornerVisible = false
+    private var soundReactionTrailingToCard: NSLayoutConstraint?
+    private var soundReactionTrailingToRaiseHand: NSLayoutConstraint?
     private var lastAvatarURL: String?
     private var avatarLoadPixelSide: Int = 0
     private var badgeMicOn = true
@@ -2848,6 +3166,10 @@ private final class VoiceParticipantRowView: UIView {
     private var soundCornerHeightConstraint: NSLayoutConstraint!
     private var soundIconWidthConstraint: NSLayoutConstraint!
     private var soundIconHeightConstraint: NSLayoutConstraint!
+    private var raiseHandCornerWidthConstraint: NSLayoutConstraint!
+    private var raiseHandCornerHeightConstraint: NSLayoutConstraint!
+    private var raiseHandIconWidthConstraint: NSLayoutConstraint!
+    private var raiseHandIconHeightConstraint: NSLayoutConstraint!
 
     init(identityKey: String, tileKind: VoiceParticipantTileKind) {
         self.identityKey = identityKey
@@ -2914,6 +3236,17 @@ private final class VoiceParticipantRowView: UIView {
         soundReactionIcon.tintColor = UIColor(red: 0.35, green: 0.78, blue: 0.95, alpha: 1)
         soundReactionCorner.addSubview(soundReactionIcon)
 
+        raiseHandCorner.translatesAutoresizingMaskIntoConstraints = false
+        raiseHandCorner.backgroundColor = UIColor(red: 0.22, green: 0.48, blue: 0.95, alpha: 1)
+        raiseHandCorner.layer.cornerRadius = layoutMetrics.raiseHandCornerSide / 2
+        raiseHandCorner.isHidden = true
+        raiseHandIcon.translatesAutoresizingMaskIntoConstraints = false
+        raiseHandIcon.contentMode = .scaleAspectFit
+        let raiseCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.raiseHandIconSide * 0.9, weight: .semibold)
+        raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
+        raiseHandIcon.tintColor = .white
+        raiseHandCorner.addSubview(raiseHandIcon)
+
         addSubview(card)
         card.addSubview(videoView)
         card.addSubview(avatarView)
@@ -2923,6 +3256,7 @@ private final class VoiceParticipantRowView: UIView {
         }
         card.addSubview(badgeContainer)
         card.addSubview(soundReactionCorner)
+        card.addSubview(raiseHandCorner)
         badgeContainer.addSubview(badgeIcon)
         badgeContainer.addSubview(badgeLabel)
 
@@ -2936,6 +3270,10 @@ private final class VoiceParticipantRowView: UIView {
         soundCornerHeightConstraint = soundReactionCorner.heightAnchor.constraint(equalToConstant: layoutMetrics.soundCornerSide)
         soundIconWidthConstraint = soundReactionIcon.widthAnchor.constraint(equalToConstant: layoutMetrics.soundIconSide)
         soundIconHeightConstraint = soundReactionIcon.heightAnchor.constraint(equalToConstant: layoutMetrics.soundIconSide)
+        raiseHandCornerWidthConstraint = raiseHandCorner.widthAnchor.constraint(equalToConstant: layoutMetrics.raiseHandCornerSide)
+        raiseHandCornerHeightConstraint = raiseHandCorner.heightAnchor.constraint(equalToConstant: layoutMetrics.raiseHandCornerSide)
+        raiseHandIconWidthConstraint = raiseHandIcon.widthAnchor.constraint(equalToConstant: layoutMetrics.raiseHandIconSide)
+        raiseHandIconHeightConstraint = raiseHandIcon.heightAnchor.constraint(equalToConstant: layoutMetrics.raiseHandIconSide)
 
         var constraints: [NSLayoutConstraint] = [
             card.topAnchor.constraint(equalTo: topAnchor),
@@ -2980,6 +3318,13 @@ private final class VoiceParticipantRowView: UIView {
             soundReactionIcon.centerYAnchor.constraint(equalTo: soundReactionCorner.centerYAnchor),
             soundIconWidthConstraint,
             soundIconHeightConstraint,
+
+            raiseHandCornerWidthConstraint,
+            raiseHandCornerHeightConstraint,
+            raiseHandIcon.centerXAnchor.constraint(equalTo: raiseHandCorner.centerXAnchor),
+            raiseHandIcon.centerYAnchor.constraint(equalTo: raiseHandCorner.centerYAnchor),
+            raiseHandIconWidthConstraint,
+            raiseHandIconHeightConstraint,
         ]
         if tileKind == .screenShare {
             constraints.append(contentsOf: [
@@ -2987,11 +3332,19 @@ private final class VoiceParticipantRowView: UIView {
                 expandButton.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
                 soundReactionCorner.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
                 soundReactionCorner.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+                raiseHandCorner.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+                raiseHandCorner.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
             ])
         } else {
+            let stCard = soundReactionCorner.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8)
+            let stRaise = soundReactionCorner.trailingAnchor.constraint(equalTo: raiseHandCorner.leadingAnchor, constant: -6)
+            soundReactionTrailingToCard = stCard
+            soundReactionTrailingToRaiseHand = stRaise
             constraints.append(contentsOf: [
                 soundReactionCorner.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
-                soundReactionCorner.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
+                stCard,
+                raiseHandCorner.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+                raiseHandCorner.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -8),
             ])
         }
         NSLayoutConstraint.activate(constraints)
@@ -3010,11 +3363,16 @@ private final class VoiceParticipantRowView: UIView {
         soundCornerHeightConstraint.constant = m.soundCornerSide
         soundIconWidthConstraint.constant = m.soundIconSide
         soundIconHeightConstraint.constant = m.soundIconSide
+        raiseHandCornerWidthConstraint.constant = m.raiseHandCornerSide
+        raiseHandCornerHeightConstraint.constant = m.raiseHandCornerSide
+        raiseHandIconWidthConstraint.constant = m.raiseHandIconSide
+        raiseHandIconHeightConstraint.constant = m.raiseHandIconSide
         card.layer.cornerRadius = m.cardCornerRadius
         videoView.layer.cornerRadius = m.cardCornerRadius
         avatarView.layer.cornerRadius = m.avatarDiameter / 2
         badgeContainer.layer.cornerRadius = m.badgeHeight / 2
         soundReactionCorner.layer.cornerRadius = m.soundCornerSide / 2
+        raiseHandCorner.layer.cornerRadius = m.raiseHandCornerSide / 2
         badgeLabel.font = .systemFont(ofSize: m.badgeFontSize, weight: .semibold)
         initialLabel.font = .systemFont(ofSize: m.initialFontSize, weight: .bold)
         if tileKind == .screenShare {
@@ -3023,6 +3381,8 @@ private final class VoiceParticipantRowView: UIView {
         }
         let soundCfg = UIImage.SymbolConfiguration(pointSize: m.soundIconSide * 0.88, weight: .semibold)
         soundReactionIcon.image = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: soundCfg)
+        let raiseCfg = UIImage.SymbolConfiguration(pointSize: m.raiseHandIconSide * 0.9, weight: .semibold)
+        raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
         refreshBadgeSymbols()
         let newPixelSide = Int(ceil(m.avatarDiameter * UIScreen.main.scale))
         if newPixelSide != avatarLoadPixelSide, avatarView.isHidden == false, let raw = lastAvatarURL, !raw.isEmpty {
@@ -3069,6 +3429,7 @@ private final class VoiceParticipantRowView: UIView {
     func prepareForRemoval() {
         videoView.track = nil
         setSoundReactionCornerVisible(false)
+        setRaiseHandCornerVisible(false)
         lastAvatarURL = nil
         avatarLoadPixelSide = 0
     }
@@ -3076,6 +3437,38 @@ private final class VoiceParticipantRowView: UIView {
     func applyTheme() {
         card.backgroundColor = UIColor.theme.secondary
         card.layer.borderColor = UIColor.theme.borderDim.cgColor
+    }
+
+    func setRaiseHandCornerVisible(_ visible: Bool) {
+        guard visible != raiseHandCornerVisible else { return }
+        raiseHandCornerVisible = visible
+        raiseHandCorner.layer.removeAllAnimations()
+        raiseHandIcon.layer.removeAllAnimations()
+        if visible {
+            raiseHandCorner.isHidden = false
+            raiseHandCorner.alpha = 0
+            raiseHandCorner.transform = CGAffineTransform(scaleX: 0.65, y: 0.65)
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut]) {
+                self.raiseHandCorner.alpha = 1
+                self.raiseHandCorner.transform = .identity
+            }
+        } else {
+            UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseIn]) {
+                self.raiseHandCorner.alpha = 0
+                self.raiseHandCorner.transform = CGAffineTransform(scaleX: 0.85, y: 0.85)
+            } completion: { _ in
+                self.raiseHandCorner.isHidden = true
+                self.raiseHandCorner.transform = .identity
+            }
+        }
+        updateSoundTrailingRelativeToRaiseHand()
+    }
+
+    private func updateSoundTrailingRelativeToRaiseHand() {
+        guard tileKind == .mainVideo, let stCard = soundReactionTrailingToCard, let stRaise = soundReactionTrailingToRaiseHand else { return }
+        let shift = raiseHandCornerVisible
+        stCard.isActive = !shift
+        stRaise.isActive = shift
     }
 
     func setSoundReactionCornerVisible(_ visible: Bool) {

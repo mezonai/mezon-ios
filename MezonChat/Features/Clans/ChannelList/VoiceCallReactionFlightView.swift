@@ -6,28 +6,18 @@ final class VoiceCallReactionFlightView: UIView {
 
     var onSoundReactionTilePlayingChanged: ((Int64, Bool) -> Void)?
     var onSoundReactionTileBadgesClearAll: (() -> Void)?
+    var onRaiseHandStateChanged: ((Int64, Bool) -> Void)?
+    var onRaiseHandDisplayReset: (() -> Void)?
 
     private static let raiseHandUpPrefix = "raising-up"
     private static let raiseHandDownPrefix = "raising-down"
     private static let senderNamePrefix = "sender-name:"
     private static let senderAvatarPrefix = "sender-avatar:"
     private static let soundPrefix = "sound:"
-    private static let raiseHandDisplaySeconds: TimeInterval = 10
     private static let maxSlots = 10
     private static let flightDuration: TimeInterval = 4
     private static let emojiSize: CGFloat = 44
 
-    private let raiseHandStack: UIStackView = {
-        let s = UIStackView()
-        s.axis = .vertical
-        s.alignment = .center
-        s.spacing = 10
-        s.translatesAutoresizingMaskIntoConstraints = false
-        return s
-    }()
-
-    private var raiseHandWorkItems: [String: DispatchWorkItem] = [:]
-    private var raiseHandRows: [String: UIView] = [:]
     private var reactionSlots = 0
     private var oneShotAudios: [OneShotAudioPlayback] = []
     private var soundReactionPlayCounts: [Int64: Int] = [:]
@@ -35,11 +25,6 @@ final class VoiceCallReactionFlightView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isUserInteractionEnabled = false
-        addSubview(raiseHandStack)
-        NSLayoutConstraint.activate([
-            raiseHandStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            raiseHandStack.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -200),
-        ])
     }
 
     required init?(coder: NSCoder) {
@@ -49,26 +34,20 @@ final class VoiceCallReactionFlightView: UIView {
     func handle(message: Mezon_Realtime_VoiceReactionSend, context: AccountContext, clanId: Int64) {
         let emojis = message.emojis
         guard let rawFirst = emojis.first, !rawFirst.isEmpty else { return }
-        if reactionSlots >= Self.maxSlots { return }
 
         let senderIdNum = message.senderID
-        let senderId = String(senderIdNum)
 
         if rawFirst.hasPrefix(Self.raiseHandDownPrefix) {
-            removeRaiseHand(senderId: senderId)
+            onRaiseHandStateChanged?(senderIdNum, false)
             return
         }
 
         if rawFirst.hasPrefix(Self.raiseHandUpPrefix) {
-            let name = metaString(emojis, index: 1, prefix: Self.senderNamePrefix)
-                .ifEmpty { voiceReactionDisplayName(context: context, clanId: clanId, userId: senderIdNum) }
-            let avatar = metaString(emojis, index: 2, prefix: Self.senderAvatarPrefix)
-                .ifEmpty { voiceReactionAvatarURL(context: context, clanId: clanId, userId: senderIdNum) ?? "" }
-            let wasNew = raiseHandRows[senderId] == nil
-            addOrRefreshRaiseHand(senderId: senderId, displayName: name, avatarURLString: avatar)
-            if wasNew { reactionSlots += 1 }
+            onRaiseHandStateChanged?(senderIdNum, true)
             return
         }
+
+        if reactionSlots >= Self.maxSlots { return }
 
         if rawFirst.hasPrefix(Self.soundPrefix) {
             let path = String(rawFirst.dropFirst(Self.soundPrefix.count))
@@ -87,15 +66,17 @@ final class VoiceCallReactionFlightView: UIView {
     }
 
     func reset() {
-        raiseHandWorkItems.values.forEach { $0.cancel() }
-        raiseHandWorkItems.removeAll()
-        raiseHandRows.values.forEach { $0.removeFromSuperview() }
-        raiseHandRows.removeAll()
-        subviews.filter { $0 != raiseHandStack }.forEach { $0.removeFromSuperview() }
+        for v in subviews {
+            v.removeFromSuperview()
+        }
         reactionSlots = 0
+        for o in oneShotAudios {
+            o.stopPlaybackSilently()
+        }
         oneShotAudios.removeAll()
         soundReactionPlayCounts.removeAll()
         onSoundReactionTileBadgesClearAll?()
+        onRaiseHandDisplayReset?()
     }
 
     private func metaString(_ emojis: [String], index: Int, prefix: String) -> String {
@@ -211,90 +192,6 @@ final class VoiceCallReactionFlightView: UIView {
         }
     }
 
-    private func addOrRefreshRaiseHand(senderId: String, displayName: String, avatarURLString: String) {
-        raiseHandWorkItems[senderId]?.cancel()
-        if let existing = raiseHandRows[senderId] {
-            existing.removeFromSuperview()
-            raiseHandRows.removeValue(forKey: senderId)
-        }
-
-        let row = makeRaiseHandRow(displayName: displayName, avatarURLString: avatarURLString)
-        raiseHandStack.addArrangedSubview(row)
-        raiseHandRows[senderId] = row
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.removeRaiseHand(senderId: senderId)
-        }
-        raiseHandWorkItems[senderId] = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.raiseHandDisplaySeconds, execute: work)
-    }
-
-    private func removeRaiseHand(senderId: String) {
-        raiseHandWorkItems[senderId]?.cancel()
-        raiseHandWorkItems.removeValue(forKey: senderId)
-        guard raiseHandRows[senderId] != nil else { return }
-        raiseHandRows[senderId]?.removeFromSuperview()
-        raiseHandRows.removeValue(forKey: senderId)
-        reactionSlots = max(0, reactionSlots - 1)
-    }
-
-    private func makeRaiseHandRow(displayName: String, avatarURLString: String) -> UIView {
-        let wrap = UIView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        wrap.layer.cornerRadius = 12
-
-        let avatar = UIImageView()
-        avatar.translatesAutoresizingMaskIntoConstraints = false
-        avatar.contentMode = .scaleAspectFill
-        avatar.clipsToBounds = true
-        avatar.layer.cornerRadius = 20
-        avatar.backgroundColor = UIColor.theme.tertiary
-
-        if let u = URL(string: avatarURLString), u.scheme != nil {
-            URLSession.shared.dataTask(with: u) { data, _, _ in
-                guard let data, let img = UIImage(data: data) else { return }
-                DispatchQueue.main.async { avatar.image = img }
-            }.resume()
-        }
-
-        let name = UILabel()
-        name.translatesAutoresizingMaskIntoConstraints = false
-        name.font = .systemFont(ofSize: 12, weight: .semibold)
-        name.textColor = UIColor.theme.textStrong
-        name.text = displayName
-        name.numberOfLines = 1
-
-        let hand = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
-        hand.translatesAutoresizingMaskIntoConstraints = false
-        hand.tintColor = UIColor(red: 0.85, green: 0.65, blue: 0.13, alpha: 1)
-        hand.contentMode = .scaleAspectFit
-
-        wrap.addSubview(avatar)
-        wrap.addSubview(name)
-        wrap.addSubview(hand)
-
-        NSLayoutConstraint.activate([
-            wrap.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
-
-            avatar.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 8),
-            avatar.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
-            avatar.widthAnchor.constraint(equalToConstant: 40),
-            avatar.heightAnchor.constraint(equalToConstant: 40),
-
-            name.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: 8),
-            name.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
-            name.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
-
-            hand.leadingAnchor.constraint(equalTo: name.trailingAnchor, constant: 8),
-            hand.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -10),
-            hand.centerYAnchor.constraint(equalTo: wrap.centerYAnchor),
-            hand.widthAnchor.constraint(equalToConstant: 28),
-            hand.heightAnchor.constraint(equalToConstant: 28),
-        ])
-        return wrap
-    }
-
     private func playSound(url: URL, senderId: Int64) {
         let one = OneShotAudioPlayback()
         oneShotAudios.append(one)
@@ -358,8 +255,11 @@ private func voiceReactionAvatarURL(context: AccountContext, clanId: Int64, user
 private final class OneShotAudioPlayback: NSObject, AVAudioPlayerDelegate {
     private var player: AVAudioPlayer?
     private var finish: ((Bool) -> Void)?
+    private var dataTask: URLSessionDataTask?
+    private var isCancelled = false
 
     func play(url: URL, completion: @escaping (Bool) -> Void) {
+        isCancelled = false
         finish = completion
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
@@ -368,38 +268,57 @@ private final class OneShotAudioPlayback: NSObject, AVAudioPlayerDelegate {
 
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             guard let self else { return }
+            if self.isCancelled { return }
             guard error == nil, let data, !data.isEmpty else {
-                DispatchQueue.main.async { completion(false) }
+                DispatchQueue.main.async { [weak self] in
+                    self?.complete(false)
+                }
                 return
             }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isCancelled else { return }
                 do {
                     self.player = try AVAudioPlayer(data: data)
                     self.player?.delegate = self
                     self.player?.prepareToPlay()
                     guard self.player?.play() == true else {
-                        completion(false)
+                        self.complete(false)
                         return
                     }
                 } catch {
-                    completion(false)
+                    self.complete(false)
                 }
             }
         }
+        dataTask = task
         task.resume()
     }
 
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    func stopPlaybackSilently() {
+        isCancelled = true
+        dataTask?.cancel()
+        dataTask = nil
+        player?.stop()
+        player?.delegate = nil
+        player = nil
+        finish = nil
+    }
+
+    private func complete(_ flag: Bool) {
+        guard !isCancelled else { return }
         let f = finish
         finish = nil
+        player = nil
+        f?(flag)
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         self.player = nil
-        DispatchQueue.main.async { f?(flag) }
+        complete(flag)
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
-        let f = finish
-        finish = nil
         self.player = nil
-        DispatchQueue.main.async { f?(false) }
+        complete(false)
     }
 }
