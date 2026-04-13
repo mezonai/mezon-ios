@@ -259,7 +259,6 @@ final class MezonSocket: NSObject {
         AppLogger.app.info("[MezonSocket] writeLastSeenMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
-    /// Parity with RN `writeCustomStatus(clanId, text, minutes, noClear)`.
     func writeCustomStatus(clanId: Int64, status: String, minutes: Int32, noClear: Bool) {
         var ev = Mezon_Realtime_CustomStatusEvent()
         ev.clanID = clanId
