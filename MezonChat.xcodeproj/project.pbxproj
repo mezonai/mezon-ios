@@ -273,6 +273,8 @@
 		990BFCA15E9F12829DEC8E07 /* LongPressGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B976DE08100A81B1BFE8600C /* LongPressGesture.swift */; };
 		99F467D84EA6215DE8B2C624 /* CallManagers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97726FD3233DB31DD6AC5385 /* CallManagers.swift */; };
 		9A8F41FA2F8D06C7005BEF8A /* ProfileStatusPresentations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8F41F92F8D06C7005BEF8A /* ProfileStatusPresentations.swift */; };
+		F1A0B1C2D3E4F5A60718293B /* ProfileAddStatusViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0B1C2D3E4F5A60718293A /* ProfileAddStatusViewController.swift */; };
+		F1A0B1C2D3E4F5A60718293D /* ProfileOnlineStatusSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A0B1C2D3E4F5A60718293C /* ProfileOnlineStatusSheetController.swift */; };
 		9AB07E0FF22814CBCE67E56C /* SVariable.m in Sources */ = {isa = PBXBuildFile; fileRef = 09EF700E3C59BDE6081FE041 /* SVariable.m */; };
 		9ACC1ED3DFE7C2C6747F08CB /* ChannelBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55993173346619928A1FF1F /* ChannelBannerView.swift */; };
 		9B5F3EFD9FA6AD1F3C2F6593 /* SSignal+Dispatch.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DEBA3F0D9F47882DE72C90F /* SSignal+Dispatch.m */; };
@@ -766,6 +768,8 @@
 		99F32910E622ECD62BA3448A /* TopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListView.swift; sourceTree = "<group>"; };
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
 		9A8F41F92F8D06C7005BEF8A /* ProfileStatusPresentations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStatusPresentations.swift; sourceTree = "<group>"; };
+		F1A0B1C2D3E4F5A60718293A /* ProfileAddStatusViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAddStatusViewController.swift; sourceTree = "<group>"; };
+		F1A0B1C2D3E4F5A60718293C /* ProfileOnlineStatusSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileOnlineStatusSheetController.swift; sourceTree = "<group>"; };
 		9A95963C16177D92D4F4F3A2 /* ReactionEmojiImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionEmojiImageLoader.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
@@ -1512,6 +1516,8 @@
 			isa = PBXGroup;
 			children = (
 				9A8F41F92F8D06C7005BEF8A /* ProfileStatusPresentations.swift */,
+				F1A0B1C2D3E4F5A60718293A /* ProfileAddStatusViewController.swift */,
+				F1A0B1C2D3E4F5A60718293C /* ProfileOnlineStatusSheetController.swift */,
 				8CE37ECCF50C4B307B23F70B /* ProfileContainerNode.swift */,
 				EC1D5F664D4C0CCA1E1E6D34 /* ProfileViewController.swift */,
 			);
@@ -2413,6 +2419,8 @@
 				62D4FE7D5F261A1175CC7A11 /* ChannelMemberRecord.swift in Sources */,
 				77EA03E635E272563F70FF59 /* ChannelRecord.swift in Sources */,
 				9A8F41FA2F8D06C7005BEF8A /* ProfileStatusPresentations.swift in Sources */,
+				F1A0B1C2D3E4F5A60718293B /* ProfileAddStatusViewController.swift in Sources */,
+				F1A0B1C2D3E4F5A60718293D /* ProfileOnlineStatusSheetController.swift in Sources */,
 				099ACD37F9AFFB0E11547385 /* ChannelSettingsContainerNode.swift in Sources */,
 				8A88A5C20E31B31350216295 /* ChannelSettingsViewController.swift in Sources */,
 				764EA61AB986AD49D8AE512F /* ChannelTable.swift in Sources */,

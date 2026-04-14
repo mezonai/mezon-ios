@@ -177,7 +177,7 @@ final class ProfileContainerNode: ASDisplayNode {
         case .online: return "OnlineIcon"
         case .idle: return "IdleIcon"
         case .doNotDisturb: return "DisturbIcon"
-        case .invisible, .offline: return "OfflineIocn"
+        case .invisible, .offline: return "InvisibleIcon"
         }
     }
 

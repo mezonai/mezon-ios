@@ -1,6 +1,6 @@
 {
   "images" : [
-    { "idiom" : "universal", "filename" : "OfflineIcon.pdf" }
+    { "idiom" : "universal", "filename" : "InvisibleIcon.pdf" }
   ],
   "info" : { "author" : "xcode", "version" : 1 },
   "properties" : {

@@ -896,6 +896,20 @@ final class MezonHTTPClient {
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
+    func postProtoIgnoringBody<Request: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod,
+        allowBearerRetry: Bool = true
+    ) async throws {
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: path,
+            message: message,
+            auth: auth,
+            allowBearerRetry: allowBearerRetry
+        )
+    }
+
     enum AuthMethod {
         case serverKey
         case bearer(String)
