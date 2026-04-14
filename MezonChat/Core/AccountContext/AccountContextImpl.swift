@@ -818,7 +818,8 @@ final class AccountContextImpl: AccountContext {
             bio: u.aboutMe.isEmpty ? nil : u.aboutMe,
             email: api.email.isEmpty ? nil : api.email,
             phoneNumber: u.phoneNumber.isEmpty ? nil : u.phoneNumber,
-            isBot: false
+            isBot: false,
+            createTimeSeconds: u.createTimeSeconds
         )
     }
 }

@@ -129,6 +129,11 @@ final class ProfileContainerNode: ASDisplayNode {
         return l
     }()
 
+    private var aboutMeTitleTopConstraint: NSLayoutConstraint!
+    private var aboutMeContentTopConstraint: NSLayoutConstraint!
+    private var aboutMeTitleHeightConstraint: NSLayoutConstraint!
+    private var aboutMeContentHeightConstraint: NSLayoutConstraint!
+
     private let friendsCard = UIView()
     private let friendsTitleLabel: UILabel = {
         let l = UILabel()
@@ -143,6 +148,10 @@ final class ProfileContainerNode: ASDisplayNode {
         iv.contentMode = .scaleAspectFit
         return iv
     }()
+
+    private var friendAvatarFetchTask: Task<Void, Never>?
+    private var walletFetchTask: Task<Void, Never>?
+    private var walletDetail: WalletDetail?
 
     private let copyCard = UIView()
     private let copyRow = ProfileIconRow()
@@ -261,6 +270,11 @@ final class ProfileContainerNode: ASDisplayNode {
     init(context: AccountContext) {
         self.context = context
         super.init()
+    }
+
+    deinit {
+        friendAvatarFetchTask?.cancel()
+        walletFetchTask?.cancel()
     }
 
     override func didLoad() {
@@ -468,12 +482,17 @@ final class ProfileContainerNode: ASDisplayNode {
             aboutMeCard.addSubview(v)
         }
 
+        aboutMeTitleTopConstraint = aboutMeTitleLabel.topAnchor.constraint(equalTo: aboutMeCard.topAnchor, constant: 16.sh)
+        aboutMeContentTopConstraint = aboutMeContentLabel.topAnchor.constraint(equalTo: aboutMeTitleLabel.bottomAnchor, constant: 4.sh)
+        aboutMeTitleHeightConstraint = aboutMeTitleLabel.heightAnchor.constraint(equalToConstant: 0)
+        aboutMeContentHeightConstraint = aboutMeContentLabel.heightAnchor.constraint(equalToConstant: 0)
+
         NSLayoutConstraint.activate([
-            aboutMeTitleLabel.topAnchor.constraint(equalTo: aboutMeCard.topAnchor, constant: 16.sh),
+            aboutMeTitleTopConstraint,
             aboutMeTitleLabel.leadingAnchor.constraint(equalTo: aboutMeCard.leadingAnchor, constant: cardInset),
             aboutMeTitleLabel.trailingAnchor.constraint(equalTo: aboutMeCard.trailingAnchor, constant: -cardInset),
 
-            aboutMeContentLabel.topAnchor.constraint(equalTo: aboutMeTitleLabel.bottomAnchor, constant: 4.sh),
+            aboutMeContentTopConstraint,
             aboutMeContentLabel.leadingAnchor.constraint(equalTo: aboutMeCard.leadingAnchor, constant: cardInset),
             aboutMeContentLabel.trailingAnchor.constraint(equalTo: aboutMeCard.trailingAnchor, constant: -cardInset),
 
@@ -586,15 +605,7 @@ final class ProfileContainerNode: ASDisplayNode {
         usernameLabel.text = user?.username.isEmpty == false ? user!.username : "—"
 
         configureAddStatusButton(user: user)
-
-        let balanceAmount = "145.776"
-        balanceRow.configure(
-            icon: "checkmark.circle.fill",
-            iconImage: Self.profileImage(named: "BalanceIcon"),
-            iconColor: .mezonSuccess,
-            text: "\(L(L10n.Profile.balance)): \(balanceAmount) \(L(L10n.Profile.currency))",
-            textColor: .mezonTextStrong
-        )
+        fetchWalletDetail()
         transferRow.configure(
             icon: "arrow.up.circle.fill",
             iconImage: Self.profileImage(named: "TransferIcon"),
@@ -624,13 +635,60 @@ final class ProfileContainerNode: ASDisplayNode {
             editProfileButton.setTitle(L(L10n.Profile.editProfile), for: .normal)
         }
 
+        let bio = user?.bio?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasAboutMe = !bio.isEmpty
+        aboutMeTitleLabel.isHidden = !hasAboutMe
+        aboutMeContentLabel.isHidden = !hasAboutMe
+        aboutMeTitleTopConstraint.constant = hasAboutMe ? 16.sh : 0
+        aboutMeContentTopConstraint.constant = hasAboutMe ? 4.sh : 0
+        aboutMeTitleHeightConstraint.isActive = !hasAboutMe
+        aboutMeContentHeightConstraint.isActive = !hasAboutMe
+
         aboutMeTitleLabel.text = L(L10n.Profile.aboutMe)
-        aboutMeContentLabel.text = user?.bio ?? "—"
+        aboutMeContentLabel.text = bio
         memberSinceTitleLabel.text = L(L10n.Profile.mezonMemberSince)
         memberSinceDateLabel.text = formatMemberSince()
 
+        aboutMeCard.setNeedsLayout()
+        aboutMeCard.layoutIfNeeded()
+
         friendsTitleLabel.text = L(L10n.Profile.yourFriends)
-        setupFriendAvatars()
+
+        friendAvatarFetchTask?.cancel()
+        friendAvatarFetchTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let token = await context.getToken() ?? ""
+            guard !token.isEmpty else {
+                setupFriendAvatars(previews: [])
+                return
+            }
+            do {
+                let list = try await context.account.network.listFriends(token: token, limit: 100, state: 0)
+                let previews: [(avatarURL: String?, displayName: String)] = Array(
+                    list.friends
+                        .filter { $0.state == 0 && $0.hasUser }
+                        .prefix(5)
+                        .map { f -> (avatarURL: String?, displayName: String) in
+                            let u = f.user
+                            let url = u.avatarURL.isEmpty ? nil : u.avatarURL
+                            let name: String
+                            if !u.username.isEmpty {
+                                name = u.username
+                            } else if !u.displayName.isEmpty {
+                                name = u.displayName
+                            } else {
+                                name = "?"
+                            }
+                            return (avatarURL: url, displayName: name)
+                        }
+                )
+                guard !Task.isCancelled else { return }
+                setupFriendAvatars(previews: previews)
+            } catch {
+                guard !Task.isCancelled else { return }
+                setupFriendAvatars(previews: [])
+            }
+        }
 
         copyRow.configure(
             text: L(L10n.Profile.copyUserId),
@@ -645,34 +703,156 @@ final class ProfileContainerNode: ASDisplayNode {
         }
     }
 
-    private func formatMemberSince() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM dd, yyyy"
-        formatter.locale = Locale(identifier: "en_US")
-        return formatter.string(from: Date())
+    private func fetchWalletDetail() {
+        walletFetchTask?.cancel()
+        walletFetchTask = Task { @MainActor [weak self] in
+            guard let self, let userId = context.currentUser?.id, !userId.isEmpty else {
+                self?.walletDetail = nil
+                self?.updateBalanceUI()
+                return
+            }
+            do {
+                let detail = try await MmnClient.shared.getAccountByUserId(userId)
+                guard !Task.isCancelled else { return }
+                self.walletDetail = detail
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.walletDetail = nil
+                AppLogger.network.error("Failed to fetch wallet: \(error)")
+            }
+            self.updateBalanceUI()
+        }
     }
 
-    private func setupFriendAvatars() {
+    private func updateBalanceUI() {
+        let hasWallet = !(walletDetail?.address.isEmpty ?? true)
+        balanceCard.isHidden = !hasWallet
+
+        let formattedBalance = BalanceFormatter.format(walletDetail?.balance)
+        balanceRow.configure(
+            icon: "checkmark.circle.fill",
+            iconImage: Self.profileImage(named: "BalanceIcon"),
+            iconColor: .mezonSuccess,
+            text: "\(L(L10n.Profile.balance)): \(formattedBalance) \(L(L10n.Profile.currency))",
+            textColor: .mezonTextStrong
+        )
+
+        if let superview = balanceCard.superview {
+            superview.setNeedsLayout()
+            superview.layoutIfNeeded()
+        }
+    }
+
+    private func formatMemberSince() -> String {
+        let raw = context.currentUser?.createTimeSeconds ?? 0
+        guard raw > 0 else { return "—" }
+        let ts: TimeInterval
+        let digitCount = String(raw).count
+        if digitCount <= 10 {
+            ts = TimeInterval(raw)
+        } else {
+            ts = TimeInterval(raw) / 1000
+        }
+        let date = Date(timeIntervalSince1970: ts)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        formatter.locale = .autoupdatingCurrent
+        formatter.calendar = .current
+        return formatter.string(from: date)
+    }
+
+    private func setupFriendAvatars(previews: [(avatarURL: String?, displayName: String)]) {
         friendsAvatarStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
-        let friendColors: [UIColor] = [
+        let avatarSmall: CGFloat = 28.swh
+        let fallbackColors: [UIColor] = [
             .systemOrange, .systemPurple, .systemTeal, .systemPink, .colorAvatarDefault
         ]
-        let avatarSmall: CGFloat = 28.swh
-        for color in friendColors {
-            let circle = UIView()
-            circle.backgroundColor = color
-            circle.layer.cornerRadius = avatarSmall / 2
-            circle.layer.borderWidth = 2
-            circle.layer.borderColor = UIColor.mezonPrimary.cgColor
-            circle.clipsToBounds = true
-            circle.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                circle.widthAnchor.constraint(equalToConstant: avatarSmall),
-                circle.heightAnchor.constraint(equalToConstant: avatarSmall),
-            ])
-            friendsAvatarStack.addArrangedSubview(circle)
+        for (index, item) in previews.enumerated() {
+            let view = friendAvatarView(
+                avatarURL: item.avatarURL,
+                displayName: item.displayName,
+                size: avatarSmall,
+                fallbackColor: fallbackColors[index % fallbackColors.count]
+            )
+            friendsAvatarStack.addArrangedSubview(view)
         }
+    }
+
+    private func friendAvatarView(
+        avatarURL: String?,
+        displayName: String,
+        size: CGFloat,
+        fallbackColor: UIColor
+    ) -> UIView {
+        let container = UIView()
+        container.layer.cornerRadius = size / 2
+        container.layer.borderWidth = 2
+        container.layer.borderColor = UIColor.mezonPrimary.cgColor
+        container.clipsToBounds = true
+        container.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: size),
+            container.heightAnchor.constraint(equalToConstant: size),
+        ])
+
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(imageView)
+
+        let placeholder = UILabel()
+        placeholder.font = .systemFont(ofSize: size * 0.38, weight: .semibold)
+        placeholder.textColor = .mezonTextStrong
+        placeholder.textAlignment = .center
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(placeholder)
+
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: container.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            placeholder.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            placeholder.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+
+        let initial = displayName.trimmingCharacters(in: .whitespacesAndNewlines).first
+            .map { String($0).uppercased() } ?? "?"
+        placeholder.text = initial
+
+        if let urlStr = avatarURL, !urlStr.isEmpty {
+            let px = Int(size * UIScreen.main.scale)
+            let proxied = ImgproxyURL.create(from: urlStr, width: px, height: px)
+            if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+                imageView.image = cached
+                placeholder.isHidden = true
+            } else {
+                placeholder.isHidden = false
+                imageView.isHidden = true
+                container.backgroundColor = fallbackColor
+                ImageCache.shared.loadImage(urlString: proxied) { [weak imageView, weak placeholder, weak container] image in
+                    if let image {
+                        imageView?.image = image
+                        imageView?.isHidden = false
+                        placeholder?.isHidden = true
+                        container?.backgroundColor = .clear
+                    } else {
+                        imageView?.image = nil
+                        imageView?.isHidden = true
+                        placeholder?.isHidden = false
+                        container?.backgroundColor = fallbackColor
+                    }
+                }
+            }
+        } else {
+            imageView.isHidden = true
+            placeholder.isHidden = false
+            container.backgroundColor = fallbackColor
+        }
+        return container
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -769,15 +949,17 @@ final class ProfileContainerNode: ASDisplayNode {
 
         var scrollY: CGFloat = 0
         let cardWidth = contentWidth
-        balanceCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 0)
-        balanceCard.layoutIfNeeded()
-        let balanceHeight = balanceCard.systemLayoutSizeFitting(
-            CGSize(width: cardWidth, height: UIView.layoutFittingCompressedSize.height),
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        ).height
-        balanceCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: balanceHeight)
-        scrollY += balanceHeight + cardSpacing
+        if !balanceCard.isHidden {
+            balanceCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 0)
+            balanceCard.layoutIfNeeded()
+            let balanceHeight = balanceCard.systemLayoutSizeFitting(
+                CGSize(width: cardWidth, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+            balanceCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: balanceHeight)
+            scrollY += balanceHeight + cardSpacing
+        }
 
         aboutMeCard.frame = CGRect(x: side, y: scrollY, width: cardWidth, height: 0)
         aboutMeCard.layoutIfNeeded()

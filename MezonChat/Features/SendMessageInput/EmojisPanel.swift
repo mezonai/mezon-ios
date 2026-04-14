@@ -155,12 +155,6 @@ final class EmojisPanel: UIView {
         ingestEmojis(emojis)
     }
 
-    var isEmojiGridScrolledToTop: Bool { emojiGrid.contentOffset.y <= 0.5 }
-
-    func requireSheetDismissPanGetsPriority(_ sheetPan: UIPanGestureRecognizer) {
-        emojiGrid.panGestureRecognizer.require(toFail: sheetPan)
-    }
-
     func applyTheme(placement: EmojisPanelThemePlacement = .composerInline) {
         themePlacement = placement
         let t = UIColor.theme
