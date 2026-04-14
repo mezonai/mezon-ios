@@ -1,5 +1,4 @@
 import UIKit
-import SwiftProtobuf
 
 final class ProfileViewController: ViewController {
 
@@ -28,11 +27,45 @@ final class ProfileViewController: ViewController {
             let vc = SettingsViewController(context: self.context)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onAvatarTapped = { [weak self] in self?.presentOnlineStatusSheet() }
+        node.onDisplayNameTapped = { [weak self] in self?.presentOnlineStatusSheet() }
+        node.onAddStatusTapped = { [weak self] in self?.presentAddStatusModal() }
         displayNode = node
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
+    private func presentOnlineStatusSheet() {
+        let sheet = ProfileOnlineStatusSheetController(context: context)
+        let nav = UINavigationController(rootViewController: sheet)
+        nav.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sp = nav.sheetPresentationController {
+                sp.detents = [.medium(), .large()]
+                sp.prefersGrabberVisible = true
+                sp.preferredCornerRadius = 16
+            }
+        }
+        present(nav, animated: true)
+    }
+
+    private func presentAddStatusModal() {
+        let vc = ProfileAddStatusViewController(context: context)
+        let nav = UINavigationController(rootViewController: vc)
+        nav.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sp = nav.sheetPresentationController {
+                sp.detents = [.large()]
+                sp.prefersGrabberVisible = true
+            }
+        }
+        present(nav, animated: true)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        Task {
+            await context.refreshAccountProfile()
+            await context.fetchCurrentUserStatus()
+        }
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {

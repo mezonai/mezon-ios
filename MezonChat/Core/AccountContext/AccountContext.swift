@@ -22,4 +22,13 @@ protocol AccountContext: AnyObject {
     func recoverFromForeground()
     func waitForSessionReady() async
     func getToken() async -> String?
+    func applyCurrentUser(_ user: User)
+    func refreshAccountProfile() async
+    func updatePresenceStatus(_ status: User.OnlineStatus) async throws
+    func fetchCurrentUserStatus() async
+    func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws
+}
+
+extension Notification.Name {
+    static let mezonAccountCurrentUserDidChange = Notification.Name("mezon.account.currentUserDidChange")
 }

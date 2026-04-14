@@ -259,6 +259,18 @@ final class MezonSocket: NSObject {
         AppLogger.app.info("[MezonSocket] writeLastSeenMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
+    func writeCustomStatus(clanId: Int64, status: String, minutes: Int32, noClear: Bool) {
+        var ev = Mezon_Realtime_CustomStatusEvent()
+        ev.clanID = clanId
+        ev.status = status
+        ev.timeReset = minutes
+        ev.noClear = noClear
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.customStatusEvent = ev
+        send(envelope)
+        AppLogger.app.info("[MezonSocket] writeCustomStatus clanId=\(clanId) noClear=\(noClear) minutes=\(minutes)")
+    }
+
     private func receiveLoop() {
         webSocketTask?.receive { [weak self] result in
             guard let self else { return }

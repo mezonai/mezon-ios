@@ -21,6 +21,23 @@ enum L10n {
         static let copyUserId        = "profile.copyUserId"
         static let userIdCopied      = "profile.userIdCopied"
         static let currency          = "profile.currency"
+        static let statusTitle              = "profile.statusTitle"
+        static let statusDurationLabel      = "profile.statusDurationLabel"
+        static let statusDurationToday      = "profile.statusDurationToday"
+        static let statusDurationFourHours  = "profile.statusDurationFourHours"
+        static let statusDurationOneHour    = "profile.statusDurationOneHour"
+        static let statusDurationThirtyMinutes = "profile.statusDurationThirtyMinutes"
+        static let statusDurationDontClear  = "profile.statusDurationDontClear"
+        static let statusTooLong            = "profile.statusTooLong"
+        static let statusUpdateFailed       = "profile.statusUpdateFailed"
+        static let changeOnlineStatus       = "profile.changeOnlineStatus"
+        static let onlineStatusSection      = "profile.onlineStatusSection"
+        static let setCustomStatus          = "profile.setCustomStatus"
+        static let userStatusOnline         = "profile.userStatusOnline"
+        static let userStatusIdle           = "profile.userStatusIdle"
+        static let userStatusDoNotDisturb   = "profile.userStatusDoNotDisturb"
+        static let userStatusInvisible      = "profile.userStatusInvisible"
+        static let presenceUpdateFailed     = "profile.presenceUpdateFailed"
     }
 
     enum Common {
@@ -570,6 +587,23 @@ extension L10n {
         "profile.copyUserId": "Copy User ID",
         "profile.userIdCopied": "User ID copied",
         "profile.currency": "đồng",
+        "profile.statusTitle": "Update Status",
+        "profile.statusDurationLabel": "Status Duration",
+        "profile.statusDurationToday": "Today",
+        "profile.statusDurationFourHours": "4 hours",
+        "profile.statusDurationOneHour": "1 hour",
+        "profile.statusDurationThirtyMinutes": "30 minutes",
+        "profile.statusDurationDontClear": "Don't clear",
+        "profile.statusTooLong": "Status must be at most 128 characters.",
+        "profile.statusUpdateFailed": "Could not update status. Please try again.",
+        "profile.changeOnlineStatus": "Change Online Status",
+        "profile.onlineStatusSection": "Online Status",
+        "profile.setCustomStatus": "Set a custom status",
+        "profile.userStatusOnline": "Online",
+        "profile.userStatusIdle": "Idle",
+        "profile.userStatusDoNotDisturb": "Do Not Disturb",
+        "profile.userStatusInvisible": "Invisible",
+        "profile.presenceUpdateFailed": "Could not change online status. Please try again.",
 
         "qrScanner.joinGroup": "Join Group",
         "qrScanner.transferTo": "Transfer to user: %@",
@@ -851,6 +885,23 @@ extension L10n {
         "profile.copyUserId": "Sao chép User ID",
         "profile.userIdCopied": "Đã sao chép User ID",
         "profile.currency": "đồng",
+        "profile.statusTitle": "Cập nhật trạng thái",
+        "profile.statusDurationLabel": "Thời lượng trạng thái",
+        "profile.statusDurationToday": "Hôm nay",
+        "profile.statusDurationFourHours": "4 giờ",
+        "profile.statusDurationOneHour": "1 giờ",
+        "profile.statusDurationThirtyMinutes": "30 phút",
+        "profile.statusDurationDontClear": "Không xóa",
+        "profile.statusTooLong": "Trạng thái tối đa 128 ký tự.",
+        "profile.statusUpdateFailed": "Không thể cập nhật trạng thái. Vui lòng thử lại.",
+        "profile.changeOnlineStatus": "Thay đổi trạng thái trực tuyến",
+        "profile.onlineStatusSection": "Trạng thái trực tuyến",
+        "profile.setCustomStatus": "Đặt trạng thái tùy chỉnh",
+        "profile.userStatusOnline": "Trực tuyến",
+        "profile.userStatusIdle": "Tạm vắng",
+        "profile.userStatusDoNotDisturb": "Không làm phiền",
+        "profile.userStatusInvisible": "Ngoại tuyến (Ẩn)",
+        "profile.presenceUpdateFailed": "Không thể đổi trạng thái trực tuyến. Vui lòng thử lại.",
 
         "qrScanner.title": "Quét mã QR",
         "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",
