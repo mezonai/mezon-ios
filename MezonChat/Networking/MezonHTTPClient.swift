@@ -725,6 +725,22 @@ final class MezonHTTPClient {
         )
     }
 
+    func listFriends(
+        token: String,
+        limit: Int32 = 100,
+        state: Int32 = 0,
+        cursor: String = ""
+    ) async throws -> Mezon_Api_FriendList {
+        var req = Mezon_Api_ListFriendsRequest()
+        req.limit = min(max(limit, 1), 100)
+        req.state = state
+        req.cursor = cursor
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
 
     func getListEmojisByUserId(token: String) async throws -> Mezon_Api_EmojiListedResponse {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()

@@ -13,6 +13,7 @@ enum MezonConfig {
     static var basicAuthHeader: String { env.basicAuthHeader }
     static var baseImgURL: String    { env.baseImgURL }
     static var profileImgURL: String { env.profileImgURL }
+    static var mmnAPIURL: URL         { env.mmnAPIURL }
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
 
