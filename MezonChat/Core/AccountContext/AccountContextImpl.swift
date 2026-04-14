@@ -639,6 +639,19 @@ final class AccountContextImpl: AccountContext {
         return true
     }
 
+    func refreshUserProfile() async {
+        guard let token = session?.token else { return }
+        do {
+            let apiAccount = try await engine.auth.getAccount(token: token)
+            if let data = try? apiAccount.serializedData() {
+                account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
+            }
+            currentUser = mapAccountToUser(apiAccount)
+        } catch {
+            AppLogger.network.warning("[Auth] refreshUserProfile failed: \(error)")
+        }
+    }
+
     private func mapAccountToUser(_ api: Mezon_Api_Account) -> User {
         let u = api.user
         return User(

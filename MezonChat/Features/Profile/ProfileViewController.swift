@@ -28,11 +28,21 @@ final class ProfileViewController: ViewController {
             let vc = SettingsViewController(context: self.context)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onEditProfileTapped = { [weak self] in
+            guard let self else { return }
+            let vc = ProfileSettingViewController(context: self.context, initialTab: .userProfile)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        profileNode.updateContent()
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {

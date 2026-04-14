@@ -19,6 +19,7 @@ protocol AccountContext: AnyObject {
     func login(user: User, session: MezonSession)
     func logout()
     func refreshSession() async throws
+    func refreshUserProfile() async
     func recoverFromForeground()
     func waitForSessionReady() async
     func getToken() async -> String?

@@ -23,6 +23,24 @@ enum L10n {
         static let currency          = "profile.currency"
     }
 
+    enum ProfileSetting {
+        static let title             = "profileSetting.title"
+        static let userProfile       = "profileSetting.userProfile"
+        static let clanProfiles      = "profileSetting.clanProfiles"
+        static let save              = "profileSetting.save"
+        static let displayName       = "profileSetting.displayName"
+        static let aboutMe           = "profileSetting.aboutMe"
+        static let clanNickname      = "profileSetting.clanNickname"
+        static let selectAClan       = "profileSetting.selectAClan"
+        static let updateSuccess     = "profileSetting.updateSuccess"
+        static let updateError       = "profileSetting.updateError"
+        static let clanUpdateSuccess = "profileSetting.clanUpdateSuccess"
+        static let duplicateNickname = "profileSetting.duplicateNickname"
+        static let noClanTitle       = "profileSetting.noClanTitle"
+        static let noClanDesc        = "profileSetting.noClanDesc"
+        static let directMessageIcon = "profileSetting.directMessageIcon"
+    }
+
     enum Common {
         static let settings       = "common.settings"
         static let save           = "common.save"
@@ -571,6 +589,22 @@ extension L10n {
         "profile.userIdCopied": "User ID copied",
         "profile.currency": "đồng",
 
+        "profileSetting.title": "Profile Settings",
+        "profileSetting.userProfile": "User Profile",
+        "profileSetting.clanProfiles": "Clan Profiles",
+        "profileSetting.save": "Save",
+        "profileSetting.displayName": "Display name",
+        "profileSetting.aboutMe": "About me",
+        "profileSetting.clanNickname": "Clan nickname",
+        "profileSetting.selectAClan": "Select a Clan",
+        "profileSetting.updateSuccess": "Profile updated successfully",
+        "profileSetting.updateError": "Failed to update profile",
+        "profileSetting.clanUpdateSuccess": "Clan profile updated successfully",
+        "profileSetting.duplicateNickname": "This nickname already exists in the clan. Please choose another.",
+        "profileSetting.noClanTitle": "No Clans Yet",
+        "profileSetting.noClanDesc": "You haven't joined any clans yet.",
+        "profileSetting.directMessageIcon": "Direct Message Icon",
+
         "qrScanner.joinGroup": "Join Group",
         "qrScanner.transferTo": "Transfer to user: %@",
         "qrScanner.processing": "Processing...",
@@ -851,6 +885,22 @@ extension L10n {
         "profile.copyUserId": "Sao chép User ID",
         "profile.userIdCopied": "Đã sao chép User ID",
         "profile.currency": "đồng",
+
+        "profileSetting.title": "Cài đặt hồ sơ",
+        "profileSetting.userProfile": "Cá nhân",
+        "profileSetting.clanProfiles": "Clan",
+        "profileSetting.save": "Lưu",
+        "profileSetting.displayName": "Tên hiển thị",
+        "profileSetting.aboutMe": "Về tôi",
+        "profileSetting.clanNickname": "Biệt danh Clan",
+        "profileSetting.selectAClan": "Chọn một Clan",
+        "profileSetting.updateSuccess": "Cập nhật hồ sơ thành công",
+        "profileSetting.updateError": "Cập nhật hồ sơ thất bại",
+        "profileSetting.clanUpdateSuccess": "Cập nhật hồ sơ Clan thành công",
+        "profileSetting.duplicateNickname": "Biệt danh này đã tồn tại trong Clan. Vui lòng chọn tên khác.",
+        "profileSetting.noClanTitle": "Chưa có Clan",
+        "profileSetting.noClanDesc": "Bạn chưa tham gia Clan nào.",
+        "profileSetting.directMessageIcon": "Biểu tượng tin nhắn riêng",
 
         "qrScanner.title": "Quét mã QR",
         "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",

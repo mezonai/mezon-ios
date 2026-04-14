@@ -64,6 +64,8 @@
 		2196D869734EB7B6816D4C85 /* TextFieldComponent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 337F130BAE7F072DE577231C /* TextFieldComponent.swift */; };
 		219D2726AEA48AA9107BE45B /* ContextMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2D6E3E946850C57F426884E /* ContextMenuController.swift */; };
 		21F78FF98CD2DDE3F62B6736 /* ProfileContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE37ECCF50C4B307B23F70B /* ProfileContainerNode.swift */; };
+		A1B2C3D4E5F60718091A2B3C /* ProfileSettingViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6071809A1B2C3D4E5F6 /* ProfileSettingViewController.swift */; };
+		F1E2D3C4B5A6978890A1B2C3E /* ClanPickerSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1D2C3B4A5968798890A1B2C3E /* ClanPickerSheetViewController.swift */; };
 		222171AACB8F995C2A76128D /* Rect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81FECEC6985B72B5808CB158 /* Rect.swift */; };
 		23F3696CB8BDF4151B3F2473 /* ContextContentSourceNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2C2B81F78B14200470E9BA /* ContextContentSourceNode.swift */; };
 		23F4831EF50A8E03925DE797 /* AdvancedFunctionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83EE6C550B2C6A7E5CE4CA2C /* AdvancedFunctionPanelView.swift */; };
@@ -932,6 +934,8 @@
 		EB8E22553998FEDF0791FCEB /* ViewTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewTracker.swift; sourceTree = "<group>"; };
 		EBB2746AB2AF7538A2CF4AEC /* NotificationSettingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingView.swift; sourceTree = "<group>"; };
 		EC1D5F664D4C0CCA1E1E6D34 /* ProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileViewController.swift; sourceTree = "<group>"; };
+		D4E5F6071809A1B2C3D4E5F6 /* ProfileSettingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingViewController.swift; sourceTree = "<group>"; };
+		E1D2C3B4A5968798890A1B2C3E /* ClanPickerSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanPickerSheetViewController.swift; sourceTree = "<group>"; };
 		ECD402AA0CE4FD7E845D348B /* QueueLocalObject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueLocalObject.swift; sourceTree = "<group>"; };
 		ECFAECADAC32CC584F81A9CA /* BaseViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaseViewController.swift; sourceTree = "<group>"; };
 		ED834B8296E95CD2ACBF34E5 /* SDisposableSet.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SDisposableSet.h; sourceTree = "<group>"; };
@@ -1511,6 +1515,8 @@
 			children = (
 				8CE37ECCF50C4B307B23F70B /* ProfileContainerNode.swift */,
 				EC1D5F664D4C0CCA1E1E6D34 /* ProfileViewController.swift */,
+				D4E5F6071809A1B2C3D4E5F6 /* ProfileSettingViewController.swift */,
+				E1D2C3B4A5968798890A1B2C3E /* ClanPickerSheetViewController.swift */,
 			);
 			path = Profile;
 			sourceTree = "<group>";
@@ -2641,6 +2647,8 @@
 				03B18339E2567F742D4C20B9 /* ProfileTable.swift in Sources */,
 				B73C2BECDA11E552FD08892B /* ProfileView.swift in Sources */,
 				F139E401EEE047F7AFB547CF /* ProfileViewController.swift in Sources */,
+				A1B2C3D4E5F60718091A2B3C /* ProfileSettingViewController.swift in Sources */,
+				F1E2D3C4B5A6978890A1B2C3E /* ClanPickerSheetViewController.swift in Sources */,
 				8B422B11CDF791385ECDC712 /* Promise.swift in Sources */,
 				373AC93E46899A1F19FCCD97 /* QRClanInviteNode.swift in Sources */,
 				A658C3C1A1894DB10CB19150 /* QRLoginConfirmNode.swift in Sources */,
