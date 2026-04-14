@@ -275,6 +275,7 @@ final class ProfileContainerNode: ASDisplayNode {
     deinit {
         friendAvatarFetchTask?.cancel()
         walletFetchTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func didLoad() {
@@ -299,10 +300,6 @@ final class ProfileContainerNode: ASDisplayNode {
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleCurrentUserDidChange), name: .mezonAccountCurrentUserDidChange, object: nil)
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
     }
 
     @objc private func handleCurrentUserDidChange() {
