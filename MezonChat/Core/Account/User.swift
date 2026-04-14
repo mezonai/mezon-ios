@@ -10,6 +10,7 @@ struct User: Identifiable, Equatable, Codable, Hashable {
     var email: String?
     var phoneNumber: String?
     var isBot: Bool
+    let createTimeSeconds: UInt32
 
     init(
         id: String,
@@ -20,7 +21,8 @@ struct User: Identifiable, Equatable, Codable, Hashable {
         bio: String? = nil,
         email: String? = nil,
         phoneNumber: String? = nil,
-        isBot: Bool = false
+        isBot: Bool = false,
+        createTimeSeconds: UInt32 = 0
     ) {
         self.id          = id
         self.username    = username
@@ -31,6 +33,7 @@ struct User: Identifiable, Equatable, Codable, Hashable {
         self.email       = email
         self.phoneNumber = phoneNumber
         self.isBot       = isBot
+        self.createTimeSeconds = createTimeSeconds
     }
 
     enum OnlineStatus: String, Codable, Equatable {
