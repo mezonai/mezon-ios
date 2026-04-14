@@ -546,6 +546,32 @@ final class MezonHTTPClient {
         return response.token
     }
 
+    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+        var req = Mezon_Api_MeetParticipantRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.roomName = roomName
+        req.username = username
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/MuteParticipantMezonMeet",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+        var req = Mezon_Api_MeetParticipantRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.roomName = roomName
+        req.username = username
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/RemoveParticipantMezonMeet",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId

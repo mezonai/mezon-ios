@@ -209,12 +209,6 @@ final class StickersPanel: UIView {
         ingestStickers(stickers)
     }
 
-    var isStickerGridScrolledToTop: Bool { stickerGrid.contentOffset.y <= 0.5 }
-
-    func requireSheetDismissPanGetsPriority(_ sheetPan: UIPanGestureRecognizer) {
-        stickerGrid.panGestureRecognizer.require(toFail: sheetPan)
-    }
-
     func configureVoiceReactionSoundOnlyLayout(_ enabled: Bool) {
         voiceReactionSoundOnlyMode = enabled
         soundFilterButton.isHidden = enabled
@@ -681,7 +675,7 @@ extension StickersPanel: UICollectionViewDataSource, UICollectionViewDelegate, U
         case .sticker(let sticker):
             if isAudioStickerMode {
                 let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SoundStickerCell.reuseId, for: indexPath) as! SoundStickerCell
-                cell.configure(sticker: sticker, playing: soundStickerIsActivelyPlaying(sticker.id), panel: self)
+                cell.configure(sticker: sticker, playing: soundStickerIsActivelyPlaying(sticker.id), panel: self, placement: stickersPanelPlacement)
                 return cell
             }
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: StickerCell.reuseId, for: indexPath) as! StickerCell
@@ -778,7 +772,6 @@ private final class SoundStickerCell: UICollectionViewCell {
         rowBackground.layer.cornerRadius = 10
         rowBackground.clipsToBounds = true
         playOuter.translatesAutoresizingMaskIntoConstraints = false
-        playOuter.backgroundColor = .white
         playOuter.layer.cornerRadius = 14
         playInner.translatesAutoresizingMaskIntoConstraints = false
         playInner.contentMode = .scaleAspectFit
@@ -836,9 +829,15 @@ private final class SoundStickerCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(sticker: CachedClanStickerRecord, playing: Bool, panel: StickersPanel) {
+    func configure(sticker: CachedClanStickerRecord, playing: Bool, panel: StickersPanel, placement: StickersPanelThemePlacement) {
         let t = UIColor.theme
-        rowBackground.backgroundColor = t.secondaryLight
+        switch placement {
+        case .composerInline:
+            rowBackground.backgroundColor = t.primary
+        case .secondaryBottomSheet:
+            rowBackground.backgroundColor = t.tertiary
+        }
+        playOuter.backgroundColor = t.secondary
         playInner.tintColor = t.bgViolet
         nameLabel.textColor = t.textStrong
         sendButton.tintColor = t.textStrong
