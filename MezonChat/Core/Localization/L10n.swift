@@ -21,6 +21,41 @@ enum L10n {
         static let copyUserId        = "profile.copyUserId"
         static let userIdCopied      = "profile.userIdCopied"
         static let currency          = "profile.currency"
+        static let statusTitle              = "profile.statusTitle"
+        static let statusDurationLabel      = "profile.statusDurationLabel"
+        static let statusDurationToday      = "profile.statusDurationToday"
+        static let statusDurationFourHours  = "profile.statusDurationFourHours"
+        static let statusDurationOneHour    = "profile.statusDurationOneHour"
+        static let statusDurationThirtyMinutes = "profile.statusDurationThirtyMinutes"
+        static let statusDurationDontClear  = "profile.statusDurationDontClear"
+        static let statusTooLong            = "profile.statusTooLong"
+        static let statusUpdateFailed       = "profile.statusUpdateFailed"
+        static let changeOnlineStatus       = "profile.changeOnlineStatus"
+        static let onlineStatusSection      = "profile.onlineStatusSection"
+        static let setCustomStatus          = "profile.setCustomStatus"
+        static let userStatusOnline         = "profile.userStatusOnline"
+        static let userStatusIdle           = "profile.userStatusIdle"
+        static let userStatusDoNotDisturb   = "profile.userStatusDoNotDisturb"
+        static let userStatusInvisible      = "profile.userStatusInvisible"
+        static let presenceUpdateFailed     = "profile.presenceUpdateFailed"
+    }
+
+    enum ProfileSetting {
+        static let title             = "profileSetting.title"
+        static let userProfile       = "profileSetting.userProfile"
+        static let clanProfiles      = "profileSetting.clanProfiles"
+        static let save              = "profileSetting.save"
+        static let displayName       = "profileSetting.displayName"
+        static let aboutMe           = "profileSetting.aboutMe"
+        static let clanNickname      = "profileSetting.clanNickname"
+        static let selectAClan       = "profileSetting.selectAClan"
+        static let updateSuccess     = "profileSetting.updateSuccess"
+        static let updateError       = "profileSetting.updateError"
+        static let clanUpdateSuccess = "profileSetting.clanUpdateSuccess"
+        static let duplicateNickname = "profileSetting.duplicateNickname"
+        static let noClanTitle       = "profileSetting.noClanTitle"
+        static let noClanDesc        = "profileSetting.noClanDesc"
+        static let directMessageIcon = "profileSetting.directMessageIcon"
     }
 
     enum Common {
@@ -570,6 +605,39 @@ extension L10n {
         "profile.copyUserId": "Copy User ID",
         "profile.userIdCopied": "User ID copied",
         "profile.currency": "đồng",
+        "profile.statusTitle": "Update Status",
+        "profile.statusDurationLabel": "Status Duration",
+        "profile.statusDurationToday": "Today",
+        "profile.statusDurationFourHours": "4 hours",
+        "profile.statusDurationOneHour": "1 hour",
+        "profile.statusDurationThirtyMinutes": "30 minutes",
+        "profile.statusDurationDontClear": "Don't clear",
+        "profile.statusTooLong": "Status must be at most 128 characters.",
+        "profile.statusUpdateFailed": "Could not update status. Please try again.",
+        "profile.changeOnlineStatus": "Change Online Status",
+        "profile.onlineStatusSection": "Online Status",
+        "profile.setCustomStatus": "Set a custom status",
+        "profile.userStatusOnline": "Online",
+        "profile.userStatusIdle": "Idle",
+        "profile.userStatusDoNotDisturb": "Do Not Disturb",
+        "profile.userStatusInvisible": "Invisible",
+        "profile.presenceUpdateFailed": "Could not change online status. Please try again.",
+
+        "profileSetting.title": "Profile Settings",
+        "profileSetting.userProfile": "User Profile",
+        "profileSetting.clanProfiles": "Clan Profiles",
+        "profileSetting.save": "Save",
+        "profileSetting.displayName": "Display name",
+        "profileSetting.aboutMe": "About me",
+        "profileSetting.clanNickname": "Clan nickname",
+        "profileSetting.selectAClan": "Select a Clan",
+        "profileSetting.updateSuccess": "Profile updated successfully",
+        "profileSetting.updateError": "Failed to update profile",
+        "profileSetting.clanUpdateSuccess": "Clan profile updated successfully",
+        "profileSetting.duplicateNickname": "This nickname already exists in the clan. Please choose another.",
+        "profileSetting.noClanTitle": "No Clans Yet",
+        "profileSetting.noClanDesc": "You haven't joined any clans yet.",
+        "profileSetting.directMessageIcon": "Direct Message Icon",
 
         "qrScanner.joinGroup": "Join Group",
         "qrScanner.transferTo": "Transfer to user: %@",
@@ -851,6 +919,39 @@ extension L10n {
         "profile.copyUserId": "Sao chép User ID",
         "profile.userIdCopied": "Đã sao chép User ID",
         "profile.currency": "đồng",
+        "profile.statusTitle": "Cập nhật trạng thái",
+        "profile.statusDurationLabel": "Thời lượng trạng thái",
+        "profile.statusDurationToday": "Hôm nay",
+        "profile.statusDurationFourHours": "4 giờ",
+        "profile.statusDurationOneHour": "1 giờ",
+        "profile.statusDurationThirtyMinutes": "30 phút",
+        "profile.statusDurationDontClear": "Không xóa",
+        "profile.statusTooLong": "Trạng thái tối đa 128 ký tự.",
+        "profile.statusUpdateFailed": "Không thể cập nhật trạng thái. Vui lòng thử lại.",
+        "profile.changeOnlineStatus": "Thay đổi trạng thái trực tuyến",
+        "profile.onlineStatusSection": "Trạng thái trực tuyến",
+        "profile.setCustomStatus": "Đặt trạng thái tùy chỉnh",
+        "profile.userStatusOnline": "Trực tuyến",
+        "profile.userStatusIdle": "Tạm vắng",
+        "profile.userStatusDoNotDisturb": "Không làm phiền",
+        "profile.userStatusInvisible": "Ngoại tuyến (Ẩn)",
+        "profile.presenceUpdateFailed": "Không thể đổi trạng thái trực tuyến. Vui lòng thử lại.",
+
+        "profileSetting.title": "Cài đặt hồ sơ",
+        "profileSetting.userProfile": "Cá nhân",
+        "profileSetting.clanProfiles": "Clan",
+        "profileSetting.save": "Lưu",
+        "profileSetting.displayName": "Tên hiển thị",
+        "profileSetting.aboutMe": "Về tôi",
+        "profileSetting.clanNickname": "Biệt danh Clan",
+        "profileSetting.selectAClan": "Chọn một Clan",
+        "profileSetting.updateSuccess": "Cập nhật hồ sơ thành công",
+        "profileSetting.updateError": "Cập nhật hồ sơ thất bại",
+        "profileSetting.clanUpdateSuccess": "Cập nhật hồ sơ Clan thành công",
+        "profileSetting.duplicateNickname": "Biệt danh này đã tồn tại trong Clan. Vui lòng chọn tên khác.",
+        "profileSetting.noClanTitle": "Chưa có Clan",
+        "profileSetting.noClanDesc": "Bạn chưa tham gia Clan nào.",
+        "profileSetting.directMessageIcon": "Biểu tượng tin nhắn riêng",
 
         "qrScanner.title": "Quét mã QR",
         "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",

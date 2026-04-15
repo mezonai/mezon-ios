@@ -98,6 +98,15 @@ private func voiceChannelResolveDisplayNameForUserId(context: AccountContext, cl
 }
 
 @MainActor
+private func voiceChannelShortProfileSubtitleLine(cu: Mezon_Api_ClanUserList.ClanUser?, identityFallback: String) -> String {
+    if let cu {
+        if !cu.user.username.isEmpty { return cu.user.username }
+        if !cu.user.displayName.isEmpty { return cu.user.displayName }
+    }
+    return identityFallback
+}
+
+@MainActor
 private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int64, participant: Participant) -> String {
     let isLocal = participant is LocalParticipant
     let idKey: String
@@ -148,6 +157,7 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private var pipWindow: UIWindow?
     private let pipView = UIView()
+    private let pipChromeBackdrop = UIView()
     private let videoView = VideoView()
     private let avatarView = UIImageView()
     private let initialLabel = UILabel()
@@ -162,6 +172,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var systemCallPiPSourceView: UIView?
     private var systemCallPiPContentVC: UIViewController?
     private var systemCallPiPBackgroundObserver: NSObjectProtocol?
+    private var themeChangeObserver: NSObjectProtocol?
 
     private weak var overlayPiPRootViewController: UIViewController?
     private var overlayLiveKitReconnectTask: Task<Void, Never>?
@@ -172,15 +183,18 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private override init() {
         super.init()
-        pipView.backgroundColor = UIColor.theme.primary
         pipView.layer.cornerRadius = 10
         pipView.clipsToBounds = true
         pipView.layer.borderWidth = 1
-        pipView.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.5).cgColor
+
+        pipChromeBackdrop.translatesAutoresizingMaskIntoConstraints = false
+        pipChromeBackdrop.isUserInteractionEnabled = false
 
         videoView.translatesAutoresizingMaskIntoConstraints = false
         videoView.layoutMode = .fill
         videoView.isPinchToZoomEnabled = false
+        videoView.isOpaque = false
+        videoView.backgroundColor = .clear
         videoView.layer.cornerRadius = 10
         videoView.clipsToBounds = true
 
@@ -211,6 +225,7 @@ final class VoiceChannelPiPOverlay: NSObject {
 
         videoView.isUserInteractionEnabled = false
 
+        pipView.addSubview(pipChromeBackdrop)
         pipView.addSubview(videoView)
         pipView.addSubview(avatarView)
         pipView.addSubview(initialLabel)
@@ -219,6 +234,11 @@ final class VoiceChannelPiPOverlay: NSObject {
         badgeContainer.addSubview(badgeLabel)
 
         NSLayoutConstraint.activate([
+            pipChromeBackdrop.topAnchor.constraint(equalTo: pipView.topAnchor),
+            pipChromeBackdrop.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
+            pipChromeBackdrop.trailingAnchor.constraint(equalTo: pipView.trailingAnchor),
+            pipChromeBackdrop.bottomAnchor.constraint(equalTo: pipView.bottomAnchor),
+
             videoView.topAnchor.constraint(equalTo: pipView.topAnchor),
             videoView.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
             videoView.trailingAnchor.constraint(equalTo: pipView.trailingAnchor),
@@ -255,6 +275,37 @@ final class VoiceChannelPiPOverlay: NSObject {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         pipView.addGestureRecognizer(tap)
         pipView.isUserInteractionEnabled = true
+
+        applyPiPChromeTheme()
+        themeChangeObserver = NotificationCenter.default.addObserver(
+            forName: ThemeManager.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.applyPiPChromeTheme()
+            }
+        }
+    }
+
+    private func applyPiPChromeTheme() {
+        let t = UIColor.theme
+        pipChromeBackdrop.backgroundColor = t.primary
+        pipView.backgroundColor = t.primary
+        pipView.layer.borderColor = t.textDisabled.withAlphaComponent(0.5).cgColor
+        initialLabel.textColor = t.textStrong
+        if #available(iOS 15.0, *), let vc = systemCallPiPContentVC {
+            vc.view.backgroundColor = t.primary
+            if let pipNameLabel = vc.view.viewWithTag(9002) as? UILabel {
+                pipNameLabel.textColor = t.textStrong
+            }
+            if let pipStatusLabel = vc.view.viewWithTag(9001) as? UILabel {
+                pipStatusLabel.textColor = t.textDisabled
+            }
+            if let pipInitialLabel = vc.view.viewWithTag(9003) as? UILabel {
+                pipInitialLabel.textColor = t.textStrong
+            }
+        }
     }
 
     var isActive: Bool { pipWindow != nil }
@@ -267,7 +318,6 @@ final class VoiceChannelPiPOverlay: NSObject {
         didAnnounceMeetJoin: Bool,
         didAnnounceMeetLeave: Bool
     ) {
-        print("[PiP-Debug][Overlay] show() called — room=\(String(describing: bridge.room)), roomState=\(String(describing: bridge.room?.connectionState))")
         self.bridge = bridge
         self.context = context
         self.channel = channel
@@ -284,13 +334,20 @@ final class VoiceChannelPiPOverlay: NSObject {
 
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         guard let scene else {
-            print("[PiP-Debug][Overlay] show() — no UIWindowScene found")
             return
         }
         let w = VoicePiPPassthroughWindow(windowScene: scene)
         w.windowLevel = .statusBar + 1
         w.backgroundColor = .clear
         w.isUserInteractionEnabled = true
+        switch ThemeManager.shared.current {
+        case .light, .sunrise:
+            w.overrideUserInterfaceStyle = .light
+        case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
+            w.overrideUserInterfaceStyle = .dark
+        case .system:
+            w.overrideUserInterfaceStyle = .unspecified
+        }
         w.pipView = pipView
         let rootVC = UIViewController()
         rootVC.view.backgroundColor = .clear
@@ -310,9 +367,10 @@ final class VoiceChannelPiPOverlay: NSObject {
         pipView.isUserInteractionEnabled = true
         pipWindow = w
 
+        applyPiPChromeTheme()
         refreshContent()
-        print("[PiP-Debug][Overlay] show() — pipWindow ready, about to setupOverlaySystemCallPiP")
         setupOverlaySystemCallPiP(rootVC: rootVC)
+        applyPiPChromeTheme()
     }
 
     func dismiss() {
@@ -393,6 +451,7 @@ final class VoiceChannelPiPOverlay: NSObject {
                 refreshContent()
                 if let root = overlayPiPRootViewController {
                     setupOverlaySystemCallPiP(rootVC: root)
+                    applyPiPChromeTheme()
                 }
                 return
             } catch {
@@ -461,6 +520,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         avatarView.isHidden = true
         initialLabel.isHidden = true
         videoView.isHidden = false
+        videoView.alpha = 1
         videoView.mirrorMode = mirror ? .auto : .off
         if videoView.track !== track {
             videoView.track = track
@@ -470,6 +530,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private func showAvatar(participant: Participant) {
         videoView.track = nil
         videoView.isHidden = true
+        videoView.alpha = 0
         avatarView.isHidden = false
 
         let key = participant.identity?.stringValue ?? ""
@@ -593,30 +654,24 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func setupOverlaySystemCallPiP(rootVC: UIViewController) {
-        print("[PiP-Debug][Overlay] setupOverlaySystemCallPiP ENTER — isPiPSupported=\(AVPictureInPictureController.isPictureInPictureSupported()), rootVC.view.window=\(String(describing: rootVC.view.window))")
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][Overlay] iOS < 15, skipping system PiP setup")
             return
         }
         guard systemCallPiPController == nil, let ctx = context, let ch = channel else {
-            print("[PiP-Debug][Overlay] setupOverlaySystemCallPiP skipped — controller=\(systemCallPiPController != nil), context=\(context != nil)")
             return
         }
         guard let (sourceView, contentVC, pip) = VoiceCallSystemPiPFactory.make(sourceSuperview: rootVC.view, context: ctx, clanId: ch.clanID) else {
-            print("[PiP-Debug][Overlay] VoiceCallSystemPiPFactory.make returned nil")
             return
         }
         systemCallPiPSourceView = sourceView
         systemCallPiPContentVC = contentVC
         pip.delegate = self
         systemCallPiPController = pip
-        print("[PiP-Debug][Overlay] System PiP controller created — isPossible=\(pip.isPictureInPicturePossible), canStartAuto=\(pip.canStartPictureInPictureAutomaticallyFromInline)")
         systemCallPiPBackgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            print("[PiP-Debug][Overlay] didEnterBackground notification received")
             DispatchQueue.main.async {
                 self?.tryStartOverlaySystemPiPIfNeeded()
             }
@@ -626,24 +681,18 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private func tryStartOverlaySystemPiPIfNeeded() {
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][Overlay] tryStart skipped — iOS < 15")
             return
         }
         guard let pip = systemCallPiPController else {
-            print("[PiP-Debug][Overlay] tryStart skipped — systemCallPiPController is nil")
             return
         }
-        print("[PiP-Debug][Overlay] tryStart — isPossible=\(pip.isPictureInPicturePossible), isActive=\(pip.isPictureInPictureActive), isSuspended=\(pip.isPictureInPictureSuspended)")
         DispatchQueue.main.async {
             guard pip.isPictureInPicturePossible else {
-                print("[PiP-Debug][Overlay] startPiP aborted — isPictureInPicturePossible=false")
                 return
             }
             guard !pip.isPictureInPictureActive else {
-                print("[PiP-Debug][Overlay] startPiP aborted — already active")
                 return
             }
-            print("[PiP-Debug][Overlay] calling pip.startPictureInPicture()")
             pip.startPictureInPicture()
         }
     }
@@ -662,7 +711,6 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func tearDownOverlaySystemCallPiP() {
-        print("[PiP-Debug][Overlay] tearDownOverlaySystemCallPiP called — controller=\(systemCallPiPController != nil)")
         if let obs = systemCallPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             systemCallPiPBackgroundObserver = nil
@@ -677,19 +725,9 @@ final class VoiceChannelPiPOverlay: NSObject {
 }
 
 extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
-    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        Task { @MainActor [weak self] in
-            guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            print("[PiP-Debug][Overlay] ✅ didStartPictureInPicture")
-        }
-    }
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
-    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        Task { @MainActor [weak self] in
-            guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            print("[PiP-Debug][Overlay] ⛔ didStopPictureInPicture")
-        }
-    }
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
     nonisolated func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
@@ -697,7 +735,6 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            print("[PiP-Debug][Overlay] ❌ failedToStart: \(error)")
             AppLogger.network.error("[VoiceChannel] Overlay system PiP failed: \(error)")
         }
     }
@@ -715,7 +752,6 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
                 completionHandler(false)
                 return
             }
-            print("[PiP-Debug][Overlay] restoreUserInterface called")
             completionHandler(true)
         }
     }
@@ -738,9 +774,7 @@ private final class VoicePiPPassthroughWindow: UIWindow {
 private enum VoiceCallSystemPiPFactory {
     @MainActor
     static func make(sourceSuperview: UIView, context: AccountContext, clanId: Int64) -> (UIView, AVPictureInPictureVideoCallViewController, AVPictureInPictureController)? {
-        print("[PiP-Debug][Factory] isPictureInPictureSupported=\(AVPictureInPictureController.isPictureInPictureSupported()), sourceSuperview=\(sourceSuperview), window=\(String(describing: sourceSuperview.window))")
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
-            print("[PiP-Debug][Factory] PiP not supported on this device")
             return nil
         }
 
@@ -770,19 +804,21 @@ private enum VoiceCallSystemPiPFactory {
         let pipInitialLabel = UILabel()
         pipInitialLabel.translatesAutoresizingMaskIntoConstraints = false
         pipInitialLabel.font = .systemFont(ofSize: 24, weight: .bold)
-        pipInitialLabel.textColor = .white
+        pipInitialLabel.textColor = UIColor.theme.textStrong
         pipInitialLabel.textAlignment = .center
+        pipInitialLabel.tag = 9003
 
         let pipNameLabel = UILabel()
         pipNameLabel.translatesAutoresizingMaskIntoConstraints = false
         pipNameLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        pipNameLabel.textColor = .white
+        pipNameLabel.textColor = UIColor.theme.textStrong
         pipNameLabel.textAlignment = .center
+        pipNameLabel.tag = 9002
 
         let pipStatusLabel = UILabel()
         pipStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         pipStatusLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        pipStatusLabel.textColor = UIColor.white.withAlphaComponent(0.7)
+        pipStatusLabel.textColor = UIColor.theme.textDisabled
         pipStatusLabel.textAlignment = .center
         pipStatusLabel.tag = 9001
 
@@ -849,7 +885,6 @@ private enum VoiceCallSystemPiPFactory {
         )
         let pip = AVPictureInPictureController(contentSource: source)
         pip.canStartPictureInPictureAutomaticallyFromInline = true
-        print("[PiP-Debug][Factory] PiP controller created — isPossible=\(pip.isPictureInPicturePossible), canStartAuto=\(pip.canStartPictureInPictureAutomaticallyFromInline)")
         return (sourceView, contentVC, pip)
     }
 }
@@ -937,6 +972,7 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private var liveKitReconnectTask: Task<Void, Never>?
     private static let liveKitManualReconnectMax = 5
+    private var didPrefetchVoiceChannelPermissions = false
 
     private let bottomPill = UIView()
     private let bottomControlsStack = UIStackView()
@@ -1176,15 +1212,6 @@ final class VoiceChannelRoomViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
 
-        NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            print("[PiP-Debug][VC] willResignActive — callPiPController=\(self.callPiPController != nil), bridge=\(self.liveKitBridge != nil), isMinimizingToPiP=\(self.isMinimizingToPiP)")
-        }
-        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            print("[PiP-Debug][VC] didEnterBackground (viewDidLoad observer) — callPiPController=\(self.callPiPController != nil), bridge=\(self.liveKitBridge != nil)")
-        }
-
         audioRouteObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
@@ -1262,7 +1289,6 @@ final class VoiceChannelRoomViewController: ViewController {
             MezonSocket.shared.onVoiceReaction = nil
         }
         liveKitReconnectTask?.cancel()
-        print("[PiP-Debug][VC] deinit — callPiPController=\(callPiPController != nil), callPiPBackgroundObserver=\(callPiPBackgroundObserver != nil)")
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
         }
@@ -1734,42 +1760,64 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
+    private func applyLiveKitBridgeAfterTakeover(_ bridge: VoiceChannelLiveKitBridge, joinFlag: Bool, leaveFlag: Bool) {
+        liveKitBridge = bridge
+        didAnnounceMeetJoin = joinFlag
+        didAnnounceMeetLeave = leaveFlag
+        isMinimizingToPiP = false
+        bridge.onConnectFailed = { [weak self] error in
+            self?.setConnectingOverlayVisible(false)
+            self?.liveKitBridge = nil
+            self?.presentVoiceAlert(
+                title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
+                message: error.localizedDescription)
+        }
+        bridge.onDisconnected = { [weak self] error in
+            self?.handleLiveKitDisconnected(error: error)
+        }
+        bridge.onRoomParticipantsChanged = { [weak self] in
+            self?.refreshParticipantRowsFromLiveKit()
+        }
+        bridge.onParticipantStateUpdated = { [weak self] in
+            self?.updateParticipantTilesInPlace()
+        }
+        refreshMicButtonIcon()
+        refreshCamButtonIcon()
+        detectInitialAudioRoute()
+        refreshParticipantRowsFromLiveKit()
+        setupCallPiP()
+        bindVoiceReactionSocketIfActive()
+    }
+
+    @discardableResult
+    private func resumeVoiceRoomFromPiPOverlayIfNeeded() -> Bool {
+        guard liveKitBridge == nil else { return false }
+        let pip = VoiceChannelPiPOverlay.shared
+        guard pip.isActive, let pipCh = pip.channel,
+              pipCh.channelID == channel.channelID, pipCh.clanID == channel.clanID,
+              let (bridge, joinFlag, leaveFlag) = pip.takeOverBridge() else { return false }
+        applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag)
+        return true
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        print("[PiP-Debug][VC] viewDidAppear — didStartVoiceConnection=\(didStartVoiceConnection), existingPiPOverlay=\(existingPiPOverlay != nil)")
+        if !didPrefetchVoiceChannelPermissions {
+            didPrefetchVoiceChannelPermissions = true
+            Task { await prefetchVoiceChannelPermissions() }
+        }
+        if resumeVoiceRoomFromPiPOverlayIfNeeded() {
+            didStartVoiceConnection = true
+            return
+        }
         guard !didStartVoiceConnection else { return }
         didStartVoiceConnection = true
 
         if let pip = existingPiPOverlay, let (bridge, joinFlag, leaveFlag) = pip.takeOverBridge() {
-            print("[PiP-Debug][VC] viewDidAppear — took over bridge from PiP overlay")
-            self.liveKitBridge = bridge
-            self.didAnnounceMeetJoin = joinFlag
-            self.didAnnounceMeetLeave = leaveFlag
-            bridge.onConnectFailed = { [weak self] error in
-                self?.setConnectingOverlayVisible(false)
-                self?.liveKitBridge = nil
-                self?.presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                    message: error.localizedDescription)
-            }
-            bridge.onDisconnected = { [weak self] error in
-                self?.handleLiveKitDisconnected(error: error)
-            }
-            bridge.onRoomParticipantsChanged = { [weak self] in
-                self?.refreshParticipantRowsFromLiveKit()
-            }
-            bridge.onParticipantStateUpdated = { [weak self] in
-                self?.updateParticipantTilesInPlace()
-            }
-            refreshMicButtonIcon()
-            refreshCamButtonIcon()
-            detectInitialAudioRoute()
-            refreshParticipantRowsFromLiveKit()
-            setupCallPiP()
+            applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag)
             return
         }
 
-        print("[PiP-Debug][VC] viewDidAppear — starting fresh voice connection pipeline")
         connectTask = Task { @MainActor in
             await self.runVoiceConnectionPipeline()
         }
@@ -1805,7 +1853,8 @@ final class VoiceChannelRoomViewController: ViewController {
                 for v in h.arrangedSubviews {
                     (v as? VoiceParticipantRowView)?.applyLayoutMetrics(m)
                 }
-            } else if let wrapper = row as? UIView, let tile = wrapper.subviews.first as? VoiceParticipantRowView {
+            } else if let tile = row.subviews.first as? VoiceParticipantRowView {
+                let wrapper = row
                 for c in wrapper.constraints where c.firstAttribute == .height {
                     c.constant = m.tileHeight
                 }
@@ -1819,48 +1868,94 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private var isMinimizingToPiP = false
 
+    private func voiceRoomShouldTransferToPiPWhenDisappearing() -> Bool {
+        if isMovingFromParent || isBeingDismissed { return true }
+        if presentedViewController != nil { return false }
+        if let nav = navigationController, nav.topViewController !== self { return true }
+        return false
+    }
+
+    @discardableResult
+    private func voiceRoomPerformPiPHandoffIfStillInCall() -> Bool {
+        if isMinimizingToPiP { return false }
+        liveKitReconnectTask?.cancel()
+        liveKitReconnectTask = nil
+        if let bridge = liveKitBridge {
+            unbindVoiceReactionSocketForPiP()
+            tearDownCallPiP()
+            tearDownScreenSharePresentationAndPiP()
+            connectTask?.cancel()
+            connectTask = nil
+
+            for row in participantRows.values {
+                row.prepareForRemoval()
+            }
+            participantRows.removeAll()
+            lastSyncedParticipantTileMetrics = nil
+
+            isMinimizingToPiP = true
+            bridge.clearCallbacks()
+            liveKitBridge = nil
+
+            VoiceChannelPiPOverlay.shared.show(
+                bridge: bridge,
+                context: context,
+                channel: channel,
+                parentChannelName: parentChannelName,
+                didAnnounceMeetJoin: didAnnounceMeetJoin,
+                didAnnounceMeetLeave: didAnnounceMeetLeave
+            )
+            return true
+        } else {
+            unbindVoiceReactionSocketForPiP()
+            tearDownCallPiP()
+            tearDownScreenSharePresentationAndPiP()
+            connectTask?.cancel()
+            connectTask = nil
+            return false
+        }
+    }
+
+    private func voiceStripSelfFromNavWhenCoveredAfterPiPHandoff(
+        wasMovingFromParent: Bool,
+        wasBeingDismissed: Bool
+    ) {
+        guard !wasMovingFromParent, !wasBeingDismissed else { return }
+        guard presentedViewController == nil else { return }
+        guard let nav = navigationController, nav.topViewController !== self else { return }
+        var vcs = nav.viewControllers
+        guard let i = vcs.firstIndex(where: { $0 === self }) else { return }
+        vcs.remove(at: i)
+        nav.setViewControllers(vcs, animated: false)
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         dismissVoiceMoreToolsPopover()
         UIApplication.shared.isIdleTimerDisabled = false
-        print("[PiP-Debug][VC] viewWillDisappear — isMinimizingToPiP=\(isMinimizingToPiP), isMovingFromParent=\(isMovingFromParent), isBeingDismissed=\(isBeingDismissed), bridge=\(liveKitBridge != nil)")
+        let handoff = voiceRoomShouldTransferToPiPWhenDisappearing()
+        let movingFromParent = isMovingFromParent
+        let beingDismissed = isBeingDismissed
         if isMinimizingToPiP { return }
-        if isMovingFromParent || isBeingDismissed {
-            liveKitReconnectTask?.cancel()
-            liveKitReconnectTask = nil
-            if let bridge = liveKitBridge {
-                unbindVoiceReactionSocketForPiP()
-                tearDownCallPiP()
-                tearDownScreenSharePresentationAndPiP()
-                connectTask?.cancel()
-                connectTask = nil
-
-                for row in participantRows.values {
-                    row.prepareForRemoval()
-                }
-                participantRows.removeAll()
-                lastSyncedParticipantTileMetrics = nil
-
-                isMinimizingToPiP = true
-                bridge.clearCallbacks()
-                self.liveKitBridge = nil
-
-                VoiceChannelPiPOverlay.shared.show(
-                    bridge: bridge,
-                    context: context,
-                    channel: channel,
-                    parentChannelName: parentChannelName,
-                    didAnnounceMeetJoin: didAnnounceMeetJoin,
-                    didAnnounceMeetLeave: didAnnounceMeetLeave
+        guard handoff else { return }
+        let didHandoffBridgeToPiP = voiceRoomPerformPiPHandoffIfStillInCall()
+        if didHandoffBridgeToPiP {
+            DispatchQueue.main.async { [weak self] in
+                self?.voiceStripSelfFromNavWhenCoveredAfterPiPHandoff(
+                    wasMovingFromParent: movingFromParent,
+                    wasBeingDismissed: beingDismissed
                 )
-            } else {
-                unbindVoiceReactionSocketForPiP()
-                tearDownCallPiP()
-                tearDownScreenSharePresentationAndPiP()
-                connectTask?.cancel()
-                connectTask = nil
             }
         }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        if isMinimizingToPiP { return }
+        guard isViewLoaded, view.window == nil else { return }
+        if presentedViewController != nil { return }
+        guard liveKitBridge != nil else { return }
+        voiceRoomPerformPiPHandoffIfStillInCall()
     }
 
     @objc private func applyTheme() {
@@ -1882,6 +1977,19 @@ final class VoiceChannelRoomViewController: ViewController {
         refreshCamButtonIcon()
         refreshRaiseHandButtonAppearance()
         refreshRaiseHandTopBanners()
+        if #available(iOS 15.0, *) {
+            applyInlineCallPiPContentTheme()
+        }
+    }
+
+    @available(iOS 15.0, *)
+    private func applyInlineCallPiPContentTheme() {
+        guard let vc = callPiPContentVC else { return }
+        let t = UIColor.theme
+        vc.view.backgroundColor = t.primary
+        (vc.view.viewWithTag(9001) as? UILabel)?.textColor = t.textDisabled
+        (vc.view.viewWithTag(9002) as? UILabel)?.textColor = t.textStrong
+        (vc.view.viewWithTag(9003) as? UILabel)?.textColor = t.textStrong
     }
 
     @objc private func popTapped() {
@@ -1905,7 +2013,6 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 
     @objc private func minimizeToPiP() {
-        print("[PiP-Debug][VC] minimizeToPiP() called — bridge=\(liveKitBridge != nil)")
         guard let bridge = liveKitBridge else { return }
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
@@ -2036,7 +2143,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 return
             }
 
-            print("[PiP-Debug][VC] voice connected successfully — about to setupCallPiP")
             refreshMicButtonIcon()
             detectInitialAudioRoute()
             refreshCamButtonIcon()
@@ -2068,31 +2174,25 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func setupCallPiP() {
         let session = AVAudioSession.sharedInstance()
-        print("[PiP-Debug][VC] setupCallPiP ENTER — audioCategory=\(session.category.rawValue), audioMode=\(session.mode.rawValue), view.window=\(String(describing: view.window)), isPiPSupported=\(AVPictureInPictureController.isPictureInPictureSupported())")
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][VC] setupCallPiP skipped — iOS < 15")
             return
         }
         guard callPiPController == nil else {
-            print("[PiP-Debug][VC] setupCallPiP skipped — controller already exists")
             return
         }
         guard let (sourceView, contentVC, pip) = VoiceCallSystemPiPFactory.make(sourceSuperview: view, context: context, clanId: channel.clanID) else {
-            print("[PiP-Debug][VC] VoiceCallSystemPiPFactory.make returned nil (isPiPSupported=\(AVPictureInPictureController.isPictureInPictureSupported()))")
             return
         }
         callPiPSourceView = sourceView
         callPiPContentVC = contentVC
         pip.delegate = self
         callPiPController = pip
-        print("[PiP-Debug][VC] System PiP controller created — isPossible=\(pip.isPictureInPicturePossible), canStartAuto=\(pip.canStartPictureInPictureAutomaticallyFromInline)")
         if callPiPBackgroundObserver == nil {
             callPiPBackgroundObserver = NotificationCenter.default.addObserver(
                 forName: UIApplication.didEnterBackgroundNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                print("[PiP-Debug][VC] didEnterBackground notification received")
                 self?.tryStartCallPiPIfNeeded()
             }
         }
@@ -2100,30 +2200,23 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func tryStartCallPiPIfNeeded() {
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][VC] tryStart skipped — iOS < 15")
             return
         }
         guard let pip = callPiPController else {
-            print("[PiP-Debug][VC] tryStart skipped — callPiPController is nil")
             return
         }
-        print("[PiP-Debug][VC] tryStart — isPossible=\(pip.isPictureInPicturePossible), isActive=\(pip.isPictureInPictureActive), isSuspended=\(pip.isPictureInPictureSuspended)")
         DispatchQueue.main.async {
             guard pip.isPictureInPicturePossible else {
-                print("[PiP-Debug][VC] startPiP aborted — isPictureInPicturePossible=false")
                 return
             }
             guard !pip.isPictureInPictureActive else {
-                print("[PiP-Debug][VC] startPiP aborted — already active")
                 return
             }
-            print("[PiP-Debug][VC] calling pip.startPictureInPicture()")
             pip.startPictureInPicture()
         }
     }
 
     private func tearDownCallPiP() {
-        print("[PiP-Debug][VC] tearDownCallPiP called — controller=\(callPiPController != nil)")
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             callPiPBackgroundObserver = nil
@@ -2219,6 +2312,7 @@ final class VoiceChannelRoomViewController: ViewController {
                 videoTrack: videoTrack,
                 mirrorVideo: mirrorVideo
             )
+            applyParticipantRowCallbacks(rowKey: rowKey, row: row, participant: p, displayName: display)
         }
         refreshMicButtonIcon()
     }
@@ -2261,15 +2355,7 @@ final class VoiceChannelRoomViewController: ViewController {
                 mirrorVideo: mirrorVideo
             )
             row.applyTheme()
-            switch d.kind {
-            case .screenShare:
-                row.onExpandScreenShare = { [weak self] in
-                    guard let self, let track = p.firstScreenShareVideoTrack else { return }
-                    self.presentScreenShareExpanded(track: track, displayName: display)
-                }
-            case .mainVideo:
-                row.onExpandScreenShare = nil
-            }
+            applyParticipantRowCallbacks(rowKey: d.rowKey, row: row, participant: p, displayName: display)
         }
         let nextKeys = Set(orderedKeys)
         let stale = participantRows.keys.filter { !nextKeys.contains($0) }
@@ -2702,6 +2788,166 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
+    private func prefetchVoiceChannelPermissions() async {
+        guard let token = await context.getToken() else { return }
+        do {
+            let response = try await context.account.network.listUserPermissionInChannel(
+                clanId: channel.clanID,
+                channelId: channel.channelID,
+                token: token
+            )
+            let records = response.permissions.permissions.map { PermissionRecord(from: $0) }
+            let channelId = channel.channelID
+            context.account.postbox.writeSync { tx in
+                tx.updateChannelPermissions(records, channelId: channelId)
+            }
+        } catch {
+            AppLogger.network.warning("[VoiceChannel] listUserPermissionInChannel: \(error)")
+        }
+    }
+
+    private func voiceChannelCanManageVoice() -> Bool {
+        let clanId = channel.clanID
+
+        guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return false }
+        let maxLevel = roleList.maxLevelPermission
+
+        guard let allPerms = context.engine.clanData.getAllPermissions() else { return false }
+        guard let manageChannelPerm = allPerms.permissions.first(where: {
+            $0.slug.lowercased().replacingOccurrences(of: "_", with: "-") == "manage-channel"
+        }) else { return false }
+
+        return manageChannelPerm.level <= maxLevel
+    }
+
+    private func voiceParticipantIsSelf(identityKey: String, clanUser: Mezon_Api_ClanUserList.ClanUser?) -> Bool {
+        if let myId = context.currentUser?.id, myId == identityKey { return true }
+        if let u = clanUser?.user.username, !u.isEmpty,
+           let my = context.currentUser?.username, !my.isEmpty, u == my { return true }
+        return false
+    }
+
+    private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, participant: Participant, displayName: String) {
+        if rowKey.hasSuffix("|screen") {
+            row.onMainTileLongPress = nil
+            row.onExpandScreenShare = { [weak self] in
+                guard let self, let track = participant.firstScreenShareVideoTrack else { return }
+                self.presentScreenShareExpanded(track: track, displayName: displayName)
+            }
+            return
+        }
+        row.onExpandScreenShare = nil
+        if participant is LocalParticipant {
+            row.onMainTileLongPress = nil
+        } else {
+            row.onMainTileLongPress = { [weak self] in
+                self?.presentParticipantShortProfile(for: participant)
+            }
+        }
+    }
+
+    private func presentParticipantShortProfile(for participant: Participant) {
+        if VoiceChannelPiPOverlay.shared.isActive { return }
+        guard liveKitBridge?.room != nil else { return }
+        let idKey = participant.identity?.stringValue ?? ""
+        guard !idKey.isEmpty else { return }
+        let cu = voiceChannelFindClanUser(context: context, clanId: channel.clanID, identityKey: idKey)
+        if voiceParticipantIsSelf(identityKey: idKey, clanUser: cu) { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.prefetchVoiceChannelPermissions()
+            guard self.liveKitBridge?.room != nil else { return }
+            let micOn = participant.isMicrophoneEnabled()
+            let subtitle = voiceChannelShortProfileSubtitleLine(cu: cu, identityFallback: idKey)
+            let display = self.resolveDisplayName(participant: participant)
+            let avatarURL = voiceChannelResolveAvatarURL(context: self.context, clanId: self.channel.clanID, identityKey: idKey)
+            let canManage = self.voiceChannelCanManageVoice()
+            let roomName = "\(self.channel.channelID)"
+
+            var apiUser = Mezon_Api_User()
+            if let cu {
+                apiUser = cu.user
+            } else if let uid = Int64(idKey) {
+                apiUser.id = uid
+            }
+            apiUser.displayName = display
+            if !subtitle.isEmpty {
+                apiUser.username = subtitle
+            }
+            if let avatarURL, !avatarURL.isEmpty {
+                apiUser.avatarURL = avatarURL
+            }
+
+            let voiceActions: MemberProfileVoiceChannelActions? = canManage
+                ? MemberProfileVoiceChannelActions(
+                    showMute: micOn,
+                    showKick: true,
+                    confirmUserLabel: display.isEmpty ? subtitle : display,
+                    onMute: { [weak self] in
+                        guard let self else { return }
+                        guard let token = await self.context.getToken() else {
+                            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
+                                NSLocalizedDescriptionKey: NSLocalizedString(
+                                    "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
+                            ])
+                        }
+                        try await self.context.account.network.muteMezonMeetParticipant(
+                            clanId: self.channel.clanID,
+                            channelId: self.channel.channelID,
+                            roomName: roomName,
+                            username: idKey,
+                            token: token
+                        )
+                    },
+                    onKick: { [weak self] in
+                        guard let self else { return }
+                        guard let token = await self.context.getToken() else {
+                            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
+                                NSLocalizedDescriptionKey: NSLocalizedString(
+                                    "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
+                            ])
+                        }
+                        try await self.context.account.network.removeMezonMeetParticipant(
+                            clanId: self.channel.clanID,
+                            channelId: self.channel.channelID,
+                            roomName: roomName,
+                            username: idKey,
+                            token: token
+                        )
+                    }
+                )
+                : nil
+
+            let sheet = MemberProfileSheetController(
+                user: apiUser,
+                context: self.context,
+                isCurrentUser: false,
+                voiceChannelActions: voiceActions,
+                onSendMessage: { [weak self] dmChannel in
+                    guard let self else { return }
+                    self.context.currentClanId = 0
+                    let chatVC = ChatViewController(
+                        clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
+                    self.navigationController?.pushViewController(chatVC, animated: true)
+                }
+            )
+
+            let navForOverlay = self.navigationControllerForGlobalOverlay()
+            if let nav = navForOverlay {
+                nav.presentOverlay(controller: sheet, inGlobal: true)
+            } else if let host = self.presentationWindowHost() {
+                host.presentInGlobalOverlay(sheet)
+            } else {
+                self.presentInGlobalOverlay(sheet)
+            }
+            sheet.animateIn()
+            DispatchQueue.main.async { [weak sheet] in
+                navForOverlay?.requestLayout(transition: .immediate)
+                sheet?.animateIn()
+            }
+        }
+    }
+
     private func presentVoiceAlert(title: String, message: String, onDismiss: (() -> Void)? = nil) {
         let ac = UIAlertController(title: title, message: message, preferredStyle: .alert)
         ac.addAction(UIAlertAction(title: NSLocalizedString("voiceChannel.ok", tableName: nil, bundle: .main, value: "OK", comment: ""), style: .default) { _ in
@@ -2800,22 +3046,15 @@ final class VoiceChannelRoomViewController: ViewController {
 }
 
 extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
-    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        guard pictureInPictureController === callPiPController else { return }
-        print("[PiP-Debug][VC] ✅ didStartPictureInPicture")
-    }
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
-    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        guard pictureInPictureController === callPiPController else { return }
-        print("[PiP-Debug][VC] ⛔ didStopPictureInPicture")
-    }
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
         guard pictureInPictureController === callPiPController else { return }
-        print("[PiP-Debug][VC] ❌ failedToStart: \(error)")
         AppLogger.network.error("[VoiceChannel] Call PiP failed: \(error)")
     }
 
@@ -2827,7 +3066,6 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
             completionHandler(false)
             return
         }
-        print("[PiP-Debug][VC] restoreUserInterface called")
         completionHandler(true)
     }
 }
@@ -3135,6 +3373,7 @@ private final class VoiceParticipantRowView: UIView {
 
     let identityKey: String
     var onExpandScreenShare: (() -> Void)?
+    var onMainTileLongPress: (() -> Void)?
     private let tileKind: VoiceParticipantTileKind
     private let card = UIView()
     private let videoView = VideoView()
@@ -3186,6 +3425,7 @@ private final class VoiceParticipantRowView: UIView {
         videoView.translatesAutoresizingMaskIntoConstraints = false
         videoView.layoutMode = .fill
         videoView.isPinchToZoomEnabled = false
+        videoView.isUserInteractionEnabled = false
         videoView.layer.cornerRadius = layoutMetrics.cardCornerRadius
         videoView.clipsToBounds = true
 
@@ -3348,7 +3588,17 @@ private final class VoiceParticipantRowView: UIView {
             ])
         }
         NSLayoutConstraint.activate(constraints)
+        if tileKind == .mainVideo {
+            let lp = UILongPressGestureRecognizer(target: self, action: #selector(mainTileLongPressed(_:)))
+            lp.minimumPressDuration = 0.45
+            card.addGestureRecognizer(lp)
+        }
         applyTheme()
+    }
+
+    @objc private func mainTileLongPressed(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began else { return }
+        onMainTileLongPress?()
     }
 
     func applyLayoutMetrics(_ m: VoiceParticipantTileLayoutMetrics) {

@@ -15,6 +15,9 @@ struct ThemeAttributes {
     let textStrong: UIColor
     let textDisabled: UIColor
     let textNormal: UIColor
+    let iconPrimary: UIColor
+    let iconSecondary: UIColor
+    let iconTertiary: UIColor
     let white: UIColor
     let black: UIColor
     let bgInputPrimary: UIColor
@@ -124,6 +127,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#dfe0e4"),
         textDisabled:     hex("#7b7b83"),
         textNormal:       hex("#898993"),
+        iconPrimary:      hex("#5a62f4"),
+        iconSecondary:    hex("#7b7b83"),
+        iconTertiary:     hex("#949aa4"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
         bgInputPrimary:   hex("#2a2e31"),
@@ -177,6 +183,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#070709"),
         textDisabled:     hex("#606065"),
         textNormal:       hex("#e0e1e3"),
+        iconPrimary:      hex("#5a62f4"),
+        iconSecondary:    hex("#606065"),
+        iconTertiary:     hex("#6c7077"),
         white:            hex("#000000"),
         black:            hex("#FFFFFF"),
         bgInputPrimary:   hex("#a0a1a6"),
@@ -230,6 +239,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#070709"),
         textDisabled:     hex("#606065"),
         textNormal:       hex("#e0e1e3"),
+        iconPrimary:      hex("#ec5a6b"),
+        iconSecondary:    hex("#b13b3d"),
+        iconTertiary:     hex("#e04c51"),
         white:            hex("#000000"),
         black:            hex("#FFFFFF"),
         bgInputPrimary:   hex("#707075"),
@@ -283,6 +295,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#dfe0e4"),
         textDisabled:     hex("#7b7b83"),
         textNormal:       hex("#898993"),
+        iconPrimary:      hex("#d62940"),
+        iconSecondary:    hex("#d23331"),
+        iconTertiary:     hex("#dd2f2f"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
         bgInputPrimary:   hex("#2a2e31"),
@@ -336,6 +351,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#dfe0e4"),
         textDisabled:     hex("#7d7582"),
         textNormal:       hex("#858593"),
+        iconPrimary:      hex("#a78bfa"),
+        iconSecondary:    hex("#7d7582"),
+        iconTertiary:     hex("#9ca3af"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
         bgInputPrimary:   hex("#2a2e31"),
@@ -389,6 +407,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#dfe0e4"),
         textDisabled:     hex("#7b7b83"),
         textNormal:       hex("#898993"),
+        iconPrimary:      hex("#5a48fb"),
+        iconSecondary:    hex("#5331d2"),
+        iconTertiary:     hex("#5331d2"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
         bgInputPrimary:   hex("#2a2e31"),
@@ -442,6 +463,9 @@ private extension ThemeAttributes {
         textStrong:       hex("#dfe0e4"),
         textDisabled:     hex("#7b7b83"),
         textNormal:       hex("#898993"),
+        iconPrimary:      hex("#ff873c"),
+        iconSecondary:    hex("#ff7e30"),
+        iconTertiary:     hex("#dd3f2f"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
         bgInputPrimary:   hex("#2a2e31"),

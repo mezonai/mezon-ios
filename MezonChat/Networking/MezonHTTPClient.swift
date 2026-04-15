@@ -114,6 +114,23 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateUserStatus(_ request: Mezon_Api_UserStatusUpdate, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateUserStatus",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func getUserStatus(token: String) async throws -> Mezon_Api_UserStatus {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetUserStatus",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func sessionRefresh(refreshToken: String) async throws -> MezonSession {
         var req = Mezon_Api_SessionRefreshRequest()
         req.token = refreshToken
@@ -334,6 +351,84 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateAccount(
+        displayName: String? = nil,
+        avatarUrl: String? = nil,
+        aboutMe: String? = nil,
+        logo: String? = nil,
+        token: String
+    ) async throws -> Mezon_Api_Account {
+        var req = Mezon_Api_UpdateAccountRequest()
+        if let displayName {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = displayName
+            req.displayName = v
+        }
+        if let avatarUrl {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = avatarUrl
+            req.avatarURL = v
+        }
+        if let aboutMe {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = aboutMe
+            req.aboutMe = v
+        }
+        if let logo {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = logo
+            req.logo = v
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateAccount",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateClanProfile(
+        clanId: Int64,
+        nickName: String? = nil,
+        avatar: String? = nil,
+        token: String
+    ) async throws -> SwiftProtobuf.Google_Protobuf_Empty {
+        var req = Mezon_Api_UpdateClanProfileRequest()
+        req.clanID = clanId
+        if let nickName {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = nickName
+            req.nickName = v
+        }
+        if let avatar {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = avatar
+            req.avatar = v
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateUserProfileByClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func checkDuplicateName(
+        name: String,
+        type: Int32,
+        conditionId: Int64,
+        token: String
+    ) async throws -> Bool {
+        var req = Mezon_Api_CheckDuplicateNameRequest()
+        req.name = name
+        req.type = type
+        req.conditionID = conditionId
+        let response: Mezon_Api_CheckDuplicateNameResponse = try await postProto(
+            path: "/mezon.api.Mezon/CheckDuplicateName",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.isDuplicate
+    }
+
     func sendChannelMessage(
         clanId: Int64,
         channelId: Int64,
@@ -546,6 +641,32 @@ final class MezonHTTPClient {
         return response.token
     }
 
+    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+        var req = Mezon_Api_MeetParticipantRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.roomName = roomName
+        req.username = username
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/MuteParticipantMezonMeet",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+        var req = Mezon_Api_MeetParticipantRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.roomName = roomName
+        req.username = username
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/RemoveParticipantMezonMeet",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
@@ -699,6 +820,22 @@ final class MezonHTTPClient {
         )
     }
 
+    func listFriends(
+        token: String,
+        limit: Int32 = 100,
+        state: Int32 = 0,
+        cursor: String = ""
+    ) async throws -> Mezon_Api_FriendList {
+        var req = Mezon_Api_ListFriendsRequest()
+        req.limit = min(max(limit, 1), 100)
+        req.state = state
+        req.cursor = cursor
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
 
     func getListEmojisByUserId(token: String) async throws -> Mezon_Api_EmojiListedResponse {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
@@ -877,6 +1014,20 @@ final class MezonHTTPClient {
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+    }
+
+    func postProtoIgnoringBody<Request: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod,
+        allowBearerRetry: Bool = true
+    ) async throws {
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: path,
+            message: message,
+            auth: auth,
+            allowBearerRetry: allowBearerRetry
+        )
     }
 
     enum AuthMethod {

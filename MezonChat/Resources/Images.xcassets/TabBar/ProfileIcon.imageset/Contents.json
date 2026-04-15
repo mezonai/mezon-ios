@@ -1,6 +1,6 @@
 {
   "images" : [
-    { "idiom" : "universal", "filename" : "ProfileIcon.pdf" }
+    { "idiom" : "universal", "filename" : "ProfileIcon.svg" }
   ],
   "info" : { "author" : "xcode", "version" : 1 },
   "properties" : {

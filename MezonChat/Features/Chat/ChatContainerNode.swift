@@ -473,39 +473,30 @@ final class ChatContainerNode: ASDisplayNode {
         let newItems = buildItems(from: new)
         var updateItems: [ListViewUpdateItem] = []
 
-        let reversedOldMessages = old.messages.reversed() as [ChatMessageDisplay]
-        let reversedNewMessages = new.messages.reversed() as [ChatMessageDisplay]
+        var oldLookup: [String: (reactions: [ParsedReaction], sendingState: SendingState)] = [:]
+        for msg in old.messages {
+            oldLookup[msg.id] = (msg.reactions, msg.sendingState)
+        }
+
         var itemIdx = 0
-        for (msgIdx, newMsg) in reversedNewMessages.enumerated() {
+        for newMsg in new.messages.reversed() {
             while itemIdx < newItems.count,
-                  !(newItems[itemIdx] is ChatMessageItem),
-                  !(newItems[itemIdx] is ChatSystemMessageItem) {
+                  !(newItems[itemIdx] is ChatMessageItem) {
                 itemIdx += 1
             }
             guard itemIdx < newItems.count else { break }
 
-            if newItems[itemIdx] is ChatSystemMessageItem {
-                itemIdx += 1
-                continue
-            }
-
             let changed: Bool
-            if forceAll {
-                if msgIdx < reversedOldMessages.count {
-                    let oldMsg = reversedOldMessages[msgIdx]
-                    changed = oldMsg.id != newMsg.id
-                        || oldMsg.reactions != newMsg.reactions
-                        || oldMsg.sendingState != newMsg.sendingState
+            if let oldEntry = oldLookup[newMsg.id] {
+                if forceAll {
+                    changed = oldEntry.reactions != newMsg.reactions
+                        || oldEntry.sendingState != newMsg.sendingState
                 } else {
-                    changed = true
+                    changed = oldEntry.reactions != newMsg.reactions
+                        || oldEntry.sendingState != newMsg.sendingState
                 }
             } else {
-                if msgIdx < reversedOldMessages.count {
-                    let oldMsg = reversedOldMessages[msgIdx]
-                    changed = oldMsg.reactions != newMsg.reactions || oldMsg.sendingState != newMsg.sendingState
-                } else {
-                    changed = true
-                }
+                changed = forceAll
             }
 
             if changed {
