@@ -142,11 +142,6 @@ final class ProfileSettingViewController: BaseViewController {
         s.translatesAutoresizingMaskIntoConstraints = false
         return s
     }()
-    private let statusDot: UIView = {
-        let v = UIView()
-        v.backgroundColor = .mezonSuccess
-        return v
-    }()
 
     private let detailCard = UIView()
     private let detailContentStack: UIStackView = {
@@ -428,7 +423,6 @@ final class ProfileSettingViewController: BaseViewController {
 
         applyBannerTintForCurrentAvatarState()
         avatarContainerView.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
-        statusDot.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
 
         detailCard.backgroundColor = .mezonPrimary
         detailCard.layer.borderColor = UIColor.mezonBorder.cgColor
@@ -488,12 +482,6 @@ final class ProfileSettingViewController: BaseViewController {
         let avatarTap = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
         avatarContainerView.addGestureRecognizer(avatarTap)
 
-        let dotSize: CGFloat = 16.swh
-        statusDot.layer.cornerRadius = dotSize / 2
-        statusDot.layer.borderWidth = 2
-        statusDot.translatesAutoresizingMaskIntoConstraints = false
-        bannerView.addSubview(statusDot)
-
         let bannerHeight = avatarSize * 2
         NSLayoutConstraint.activate([
             bannerView.heightAnchor.constraint(equalToConstant: bannerHeight),
@@ -515,11 +503,6 @@ final class ProfileSettingViewController: BaseViewController {
 
             avatarSpinner.centerXAnchor.constraint(equalTo: avatarContainerView.centerXAnchor),
             avatarSpinner.centerYAnchor.constraint(equalTo: avatarContainerView.centerYAnchor),
-
-            statusDot.widthAnchor.constraint(equalToConstant: dotSize),
-            statusDot.heightAnchor.constraint(equalToConstant: dotSize),
-            statusDot.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor, constant: -2),
-            statusDot.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor, constant: -2),
         ])
     }
 
@@ -790,7 +773,6 @@ final class ProfileSettingViewController: BaseViewController {
             let avatarToShow = clanAvatarUrl.isEmpty ? userAvatarUrl : clanAvatarUrl
             loadAvatarImage(urlString: avatarToShow)
         }
-        statusDot.isHidden = context.currentUser?.status != .online
         updateDisplayNameClearButtonVisibility()
         updateClanNicknamePlaceholderAppearance()
         updateDetailStackSpacing()
@@ -860,7 +842,7 @@ final class ProfileSettingViewController: BaseViewController {
         let text = clanNicknamePreviewWhenEmpty()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.mezonTextStrong,
+            .foregroundColor: UIColor.mezonTextSecondary,
         ]
         displayNameField.attributedPlaceholder = NSAttributedString(string: text, attributes: attrs)
     }

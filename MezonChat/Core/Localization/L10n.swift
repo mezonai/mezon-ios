@@ -83,6 +83,19 @@ enum L10n {
         static let appearance     = "common.appearance"
         static let theme          = "common.theme"
         static let language       = "common.language"
+        static let linkEmail      = "common.linkEmail"
+        static let linkPhoneNumber = "common.linkPhoneNumber"
+    }
+
+    enum AccountSetting {
+        static let accountInformation = "accountSetting.accountInformation"
+        static let users              = "accountSetting.users"
+        static let accountManagement  = "accountSetting.accountManagement"
+        static let username           = "accountSetting.username"
+        static let displayName        = "accountSetting.displayName"
+        static let blockedUsers       = "accountSetting.blockedUsers"
+        static let setPassword        = "accountSetting.setPassword"
+        static let phoneSectionTitle  = "accountSetting.phoneNumberSetting.title"
     }
 
     enum Settings {
@@ -407,6 +420,17 @@ extension L10n {
         "common.appearance":    "Appearance",
         "common.theme":         "Theme",
         "common.language":      "Language",
+        "common.linkEmail":     "Add email",
+        "common.linkPhoneNumber": "Add phone number",
+
+        "accountSetting.accountInformation": "Account Information",
+        "accountSetting.users": "Users",
+        "accountSetting.accountManagement": "Account Management",
+        "accountSetting.username": "Username",
+        "accountSetting.displayName": "Display Name",
+        "accountSetting.blockedUsers": "Blocked Users",
+        "accountSetting.setPassword": "Set Password",
+        "accountSetting.phoneNumberSetting.title": "Phone",
 
         "settings.title":           "Settings",
         "settings.language":        "Language",
@@ -721,6 +745,17 @@ extension L10n {
         "common.appearance":    "Giao diện",
         "common.theme":         "Chủ đề",
         "common.language":      "Ngôn ngữ",
+        "common.linkEmail":     "Thêm email",
+        "common.linkPhoneNumber": "Thêm số điện thoại",
+
+        "accountSetting.accountInformation": "Thông tin tài khoản",
+        "accountSetting.users": "Người dùng",
+        "accountSetting.accountManagement": "Quản lý tài khoản",
+        "accountSetting.username": "Tên đăng nhập",
+        "accountSetting.displayName": "Tên hiển thị",
+        "accountSetting.blockedUsers": "Người dùng bị chặn",
+        "accountSetting.setPassword": "Đặt mật khẩu",
+        "accountSetting.phoneNumberSetting.title": "Số điện thoại",
 
         "settings.title":           "Cài đặt",
         "settings.language":        "Ngôn ngữ",
