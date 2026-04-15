@@ -52,8 +52,8 @@ struct ProfileRecord: PostboxCoding, Equatable {
     init(from clanUser: Mezon_Api_ClanUserList.ClanUser) {
         self.userId      = "\(clanUser.user.id)"
         self.username    = clanUser.user.username
-        self.displayName = clanUser.user.displayName.isEmpty ? clanUser.clanNick : clanUser.user.displayName
-        self.avatarUrl   = clanUser.user.avatarURL.isEmpty ? clanUser.clanAvatar : clanUser.user.avatarURL
+        self.displayName = clanUser.clanNick.isEmpty ? clanUser.user.displayName : clanUser.clanNick
+        self.avatarUrl   = clanUser.clanAvatar.isEmpty ? clanUser.user.avatarURL : clanUser.clanAvatar
         self.status      = ProfileRecord.mapStatus(clanUser.user.status)
         self.isOnline    = clanUser.user.online
         self.data        = Data()

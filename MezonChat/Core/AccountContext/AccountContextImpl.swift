@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import UserNotifications
 import FirebaseMessaging
 import SwiftProtobuf
 
@@ -241,6 +243,15 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.postbox.clearAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
+
+        UserDefaults(suiteName: "group.mezon.mobile")?.set(0, forKey: "badgeCount")
+        UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+        if #available(iOS 16.0, *) {
+            UNUserNotificationCenter.current().setBadgeCount(0)
+        } else {
+            UIApplication.shared.applicationIconBadgeNumber = 0
+        }
+
         setLoggedIn(false)
     }
 

@@ -755,7 +755,7 @@ final class ChatViewController: ViewController {
             Self.removeDeliveredNotifications(forChannelId: channel.channelID)
         }
 
-        if channel.channelLabel.isEmpty {
+        if channel.channelLabel.isEmpty || channel.type == 0 {
             resolveChannelLabelFromCache()
         }
 
@@ -817,22 +817,26 @@ final class ChatViewController: ViewController {
 
     private func resolveChannelLabelFromCache() {
         if clanId == 0 {
-            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
             }
         } else {
-            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
             }
         }
     }
 
     private func resolveChannelLabelFromNetwork(token: String) {
-        guard channel.channelLabel.isEmpty else { return }
+        guard channel.channelLabel.isEmpty || channel.type == 0 else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -845,14 +849,17 @@ final class ChatViewController: ViewController {
                     if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
                         self.channel = found
                         self.setChannelLabel(found.channelLabel)
+                        self.syncChannelToComposer()
                         return
                     }
                 }
                 let channels = try await self.context.account.network.listChannelByUserId(token: token)
-                if let found = channels.channeldesc.first(where: { $0.channelID == self.channel.channelID }),
-                   !found.channelLabel.isEmpty {
+                if let found = channels.channeldesc.first(where: { $0.channelID == self.channel.channelID }) {
                     self.channel = found
-                    self.setChannelLabel(found.channelLabel)
+                    if !found.channelLabel.isEmpty {
+                        self.setChannelLabel(found.channelLabel)
+                    }
+                    self.syncChannelToComposer()
                 }
             } catch {
             }
@@ -861,21 +868,29 @@ final class ChatViewController: ViewController {
 
     private func tryResolveLabelFromPostbox() -> Bool {
         if clanId == 0 {
-            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
-                return true
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
+                return !cached.channelLabel.isEmpty && cached.type != 0
             }
         } else {
-            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
-                return true
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
+                return !cached.channelLabel.isEmpty && cached.type != 0
             }
         }
         return false
+    }
+
+    private func syncChannelToComposer() {
+        sendInputViewController.channel = channel
     }
 
     static func removeDeliveredNotifications(forChannelId channelId: Int64) {
