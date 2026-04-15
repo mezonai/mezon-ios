@@ -67,15 +67,11 @@ final class ProfileViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        profileNode.updateContent()
         Task {
             await context.refreshAccountProfile()
             await context.fetchCurrentUserStatus()
         }
-    }
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        profileNode.updateContent()
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
