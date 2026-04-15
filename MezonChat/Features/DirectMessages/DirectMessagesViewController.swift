@@ -111,7 +111,6 @@ final class DirectMessagesViewController: ViewController {
             setDirectMessages(updated)
             persistDmChannelListToPostbox()
         } catch {
-            AppLogger.network.debug("[DM] ListChannelBadgeCount: \(error)")
         }
     }
 
@@ -270,7 +269,6 @@ final class DirectMessagesViewController: ViewController {
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(
                         into: &channels, badgeRows: badgeResponse.channeldesc)
                 } catch {
-                    AppLogger.network.debug("[DM] ListChannelBadgeCount after listDM: \(error)")
                 }
                 let sorted = channels.sorted { ch1, ch2 in
                     let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
@@ -282,7 +280,6 @@ final class DirectMessagesViewController: ViewController {
                 self.persistDmChannelListToPostbox()
             } catch {
                 self.setErrorMessage(error.localizedDescription)
-                AppLogger.network.error("fetchDirectMessages: \(error)")
             }
         }
     }
@@ -300,7 +297,6 @@ final class DirectMessagesViewController: ViewController {
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(
                         into: &channels, badgeRows: badgeResponse.channeldesc)
                 } catch {
-                    AppLogger.network.debug("[DM] ListChannelBadgeCount after refresh: \(error)")
                 }
                 let sorted = channels.sorted { ch1, ch2 in
                     let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
@@ -311,7 +307,6 @@ final class DirectMessagesViewController: ViewController {
                 self.setIsEmpty(sorted.isEmpty)
                 self.persistDmChannelListToPostbox()
             } catch {
-                AppLogger.network.error("[DM] refreshDirectMessages: \(error)")
             }
         }
     }

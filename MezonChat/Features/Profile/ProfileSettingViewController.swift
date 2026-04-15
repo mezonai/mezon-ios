@@ -713,7 +713,6 @@ final class ProfileSettingViewController: BaseViewController {
                 }
                 if currentTab == .clanProfile { refreshContent() }
             } catch {
-                AppLogger.network.error("[ProfileSetting] loadClans failed: \(error)")
             }
         }
     }
@@ -729,7 +728,6 @@ final class ProfileSettingViewController: BaseViewController {
             self.clanUserName = userName
             refreshContent()
         } catch {
-            AppLogger.network.error("[ProfileSetting] loadClanProfile failed: \(error)")
         }
     }
 
@@ -985,7 +983,6 @@ final class ProfileSettingViewController: BaseViewController {
             } catch {
                 setLoading(false)
                 Toast.error(L(L10n.ProfileSetting.updateError))
-                AppLogger.network.error("[ProfileSetting] saveUserProfile failed: \(error)")
             }
         }
     }
@@ -1021,7 +1018,6 @@ final class ProfileSettingViewController: BaseViewController {
                 }
             } catch {
                 Toast.error(L(L10n.ProfileSetting.updateError))
-                AppLogger.network.error("[ProfileSetting] checkDuplicateName failed: \(error)")
                 return
             }
 
@@ -1040,7 +1036,6 @@ final class ProfileSettingViewController: BaseViewController {
             } catch {
                 setLoading(false)
                 Toast.error(L(L10n.ProfileSetting.updateError))
-                AppLogger.network.error("[ProfileSetting] saveClanProfile failed: \(error)")
             }
         }
     }
@@ -1178,7 +1173,6 @@ final class ProfileSettingViewController: BaseViewController {
                 }
             } catch {
                 Toast.error(L(L10n.ProfileSetting.updateError))
-                AppLogger.network.error("[ProfileSetting] upload failed: \(error)")
             }
         }
     }

@@ -515,7 +515,6 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             return (name, cur.avatarURL?.absoluteString)
         }
 
-        // 3. Fallback to profile / name hint
         let profile = context.account.postbox.read { tx in tx.getProfile(userId: uid) }
         let name: String = {
             if let h = sender.nameHint, !h.isEmpty { return h }

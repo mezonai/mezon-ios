@@ -14,7 +14,6 @@ extension MezonEngine {
                     let rows = res.emojiList.map { $0.toCachedRecord() }
                     let cache = MediaPanelEmojiListCache(fetchedAt: now, emojis: rows)
                     postbox.setSetting(key: MediaPanelPostboxKeys.emojiListByUser, value: cache)
-                    AppLogger.network.info("[MediaPanel] cached \(rows.count) emojis (user-scoped)")
                     DispatchQueue.main.async {
                         NotificationCenter.default.post(
                             name: Notification.Name("MezonEmojiListDidUpdate"),
@@ -23,7 +22,6 @@ extension MezonEngine {
                         )
                     }
                 } catch {
-                    AppLogger.network.warning("[MediaPanel] getListEmojisByUserId failed: \(error)")
                 }
             }
             group.addTask {
@@ -32,23 +30,18 @@ extension MezonEngine {
                     let rows = res.stickers.map { $0.toCachedRecord() }
                     let cache = MediaPanelStickerListCache(fetchedAt: now, stickers: rows)
                     postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
-                    AppLogger.network.info("[MediaPanel] cached \(rows.count) stickers (user-scoped)")
                 } catch {
-                    AppLogger.network.warning("[MediaPanel] getListStickersByUserId failed: \(error)")
                 }
             }
             group.addTask {
                 guard TenorGIFClient.isConfigured else {
-                    AppLogger.network.debug("[MediaPanel] Tenor keys missing — skip GIF categories")
                     return
                 }
                 do {
                     let data = try await TenorGIFClient.fetchCategoriesData()
                     let cache = MediaPanelTenorJsonCache(fetchedAt: now, jsonData: data)
                     postbox.setSetting(key: MediaPanelPostboxKeys.gifCategoriesJson, value: cache)
-                    AppLogger.network.info("[MediaPanel] cached Tenor categories (\(data.count) bytes)")
                 } catch {
-                    AppLogger.network.warning("[MediaPanel] Tenor categories failed: \(error)")
                 }
             }
             group.addTask {
@@ -57,9 +50,7 @@ extension MezonEngine {
                     let data = try await TenorGIFClient.fetchFeaturedData()
                     let cache = MediaPanelTenorJsonCache(fetchedAt: now, jsonData: data)
                     postbox.setSetting(key: MediaPanelPostboxKeys.gifFeaturedJson, value: cache)
-                    AppLogger.network.info("[MediaPanel] cached Tenor featured (\(data.count) bytes)")
                 } catch {
-                    AppLogger.network.warning("[MediaPanel] Tenor featured failed: \(error)")
                 }
             }
         }

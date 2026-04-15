@@ -17,7 +17,6 @@ private final class VoiceActionClosureButton: UIButton {
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func invoke() {
-        AppLogger.ui.debug("[MemberProfile][VoicePill] touchUpInside bounds=\(bounds.integral)")
         onTap?()
     }
 }
@@ -250,7 +249,6 @@ final class MemberProfileSheetController: ViewController {
                 self?.presentVoiceMuteConfirm()
             },
             onVoiceKickTap: { [weak self] in
-                AppLogger.ui.debug("[MemberProfile] onVoiceKickTap from sheet node")
                 self?.presentVoiceKickConfirm()
             }
         )
@@ -290,9 +288,7 @@ final class MemberProfileSheetController: ViewController {
     }
 
     private func presentVoiceKickConfirm() {
-        AppLogger.ui.debug("[MemberProfile] presentVoiceKickConfirm actions=\(voiceChannelActions != nil) showKick=\(voiceChannelActions?.showKick ?? false)")
         guard let actions = voiceChannelActions, actions.showKick else {
-            AppLogger.ui.debug("[MemberProfile] presentVoiceKickConfirm aborted by guard")
             return
         }
         let vc = VoiceChannelMeetActionConfirmViewController(kind: .kick, userLabel: actions.confirmUserLabel) { [weak self] in
@@ -350,7 +346,6 @@ final class MemberProfileSheetController: ViewController {
                 animateDismiss()
                 onSendMessage?(channel)
             } catch {
-                AppLogger.network.warning("[MemberProfile] createDirectMessage failed: \(error)")
             }
         }
     }
@@ -613,32 +608,19 @@ private final class MemberProfileSheetNode: ASDisplayNode {
            voiceCardNode.supernode === containerNode,
            !voiceCardNode.isHidden,
            voiceCardNode.frame.height > 1 {
-            let inContainer = containerNode.view.convert(point, from: self.view)
             let inVoice = voiceCardNode.view.convert(point, from: self.view)
-            let frameContains = voiceCardNode.frame.contains(inContainer)
             let inside = voiceCardNode.view.point(inside: inVoice, with: event)
-            if frameContains != inside {
-                AppLogger.ui.debug(
-                    "[MemberProfile][hitTest] frameVsBounds frameContains=\(frameContains) pointInsideBounds=\(inside) inContainer=\(String(describing: inContainer)) voiceFrame=\(String(describing: voiceCardNode.frame)) inVoice=\(String(describing: inVoice)) voiceBounds=\(String(describing: voiceCardNode.view.bounds))"
-                )
-            }
             if inside {
                 let voiceRoot = voiceCardNode.view
                 for sub in voiceRoot.subviews.reversed() {
                     let inSub = sub.convert(inVoice, from: voiceRoot)
                     if let h = sub.hitTest(inSub, with: event) {
-                        AppLogger.ui.debug(
-                            "[MemberProfile][hitTest] point=\(String(describing: point)) inVoice=\(String(describing: inVoice)) subHit=\(String(describing: type(of: h)))"
-                        )
                         return h
                     }
                 }
                 if let v = voiceRoot.hitTest(inVoice, with: event), v !== voiceRoot {
                     return v
                 }
-                AppLogger.ui.debug(
-                    "[MemberProfile][hitTest] point=\(String(describing: point)) inVoice=\(String(describing: inVoice)) noUIKitSubHit voiceSubviews=\(voiceRoot.subviews.count)"
-                )
             }
         }
         return fallback

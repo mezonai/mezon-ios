@@ -9,6 +9,7 @@ struct ChannelListInteraction {
     let onPresentSettings: (() -> Void)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
+    let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -49,12 +50,18 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var memberCount: Int = 0
     private var onlineCount: Int = 0
 
-    private let channelListLoadingOverlay = UIView()
-    private let channelListLoadingSpinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .large)
-        s.translatesAutoresizingMaskIntoConstraints = false
-        s.hidesWhenStopped = true
-        return s
+    private let newUnreadButton: UIButton = {
+        let b = UIButton(type: .system)
+        let raw = NSLocalizedString("channel_list_new_unread", tableName: nil, bundle: .main, value: "NEW", comment: "")
+        b.setTitle("@\(raw)".uppercased(), for: .normal)
+        b.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
+        b.setTitleColor(.white, for: .normal)
+        b.backgroundColor = UIColor.mezonUnreadBadge
+        b.layer.cornerRadius = 8.swh
+        b.clipsToBounds = true
+        b.contentEdgeInsets = UIEdgeInsets(top: 5.sh, left: 8.sw, bottom: 5.sh, right: 8.sw)
+        b.isHidden = true
+        return b
     }()
 
     var voiceMemberResolver: ((String) -> VoiceMemberDisplay?)?
@@ -106,23 +113,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                    selectedId != prevState.selectedChannelId {
                     self.scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
                 }
-
-                self.updateChannelListLoadingOverlay(isLoading: newState.isLoading)
+                self.refreshNewUnreadButton()
             })
         )
-    }
-
-    private func updateChannelListLoadingOverlay(isLoading: Bool) {
-        let t = UIColor.theme
-        channelListLoadingOverlay.backgroundColor = t.secondary.withAlphaComponent(0.94)
-        channelListLoadingSpinner.color = t.textStrong
-        if isLoading {
-            channelListLoadingOverlay.isHidden = false
-            channelListLoadingSpinner.startAnimating()
-        } else {
-            channelListLoadingSpinner.stopAnimating()
-            channelListLoadingOverlay.isHidden = true
-        }
     }
 
     private func safeReloadData() {
@@ -378,26 +371,79 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.commit()
     }
 
-    private func scrollToChannel(channelId: Int64, animated: Bool = true) {
+    private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
         let sectionOffset = hasChannelAppsSection ? 1 : 0
         for s in 0..<state.categories.count {
-            if state.categories[s].id == ChannelCategory.favoritesCategoryId {
-                continue
-            }
             let rows = rowsForSection(s)
-            if let r = rows.firstIndex(where: { $0.channelDesc.channelID == channelId }) {
-                let indexPath = IndexPath(row: r, section: s + sectionOffset)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.tableNode.waitUntilAllUpdatesAreProcessed()
-                    guard indexPath.section < self.tableNode.numberOfSections,
-                          indexPath.row < self.tableNode.numberOfRows(inSection: indexPath.section) else {
-                        return
-                    }
-                    self.tableNode.scrollToRow(at: indexPath, at: .middle, animated: animated)
+            if let r = rows.firstIndex(where: { row in
+                switch row {
+                case .voiceMembersCollapsed, .voiceMemberExpanded: return false
+                default: return row.channelDesc.channelID == channelId
                 }
+            }) {
+                return IndexPath(row: r, section: s + sectionOffset)
+            }
+        }
+        return nil
+    }
+
+    private func rowHasNumericUnreadBadge(_ row: ChannelListRow) -> Bool {
+        switch row {
+        case .voiceMembersCollapsed, .voiceMemberExpanded:
+            return false
+        case .channel(let ch, _), .thread(let ch, _, _):
+            if Self.voiceChannelTypes.contains(ch.type) { return false }
+            return ch.countMessUnread > 0
+        }
+    }
+
+    private func firstDisplayedChannelIdWithUnreadBadge() -> Int64? {
+        for s in 0..<state.categories.count {
+            let rows = rowsForSection(s)
+            for row in rows where rowHasNumericUnreadBadge(row) {
+                return row.channelDesc.channelID
+            }
+        }
+        return nil
+    }
+
+    private func refreshNewUnreadButton() {
+        newUnreadButton.isHidden = firstDisplayedChannelIdWithUnreadBadge() == nil
+    }
+
+    private func layoutNewUnreadButton(containerSize: CGSize, bottomInset: CGFloat) {
+        newUnreadButton.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
+        let fit = newUnreadButton.systemLayoutSizeFitting(
+            CGSize(width: containerSize.width - 24, height: 80),
+            withHorizontalFittingPriority: .fittingSizeLevel,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        let w = max(36, fit.width)
+        let h = max(28, fit.height)
+        let x = containerSize.width * 0.30
+        let y = containerSize.height - bottomInset - 100.sh - h
+        newUnreadButton.frame = CGRect(x: x, y: y, width: w, height: h)
+    }
+
+    @objc private func newUnreadButtonTapped() {
+        guard let id = firstDisplayedChannelIdWithUnreadBadge() else { return }
+        scrollToChannel(channelId: id, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.interaction.onRefresh?()
+        }
+    }
+
+    private func scrollToChannel(channelId: Int64, animated: Bool = true) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+            self.tableNode.view.layoutIfNeeded()
+            guard let indexPath = self.indexPathForListChannel(channelId: channelId) else { return }
+            guard indexPath.section < self.tableNode.numberOfSections,
+                  indexPath.row < self.tableNode.numberOfRows(inSection: indexPath.section) else {
                 return
             }
+            self.tableNode.scrollToRow(at: indexPath, at: .middle, animated: animated)
         }
     }
 
@@ -443,16 +489,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             self?.presentClanActionSheet()
         }
 
-        channelListLoadingOverlay.isUserInteractionEnabled = true
-        channelListLoadingOverlay.isHidden = true
-        channelListLoadingOverlay.layer.zPosition = 80
-        channelListLoadingOverlay.addSubview(channelListLoadingSpinner)
-        NSLayoutConstraint.activate([
-            channelListLoadingSpinner.centerXAnchor.constraint(equalTo: channelListLoadingOverlay.centerXAnchor),
-            channelListLoadingSpinner.centerYAnchor.constraint(equalTo: channelListLoadingOverlay.centerYAnchor),
-        ])
-        view.addSubview(channelListLoadingOverlay)
-        updateChannelListLoadingOverlay(isLoading: state.isLoading)
+        newUnreadButton.layer.zPosition = 85
+        newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
+        view.addSubview(newUnreadButton)
+        refreshNewUnreadButton()
     }
 
     private func scheduleReload() {
@@ -469,6 +509,15 @@ final class ChannelListContainerNode: ASDisplayNode {
             if a[i].appLogo != b[i].appLogo { return false }
         }
         return true
+    }
+
+    private static func normalizeChannelAppsList(_ apps: [Mezon_Api_ChannelAppResponse]) -> [Mezon_Api_ChannelAppResponse] {
+        let withChannel = apps.filter { $0.channelID != 0 }
+        var byChannel: [Int64: Mezon_Api_ChannelAppResponse] = [:]
+        for a in withChannel {
+            byChannel[a.channelID] = a
+        }
+        return byChannel.values.sorted { $0.channelID < $1.channelID }
     }
 
     private func appsSectionRowCount(apps: [Mezon_Api_ChannelAppResponse], expanded: Bool) -> Int {
@@ -535,8 +584,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         stickyTopOffset = topInset
         let tableFrame = CGRect(x: 0, y: topInset, width: layout.size.width, height: layout.size.height - topInset - layout.intrinsicInsets.bottom)
         transition.updateFrame(node: tableNode, frame: tableFrame)
-        channelListLoadingOverlay.frame = tableFrame
         updateTableHeaderLayout()
+        layoutNewUnreadButton(containerSize: layout.size, bottomInset: layout.intrinsicInsets.bottom)
     }
 
     private static let bannerKnownHeight: CGFloat = 140.sh
@@ -550,6 +599,29 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func markClanSwitching() {
         isClanSwitching = true
+    }
+
+    func clearChannelApps() {
+        let hadSection = !channelApps.isEmpty
+        channelApps = []
+        cachedRows = [:]
+        cachedHeaders = [:]
+        guard hadSection else {
+            committedSectionCount = totalSections
+            return
+        }
+        guard tableNode.numberOfSections > 0 else {
+            committedSectionCount = totalSections
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        CATransaction.commit()
+        committedSectionCount = totalSections
     }
 
     func configure(clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, onlineCount: Int = 0, isCommunity: Bool = false) {
@@ -589,17 +661,17 @@ final class ChannelListContainerNode: ASDisplayNode {
         DispatchQueue.main.async { [weak self] in
             self?.updateTableHeaderLayout()
             self?.updateStickyHeaderPosition()
+            self?.refreshNewUnreadButton()
         }
     }
 
     func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
-        if channelAppsUIEqual(channelApps, apps) { return }
+        let filtered = Self.normalizeChannelAppsList(apps.filter { $0.hasListableChannelAppContent })
+        if channelAppsUIEqual(channelApps, filtered) { return }
 
         let beforeHad = hasChannelAppsSection
-        channelApps = apps
+        channelApps = filtered
         let afterHad = hasChannelAppsSection
-
-        guard !isClanSwitching else { return }
 
         cachedRows = [:]
         cachedHeaders = [:]
@@ -677,9 +749,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         tableNode.backgroundColor = .clear
         headerUIView.applyTheme()
         headerUIView.backgroundColor = t.primaryGradient
-        if !channelListLoadingOverlay.isHidden {
-            channelListLoadingOverlay.backgroundColor = t.secondary.withAlphaComponent(0.94)
-        }
+        newUnreadButton.backgroundColor = UIColor.mezonUnreadBadge
+        newUnreadButton.setTitleColor(.white, for: .normal)
+        newUnreadButton.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
         scheduleReload()
     }
 
@@ -801,7 +873,11 @@ extension ChannelListContainerNode: ASTableDataSource {
                 return { ChannelAppCellNode(app: app) }
             } else {
                 let apps = channelApps
-                return { ChannelAppHorizontalCellNode(apps: apps) }
+                return {
+                    ChannelAppHorizontalCellNode(apps: apps) { [weak self] app in
+                        self?.interaction.onSelectChannelApp?(app)
+                    }
+                }
             }
         }
         let catIdx = categoryIndex(forSection: indexPath.section)
@@ -894,7 +970,12 @@ extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: false)
-        if hasChannelAppsSection && indexPath.section == 0 { return }
+        if hasChannelAppsSection && indexPath.section == 0 {
+            if isCompactView, indexPath.row < channelApps.count {
+                interaction.onSelectChannelApp?(channelApps[indexPath.row])
+            }
+            return
+        }
         let catIdx = categoryIndex(forSection: indexPath.section)
         let rows = rowsForSection(catIdx)
         guard indexPath.row < rows.count else { return }

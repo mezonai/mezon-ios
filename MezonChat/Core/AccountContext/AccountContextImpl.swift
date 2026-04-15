@@ -46,7 +46,6 @@ final class AccountContextImpl: AccountContext {
             }
             applyCurrentUser(mapAccountToUser(apiAccount))
         } catch {
-            AppLogger.network.warning("[Auth] refreshAccountProfile failed: \(error)")
         }
     }
 
@@ -59,7 +58,6 @@ final class AccountContextImpl: AccountContext {
         req.status = api
         req.minutes = 0
         req.untilTurnOn = true
-        AppLogger.app.info("[Profile] updatePresenceStatus → HTTP UpdateUserStatus status=\(api)")
         try await account.network.updateUserStatus(req, token: token)
         if var u = currentUser {
             u.status = status
@@ -77,7 +75,6 @@ final class AccountContextImpl: AccountContext {
             throw MezonError.socketError("Not authenticated")
         }
         let clanId = resolvedClanIdForCustomStatus()
-        AppLogger.app.info("[Profile] submitCustomStatus clanId=\(clanId) text=\(text.prefix(30)) minutes=\(minutes) noClear=\(noClear)")
         account.socket.writeCustomStatus(
             clanId: clanId,
             status: text,
@@ -105,16 +102,13 @@ final class AccountContextImpl: AccountContext {
             let resp = try await account.network.getUserStatus(token: token)
             let raw = resp.status.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !raw.isEmpty else {
-                AppLogger.app.info("[Profile] fetchCurrentUserStatus: empty status from API; keeping current")
                 return
             }
-            AppLogger.app.info("[Profile] fetchCurrentUserStatus → status=\(raw)")
             if var u = currentUser {
                 u.status = User.presenceStatus(fromApiString: raw, onlineFallback: u.status == .online)
                 applyCurrentUser(u)
             }
         } catch {
-            AppLogger.network.warning("[Profile] fetchCurrentUserStatus failed: \(error)")
         }
     }
 
@@ -135,7 +129,6 @@ final class AccountContextImpl: AccountContext {
         if let session, session.isExpired {
             let refreshed = await ensureRefreshed()
             if !refreshed {
-                AppLogger.network.warning("[Auth] getToken: token still expired after refresh attempts")
                 return nil
             }
         }
@@ -154,10 +147,8 @@ final class AccountContextImpl: AccountContext {
             for attempt in 1...2 {
                 do {
                     try await self.refreshSession()
-                    AppLogger.network.info("[Auth] token was expired, refreshed on attempt \(attempt)")
                     return true
                 } catch {
-                    AppLogger.network.warning("[Auth] getToken refresh attempt \(attempt) failed: \(error)")
                     if attempt < 2 {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
                     }
@@ -225,7 +216,6 @@ final class AccountContextImpl: AccountContext {
             do {
                 try await refreshSession()
             } catch {
-                AppLogger.network.warning("[Auth] cold launch refresh failed: \(error)")
             }
             if let freshSession = self.session {
                 applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
@@ -256,7 +246,6 @@ final class AccountContextImpl: AccountContext {
 
     private func registerFCMTokenIfNeeded() {
         guard let fcmToken = Messaging.messaging().fcmToken else {
-            AppLogger.network.info("[FCM] No FCM token available yet")
             return
         }
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
@@ -266,9 +255,7 @@ final class AccountContextImpl: AccountContext {
                 _ = try await account.network.registFcmDeviceToken(
                     fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: authToken
                 )
-                AppLogger.network.info("[FCM] Token registered on login")
             } catch {
-                AppLogger.network.error("[FCM] Token registration on login failed: \(error)")
             }
         }
     }
@@ -292,7 +279,6 @@ final class AccountContextImpl: AccountContext {
         let needsRefresh = session?.isExpired ?? true
 
         if needsRefresh {
-            AppLogger.network.info("[Auth] recoverFromForeground: token expired, refreshing...")
             let task = Task<Bool, Never> { @MainActor in
                 defer { self.activeRefreshTask = nil }
                 let refreshed = await self.refreshSessionWithRetry()
@@ -303,7 +289,6 @@ final class AccountContextImpl: AccountContext {
             }
             activeRefreshTask = task
         } else {
-            AppLogger.network.info("[Auth] recoverFromForeground: token still valid, reconnecting socket only")
             DispatchQueue.main.async { [weak self] in
                 guard let self, let token = self.session?.token else { return }
                 self.account.socket.connect(token: token, wsHostOverride: nil)
@@ -316,17 +301,13 @@ final class AccountContextImpl: AccountContext {
         for attempt in 1...maxForegroundRecoverRetries {
             do {
                 try await refreshSession()
-                AppLogger.network.info("[Auth] refreshSession succeeded on attempt \(attempt)")
                 return true
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, (code == 401 || code == 403) {
-                    AppLogger.network.warning("[Auth] refreshSession got \(code), session expired")
                     SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
                     return false
                 }
-                AppLogger.network.warning("[Auth] refreshSession attempt \(attempt) failed: \(error)")
             } catch {
-                AppLogger.network.warning("[Auth] refreshSession attempt \(attempt) failed: \(error)")
             }
 
             if attempt < maxForegroundRecoverRetries {
@@ -335,7 +316,6 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
-        AppLogger.network.warning("[Auth] refreshSession all \(self.maxForegroundRecoverRetries) attempts failed, trying socket reconnect")
         account.socket.reconnectFromForeground()
         return false
     }
@@ -400,7 +380,6 @@ final class AccountContextImpl: AccountContext {
                 try await self.refreshSession()
                 return self.session?.token
             } catch {
-                AppLogger.network.warning("[Auth] bearerUnauthorizedRecovery refresh failed: \(error)")
                 return nil
             }
         }
@@ -484,7 +463,6 @@ final class AccountContextImpl: AccountContext {
                         currentUserId: self.currentUser?.id,
                         currentClanId: self.currentClanId
                     )
-                    AppLogger.app.info("[Badge] onMessageReceived channelId=\(channelId) clanId=\(clanId) senderId=\(messageCopy.senderID) mode=\(messageCopy.mode) incrementDmBadge=\(incrementDmBadge)")
                     let topicId = messageCopy.topicID
                     var userInfo: [String: Any] = [
                         "channelId": channelId,
@@ -652,7 +630,6 @@ final class AccountContextImpl: AccountContext {
                 }
                 applyCurrentUser(mapAccountToUser(apiAccount))
             } catch {
-                AppLogger.network.warning("[Auth] getAccount failed: \(error)")
             }
             self.fetchAllUserClansAndChannels(token: session.token)
         }
@@ -670,19 +647,16 @@ final class AccountContextImpl: AccountContext {
                 if let data = try? channels.serializedData() {
                     account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
                 }
-                AppLogger.network.info("[Auth] fetched allUserClans(\(users.users.count)) allChannelsByUser(\(channels.channeldesc.count))")
                 Task { [weak self] in
                     await self?.engine.prefetchMediaPanelCaches(token: token)
                 }
             } catch {
-                AppLogger.network.warning("[Auth] fetchAllUserClansAndChannels failed: \(error)")
             }
         }
     }
 
     private func joinDirectMessageClanOnSocketConnected() {
         account.socket.joinClanChat(clanId: 0)
-        AppLogger.app.info("[MezonSocket] joinClanChat clanId=0 (DM stream, RN RootListener parity)")
 
         let cachedClanId: Int64
         if currentClanId != 0 {
@@ -695,16 +669,13 @@ final class AccountContextImpl: AccountContext {
         if cachedClanId != 0 {
             account.socket.joinClanChat(clanId: cachedClanId)
             currentClanId = cachedClanId
-            AppLogger.app.info("[MezonSocket] joinClanChat clanId=\(cachedClanId) (cached clan, RN mainLoader parity)")
         }
     }
 
     private func rejoinCurrentChannel() {
         guard let channel = currentChannel else {
-            AppLogger.app.info("[MezonSocket] rejoinCurrentChannel: no currentChannel set, skipping")
             return
         }
-        AppLogger.app.info("[MezonSocket] rejoinCurrentChannel: clanId=\(self.currentClanId) channelId=\(channel.channelID)")
         account.socket.joinClanChat(clanId: currentClanId)
         let channelType: Int32 = currentClanId == 0
             ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
@@ -751,7 +722,6 @@ final class AccountContextImpl: AccountContext {
             }
             currentUser = mapAccountToUser(apiAccount)
         } catch {
-            AppLogger.network.warning("[Auth] refreshUserProfile failed: \(error)")
         }
     }
     
@@ -774,7 +744,6 @@ final class AccountContextImpl: AccountContext {
             u.customStatusNoClear = event.noClear
         }
         applyCurrentUser(u)
-        AppLogger.app.info("[Profile] socket CustomStatusEvent synced (self)")
     }
 
     private func applyIncomingUserStatusEvent(_ event: Mezon_Realtime_UserStatusEvent) {
@@ -788,7 +757,6 @@ final class AccountContextImpl: AccountContext {
             u.customStatus = raw
         }
         applyCurrentUser(u)
-        AppLogger.app.info("[Profile] socket UserStatusEvent synced (self)")
     }
 
     private func applyIncomingStatusPresenceEvent(_ event: Mezon_Realtime_StatusPresenceEvent) {
@@ -805,7 +773,6 @@ final class AccountContextImpl: AccountContext {
             u.customStatus = cust
         }
         applyCurrentUser(u)
-        AppLogger.app.info("[Profile] socket StatusPresenceEvent synced (self)")
     }
 
     private func mapAccountToUser(_ api: Mezon_Api_Account) -> User {

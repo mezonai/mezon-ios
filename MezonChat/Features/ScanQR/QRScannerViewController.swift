@@ -172,13 +172,11 @@ final class QRScannerViewController: ViewController {
     private func handleScannedData(_ data: String) {
         captureSession?.stopRunning()
         
-        // 1. Check if it is a numeric ID (Login)
         if data.allSatisfy({ $0.isNumber }) && data.count >= 15 {
             showLoginConfirm(userId: data)
             return
         }
         
-        // 2. Check if it is a mezon invite
         if data.hasPrefix("mezon://invite/") || data.contains("mezon.ai/invite/") {
             let code: String
             if data.hasPrefix("mezon://invite/") {
@@ -199,7 +197,6 @@ final class QRScannerViewController: ViewController {
             return
         }
         
-        // 3. Check if it is a mezon profile
         if data.contains("mezon.ai/chat/") {
             guard let url = URL(string: data),
                   let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -211,7 +208,6 @@ final class QRScannerViewController: ViewController {
             return
         }
         
-        // 4. Check if it is a JSON (Transfer)
         if let jsonData = data.data(using: .utf8), 
            let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
            let receiverId = json["receiver_id"] as? String {
@@ -348,7 +344,6 @@ final class QRScannerViewController: ViewController {
     }
     
     private func showUserProfile(dataParam: String) {
-        // dataParam is Base64 -> URL Encode -> JSON
         guard let data = Data(base64Encoded: dataParam),
               let urlEncodedString = String(data: data, encoding: .utf8),
               let decodedString = urlEncodedString.removingPercentEncoding,
@@ -435,7 +430,6 @@ final class QRScannerViewController: ViewController {
             self?.captureSession?.startRunning()
         }))
         alert.addAction(UIAlertAction(title: L(L10n.Common.confirm), style: .default, handler: { _ in
-            // Handle transfer logic
         }))
         present(alert, animated: true)
     }

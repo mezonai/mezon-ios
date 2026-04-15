@@ -415,7 +415,6 @@ final class ChatViewController: ViewController {
             },
             onHashtagTapped: { [weak self] channelId in
                 guard let self, !channelId.isEmpty else { return }
-                AppLogger.network.info("[Chat] Hashtag tapped: \(channelId)")
                 guard channelId != "\(self.channel.channelID)" else { return }
                 AppDelegate.navigateToChannel(channelId: channelId, clanId: "\(self.clanId)")
             },
@@ -802,7 +801,6 @@ final class ChatViewController: ViewController {
             guard let self else { return }
             await self.context.waitForSessionReady()
             guard let token = await self.context.getToken() else {
-                AppLogger.network.warning("[Chat] start: getToken returned nil, will retry on socket reconnect")
                 return
             }
             self.hasCompletedInitialFetch = true
@@ -857,7 +855,6 @@ final class ChatViewController: ViewController {
                     self.setChannelLabel(found.channelLabel)
                 }
             } catch {
-                AppLogger.network.error("[Chat] resolveChannelLabel failed: \(error)")
             }
         }
     }
@@ -1103,7 +1100,6 @@ final class ChatViewController: ViewController {
                     tx.updateNotificationSetting(record)
                 }
             } catch {
-                AppLogger.network.warning("[ChannelMessages] fetchNotificationSetting failed: \(error)")
             }
         }
     }
@@ -1121,7 +1117,6 @@ final class ChatViewController: ViewController {
                     tx.updateChannelPermissions(records, channelId: channelId)
                 }
             } catch {
-                AppLogger.network.warning("[ChannelMessages] fetchChannelPermissions failed: \(error)")
             }
         }
     }
@@ -1163,7 +1158,6 @@ final class ChatViewController: ViewController {
                     }
                 }
             } catch {
-                AppLogger.network.warning("[ChannelMessages] fetchChannelMembers failed: \(error)")
             }
         }
     }
@@ -1183,7 +1177,6 @@ final class ChatViewController: ViewController {
                     tx.updateBanStatus(isBanned: response.isBanned, expiredBanTime: response.expiredBanTime, channelId: channelId)
                 }
             } catch {
-                AppLogger.network.warning("[ChannelMessages] checkBanStatus failed: \(error)")
             }
         }
     }
@@ -1850,20 +1843,16 @@ final class ChatViewController: ViewController {
 
     private func waitForSocketConnected() async {
         if context.account.socket.isConnected { return }
-        AppLogger.network.info("[Chat] waitForSocketConnected: waiting for socket connection...")
         for _ in 0..<50 {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if context.account.socket.isConnected {
-                AppLogger.network.info("[Chat] waitForSocketConnected: socket connected")
                 return
             }
         }
-        AppLogger.network.warning("[Chat] waitForSocketConnected: timed out after 10s, proceeding anyway")
     }
 
     private func joinChat() {
         guard context.account.socket.isConnected else {
-            AppLogger.network.info("[Chat] joinChat: socket not connected yet, clanId=\(self.clanId) channelId=\(self.channel.channelID) — will retry on socket reconnect")
             return
         }
         self.context.account.socket.joinClanChat(clanId: clanId)
@@ -1872,7 +1861,6 @@ final class ChatViewController: ViewController {
             : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
         let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
         self.context.account.socket.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
-        AppLogger.network.info("[Chat] joinChat: sent joinClanChat(\(self.clanId)) + joinChannel(\(self.channel.channelID))")
         if clanId != 0 {
             NotificationCenter.default.post(
                 name: Notification.Name("MezonJoinedClanChatForBadges"),
@@ -2314,7 +2302,6 @@ final class ChatViewController: ViewController {
                 }
             } catch {
                 self.messagesNode.pendingJumpMessageId = nil
-                AppLogger.network.warning("[Chat] jumpToMessage failed: \(error)")
             }
         }
     }
@@ -2550,7 +2537,6 @@ final class ChatViewController: ViewController {
                     token: token
                 )
             } catch {
-                AppLogger.network.warning("[Chat] writeMessageReaction failed: \(error)")
             }
         }
     }
@@ -2695,7 +2681,6 @@ final class ChatViewController: ViewController {
                 )
                 Toast.success(L(L10n.MessageAction.pinSuccess))
             } catch {
-                AppLogger.network.warning("[Chat] createPinMessage failed: \(error)")
                 Toast.error(L(L10n.MessageAction.pinError))
             }
         }
@@ -2750,7 +2735,6 @@ extension ChatViewController {
 
         let remoteUserId: Int64 = channel.userIds.first(where: { $0 != myUserId }) ?? 0
         guard remoteUserId != 0 else {
-            AppLogger.app.error("[Call] Cannot determine remote user from DM channel userIds")
             return
         }
 

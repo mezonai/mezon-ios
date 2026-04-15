@@ -416,7 +416,6 @@ final class VoiceChannelPiPOverlay: NSObject {
             return
         }
         tearDownOverlaySystemCallPiP()
-        AppLogger.network.error("[VoiceChannel][PiP] disconnected, will retry LiveKit: \(String(describing: error))")
         overlayLiveKitReconnectTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.executeOverlayLiveKitReconnect()
@@ -455,7 +454,6 @@ final class VoiceChannelPiPOverlay: NSObject {
                 }
                 return
             } catch {
-                AppLogger.network.warning("[VoiceChannel][PiP] LiveKit reconnect attempt \(attempt): \(error)")
             }
         }
         dismiss()
@@ -735,7 +733,6 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            AppLogger.network.error("[VoiceChannel] Overlay system PiP failed: \(error)")
         }
     }
 
@@ -2062,7 +2059,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 self.refreshCamButtonIcon()
                 self.refreshParticipantRowsFromLiveKit()
             } catch {
-                AppLogger.network.error("[VoiceChannel] toggle mic: \(error)")
                 self.presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
                     message: error.localizedDescription)
@@ -2153,7 +2149,6 @@ final class VoiceChannelRoomViewController: ViewController {
         } catch {
             setConnectingOverlayVisible(false)
             if !Task.isCancelled {
-                AppLogger.network.error("[VoiceChannel] connect pipeline: \(error)")
                 presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
                     message: error.localizedDescription)
@@ -2520,7 +2515,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 try session.overrideOutputAudioPort(.none)
             }
         } catch {
-            AppLogger.network.error("[VoiceChannel] applyAudioRoute failed: \(error)")
         }
         refreshSpeakerRouteUI()
     }
@@ -2622,7 +2616,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 self.refreshCamButtonIcon()
                 self.refreshParticipantRowsFromLiveKit()
             } catch {
-                AppLogger.network.error("[VoiceChannel] toggle camera: \(error)")
                 self.presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
                     message: error.localizedDescription)
@@ -2636,7 +2629,6 @@ final class VoiceChannelRoomViewController: ViewController {
             do {
                 try await bridge.switchCameraPosition()
             } catch {
-                AppLogger.network.error("[VoiceChannel] switch camera: \(error)")
             }
         }
     }
@@ -2707,7 +2699,6 @@ final class VoiceChannelRoomViewController: ViewController {
         guard liveKitBridge != nil else { return }
 
         if liveKitDisconnectIsFatal(error) {
-            AppLogger.network.error("[VoiceChannel] disconnected (fatal): \(String(describing: error))")
             performLiveKitFinalTeardown(error: error)
             return
         }
@@ -2715,7 +2706,6 @@ final class VoiceChannelRoomViewController: ViewController {
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
 
-        AppLogger.network.error("[VoiceChannel] disconnected, will retry LiveKit: \(String(describing: error))")
 
         connectTask?.cancel()
         connectTask = nil
@@ -2761,7 +2751,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 liveKitReconnectTask = nil
                 return
             } catch {
-                AppLogger.network.warning("[VoiceChannel] LiveKit reconnect attempt \(attempt): \(error)")
             }
         }
         performLiveKitFinalTeardown(error: nil)
@@ -2802,7 +2791,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 tx.updateChannelPermissions(records, channelId: channelId)
             }
         } catch {
-            AppLogger.network.warning("[VoiceChannel] listUserPermissionInChannel: \(error)")
         }
     }
 
@@ -3055,7 +3043,6 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
         failedToStartPictureInPictureWithError error: Error
     ) {
         guard pictureInPictureController === callPiPController else { return }
-        AppLogger.network.error("[VoiceChannel] Call PiP failed: \(error)")
     }
 
     func pictureInPictureController(
@@ -3281,7 +3268,6 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
-        AppLogger.network.error("[VoiceChannel] PiP failed: \(error)")
     }
 
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {

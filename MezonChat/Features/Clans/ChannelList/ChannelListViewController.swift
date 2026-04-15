@@ -366,7 +366,8 @@ final class ChannelListViewController: ViewController {
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
                 self.enclosingNavigationController?.pushViewController(vc, animated: true)
-            }
+            },
+            onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) }
         )
         let container = ChannelListContainerNode(signal: stateSignal(), interaction: interaction)
         container.voiceMemberResolver = { [weak self] uid in
@@ -460,7 +461,6 @@ final class ChannelListViewController: ViewController {
             )
             needsReloadPipe.putNext(())
         } catch {
-            AppLogger.network.debug("[ChannelList] ListChannelBadgeCount: \(error)")
         }
     }
 
@@ -475,6 +475,7 @@ final class ChannelListViewController: ViewController {
             channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
             return
         }
+        channelListNode.clearChannelApps()
         channelListNode.markClanSwitching()
         restoreCachedChannelApps(clanId: clanId)
         channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
@@ -829,6 +830,69 @@ final class ChannelListViewController: ViewController {
         select(channel: channel)
     }
 
+    private func presentationWindowHostForChannelApp() -> WindowHost? {
+        if let w = window { return w }
+        if let nav = navigationController as? NavigationController, let cw = nav.currentWindow {
+            return cw
+        }
+        return view.windowHost
+    }
+
+    private func navigationControllerForChannelAppGlobalOverlay() -> NavigationController? {
+        if let nav = navigationController as? NavigationController { return nav }
+        if let root = view.window?.rootViewController {
+            return root.mezon_findDeepestNavigationController()
+        }
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
+        for w in scene.windows where !w.isHidden {
+            if let nav = w.rootViewController?.mezon_findDeepestNavigationController() { return nav }
+        }
+        return nil
+    }
+
+    private func openChannelApp(_ app: Mezon_Api_ChannelAppResponse) {
+        guard app.appID != 0, !app.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            Toast.error("App unavailable")
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error("Session unavailable")
+                return
+            }
+            do {
+                let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
+                guard !webAppData.isEmpty else {
+                    Toast.error("App unavailable")
+                    return
+                }
+                guard let url = app.channelAppWebPageURL(webAppData: webAppData) else {
+                    Toast.error("App unavailable")
+                    return
+                }
+                let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let vc = ChannelAppWebViewController(
+                    pageURL: url,
+                    appTitle: title.isEmpty ? "App" : title)
+                let navForOverlay = self.navigationControllerForChannelAppGlobalOverlay()
+                if let nav = navForOverlay {
+                    nav.presentOverlay(controller: vc, inGlobal: true)
+                } else if let host = self.presentationWindowHostForChannelApp() {
+                    host.presentInGlobalOverlay(vc)
+                } else {
+                    Toast.error("App unavailable")
+                    return
+                }
+                DispatchQueue.main.async {
+                    navForOverlay?.requestLayout(transition: .immediate)
+                }
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
     private func resolveVoiceMember(_ uid: String) -> VoiceMemberDisplay? {
         guard let uidInt = Int64(uid) else { return nil }
 
@@ -1061,7 +1125,6 @@ final class ChannelListViewController: ViewController {
                             ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &mergedChannels, badgeRows: rows)
                         }
                     } catch {
-                        AppLogger.network.debug("[ChannelList] ListChannelBadgeCount (batched with list): \(error)")
                     }
                     subscriber.putNext(ChannelListFetchPayload(
                         channels: mergedChannels,
@@ -1079,7 +1142,6 @@ final class ChannelListViewController: ViewController {
         do {
             return try await network.listCategoryDescs(clanId: clanId, token: token)
         } catch {
-            AppLogger.network.debug("[ChannelList] ListCategoryDescs: \(error)")
             return []
         }
     }
@@ -1088,7 +1150,6 @@ final class ChannelListViewController: ViewController {
         do {
             return try await network.listFavoriteChannelIds(clanId: clanId, token: token)
         } catch {
-            AppLogger.network.debug("[ChannelList] GetListFavoriteChannel: \(error)")
             return []
         }
     }
@@ -1114,7 +1175,8 @@ final class ChannelListViewController: ViewController {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanId, token: token)
                 guard self.clanId == clanId else { return }
                 let key = PreferencesKeys.channelApps(clanId: clanId)
-                if apps.isEmpty, !allowEmptyOverwrite {
+                let hasListableApps = apps.contains { $0.hasListableChannelAppContent }
+                if !hasListableApps, !allowEmptyOverwrite {
                     if self.channelListNode.hasDisplayedChannelApps { return }
                     if let data = self.context.account.postbox.getPreferenceData(key: key),
                        !self.decodeChannelApps(data).isEmpty {
@@ -1127,7 +1189,6 @@ final class ChannelListViewController: ViewController {
                     self.context.account.postbox.setPreferenceData(key: key, value: encoded)
                 }
             } catch {
-                AppLogger.network.error("Failed to fetch channel apps: \(error)")
             }
         }
     }
@@ -1325,5 +1386,30 @@ final class ChannelListViewController: ViewController {
             offset += 8
         }
         return result
+    }
+}
+
+private extension UIViewController {
+    func mezon_findDeepestNavigationController() -> NavigationController? {
+        if let nav = self as? NavigationController {
+            if let tab = nav.topViewController as? TabBarController,
+               let current = tab.currentController {
+                return current.mezon_findDeepestNavigationController() ?? nav
+            }
+            return nav
+        }
+        if let tab = self as? TabBarController, let current = tab.currentController {
+            return current.mezon_findDeepestNavigationController()
+        }
+        if let tab = self as? UITabBarController, let sel = tab.selectedViewController {
+            return sel.mezon_findDeepestNavigationController()
+        }
+        if let presented = presentedViewController {
+            if let nav = presented.mezon_findDeepestNavigationController() { return nav }
+        }
+        for child in children {
+            if let nav = child.mezon_findDeepestNavigationController() { return nav }
+        }
+        return nil
     }
 }

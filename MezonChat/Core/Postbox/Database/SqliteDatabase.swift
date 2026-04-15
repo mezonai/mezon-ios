@@ -7,7 +7,6 @@ final class SqliteDatabase {
     init(path: String, encryptionKey: Data? = nil) {
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
         guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
-            AppLogger.app.error("[Postbox] Failed to open DB at \(path)")
             return
         }
 
@@ -16,7 +15,6 @@ final class SqliteDatabase {
                 sqlite3_key(handle, ptr.baseAddress, Int32(key.count))
             }
             if rc != SQLITE_OK {
-                AppLogger.app.error("[Postbox] sqlite3_key failed for \(path) — rc=\(rc)")
             }
         }
 
@@ -34,7 +32,6 @@ final class SqliteDatabase {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK else {
-            AppLogger.app.error("[Postbox] prepare error — \(sql)")
             return false
         }
         let rc = sqlite3_step(stmt)

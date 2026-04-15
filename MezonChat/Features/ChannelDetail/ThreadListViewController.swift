@@ -291,7 +291,6 @@ final class ThreadListViewController: ViewController {
             rebuildSections()
             tableView.reloadData()
         } catch {
-            AppLogger.network.warning("[ThreadList] searchThread failed: \(error)")
         }
     }
 
@@ -315,9 +314,6 @@ final class ThreadListViewController: ViewController {
     private func fetchThreadsFromNetwork(showSpinner: Bool) {
         guard !isLoading else { return }
         isLoading = true
-        if showSpinner {
-            // Keep table visible; pull uses refresh control
-        }
         Task { @MainActor in
             defer {
                 self.isLoading = false
@@ -336,7 +332,6 @@ final class ThreadListViewController: ViewController {
                 self.rebuildSections()
                 self.tableView.reloadData()
             } catch {
-                AppLogger.network.warning("[ThreadList] listThreadDescs failed: \(error)")
             }
         }
     }
@@ -394,8 +389,6 @@ final class ThreadListViewController: ViewController {
         "\(count) \(count == 1 ? singular : plural)"
     }
 
-    // MARK: - Grouping (React Native `helper.ts`)
-
     private static func filterPrivateThreads(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
         threads.filter { ch in
             if ch.channelPrivate != 0 {
@@ -441,8 +434,6 @@ final class ThreadListViewController: ViewController {
             return now - ts >= thirtyDays
         })
     }
-
-    // MARK: - Cache encoding (per parent channel, like RN `byChannels`)
 
     private static func encodeThreadListCache(_ channels: [Mezon_Api_ChannelDescription]) -> Data {
         var result = Data()
@@ -502,8 +493,6 @@ final class ThreadListViewController: ViewController {
         return relativeTimeFormatter.localizedString(for: date, relativeTo: Date())
     }
 }
-
-// MARK: - RN `GroupThread` card + `ThreadItem` row layout
 
 private enum ThreadCardPosition {
     case single, first, middle, last

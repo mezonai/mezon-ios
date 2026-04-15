@@ -119,7 +119,6 @@ final class ClanListViewController: ViewController {
             setClans(next)
             persistClanRecordsToPostbox(next)
         } catch {
-            AppLogger.network.debug("[ClanList] ListClanBadgeCount: \(error)")
         }
     }
 
@@ -153,7 +152,6 @@ final class ClanListViewController: ViewController {
         guard let senderId else { return }
 
         guard senderId != context.currentUser?.id else { return }
-
 
         if clanId != 0 {
             return
@@ -232,6 +230,7 @@ final class ClanListViewController: ViewController {
             }
         }
         clansPipe.putNext(clans)
+        persistClanRecordsToPostbox(clans)
         needsReloadPipe.putNext(())
     }
 
@@ -247,9 +246,6 @@ final class ClanListViewController: ViewController {
                     if channelUnread > 0 {
                         clans[i].badgeCount = max(0, clans[i].badgeCount - channelUnread)
                         changed = true
-                    }
-                    if (notification.userInfo?["fromSelf"] as? Bool) == true {
-
                     }
                 }
             }
@@ -351,14 +347,12 @@ final class ClanListViewController: ViewController {
                         .channeldesc
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
                 } catch {
-                    AppLogger.network.debug("[ClanList] DM ListChannelBadgeCount: \(error)")
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
 
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
-                AppLogger.network.error("fetchUnreadDMs: \(error)")
             }
         }
     }
@@ -391,7 +385,6 @@ final class ClanListViewController: ViewController {
         if let n = value as? NSNumber { return n.int64Value }
         return nil
     }
-
 
     static func getCurrentUserRoleIds(context: AccountContext) -> Set<Int64> {
         let clanId = context.currentClanId

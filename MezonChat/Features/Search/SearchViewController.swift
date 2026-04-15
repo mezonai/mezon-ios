@@ -220,7 +220,6 @@ final class SearchViewController: ViewController {
                 updateTabCounts()
                 await searchNode.tableNode.reloadData()
             } catch {
-                AppLogger.network.warning("[Search] fetchFromAPI failed: \(error)")
             }
         }
     }
@@ -254,7 +253,6 @@ final class SearchViewController: ViewController {
                 updateTabCounts()
                 await searchNode.tableNode.reloadData()
             } catch {
-                AppLogger.network.warning("[Search] fetchChannelMembersAndUsers failed: \(error)")
             }
         }
     }
@@ -425,7 +423,6 @@ final class SearchViewController: ViewController {
                 }
             } catch {
                 isLoadingMessages = false
-                AppLogger.network.warning("[Search] searchMessage failed: \(error)")
             }
         }
     }

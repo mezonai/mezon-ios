@@ -43,7 +43,7 @@ extension UIColor {
     static var mezonSuccess:             UIColor { theme.textSuccess }
     static var mezonWarning:             UIColor { theme.textWarning }
 
-    static var mezonUnreadBadge:         UIColor { .systemRed }
+    static var mezonUnreadBadge:         UIColor { UIColor(hex: 0xC61E1B) }
     static var mezonMention:             UIColor { theme.textWarning.withAlphaComponent(0.3) }
 
     static var loginGradientColors:      [UIColor] { theme.loginGradientColors }

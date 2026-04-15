@@ -60,7 +60,6 @@ final class CanvasNode: ASDisplayNode {
                 self.canvases = res.channelCanvases
                 await self.tableNode.reloadData()
             } catch {
-                AppLogger.network.error("Fetch canvases failed: \(error)")
             }
         }
     }

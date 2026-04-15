@@ -1072,7 +1072,6 @@ final class SharingViewController: UIViewController {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &dms, badgeRows: badgeResponse.channeldesc)
                 } catch {
-                    AppLogger.network.debug("[Sharing] ListChannelBadgeCount: \(error)")
                 }
                 dmList = dms
                     .filter {
@@ -1080,7 +1079,6 @@ final class SharingViewController: UIViewController {
                     }
                     .sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             } catch {
-                AppLogger.network.error("[Sharing] Failed to load DM channels: \(error)")
             }
 
             if let allChannelsList = self.context.engine.clanData.getAllChannelsByUser() {
@@ -1102,7 +1100,6 @@ final class SharingViewController: UIViewController {
                     }
                 }
             } catch {
-                AppLogger.network.error("[Sharing] Failed to load clan names: \(error)")
             }
 
             var suggestions: [SuggestionItem] = []
