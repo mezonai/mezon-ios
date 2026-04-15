@@ -146,7 +146,7 @@ final class ProfileSheetCustomStatusCell: UITableViewCell {
         if showClear {
             let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
             clearBtn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: cfg), for: .normal)
-            clearBtn.tintColor = .mezonTextSecondary
+            clearBtn.tintColor = .mezonTextPrimary
             clearBtn.addTarget(clearTarget, action: clearAction, for: .touchUpInside)
         } else {
             clearBtn.setImage(nil, for: .normal)

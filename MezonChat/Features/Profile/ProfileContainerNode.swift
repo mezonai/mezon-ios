@@ -13,6 +13,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     var onBackTapped: (() -> Void)?
     var onSettingsTapped: (() -> Void)?
+    var onEditProfileTapped: (() -> Void)?
     var onAvatarTapped: (() -> Void)?
     var onDisplayNameTapped: (() -> Void)?
     var onAddStatusTapped: (() -> Void)?
@@ -427,6 +428,8 @@ final class ProfileContainerNode: ASDisplayNode {
         micButton.clipsToBounds = true
         micButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
         fixedHeaderView.addSubview(micButton)
+
+        editProfileButton.addTarget(self, action: #selector(editProfileTapped), for: .touchUpInside)
     }
 
     private func setupBalanceCard() {
@@ -570,14 +573,22 @@ final class ProfileContainerNode: ASDisplayNode {
         let user = context.currentUser
 
         if let url = user?.avatarURL {
-            Task {
-                if let data = try? await URLSession.shared.data(from: url).0,
-                   let img = UIImage.decodeImage(from: data) {
-                    let color = img.dominantColor()
-                    await MainActor.run {
-                        self.avatarImageView.image = img
-                        self.headerBackgroundView.backgroundColor = color ?? .mezonBackground
-                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+            let urlString = url.absoluteString
+            if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
+                avatarImageView.image = cached
+                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonBackground
+                statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+            } else {
+                Task {
+                    if let data = try? await URLSession.shared.data(from: url).0,
+                       let img = UIImage.decodeImage(from: data) {
+                        ImageCache.shared.setImage(img, data: data, forKey: urlString)
+                        let color = img.dominantColor()
+                        await MainActor.run {
+                            self.avatarImageView.image = img
+                            self.headerBackgroundView.backgroundColor = color ?? .mezonBackground
+                            self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+                        }
                     }
                 }
             }
@@ -1016,6 +1027,10 @@ final class ProfileContainerNode: ASDisplayNode {
         guard let userId = context.currentUser?.id else { return }
         UIPasteboard.general.string = userId
         Toast.info(L(L10n.Profile.userIdCopied))
+    }
+
+    @objc private func editProfileTapped() {
+        onEditProfileTapped?()
     }
 
     @objc private func settingsTapped() {

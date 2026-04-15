@@ -27,6 +27,11 @@ final class ProfileViewController: ViewController {
             let vc = SettingsViewController(context: self.context)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onEditProfileTapped = { [weak self] in
+            guard let self else { return }
+            let vc = ProfileSettingViewController(context: self.context, initialTab: .userProfile)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         node.onAvatarTapped = { [weak self] in self?.presentOnlineStatusSheet() }
         node.onDisplayNameTapped = { [weak self] in self?.presentOnlineStatusSheet() }
         node.onAddStatusTapped = { [weak self] in self?.presentAddStatusModal() }
@@ -62,6 +67,7 @@ final class ProfileViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        profileNode.updateContent()
         Task {
             await context.refreshAccountProfile()
             await context.fetchCurrentUserStatus()

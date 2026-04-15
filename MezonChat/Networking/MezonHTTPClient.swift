@@ -351,6 +351,84 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateAccount(
+        displayName: String? = nil,
+        avatarUrl: String? = nil,
+        aboutMe: String? = nil,
+        logo: String? = nil,
+        token: String
+    ) async throws -> Mezon_Api_Account {
+        var req = Mezon_Api_UpdateAccountRequest()
+        if let displayName {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = displayName
+            req.displayName = v
+        }
+        if let avatarUrl {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = avatarUrl
+            req.avatarURL = v
+        }
+        if let aboutMe {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = aboutMe
+            req.aboutMe = v
+        }
+        if let logo {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = logo
+            req.logo = v
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateAccount",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateClanProfile(
+        clanId: Int64,
+        nickName: String? = nil,
+        avatar: String? = nil,
+        token: String
+    ) async throws -> SwiftProtobuf.Google_Protobuf_Empty {
+        var req = Mezon_Api_UpdateClanProfileRequest()
+        req.clanID = clanId
+        if let nickName {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = nickName
+            req.nickName = v
+        }
+        if let avatar {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = avatar
+            req.avatar = v
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateUserProfileByClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func checkDuplicateName(
+        name: String,
+        type: Int32,
+        conditionId: Int64,
+        token: String
+    ) async throws -> Bool {
+        var req = Mezon_Api_CheckDuplicateNameRequest()
+        req.name = name
+        req.type = type
+        req.conditionID = conditionId
+        let response: Mezon_Api_CheckDuplicateNameResponse = try await postProto(
+            path: "/mezon.api.Mezon/CheckDuplicateName",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.isDuplicate
+    }
+
     func sendChannelMessage(
         clanId: Int64,
         channelId: Int64,
