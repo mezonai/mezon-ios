@@ -210,7 +210,6 @@ final class MessageActionSheetController: ViewController {
         if display.isFailed { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
-        if display.isTopic { return false }
         if display.message.isDeleted { return false }
         return true
     }

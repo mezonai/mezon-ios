@@ -1,6 +1,6 @@
 {
   "images" : [
-    { "idiom" : "universal", "filename" : "MessagesIcon.pdf" }
+    { "idiom" : "universal", "filename" : "MessagesIcon.svg" }
   ],
   "info" : { "author" : "xcode", "version" : 1 },
   "properties" : {

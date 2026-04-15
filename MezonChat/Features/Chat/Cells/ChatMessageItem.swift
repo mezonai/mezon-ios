@@ -172,13 +172,12 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
     }
 
     func asyncLayout() -> (ChatMessageItem, ListViewItemLayoutParams) -> (ListViewItemNodeLayout, () -> Void) {
-        let currentBubble = self.bubbleNode
-
         return { [weak self] item, params in
             let width = params.width
             let bubble: MessageBubbleNode
+            let existingBubble = self?.bubbleNode
             let isSameLogicalMessage: Bool = {
-                guard let existing = currentBubble else { return false }
+                guard let existing = existingBubble else { return false }
                 if existing.display.id == item.display.id { return true }
                 let wasPending = existing.display.id.hasPrefix("pending-")
                 let isNowReal = !item.display.id.hasPrefix("pending-")
@@ -187,11 +186,11 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             }()
 
             let attachmentsChanged: Bool = {
-                guard let existing = currentBubble, isSameLogicalMessage else { return false }
+                guard let existing = existingBubble, isSameLogicalMessage else { return false }
                 return existing.display.attachments != item.display.attachments
             }()
 
-            if let existing = currentBubble, isSameLogicalMessage, !attachmentsChanged {
+            if let existing = existingBubble, isSameLogicalMessage, !attachmentsChanged {
                 if existing.display.sendingState == item.display.sendingState,
                    existing.display.id == item.display.id {
                     existing.updateReactions(newDisplay: item.display)

@@ -1331,9 +1331,10 @@ final class ChatViewController: ViewController {
 
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
             let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
-            let isWelcome = record.senderId == "0"
-                && parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && record.senderDisplayName.lowercased() == "system"
+            let bodyEmpty = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let senderLabel = record.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isWelcome = record.code == MezonConstants.MessageCode.welcome.rawValue
+                || (record.senderId == "0" && bodyEmpty && senderLabel == "system")
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
             let isMe = currentUserId != nil && record.senderId == currentUserId
@@ -1356,7 +1357,30 @@ final class ChatViewController: ViewController {
                 isForward: isForward, showForwardHeader: false, messageCode: record.code
             )
         }
-        return Self.applyCombine(to: displays)
+        return Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
+    }
+
+    private static func sortMessagesLikeChannelStore(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
+        let idAsc: (ChatMessageDisplay, ChatMessageDisplay) -> Bool = {
+            messageSnowflakeIdLessThan($0.id, $1.id)
+        }
+        let pinsFirst: (ChatMessageDisplay) -> Bool = {
+            $0.isWelcome || $0.messageCode == MezonConstants.MessageCode.firstMessage.rawValue
+        }
+        let head = displays.filter(pinsFirst).sorted(by: idAsc)
+        let tail = displays.filter { !pinsFirst($0) }.sorted(by: idAsc)
+        return head + tail
+    }
+
+    private static func messageSnowflakeIdLessThan(_ a: String, _ b: String) -> Bool {
+        if a == b { return false }
+        let aNum = !a.isEmpty && a.allSatisfy { $0.isASCII && $0.isNumber }
+        let bNum = !b.isEmpty && b.allSatisfy { $0.isASCII && $0.isNumber }
+        if aNum && bNum {
+            if a.count != b.count { return a.count < b.count }
+            return a < b
+        }
+        return a < b
     }
 
     private static func parseContentIsForward(from data: Data) -> Bool {

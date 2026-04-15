@@ -37,37 +37,45 @@ final class MezonRootController: NavigationController {
 
         let (clansImg, clansSel) = Self.tabBarImage(name: "TabBar/ClansIcon", systemFallback: "square.grid.2x2", systemFallbackSelected: "square.grid.2x2.fill")
         let homeVC = HomeViewController(context: context)
-        homeVC.tabBarItem = UITabBarItem(
+        let homeTab = UITabBarItem(
             title: L(L10n.Tab.clans),
             image: clansImg,
             selectedImage: clansSel
         )
+        homeTab.mezonTabBarFaceAssetName = "TabBar/ClansIconFace"
+        homeVC.tabBarItem = homeTab
 
         let (messagesImg, messagesSel) = Self.tabBarImage(name: "TabBar/MessagesIcon", systemFallback: "bubble.left.and.bubble.right", systemFallbackSelected: "bubble.left.and.bubble.right.fill")
         let directMessagesVC = DirectMessagesViewController(context: context)
-        directMessagesVC.tabBarItem = UITabBarItem(
+        let messagesTab = UITabBarItem(
             title: L(L10n.Tab.messages),
             image: messagesImg,
             selectedImage: messagesSel
         )
+        messagesTab.mezonTabBarFaceAssetName = "TabBar/MessagesIconFace"
+        directMessagesVC.tabBarItem = messagesTab
 
         let (notifImg, notifSel) = Self.tabBarImage(
             name: "TabBar/NotificationIcon", systemFallback: "bell",
             systemFallbackSelected: "bell.fill")
         let notificationsVC = NotificationsViewController(context: context)
-        notificationsVC.tabBarItem = UITabBarItem(
+        let notifTab = UITabBarItem(
             title: L(L10n.Tab.notifications),
             image: notifImg,
             selectedImage: notifSel
         )
+        notifTab.mezonTabBarFaceAssetName = "TabBar/NotificationIconFace"
+        notificationsVC.tabBarItem = notifTab
 
         let (profileImg, profileSel) = Self.tabBarImage(name: "TabBar/ProfileIcon", systemFallback: "person.crop.circle", systemFallbackSelected: "person.crop.circle.fill")
         let profileVC = ProfileViewController(context: context)
-        profileVC.tabBarItem = UITabBarItem(
+        let profileTab = UITabBarItem(
             title: L(L10n.Tab.profile),
             image: profileImg,
             selectedImage: profileSel
         )
+        profileTab.mezonTabBarFaceAssetName = "TabBar/ProfileIconFace"
+        profileVC.tabBarItem = profileTab
 
         let controllers: [ViewController] = [homeVC, directMessagesVC, notificationsVC, profileVC]
         tabBarController.setControllers(controllers, selectedIndex: 0)

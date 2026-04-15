@@ -5,6 +5,8 @@ final class DmListItemCell: UITableViewCell {
 
     static let reuseId = "DmListItemCell"
 
+    private static let groupDmListPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
+
     private let avatarView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -180,14 +182,15 @@ final class DmListItemCell: UITableViewCell {
 
         if isGroup {
             avatarPlaceholder.isHidden = true
-            groupIconView.isHidden = false
             onlineIndicator.isHidden = true
             if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
                let url = URL(string: channel.channelAvatar) {
                 avatarView.backgroundColor = .clear
+                groupIconView.isHidden = true
                 loadImage(url: url)
             } else {
-                avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
+                avatarView.backgroundColor = Self.groupDmListPlaceholderOrange
+                groupIconView.tintColor = .white
                 groupIconView.isHidden = false
             }
         } else {
