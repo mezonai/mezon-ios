@@ -162,7 +162,6 @@ final class FileListNode: ASDisplayNode {
                 self.rawAttachments = docs
                 self.rebuildSectionsAndReload()
             } catch {
-                AppLogger.network.error("Fetch files failed: \(error)")
                 self.loadFailed = true
                 self.rawAttachments = []
                 self.sections = []

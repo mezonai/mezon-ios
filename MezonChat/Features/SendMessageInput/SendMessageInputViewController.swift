@@ -191,7 +191,6 @@ final class SendMessageInputViewController: UIViewController {
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    /// Matches circular action buttons (`40.swh`); corner radius is synced in `PastableTextView.layoutSubviews`.
     private static var textViewMinHeight: CGFloat { 40.swh }
     private static let inputBarPadding: CGFloat = 16
 
@@ -1380,7 +1379,6 @@ final class SendMessageInputViewController: UIViewController {
                 }
                 rebuildMentionSuggestionItems()
             } catch {
-                AppLogger.network.warning("[MentionSuggestion] listRoles failed: \(error)")
             }
         }
     }
@@ -3028,7 +3026,6 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        // No action needed
     }
 }
 

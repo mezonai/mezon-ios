@@ -36,6 +36,7 @@ final class ClanListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
+                let prevDmFingerprint = Self.unreadDmStripFingerprint(self.state.unreadDMs)
                 let prevClanId = self.state.selectedClanId
                 let wasLoading = self.state.isLoading
                 let prevDMCount = self.state.unreadDMs.count
@@ -54,9 +55,19 @@ final class ClanListContainerNode: ASDisplayNode {
                 let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
                 let newClanBadges = newState.clans.map { $0.badgeCount }
                 let badgesChanged = prevDMBadges != newDMBadges || prevClanBadges != newClanBadges
+                let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
+                let dmStripIdentityChanged = prevDmFingerprint != newDmFingerprint
 
                 if newState.clans.count != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged {
                     self.collectionView.reloadData()
+                } else if dmStripIdentityChanged {
+                    if self.collectionView.numberOfSections > 1 {
+                        UIView.performWithoutAnimation {
+                            self.collectionView.reloadSections(IndexSet(integer: 1))
+                        }
+                    } else {
+                        self.collectionView.reloadData()
+                    }
                 } else if prevClanId != newState.selectedClanId {
                     var paths: [IndexPath] = []
                     if let prev = prevClanId, let idx = newState.clans.firstIndex(where: { $0.clanID == prev }) {
@@ -122,6 +133,18 @@ final class ClanListContainerNode: ASDisplayNode {
         backgroundColor = .clear
         loadingIndicator.color = t.textDisabled
         collectionView.reloadData()
+    }
+
+    private static func unreadDmStripFingerprint(_ dms: [Mezon_Api_ChannelDescription]) -> String {
+        dms.map { dm in
+            let avatarSig: String
+            if dm.type == MezonConstants.ChannelType.dm.rawValue {
+                avatarSig = dm.avatars.filter { !$0.isEmpty }.joined(separator: "|")
+            } else {
+                avatarSig = dm.channelAvatar
+            }
+            return "\(dm.channelID)|\(dm.type)|\(dm.countMessUnread)|\(avatarSig)|\(dm.channelLabel)"
+        }.joined(separator: "\u{1e}")
     }
 
     @objc private func logoTapped() { interaction.onLogoTapped() }
@@ -298,15 +321,6 @@ private final class ClanCell: UICollectionViewCell {
         return l
     }()
 
-    private let unreadDot: UIView = {
-        let v = UIView()
-        v.backgroundColor = .white
-        v.layer.cornerRadius = 4.swh
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.isHidden = true
-        return v
-    }()
-
     private var imageTask: URLSessionDataTask?
     private static let sz: CGFloat = ClanListContainerNode.iconSize
 
@@ -320,7 +334,6 @@ private final class ClanCell: UICollectionViewCell {
         avatarContainer.addSubview(avatarImageView)
         avatarContainer.addSubview(initialsLabel)
         contentView.addSubview(badgeLabel)
-        contentView.addSubview(unreadDot)
 
         NSLayoutConstraint.activate([
             indicatorBar.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -345,11 +358,6 @@ private final class ClanCell: UICollectionViewCell {
             badgeLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 5.swh),
             badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20.swh),
             badgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
-
-            unreadDot.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: -2.swh),
-            unreadDot.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: -4.swh),
-            unreadDot.widthAnchor.constraint(equalToConstant: 8.swh),
-            unreadDot.heightAnchor.constraint(equalToConstant: 8.swh),
         ])
     }
 
@@ -364,7 +372,6 @@ private final class ClanCell: UICollectionViewCell {
         badgeLabel.isHidden = true
         badgeLabel.layer.borderWidth = 0
         badgeLabel.layer.borderColor = nil
-        unreadDot.isHidden = true
     }
 
     func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool) {

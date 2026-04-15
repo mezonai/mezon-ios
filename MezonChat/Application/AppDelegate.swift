@@ -105,7 +105,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         if let notificationResponse = connectionOptions.notificationResponse {
             let userInfo = notificationResponse.notification.request.content.userInfo
             let title = notificationResponse.notification.request.content.title
-            AppLogger.network.info("[FCM] Cold launch from notification: \(userInfo)")
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
             Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
         }
@@ -148,9 +147,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
         UNUserNotificationCenter.current().requestAuthorization(options: authOptions) { granted, error in
             if let error {
-                AppLogger.network.error("[FCM] Notification auth error: \(error)")
             }
-            AppLogger.network.info("[FCM] Notification permission granted: \(granted)")
         }
         DispatchQueue.main.async {
             UIApplication.shared.registerForRemoteNotifications()
@@ -160,11 +157,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Messaging.messaging().apnsToken = deviceToken
-        AppLogger.network.info("[FCM] APNs token registered")
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        AppLogger.network.error("[FCM] APNs registration failed: \(error)")
     }
 
     @objc private func handleWillEnterForeground() {
@@ -202,7 +197,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             type = "text"
         }
 
-        AppLogger.network.info("[Sharing] Received share URL with type: \(type)")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             NotificationCenter.default.post(
@@ -339,7 +333,6 @@ extension Notification.Name {
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         guard let fcmToken else { return }
-        AppLogger.network.info("[FCM] Token received: \(fcmToken.prefix(20))...")
 
         Task { @MainActor in
             guard let context = self.accountContext else { return }
@@ -350,9 +343,7 @@ extension AppDelegate: MessagingDelegate {
                 _ = try await context.account.network.registFcmDeviceToken(
                     fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: token
                 )
-                AppLogger.network.info("[FCM] Token registered with server")
             } catch {
-                AppLogger.network.error("[FCM] Token registration failed: \(error)")
             }
         }
     }

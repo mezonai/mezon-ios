@@ -1,9 +1,6 @@
 import UIKit
 import MobileCoreServices
 import AVFoundation
-import os.log
-
-private let logger = OSLog(subsystem: "mezon.mobile.MezonSharing", category: "ShareExtension")
 
 class ShareViewController: UIViewController {
 
@@ -19,14 +16,12 @@ class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        os_log("[MezonSharing] viewDidLoad called", log: logger, type: .info)
         NSLog("[MezonSharing] viewDidLoad called")
         view.backgroundColor = UIColor.black.withAlphaComponent(0.3)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        os_log("[MezonSharing] viewDidAppear called", log: logger, type: .info)
         NSLog("[MezonSharing] viewDidAppear - starting processInputItems")
         processInputItems()
     }

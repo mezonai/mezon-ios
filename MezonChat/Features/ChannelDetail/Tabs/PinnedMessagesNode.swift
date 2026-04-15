@@ -63,7 +63,6 @@ final class PinnedMessagesNode: ASDisplayNode {
                 self.pinsFetchCompleted = true
                 await self.tableNode.reloadData()
             } catch {
-                AppLogger.network.error("Fetch pinned messages failed: \(error)")
                 self.pinsFetchCompleted = true
                 await self.tableNode.reloadData()
             }

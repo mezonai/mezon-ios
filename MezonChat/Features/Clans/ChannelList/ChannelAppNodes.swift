@@ -95,7 +95,7 @@ final class ChannelAppHorizontalCellNode: ASCellNode {
     private let scrollNode: ASScrollNode
     private var itemNodes: [ChannelAppIconNode] = []
 
-    init(apps: [Mezon_Api_ChannelAppResponse]) {
+    init(apps: [Mezon_Api_ChannelAppResponse], onSelect: @escaping (Mezon_Api_ChannelAppResponse) -> Void) {
         let limit = 10
         let displayApps = apps.count > limit ? Array(apps.prefix(limit)) : apps
         scrollNode = ASScrollNode()
@@ -108,7 +108,9 @@ final class ChannelAppHorizontalCellNode: ASCellNode {
         scrollNode.automaticallyManagesContentSize = true
         scrollNode.automaticallyManagesSubnodes = true
 
-        itemNodes = displayApps.map { ChannelAppIconNode(app: $0) }
+        itemNodes = displayApps.map { app in
+            ChannelAppIconNode(app: app, onTap: { onSelect(app) })
+        }
     }
 
     override func didLoad() {
@@ -140,13 +142,15 @@ final class ChannelAppHorizontalCellNode: ASCellNode {
 }
 
 
-final class ChannelAppIconNode: ASDisplayNode {
+final class ChannelAppIconNode: ASControlNode {
 
     private let logoContainerNode = ASDisplayNode()
     private let logoImageNode = ASImageNode()
     private let nameNode = ASTextNode2()
+    private let onTap: () -> Void
 
-    init(app: Mezon_Api_ChannelAppResponse) {
+    init(app: Mezon_Api_ChannelAppResponse, onTap: @escaping () -> Void) {
+        self.onTap = onTap
         super.init()
         automaticallyManagesSubnodes = true
 
@@ -193,6 +197,15 @@ final class ChannelAppIconNode: ASDisplayNode {
         }
     }
 
+    override func didLoad() {
+        super.didLoad()
+        addTarget(self, action: #selector(handleTap), forControlEvents: .touchUpInside)
+    }
+
+    @objc private func handleTap() {
+        onTap()
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let boxSize = 40.swh
         logoContainerNode.style.preferredSize = CGSize(width: boxSize, height: boxSize)
@@ -221,4 +234,35 @@ final class ChannelAppIconNode: ASDisplayNode {
     }
 }
 
+extension Mezon_Api_ChannelAppResponse {
+    private var hasPlausibleChannelAppWebURL: Bool {
+        let u = appURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if u.isEmpty { return false }
+        let lower = u.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") { return true }
+        return lower.contains("://")
+    }
 
+    var hasListableChannelAppContent: Bool {
+        let n = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let logo = appLogo.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !n.isEmpty || !logo.isEmpty || hasPlausibleChannelAppWebURL
+    }
+
+    func channelAppWebPageURL(webAppData: String) -> URL? {
+        let trimmed = appURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let withScheme: String
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+            withScheme = trimmed
+        } else {
+            withScheme = "https://" + trimmed
+        }
+        guard var comp = URLComponents(string: withScheme) else { return nil }
+        var items = comp.queryItems ?? []
+        items.append(URLQueryItem(name: "data", value: webAppData))
+        comp.queryItems = items
+        return comp.url
+    }
+}

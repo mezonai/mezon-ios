@@ -92,9 +92,6 @@ final class CallViewController: UIViewController {
             endButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
         ])
 
-        AppLogger.app.info(
-            "[Call] UI remote=\(self.remoteUserId) channel=\(self.dmChannelId) outgoing=\(self.isOutgoing) loggedIn=\(self.accountContext.isLoggedIn) avatar=\(self.remoteAvatarURL ?? "-")"
-        )
     }
 
     @objc private func endButtonTapped() {

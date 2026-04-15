@@ -108,7 +108,6 @@ final class MezonRootController: NavigationController {
             let isDM = pending["isDM"] as? Bool ?? false
             if !isDM {
                 context.currentClanId = clanId
-                AppLogger.network.info("[FCM] processPendingNavigation: pre-set currentClanId=\(clanId) for socket join")
             }
         }
 
@@ -126,7 +125,6 @@ final class MezonRootController: NavigationController {
             }
             if let sid = pending["navigationInstanceId"] as? String,
                sid == AppDelegate.lastHandledNavigationInstanceId {
-                AppLogger.network.info("[FCM] processPendingNavigation: skip delayed post, already handled instance \(sid)")
                 return
             }
             NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
@@ -201,7 +199,6 @@ final class MezonRootController: NavigationController {
                 _ = try await self.context.account.network.listDirectMessageChannels(token: token)
                 self.directMessagesController?.fetchDirectMessages()
             } catch {
-                AppLogger.network.error("[FCM] Failed to fetch DM channels in background: \(error)")
             }
         }
     }
@@ -219,7 +216,6 @@ final class MezonRootController: NavigationController {
         }
         if channel.clanID != 0 {
             if let n = notificationClanId, n != 0, n != channel.clanID {
-                AppLogger.network.warning("[NavigateChannel] push clanId \(n) != channel.clanID \(channel.clanID); using channel")
             }
             return channel.clanID
         }
@@ -349,7 +345,6 @@ final class MezonRootController: NavigationController {
                 guard let token = await self.context.getToken() else { return }
                 self.context.engine.clanData.fetchAllClanData(clanId: toClanId, token: token)
             }
-            AppLogger.network.info("[FCM] switchClanIfNeeded: clan \(toClanId) not in clans list yet, set currentClanId + fetchAllClanData")
         }
     }
 
@@ -370,7 +365,6 @@ final class MezonRootController: NavigationController {
                     }
                 }
             } catch {
-                AppLogger.network.error("[FCM] fetchClanChannels background failed: \(error)")
             }
         }
     }
@@ -406,7 +400,6 @@ final class MezonRootController: NavigationController {
 
     private func presentSharingUI(type: String) {
         guard let content = SharingManager.shared.loadSharedContent(type: type) else {
-            AppLogger.network.info("[Sharing] No shared content found for type: \(type)")
             return
         }
 
