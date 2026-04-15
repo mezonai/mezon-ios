@@ -290,7 +290,7 @@ private final class ClanCell: UICollectionViewCell {
         l.font = .systemFont(ofSize: 9.sf, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
-        l.backgroundColor = .systemRed
+        l.backgroundColor = UIColor.mezonUnreadBadge
         l.layer.cornerRadius = 10.swh
         l.clipsToBounds = true
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -312,6 +312,8 @@ private final class ClanCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
         let sz = Self.sz
         contentView.addSubview(indicatorBar)
         contentView.addSubview(avatarContainer)
@@ -358,7 +360,10 @@ private final class ClanCell: UICollectionViewCell {
         imageTask?.cancel()
         avatarImageView.image = nil
         initialsLabel.text = nil
+        avatarContainer.backgroundColor = .clear
         badgeLabel.isHidden = true
+        badgeLabel.layer.borderWidth = 0
+        badgeLabel.layer.borderColor = nil
         unreadDot.isHidden = true
     }
 
@@ -369,14 +374,15 @@ private final class ClanCell: UICollectionViewCell {
         indicatorBar.backgroundColor = accentColor
         indicatorBar.isHidden = !isSelected
 
-        avatarContainer.backgroundColor = colorFor(name: clan.clanName)
         initialsLabel.text = initials(for: clan.clanName)
 
         if !clan.logo.isEmpty, let url = URL(string: clan.logo) {
+            avatarContainer.backgroundColor = .clear
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
             loadImage(url: url)
         } else {
+            avatarContainer.backgroundColor = colorFor(name: clan.clanName)
             avatarImageView.isHidden = true
             initialsLabel.isHidden = false
         }
@@ -385,10 +391,11 @@ private final class ClanCell: UICollectionViewCell {
         if count > 0 {
             badgeLabel.text = count > 99 ? "99+" : "\(count)"
             badgeLabel.isHidden = false
-            badgeLabel.layer.borderWidth = 2
-            badgeLabel.layer.borderColor = UIColor.theme.secondary.cgColor
+            badgeLabel.backgroundColor = UIColor.mezonUnreadBadge
         } else {
             badgeLabel.isHidden = true
+            badgeLabel.layer.borderWidth = 0
+            badgeLabel.layer.borderColor = nil
         }
     }
 
@@ -455,7 +462,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         l.font = .systemFont(ofSize: 9.sf, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
-        l.backgroundColor = .systemRed
+        l.backgroundColor = UIColor.mezonUnreadBadge
         l.clipsToBounds = true
         l.translatesAutoresizingMaskIntoConstraints = false
         l.isHidden = true
@@ -466,6 +473,8 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
         let sz = ClanListContainerNode.iconSize
         let radius = sz / 2
 
@@ -505,7 +514,10 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         imageTask?.cancel()
         avatarImageView.image = nil
         initialsLabel.text = nil
+        avatarContainer.backgroundColor = .clear
         badgeLabel.isHidden = true
+        badgeLabel.layer.borderWidth = 0
+        badgeLabel.layer.borderColor = nil
     }
 
     func configure(with dm: Mezon_Api_ChannelDescription) {
@@ -517,7 +529,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
             UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
         ]
-        avatarContainer.backgroundColor = colors[abs(name.hashValue) % colors.count]
+        let placeholderBg = colors[abs(name.hashValue) % colors.count]
 
         let isDM = dm.type == MezonConstants.ChannelType.dm.rawValue
         let avatarURL: String
@@ -529,6 +541,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         }
 
         if !avatarURL.isEmpty {
+            avatarContainer.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: avatarURL)
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
@@ -540,6 +553,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
                 }
             }
         } else {
+            avatarContainer.backgroundColor = placeholderBg
             avatarImageView.isHidden = true
             initialsLabel.isHidden = false
             initialsLabel.text = String(name.prefix(1)).uppercased()
@@ -549,10 +563,11 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         if count > 0 {
             badgeLabel.text = count > 99 ? "99+" : "\(count)"
             badgeLabel.isHidden = false
-            badgeLabel.layer.borderWidth = 2
-            badgeLabel.layer.borderColor = UIColor.theme.secondary.cgColor
+            badgeLabel.backgroundColor = UIColor.mezonUnreadBadge
         } else {
             badgeLabel.isHidden = true
+            badgeLabel.layer.borderWidth = 0
+            badgeLabel.layer.borderColor = nil
         }
     }
 }

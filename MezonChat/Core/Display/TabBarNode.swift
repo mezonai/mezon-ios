@@ -1,6 +1,16 @@
 import Foundation
+import ObjectiveC
 import UIKit
 import AsyncDisplayKit
+
+private var mezonTabBarFaceAssetKey: UInt8 = 0
+
+extension UITabBarItem {
+    var mezonTabBarFaceAssetName: String? {
+        get { objc_getAssociatedObject(self, &mezonTabBarFaceAssetKey) as? String }
+        set { objc_setAssociatedObject(self, &mezonTabBarFaceAssetKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
+    }
+}
 
 private enum TabBarLayoutScale {
     static var value: CGFloat {
@@ -18,7 +28,9 @@ public struct TabBarNodeItem {
 }
 
 final class TabBarItemNode: ASDisplayNode {
-    private let iconNode = ASImageNode()
+    private static let imageBundle = Bundle.main
+    private let primaryIconNode = ASImageNode()
+    private let faceIconNode = ASImageNode()
     private let labelNode = ASTextNode2()
     private let badgeBg = ASDisplayNode()
     private let badgeText = ASTextNode2()
@@ -34,7 +46,10 @@ final class TabBarItemNode: ASDisplayNode {
         automaticallyManagesSubnodes = true
         isUserInteractionEnabled = true
 
-        iconNode.isUserInteractionEnabled = false
+        primaryIconNode.isUserInteractionEnabled = false
+        primaryIconNode.contentMode = .scaleAspectFit
+        faceIconNode.isUserInteractionEnabled = false
+        faceIconNode.contentMode = .scaleAspectFit
         badgeBg.backgroundColor = .systemRed
         badgeBg.cornerRadius = 9 * TabBarLayoutScale.value
         badgeBg.isUserInteractionEnabled = false
@@ -56,6 +71,11 @@ final class TabBarItemNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    func refreshAppearanceForThemeChange() {
+        applyStyle(selected: isSelected)
+        setNeedsLayout()
+    }
+
     func setSelected(_ selected: Bool, animated: Bool) {
         guard isSelected != selected else { return }
         isSelected = selected
@@ -68,18 +88,21 @@ final class TabBarItemNode: ASDisplayNode {
             spring.damping = 12
             spring.stiffness = 200
             spring.duration = 0.18
-            iconNode.layer.add(spring, forKey: "selectionBounce")
+            primaryIconNode.layer.add(spring, forKey: "selectionBounce")
+            faceIconNode.layer.add(spring, forKey: "selectionBounceFace")
         }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let s = TabBarLayoutScale.value
         let iconSize: CGFloat = 22 * s
-        iconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
+        primaryIconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
+        faceIconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
+        let iconStack = ASOverlayLayoutSpec(child: primaryIconNode, overlay: faceIconNode)
 
         let fontSize: CGFloat = 10 * s
         let labelFont = UIFont.systemFont(ofSize: fontSize, weight: isSelected ? .semibold : .regular)
-        let labelColor = isSelected ? UIColor.theme.channelUnread : UIColor.theme.textDisabled
+        let labelColor = isSelected ? UIColor.theme.textStrong : UIColor.theme.channelNormal
         labelNode.attributedText = NSAttributedString(
             string: item.title ?? "",
             attributes: [.font: labelFont, .foregroundColor: labelColor]
@@ -97,31 +120,42 @@ final class TabBarItemNode: ASDisplayNode {
                 child: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: badgeText),
                 background: badgeBg
             )
-            let corner = ASCornerLayoutSpec(child: iconNode, corner: badgeStack, location: .topRight)
+            let corner = ASCornerLayoutSpec(child: iconStack, corner: badgeStack, location: .topRight)
             corner.offset = CGPoint(x: 6 * s, y: -6 * s)
             iconWithBadge = corner
         } else {
-            iconWithBadge = iconNode
+            iconWithBadge = iconStack
         }
 
         let stack = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 3 * s,
+            spacing: 6 * s,
             justifyContent: .center,
             alignItems: .center,
             children: [iconWithBadge, labelNode]
         )
 
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 14 * s, left: 0, bottom: 20 * s, right: 0),
+            insets: UIEdgeInsets(top: 18 * s, left: 0, bottom: 26 * s, right: 0),
             child: stack
         )
     }
 
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
-        iconNode.image = icon?.withRenderingMode(.alwaysOriginal)
-        iconNode.tintColor = nil
+        primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
+        let primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
+        let faceTint = selected ? UIColor.theme.textStrong : UIColor.theme.borderRadio
+        primaryIconNode.tintColor = primaryTint
+        if let faceName = item.mezonTabBarFaceAssetName,
+           let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {
+            faceIconNode.image = face.withRenderingMode(.alwaysTemplate)
+            faceIconNode.tintColor = faceTint
+            faceIconNode.isHidden = false
+        } else {
+            faceIconNode.image = nil
+            faceIconNode.isHidden = true
+        }
         setNeedsLayout()
     }
 
@@ -146,7 +180,7 @@ final class TabBarItemNode: ASDisplayNode {
 }
 
 public final class TabBarNode: ASDisplayNode {
-    public static var barHeight: CGFloat { 57 * TabBarLayoutScale.value }
+    public static var barHeight: CGFloat { 67 * TabBarLayoutScale.value }
 
     private let backgroundNode: NavigationBackgroundNode
     private let separatorNode = ASDisplayNode()
@@ -197,7 +231,7 @@ public final class TabBarNode: ASDisplayNode {
 
     func refreshItemAppearanceForThemeChange() {
         separatorNode.backgroundColor = UIColor.theme.border
-        itemNodes.forEach { $0.setNeedsLayout() }
+        itemNodes.forEach { $0.refreshAppearanceForThemeChange() }
     }
 
     func updateLayout(size: CGSize, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {

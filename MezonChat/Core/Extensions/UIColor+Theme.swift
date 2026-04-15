@@ -19,6 +19,10 @@ extension UIColor {
     static var mezonTextSecondary:       UIColor { theme.textNormal }
     static var mezonTextMuted:           UIColor { theme.textDisabled }
 
+    static var mezonIconPrimary:         UIColor { theme.iconPrimary }
+    static var mezonIconSecondary:       UIColor { theme.iconSecondary }
+    static var mezonIconTertiary:        UIColor { theme.iconTertiary }
+
     static var mezonLabel:               UIColor { theme.textStrong }
     static var mezonSecondaryLabel:      UIColor { theme.textNormal }
 

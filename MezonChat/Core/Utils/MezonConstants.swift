@@ -23,6 +23,7 @@ enum MezonConstants {
     }
 
     enum MessageCode: Int32 {
+        case firstMessage = 4
         case welcome = 5
         case createThread = 6
         case createPin = 7

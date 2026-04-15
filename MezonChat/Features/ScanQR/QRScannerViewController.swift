@@ -403,7 +403,6 @@ final class QRScannerViewController: ViewController {
             }
             
         } catch {
-            print("Failed to decode profile data: \(error)")
         }
     }
     

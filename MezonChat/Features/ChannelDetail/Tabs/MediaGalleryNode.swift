@@ -119,9 +119,6 @@ final class MediaGalleryNode: ASDisplayNode {
     private static func logMediaDiagnostic(_ message: String) {
         let line = "[ChannelDetail.Media] \(message)"
         AppLogger.network.info("\(line)")
-        #if DEBUG
-        print(line)
-        #endif
     }
 
     /// Drops audio and other non-visual types that still appear under `image` filter (e.g. MP3 with ID3).

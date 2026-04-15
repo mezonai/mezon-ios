@@ -318,7 +318,6 @@ final class VoiceChannelPiPOverlay: NSObject {
         didAnnounceMeetJoin: Bool,
         didAnnounceMeetLeave: Bool
     ) {
-        print("[PiP-Debug][Overlay] show() called — room=\(String(describing: bridge.room)), roomState=\(String(describing: bridge.room?.connectionState))")
         self.bridge = bridge
         self.context = context
         self.channel = channel
@@ -335,7 +334,6 @@ final class VoiceChannelPiPOverlay: NSObject {
 
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         guard let scene else {
-            print("[PiP-Debug][Overlay] show() — no UIWindowScene found")
             return
         }
         let w = VoicePiPPassthroughWindow(windowScene: scene)
@@ -371,7 +369,6 @@ final class VoiceChannelPiPOverlay: NSObject {
 
         applyPiPChromeTheme()
         refreshContent()
-        print("[PiP-Debug][Overlay] show() — pipWindow ready, about to setupOverlaySystemCallPiP")
         setupOverlaySystemCallPiP(rootVC: rootVC)
         applyPiPChromeTheme()
     }
@@ -657,30 +654,24 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func setupOverlaySystemCallPiP(rootVC: UIViewController) {
-        print("[PiP-Debug][Overlay] setupOverlaySystemCallPiP ENTER — isPiPSupported=\(AVPictureInPictureController.isPictureInPictureSupported()), rootVC.view.window=\(String(describing: rootVC.view.window))")
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][Overlay] iOS < 15, skipping system PiP setup")
             return
         }
         guard systemCallPiPController == nil, let ctx = context, let ch = channel else {
-            print("[PiP-Debug][Overlay] setupOverlaySystemCallPiP skipped — controller=\(systemCallPiPController != nil), context=\(context != nil)")
             return
         }
         guard let (sourceView, contentVC, pip) = VoiceCallSystemPiPFactory.make(sourceSuperview: rootVC.view, context: ctx, clanId: ch.clanID) else {
-            print("[PiP-Debug][Overlay] VoiceCallSystemPiPFactory.make returned nil")
             return
         }
         systemCallPiPSourceView = sourceView
         systemCallPiPContentVC = contentVC
         pip.delegate = self
         systemCallPiPController = pip
-        print("[PiP-Debug][Overlay] System PiP controller created — isPossible=\(pip.isPictureInPicturePossible), canStartAuto=\(pip.canStartPictureInPictureAutomaticallyFromInline)")
         systemCallPiPBackgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            print("[PiP-Debug][Overlay] didEnterBackground notification received")
             DispatchQueue.main.async {
                 self?.tryStartOverlaySystemPiPIfNeeded()
             }
@@ -690,24 +681,18 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private func tryStartOverlaySystemPiPIfNeeded() {
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][Overlay] tryStart skipped — iOS < 15")
             return
         }
         guard let pip = systemCallPiPController else {
-            print("[PiP-Debug][Overlay] tryStart skipped — systemCallPiPController is nil")
             return
         }
-        print("[PiP-Debug][Overlay] tryStart — isPossible=\(pip.isPictureInPicturePossible), isActive=\(pip.isPictureInPictureActive), isSuspended=\(pip.isPictureInPictureSuspended)")
         DispatchQueue.main.async {
             guard pip.isPictureInPicturePossible else {
-                print("[PiP-Debug][Overlay] startPiP aborted — isPictureInPicturePossible=false")
                 return
             }
             guard !pip.isPictureInPictureActive else {
-                print("[PiP-Debug][Overlay] startPiP aborted — already active")
                 return
             }
-            print("[PiP-Debug][Overlay] calling pip.startPictureInPicture()")
             pip.startPictureInPicture()
         }
     }
@@ -726,7 +711,6 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func tearDownOverlaySystemCallPiP() {
-        print("[PiP-Debug][Overlay] tearDownOverlaySystemCallPiP called — controller=\(systemCallPiPController != nil)")
         if let obs = systemCallPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             systemCallPiPBackgroundObserver = nil
@@ -741,19 +725,9 @@ final class VoiceChannelPiPOverlay: NSObject {
 }
 
 extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
-    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        Task { @MainActor [weak self] in
-            guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            print("[PiP-Debug][Overlay] ✅ didStartPictureInPicture")
-        }
-    }
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
-    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        Task { @MainActor [weak self] in
-            guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            print("[PiP-Debug][Overlay] ⛔ didStopPictureInPicture")
-        }
-    }
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
     nonisolated func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
@@ -761,7 +735,6 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            print("[PiP-Debug][Overlay] ❌ failedToStart: \(error)")
             AppLogger.network.error("[VoiceChannel] Overlay system PiP failed: \(error)")
         }
     }
@@ -779,7 +752,6 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
                 completionHandler(false)
                 return
             }
-            print("[PiP-Debug][Overlay] restoreUserInterface called")
             completionHandler(true)
         }
     }
@@ -802,9 +774,7 @@ private final class VoicePiPPassthroughWindow: UIWindow {
 private enum VoiceCallSystemPiPFactory {
     @MainActor
     static func make(sourceSuperview: UIView, context: AccountContext, clanId: Int64) -> (UIView, AVPictureInPictureVideoCallViewController, AVPictureInPictureController)? {
-        print("[PiP-Debug][Factory] isPictureInPictureSupported=\(AVPictureInPictureController.isPictureInPictureSupported()), sourceSuperview=\(sourceSuperview), window=\(String(describing: sourceSuperview.window))")
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
-            print("[PiP-Debug][Factory] PiP not supported on this device")
             return nil
         }
 
@@ -915,7 +885,6 @@ private enum VoiceCallSystemPiPFactory {
         )
         let pip = AVPictureInPictureController(contentSource: source)
         pip.canStartPictureInPictureAutomaticallyFromInline = true
-        print("[PiP-Debug][Factory] PiP controller created — isPossible=\(pip.isPictureInPicturePossible), canStartAuto=\(pip.canStartPictureInPictureAutomaticallyFromInline)")
         return (sourceView, contentVC, pip)
     }
 }
@@ -1243,15 +1212,6 @@ final class VoiceChannelRoomViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
 
-        NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            print("[PiP-Debug][VC] willResignActive — callPiPController=\(self.callPiPController != nil), bridge=\(self.liveKitBridge != nil), isMinimizingToPiP=\(self.isMinimizingToPiP)")
-        }
-        NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            print("[PiP-Debug][VC] didEnterBackground (viewDidLoad observer) — callPiPController=\(self.callPiPController != nil), bridge=\(self.liveKitBridge != nil)")
-        }
-
         audioRouteObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
@@ -1329,7 +1289,6 @@ final class VoiceChannelRoomViewController: ViewController {
             MezonSocket.shared.onVoiceReaction = nil
         }
         liveKitReconnectTask?.cancel()
-        print("[PiP-Debug][VC] deinit — callPiPController=\(callPiPController != nil), callPiPBackgroundObserver=\(callPiPBackgroundObserver != nil)")
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
         }
@@ -1851,17 +1810,14 @@ final class VoiceChannelRoomViewController: ViewController {
             didStartVoiceConnection = true
             return
         }
-        print("[PiP-Debug][VC] viewDidAppear — didStartVoiceConnection=\(didStartVoiceConnection), existingPiPOverlay=\(existingPiPOverlay != nil)")
         guard !didStartVoiceConnection else { return }
         didStartVoiceConnection = true
 
         if let pip = existingPiPOverlay, let (bridge, joinFlag, leaveFlag) = pip.takeOverBridge() {
-            print("[PiP-Debug][VC] viewDidAppear — took over bridge from PiP overlay")
             applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag)
             return
         }
 
-        print("[PiP-Debug][VC] viewDidAppear — starting fresh voice connection pipeline")
         connectTask = Task { @MainActor in
             await self.runVoiceConnectionPipeline()
         }
@@ -1980,7 +1936,6 @@ final class VoiceChannelRoomViewController: ViewController {
         let handoff = voiceRoomShouldTransferToPiPWhenDisappearing()
         let movingFromParent = isMovingFromParent
         let beingDismissed = isBeingDismissed
-        print("[PiP-Debug][VC] viewWillDisappear — isMinimizingToPiP=\(isMinimizingToPiP), handoff=\(handoff), isMovingFromParent=\(movingFromParent), isBeingDismissed=\(beingDismissed), top=\(String(describing: navigationController?.topViewController)), bridge=\(liveKitBridge != nil)")
         if isMinimizingToPiP { return }
         guard handoff else { return }
         let didHandoffBridgeToPiP = voiceRoomPerformPiPHandoffIfStillInCall()
@@ -2058,7 +2013,6 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 
     @objc private func minimizeToPiP() {
-        print("[PiP-Debug][VC] minimizeToPiP() called — bridge=\(liveKitBridge != nil)")
         guard let bridge = liveKitBridge else { return }
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
@@ -2189,7 +2143,6 @@ final class VoiceChannelRoomViewController: ViewController {
                 return
             }
 
-            print("[PiP-Debug][VC] voice connected successfully — about to setupCallPiP")
             refreshMicButtonIcon()
             detectInitialAudioRoute()
             refreshCamButtonIcon()
@@ -2221,31 +2174,25 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func setupCallPiP() {
         let session = AVAudioSession.sharedInstance()
-        print("[PiP-Debug][VC] setupCallPiP ENTER — audioCategory=\(session.category.rawValue), audioMode=\(session.mode.rawValue), view.window=\(String(describing: view.window)), isPiPSupported=\(AVPictureInPictureController.isPictureInPictureSupported())")
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][VC] setupCallPiP skipped — iOS < 15")
             return
         }
         guard callPiPController == nil else {
-            print("[PiP-Debug][VC] setupCallPiP skipped — controller already exists")
             return
         }
         guard let (sourceView, contentVC, pip) = VoiceCallSystemPiPFactory.make(sourceSuperview: view, context: context, clanId: channel.clanID) else {
-            print("[PiP-Debug][VC] VoiceCallSystemPiPFactory.make returned nil (isPiPSupported=\(AVPictureInPictureController.isPictureInPictureSupported()))")
             return
         }
         callPiPSourceView = sourceView
         callPiPContentVC = contentVC
         pip.delegate = self
         callPiPController = pip
-        print("[PiP-Debug][VC] System PiP controller created — isPossible=\(pip.isPictureInPicturePossible), canStartAuto=\(pip.canStartPictureInPictureAutomaticallyFromInline)")
         if callPiPBackgroundObserver == nil {
             callPiPBackgroundObserver = NotificationCenter.default.addObserver(
                 forName: UIApplication.didEnterBackgroundNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                print("[PiP-Debug][VC] didEnterBackground notification received")
                 self?.tryStartCallPiPIfNeeded()
             }
         }
@@ -2253,30 +2200,23 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func tryStartCallPiPIfNeeded() {
         guard #available(iOS 15.0, *) else {
-            print("[PiP-Debug][VC] tryStart skipped — iOS < 15")
             return
         }
         guard let pip = callPiPController else {
-            print("[PiP-Debug][VC] tryStart skipped — callPiPController is nil")
             return
         }
-        print("[PiP-Debug][VC] tryStart — isPossible=\(pip.isPictureInPicturePossible), isActive=\(pip.isPictureInPictureActive), isSuspended=\(pip.isPictureInPictureSuspended)")
         DispatchQueue.main.async {
             guard pip.isPictureInPicturePossible else {
-                print("[PiP-Debug][VC] startPiP aborted — isPictureInPicturePossible=false")
                 return
             }
             guard !pip.isPictureInPictureActive else {
-                print("[PiP-Debug][VC] startPiP aborted — already active")
                 return
             }
-            print("[PiP-Debug][VC] calling pip.startPictureInPicture()")
             pip.startPictureInPicture()
         }
     }
 
     private func tearDownCallPiP() {
-        print("[PiP-Debug][VC] tearDownCallPiP called — controller=\(callPiPController != nil)")
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             callPiPBackgroundObserver = nil
@@ -3106,22 +3046,15 @@ final class VoiceChannelRoomViewController: ViewController {
 }
 
 extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
-    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        guard pictureInPictureController === callPiPController else { return }
-        print("[PiP-Debug][VC] ✅ didStartPictureInPicture")
-    }
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
-    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        guard pictureInPictureController === callPiPController else { return }
-        print("[PiP-Debug][VC] ⛔ didStopPictureInPicture")
-    }
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
     ) {
         guard pictureInPictureController === callPiPController else { return }
-        print("[PiP-Debug][VC] ❌ failedToStart: \(error)")
         AppLogger.network.error("[VoiceChannel] Call PiP failed: \(error)")
     }
 
@@ -3133,7 +3066,6 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
             completionHandler(false)
             return
         }
-        print("[PiP-Debug][VC] restoreUserInterface called")
         completionHandler(true)
     }
 }
