@@ -1,11 +1,214 @@
 import UIKit
 import AsyncDisplayKit
 
+struct MemberProfileVoiceChannelActions {
+    let showMute: Bool
+    let showKick: Bool
+    let confirmUserLabel: String
+    let onMute: () async throws -> Void
+    let onKick: () async throws -> Void
+}
+
+private final class VoiceActionClosureButton: UIButton {
+    var onTap: (() -> Void)?
+    init() {
+        super.init(frame: .zero)
+        addTarget(self, action: #selector(invoke), for: .touchUpInside)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    @objc private func invoke() {
+        AppLogger.ui.debug("[MemberProfile][VoicePill] touchUpInside bounds=\(bounds.integral)")
+        onTap?()
+    }
+}
+
+private func memberProfileMakeVoiceManagePill(systemName: String, title: String, action: @escaping () -> Void) -> UIButton {
+    let b = VoiceActionClosureButton()
+    b.translatesAutoresizingMaskIntoConstraints = false
+    b.backgroundColor = UIColor.theme.primary
+    b.layer.cornerRadius = 8
+    b.clipsToBounds = true
+    b.onTap = action
+    let iv = UIImageView(image: UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate))
+    iv.tintColor = UIColor(red: 0.92, green: 0.25, blue: 0.25, alpha: 1)
+    iv.contentMode = .scaleAspectFit
+    iv.translatesAutoresizingMaskIntoConstraints = false
+    let lab = UILabel()
+    lab.text = title
+    lab.font = .systemFont(ofSize: 14.sf, weight: .regular)
+    lab.textColor = UIColor(red: 0.92, green: 0.25, blue: 0.25, alpha: 1)
+    let row = UIStackView(arrangedSubviews: [iv, lab])
+    row.isUserInteractionEnabled = false
+    row.axis = .horizontal
+    row.spacing = 6
+    row.alignment = .center
+    row.translatesAutoresizingMaskIntoConstraints = false
+    b.addSubview(row)
+    NSLayoutConstraint.activate([
+        iv.widthAnchor.constraint(equalToConstant: 18),
+        iv.heightAnchor.constraint(equalToConstant: 18),
+        row.leadingAnchor.constraint(equalTo: b.leadingAnchor, constant: 10),
+        row.trailingAnchor.constraint(equalTo: b.trailingAnchor, constant: -10),
+        row.topAnchor.constraint(equalTo: b.topAnchor, constant: 10),
+        row.bottomAnchor.constraint(equalTo: b.bottomAnchor, constant: -10),
+        b.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+    ])
+    return b
+}
+
+@MainActor
+private final class VoiceChannelMeetActionConfirmViewController: UIViewController {
+
+    enum Kind {
+        case mute
+        case kick
+    }
+
+    private let kind: Kind
+    private let userLabel: String
+    private let onConfirm: () -> Void
+
+    init(kind: Kind, userLabel: String, onConfirm: @escaping () -> Void) {
+        self.kind = kind
+        self.userLabel = userLabel
+        self.onConfirm = onConfirm
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+
+        let card = UIView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.backgroundColor = UIColor.theme.secondary
+        card.layer.cornerRadius = 14
+        card.clipsToBounds = true
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
+        titleLabel.textColor = UIColor.theme.textStrong
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+
+        let bodyLabel = UILabel()
+        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
+        bodyLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        bodyLabel.textColor = UIColor.theme.textDisabled
+        bodyLabel.textAlignment = .center
+        bodyLabel.numberOfLines = 0
+
+        switch kind {
+        case .mute:
+            titleLabel.text = NSLocalizedString(
+                "voiceChannel.muteModal.title", tableName: nil, bundle: .main, value: "Mute member", comment: "")
+            bodyLabel.text = String(format: NSLocalizedString(
+                "voiceChannel.muteModal.content", tableName: nil, bundle: .main,
+                value: "Please confirm if you would like to mute \"%@\"?", comment: ""), userLabel)
+        case .kick:
+            titleLabel.text = NSLocalizedString(
+                "voiceChannel.kickModal.title", tableName: nil, bundle: .main, value: "Kick member", comment: "")
+            bodyLabel.text = String(format: NSLocalizedString(
+                "voiceChannel.kickModal.content", tableName: nil, bundle: .main,
+                value: "Please confirm if you would like to kick \"%@\"?", comment: ""), userLabel)
+        }
+
+        let confirmTitle: String
+        switch kind {
+        case .mute:
+            confirmTitle = NSLocalizedString(
+                "voiceChannel.muteModal.mute", tableName: nil, bundle: .main, value: "Mute", comment: "")
+        case .kick:
+            confirmTitle = NSLocalizedString(
+                "voiceChannel.kickModal.kick", tableName: nil, bundle: .main, value: "Kick", comment: "")
+        }
+
+        let confirmBtn = UIButton(type: .system)
+        confirmBtn.translatesAutoresizingMaskIntoConstraints = false
+        confirmBtn.setTitle(confirmTitle, for: .normal)
+        confirmBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        confirmBtn.setTitleColor(.white, for: .normal)
+        confirmBtn.backgroundColor = UIColor(red: 0.45, green: 0.35, blue: 0.95, alpha: 1)
+        confirmBtn.layer.cornerRadius = 12
+        confirmBtn.addTarget(self, action: #selector(confirmTapped), for: .touchUpInside)
+
+        let cancelBtn = UIButton(type: .system)
+        cancelBtn.translatesAutoresizingMaskIntoConstraints = false
+        cancelBtn.setTitle(
+            NSLocalizedString("voiceChannel.cancel", tableName: nil, bundle: .main, value: "Cancel", comment: ""),
+            for: .normal)
+        cancelBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        cancelBtn.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        cancelBtn.backgroundColor = UIColor.theme.tertiary
+        cancelBtn.layer.cornerRadius = 12
+        cancelBtn.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+
+        view.addSubview(card)
+        card.addSubview(titleLabel)
+        card.addSubview(bodyLabel)
+        card.addSubview(confirmBtn)
+        card.addSubview(cancelBtn)
+
+        NSLayoutConstraint.activate([
+            card.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            card.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 28),
+            card.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -28),
+
+            titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 22),
+            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            titleLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
+
+            bodyLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            bodyLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            bodyLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
+
+            confirmBtn.topAnchor.constraint(equalTo: bodyLabel.bottomAnchor, constant: 22),
+            confirmBtn.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            confirmBtn.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
+            confirmBtn.heightAnchor.constraint(equalToConstant: 48),
+
+            cancelBtn.topAnchor.constraint(equalTo: confirmBtn.bottomAnchor, constant: 10),
+            cancelBtn.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            cancelBtn.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
+            cancelBtn.heightAnchor.constraint(equalToConstant: 48),
+            cancelBtn.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -20),
+        ])
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(backgroundTapped))
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+    }
+
+    @objc private func confirmTapped() {
+        dismiss(animated: true) { [weak self] in
+            self?.onConfirm()
+        }
+    }
+
+    @objc private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func backgroundTapped(_ g: UITapGestureRecognizer) {
+        let p = g.location(in: view)
+        guard let card = view.subviews.first else { return }
+        if !card.frame.contains(p) {
+            dismiss(animated: true)
+        }
+    }
+}
+
 final class MemberProfileSheetController: ViewController {
 
     private let user: Mezon_Api_User
     private let context: AccountContext
     private let isCurrentUser: Bool
+    private let voiceChannelActions: MemberProfileVoiceChannelActions?
     private let onDismiss: (() -> Void)?
     private let onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)?
 
@@ -15,12 +218,14 @@ final class MemberProfileSheetController: ViewController {
         user: Mezon_Api_User,
         context: AccountContext,
         isCurrentUser: Bool = false,
+        voiceChannelActions: MemberProfileVoiceChannelActions? = nil,
         onDismiss: (() -> Void)? = nil,
         onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)? = nil
     ) {
         self.user = user
         self.context = context
         self.isCurrentUser = isCurrentUser
+        self.voiceChannelActions = voiceChannelActions
         self.onDismiss = onDismiss
         self.onSendMessage = onSendMessage
         super.init(navigationBarPresentationData: nil)
@@ -34,11 +239,19 @@ final class MemberProfileSheetController: ViewController {
         displayNode = MemberProfileSheetNode(
             user: user,
             isCurrentUser: isCurrentUser,
+            voiceChannelActions: voiceChannelActions,
             onSendMessageTapped: { [weak self] in
                 self?.handleSendMessage()
             },
             onDimTapped: { [weak self] in
                 self?.animateDismiss()
+            },
+            onVoiceMuteTap: { [weak self] in
+                self?.presentVoiceMuteConfirm()
+            },
+            onVoiceKickTap: { [weak self] in
+                AppLogger.ui.debug("[MemberProfile] onVoiceKickTap from sheet node")
+                self?.presentVoiceKickConfirm()
             }
         )
         displayNodeDidLoad()
@@ -60,6 +273,54 @@ final class MemberProfileSheetController: ViewController {
         }
     }
 
+    private func presentVoiceMuteConfirm() {
+        guard let actions = voiceChannelActions, actions.showMute else { return }
+        let vc = VoiceChannelMeetActionConfirmViewController(kind: .mute, userLabel: actions.confirmUserLabel) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                do {
+                    try await actions.onMute()
+                    self.animateDismiss()
+                } catch {
+                    self.presentVoiceMeetError(error)
+                }
+            }
+        }
+        present(vc, animated: true)
+    }
+
+    private func presentVoiceKickConfirm() {
+        AppLogger.ui.debug("[MemberProfile] presentVoiceKickConfirm actions=\(voiceChannelActions != nil) showKick=\(voiceChannelActions?.showKick ?? false)")
+        guard let actions = voiceChannelActions, actions.showKick else {
+            AppLogger.ui.debug("[MemberProfile] presentVoiceKickConfirm aborted by guard")
+            return
+        }
+        let vc = VoiceChannelMeetActionConfirmViewController(kind: .kick, userLabel: actions.confirmUserLabel) { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                do {
+                    try await actions.onKick()
+                    self.animateDismiss()
+                } catch {
+                    self.presentVoiceMeetError(error)
+                }
+            }
+        }
+        present(vc, animated: true)
+    }
+
+    private func presentVoiceMeetError(_ error: Error) {
+        let ac = UIAlertController(
+            title: NSLocalizedString(
+                "voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
+            message: error.localizedDescription,
+            preferredStyle: .alert)
+        ac.addAction(UIAlertAction(
+            title: NSLocalizedString("voiceChannel.ok", tableName: nil, bundle: .main, value: "OK", comment: ""),
+            style: .default))
+        present(ac, animated: true)
+    }
+
     private func handleSendMessage() {
         sheetNode.setLoading(true)
 
@@ -67,6 +328,7 @@ final class MemberProfileSheetController: ViewController {
             defer { sheetNode.setLoading(false) }
 
             guard let token = await context.getToken() else { return }
+            guard user.id != 0 else { return }
             let targetUserId = user.id
 
             let dmChannels = try? await context.account.network.listDirectMessageChannels(token: token)
@@ -121,23 +383,40 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
     private let onSendMessageTapped: () -> Void
     private let onDimTapped: () -> Void
+    private let onVoiceMuteTap: () -> Void
+    private let onVoiceKickTap: () -> Void
     private let isCurrentUser: Bool
+    private let voiceChannelActions: MemberProfileVoiceChannelActions?
 
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private var loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let user: Mezon_Api_User
+    private let voiceCardNode = ASDisplayNode()
+    private var voiceSettingsHost: UIView?
+    private weak var voiceSettingsColumn: UIStackView?
+
+    private enum VoiceSettingsContentInsets {
+        static var vertical: CGFloat { 0.sh }
+        static var leading: CGFloat { 2.sf }
+    }
 
     init(
         user: Mezon_Api_User,
         isCurrentUser: Bool,
+        voiceChannelActions: MemberProfileVoiceChannelActions?,
         onSendMessageTapped: @escaping () -> Void,
-        onDimTapped: @escaping () -> Void
+        onDimTapped: @escaping () -> Void,
+        onVoiceMuteTap: @escaping () -> Void,
+        onVoiceKickTap: @escaping () -> Void
     ) {
         self.user = user
         self.isCurrentUser = isCurrentUser
+        self.voiceChannelActions = voiceChannelActions
         self.onSendMessageTapped = onSendMessageTapped
         self.onDimTapped = onDimTapped
+        self.onVoiceMuteTap = onVoiceMuteTap
+        self.onVoiceKickTap = onVoiceKickTap
         super.init()
 
         let t = UIColor.theme
@@ -164,11 +443,13 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         if !user.avatarURL.isEmpty, let url = URL(string: user.avatarURL) {
             avatarNode.url = url
         }
+        avatarNode.isUserInteractionEnabled = false
 
         statusDotNode.backgroundColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
         statusDotNode.cornerRadius = 8.sf
         statusDotNode.borderWidth = 3.sf
         statusDotNode.borderColor = t.primary.cgColor
+        statusDotNode.isUserInteractionEnabled = false
 
         infoCardNode.backgroundColor = t.secondary
         infoCardNode.cornerRadius = 10.sf
@@ -226,6 +507,11 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
         containerNode.addSubnode(bannerNode)
+        if voiceChannelActions != nil {
+            voiceCardNode.backgroundColor = UIColor.theme.secondary
+            voiceCardNode.cornerRadius = 10.sf
+            voiceCardNode.isUserInteractionEnabled = true
+        }
         containerNode.addSubnode(infoCardNode)
         infoCardNode.addSubnode(displayNameNode)
         infoCardNode.addSubnode(usernameNode)
@@ -238,6 +524,9 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         memberCardNode.addSubnode(memberSinceDateNode)
         containerNode.addSubnode(avatarNode)
         containerNode.addSubnode(statusDotNode)
+        if voiceChannelActions != nil {
+            containerNode.addSubnode(voiceCardNode)
+        }
     }
 
     override func didLoad() {
@@ -248,6 +537,14 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
         containerNode.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
 
+        bannerNode.layer.zPosition = 0
+        handleNode.layer.zPosition = 1
+        infoCardNode.layer.zPosition = 2
+        memberCardNode.layer.zPosition = 2
+        voiceCardNode.layer.zPosition = voiceChannelActions != nil ? 8 : 0
+        avatarNode.layer.zPosition = 10
+        statusDotNode.layer.zPosition = 11
+
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.color = UIColor.theme.textDisabled
         containerNode.view.addSubview(loadingIndicator)
@@ -257,7 +554,94 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         addFriendBtn.onTapped = { [weak self] in self?.addFriendTapped() }
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.cancelsTouchesInView = false
         containerNode.view.addGestureRecognizer(pan)
+
+        if let va = voiceChannelActions {
+            let host = UIView()
+            host.translatesAutoresizingMaskIntoConstraints = true
+            host.backgroundColor = .clear
+            host.isUserInteractionEnabled = true
+
+            let title = UILabel()
+            title.translatesAutoresizingMaskIntoConstraints = true
+            title.font = .systemFont(ofSize: 15.sf, weight: .semibold)
+            title.textColor = UIColor.theme.textStrong
+            title.numberOfLines = 0
+            title.text = NSLocalizedString(
+                "voiceChannel.shortProfile.channelVoiceSettings", tableName: nil, bundle: .main,
+                value: "Channel voice settings", comment: "")
+
+            let row = UIStackView()
+            row.translatesAutoresizingMaskIntoConstraints = true
+            row.axis = .horizontal
+            row.spacing = 12
+            row.alignment = .center
+            row.distribution = .fill
+
+            if va.showMute {
+                row.addArrangedSubview(memberProfileMakeVoiceManagePill(
+                    systemName: "mic.slash.fill",
+                    title: NSLocalizedString(
+                        "voiceChannel.shortProfile.muteVoice", tableName: nil, bundle: .main, value: "Mute", comment: ""),
+                    action: { [weak self] in self?.onVoiceMuteTap() }))
+            }
+            if va.showKick {
+                row.addArrangedSubview(memberProfileMakeVoiceManagePill(
+                    systemName: "person.fill.badge.minus",
+                    title: NSLocalizedString(
+                        "voiceChannel.shortProfile.kickVoice", tableName: nil, bundle: .main, value: "Kick", comment: ""),
+                    action: { [weak self] in self?.onVoiceKickTap() }))
+            }
+
+            let column = UIStackView(arrangedSubviews: [title, row])
+            column.translatesAutoresizingMaskIntoConstraints = true
+            column.axis = .vertical
+            column.spacing = 12
+            column.alignment = .leading
+
+            host.addSubview(column)
+            voiceCardNode.view.addSubview(host)
+            voiceSettingsHost = host
+            voiceSettingsColumn = column
+        }
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let fallback = super.hitTest(point, with: event)
+        if voiceChannelActions != nil,
+           voiceCardNode.supernode === containerNode,
+           !voiceCardNode.isHidden,
+           voiceCardNode.frame.height > 1 {
+            let inContainer = containerNode.view.convert(point, from: self.view)
+            let inVoice = voiceCardNode.view.convert(point, from: self.view)
+            let frameContains = voiceCardNode.frame.contains(inContainer)
+            let inside = voiceCardNode.view.point(inside: inVoice, with: event)
+            if frameContains != inside {
+                AppLogger.ui.debug(
+                    "[MemberProfile][hitTest] frameVsBounds frameContains=\(frameContains) pointInsideBounds=\(inside) inContainer=\(String(describing: inContainer)) voiceFrame=\(String(describing: voiceCardNode.frame)) inVoice=\(String(describing: inVoice)) voiceBounds=\(String(describing: voiceCardNode.view.bounds))"
+                )
+            }
+            if inside {
+                let voiceRoot = voiceCardNode.view
+                for sub in voiceRoot.subviews.reversed() {
+                    let inSub = sub.convert(inVoice, from: voiceRoot)
+                    if let h = sub.hitTest(inSub, with: event) {
+                        AppLogger.ui.debug(
+                            "[MemberProfile][hitTest] point=\(String(describing: point)) inVoice=\(String(describing: inVoice)) subHit=\(String(describing: type(of: h)))"
+                        )
+                        return h
+                    }
+                }
+                if let v = voiceRoot.hitTest(inVoice, with: event), v !== voiceRoot {
+                    return v
+                }
+                AppLogger.ui.debug(
+                    "[MemberProfile][hitTest] point=\(String(describing: point)) inVoice=\(String(describing: inVoice)) noUIKitSubHit voiceSubviews=\(voiceRoot.subviews.count)"
+                )
+            }
+        }
+        return fallback
     }
 
     @objc private func dimTapped() { onDimTapped() }
@@ -319,8 +703,8 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         let avatarTop = handleH + bannerH - avatarOverlap
         let avatarX: CGFloat = 20.sf
 
-        let infoCardTop = handleH + bannerH + 8.sh
-        let infoCardPad: CGFloat = 16.sf
+        let infoCardPad: CGFloat = 20.sf
+        let infoBottomPad = infoCardPad + 4.sh
 
         let nameSize = displayNameNode.measure(CGSize(width: screenW - pad * 2 - infoCardPad * 2, height: .greatestFiniteMagnitude))
         let userSize = usernameNode.attributedText != nil
@@ -340,7 +724,45 @@ private final class MemberProfileSheetNode: ASDisplayNode {
             btnW = actionW
         }
 
-        var infoY: CGFloat = avatarOverlap + 8.sh
+        let cardW = screenW - pad * 2
+
+        var voiceCardH: CGFloat = 0
+        var voiceHostLayout: (host: UIView, contentW: CGFloat, hostH: CGFloat, columnW: CGFloat, colH: CGFloat, insetV: CGFloat, insetL: CGFloat, voiceCardOuterV: CGFloat)?
+        if let host = voiceSettingsHost, let col = voiceSettingsColumn {
+            let contentW = cardW - infoCardPad * 2
+            let insetL = VoiceSettingsContentInsets.leading
+            let insetV = VoiceSettingsContentInsets.vertical
+            let columnW = max(1, contentW - insetL)
+            let colH = ceil(col.systemLayoutSizeFitting(
+                CGSize(width: columnW, height: 0),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height)
+            let hostH = insetV + colH + insetV
+            let voiceCardOuterV = infoCardPad
+            voiceCardH = voiceCardOuterV + hostH + voiceCardOuterV
+            voiceHostLayout = (host, contentW, hostH, columnW, colH, insetV, insetL, voiceCardOuterV)
+        }
+
+        let bannerBottom = handleH + bannerH
+        let avatarBottom = avatarTop + avatarSize
+        let voiceCardTop = voiceCardH > 0 ? max(bannerBottom + 8.sh, avatarBottom + 8.sh) : bannerBottom + 8.sh
+        if voiceCardH > 0 {
+            voiceCardNode.frame = CGRect(x: pad, y: voiceCardTop, width: cardW, height: voiceCardH)
+            if let v = voiceHostLayout, let col = voiceSettingsColumn {
+                v.host.frame = CGRect(x: infoCardPad, y: v.voiceCardOuterV, width: v.contentW, height: v.hostH)
+                col.frame = CGRect(x: v.insetL, y: v.insetV, width: v.columnW, height: v.colH)
+                col.setNeedsLayout()
+                col.layoutIfNeeded()
+                v.host.setNeedsLayout()
+                v.host.layoutIfNeeded()
+            }
+        }
+        let infoCardBaseTop = voiceCardH > 0 ? voiceCardTop + voiceCardH + 8.sh : handleH + bannerH + 8.sh
+
+        let overlapIntoInfo = max(0, avatarBottom - infoCardBaseTop)
+        let insetBelowAvatar = overlapIntoInfo > 0 ? overlapIntoInfo + 8.sh : 0
+        var infoY = max(insetBelowAvatar, infoBottomPad)
         displayNameNode.frame = CGRect(x: infoCardPad, y: infoY, width: nameSize.width, height: nameSize.height)
         infoY += nameSize.height + 2
 
@@ -356,13 +778,13 @@ private final class MemberProfileSheetNode: ASDisplayNode {
             callBtn.frame = CGRect(x: btnW + btnSpacing, y: 0, width: btnW, height: btnH)
             addFriendBtn.frame = CGRect(x: (btnW + btnSpacing) * 2, y: 0, width: btnW, height: btnH)
         }
-        infoY += btnH + infoCardPad
+        infoY += btnH + infoBottomPad
 
         let infoCardH = infoY
-        infoCardNode.frame = CGRect(x: pad, y: infoCardTop, width: screenW - pad * 2, height: infoCardH)
+        infoCardNode.frame = CGRect(x: pad, y: infoCardBaseTop, width: cardW, height: infoCardH)
 
-        let memberCardTop = infoCardTop + infoCardH + 8
-        var memberY: CGFloat = 12
+        let memberCardTop = infoCardBaseTop + infoCardH + 8
+        var memberY: CGFloat = 16.sh
 
         let memberW = screenW - pad * 2 - infoCardPad * 2
 
@@ -380,7 +802,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         memberCardNode.frame = CGRect(x: pad, y: memberCardTop, width: screenW - pad * 2, height: memberCardH)
         memberCardNode.isHidden = (user.createTimeSeconds == 0)
 
-        let totalH = (user.createTimeSeconds > 0 ? memberCardTop + memberCardH : infoCardTop + infoCardH) + safeBottom + 16
+        let totalH = (user.createTimeSeconds > 0 ? memberCardTop + memberCardH : infoCardBaseTop + infoCardH) + safeBottom + 16
         containerHeight = totalH
 
         let containerY = layout.size.height - containerHeight

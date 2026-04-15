@@ -1,6 +1,20 @@
 import AsyncDisplayKit
 import UIKit
 
+private enum VoiceReactionPickerSheetLayout {
+    static let heightFraction: CGFloat = 0.5
+    static let bottomChrome: CGFloat = 16
+    static let minBody: CGFloat = 120
+
+    static func sheetHeight(layout: ContainerViewLayout, handleH: CGFloat) -> CGFloat {
+        let safeBottom = layout.intrinsicInsets.bottom
+        let sheetCap = layout.size.height * heightFraction
+        let rawBody = sheetCap - handleH - safeBottom - bottomChrome
+        let bodyH = max(minBody, rawBody)
+        return handleH + bodyH + safeBottom + bottomChrome
+    }
+}
+
 final class ReactionEmojiPickerSheetController: ViewController {
 
     private let engine: MezonEngine
@@ -56,7 +70,7 @@ final class ReactionEmojiPickerSheetController: ViewController {
     }
 }
 
-private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
+private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
 
     private let engine: MezonEngine
     private let onEmojiSelected: (String, String) -> Void
@@ -67,8 +81,6 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecogn
     private let handleNode = ASDisplayNode()
     private let emojisPanel = EmojisPanel()
 
-    private var panGesture: UIPanGestureRecognizer!
-    private var panStartY: CGFloat = 0
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private let handleH: CGFloat = 25
@@ -117,61 +129,18 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecogn
             emojisPanel.trailingAnchor.constraint(equalTo: containerNode.view.trailingAnchor),
             emojisPanel.bottomAnchor.constraint(equalTo: containerNode.view.bottomAnchor),
         ])
-
-        panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        panGesture.delegate = self
-        containerNode.view.addGestureRecognizer(panGesture)
-        emojisPanel.requireSheetDismissPanGetsPriority(panGesture)
     }
 
     @objc private func dimTapped() {
         onDimTapped()
     }
 
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let layout = validLayout else { return }
-        let translation = gesture.translation(in: view)
-        let velocity = gesture.velocity(in: view)
-        switch gesture.state {
-        case .began:
-            panStartY = containerNode.frame.origin.y
-        case .changed:
-            let offsetY = max(0, translation.y)
-            containerNode.frame.origin.y = panStartY + offsetY
-            dimmingNode.alpha = 1 - offsetY / max(containerHeight, 1)
-        case .ended, .cancelled:
-            if translation.y > containerHeight * 0.3 || velocity.y > 500 {
-                onDimTapped()
-            } else {
-                let targetY = layout.size.height - containerHeight
-                UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
-                    self.containerNode.frame.origin.y = targetY
-                    self.dimmingNode.alpha = 1
-                }
-            }
-        default:
-            break
-        }
-    }
-
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === panGesture else { return true }
-        let vel = panGesture.velocity(in: view)
-        return emojisPanel.isEmojiGridScrolledToTop && vel.y > 0
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        false
-    }
-
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
-        let safeBottom = layout.intrinsicInsets.bottom
         let screenW = layout.size.width
-        let maxBody = layout.size.height * 0.68
-        let bodyH = max(280, maxBody - handleH)
-        containerHeight = handleH + bodyH + safeBottom + 8
+        let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
+        containerHeight = h
         let containerY = layout.size.height - containerHeight
         transition.updateFrame(node: dimmingNode, frame: bounds)
         transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
@@ -195,10 +164,12 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecogn
         animateInRetryCount = 0
         let fromY = layout.size.height
         let toY = layout.size.height - containerHeight
-        containerNode.frame.origin.y = fromY
+        containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.dimmingNode.alpha = 1
-            self.containerNode.frame.origin.y = toY
+            self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: self.containerHeight)
+            self.containerNode.view.layoutIfNeeded()
+            self.emojisPanel.layoutIfNeeded()
         }
     }
 
@@ -210,7 +181,7 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecogn
         let bottomY = layout.size.height
         UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseIn, animations: {
             self.dimmingNode.alpha = 0
-            self.containerNode.frame.origin.y = bottomY
+            self.containerNode.frame = CGRect(x: 0, y: bottomY, width: layout.size.width, height: self.containerHeight)
         }) { _ in
             completion()
         }
@@ -272,7 +243,7 @@ final class ReactionSoundStickerPickerSheetController: ViewController {
     }
 }
 
-private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
+private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
 
     private let engine: MezonEngine
     private let onStickerSelected: (CachedClanStickerRecord) -> Void
@@ -283,8 +254,6 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode, UIGestur
     private let handleNode = ASDisplayNode()
     private let stickersPanel = StickersPanel()
 
-    private var panGesture: UIPanGestureRecognizer!
-    private var panStartY: CGFloat = 0
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private let handleH: CGFloat = 25
@@ -334,61 +303,18 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode, UIGestur
             stickersPanel.trailingAnchor.constraint(equalTo: containerNode.view.trailingAnchor),
             stickersPanel.bottomAnchor.constraint(equalTo: containerNode.view.bottomAnchor),
         ])
-
-        panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        panGesture.delegate = self
-        containerNode.view.addGestureRecognizer(panGesture)
-        stickersPanel.requireSheetDismissPanGetsPriority(panGesture)
     }
 
     @objc private func dimTapped() {
         onDimTapped()
     }
 
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let layout = validLayout else { return }
-        let translation = gesture.translation(in: view)
-        let velocity = gesture.velocity(in: view)
-        switch gesture.state {
-        case .began:
-            panStartY = containerNode.frame.origin.y
-        case .changed:
-            let offsetY = max(0, translation.y)
-            containerNode.frame.origin.y = panStartY + offsetY
-            dimmingNode.alpha = 1 - offsetY / max(containerHeight, 1)
-        case .ended, .cancelled:
-            if translation.y > containerHeight * 0.3 || velocity.y > 500 {
-                onDimTapped()
-            } else {
-                let targetY = layout.size.height - containerHeight
-                UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
-                    self.containerNode.frame.origin.y = targetY
-                    self.dimmingNode.alpha = 1
-                }
-            }
-        default:
-            break
-        }
-    }
-
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === panGesture else { return true }
-        let vel = panGesture.velocity(in: view)
-        return stickersPanel.isStickerGridScrolledToTop && vel.y > 0
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        false
-    }
-
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
-        let safeBottom = layout.intrinsicInsets.bottom
         let screenW = layout.size.width
-        let maxBody = layout.size.height * 0.68
-        let bodyH = max(280, maxBody - handleH)
-        containerHeight = handleH + bodyH + safeBottom + 8
+        let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
+        containerHeight = h
         let containerY = layout.size.height - containerHeight
         transition.updateFrame(node: dimmingNode, frame: bounds)
         transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
@@ -412,10 +338,12 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode, UIGestur
         animateInRetryCount = 0
         let fromY = layout.size.height
         let toY = layout.size.height - containerHeight
-        containerNode.frame.origin.y = fromY
+        containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.dimmingNode.alpha = 1
-            self.containerNode.frame.origin.y = toY
+            self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: self.containerHeight)
+            self.containerNode.view.layoutIfNeeded()
+            self.stickersPanel.layoutIfNeeded()
         }
     }
 
@@ -427,7 +355,7 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode, UIGestur
         let bottomY = layout.size.height
         UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseIn, animations: {
             self.dimmingNode.alpha = 0
-            self.containerNode.frame.origin.y = bottomY
+            self.containerNode.frame = CGRect(x: 0, y: bottomY, width: layout.size.width, height: self.containerHeight)
         }) { _ in
             completion()
         }

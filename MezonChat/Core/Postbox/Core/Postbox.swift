@@ -62,30 +62,41 @@ final class Postbox {
     func write(_ block: @escaping (PostboxTransaction) -> Void) {
         queue.async { [weak self] in
             guard let self else { return }
-            let tx = PostboxTransaction(
-                channelTable: channelTable,
-                clanTable: clanTable,
-                messageTable: messageTable,
-                authTable: authTable,
-                profileTable: profileTable,
-                settingsTable: settingsTable,
-                notificationSettingTable: notificationSettingTable,
-                notificationTable: notificationTable,
-                topicTable: topicTable,
-                clanMemberTable: clanMemberTable
-            )
-            block(tx)
-            channelTable.beforeCommit()
-            clanTable.beforeCommit()
-            clanMemberTable.beforeCommit()
-            messageTable.beforeCommit()
-            authTable.beforeCommit()
-            profileTable.beforeCommit()
-            settingsTable.beforeCommit()
-            notificationSettingTable.beforeCommit()
-            notificationTable.beforeCommit()
-            viewTracker.replay(transaction: tx)
+            self.runWriteTransaction(block)
         }
+    }
+
+    func writeSync(_ block: (PostboxTransaction) -> Void) {
+        queue.sync { [weak self] in
+            guard let self else { return }
+            self.runWriteTransaction(block)
+        }
+    }
+
+    private func runWriteTransaction(_ block: (PostboxTransaction) -> Void) {
+        let tx = PostboxTransaction(
+            channelTable: channelTable,
+            clanTable: clanTable,
+            messageTable: messageTable,
+            authTable: authTable,
+            profileTable: profileTable,
+            settingsTable: settingsTable,
+            notificationSettingTable: notificationSettingTable,
+            notificationTable: notificationTable,
+            topicTable: topicTable,
+            clanMemberTable: clanMemberTable
+        )
+        block(tx)
+        channelTable.beforeCommit()
+        clanTable.beforeCommit()
+        clanMemberTable.beforeCommit()
+        messageTable.beforeCommit()
+        authTable.beforeCommit()
+        profileTable.beforeCommit()
+        settingsTable.beforeCommit()
+        notificationSettingTable.beforeCommit()
+        notificationTable.beforeCommit()
+        viewTracker.replay(transaction: tx)
     }
 
     @discardableResult
