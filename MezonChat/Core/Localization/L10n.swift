@@ -247,6 +247,25 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum ClanInviteSheet {
+        static let title                = "clan.inviteSheet.title"
+        static let share                = "clan.inviteSheet.share"
+        static let copy                 = "clan.inviteSheet.copy"
+        static let qrCode               = "clan.inviteSheet.qrCode"
+        static let linkCopied           = "clan.inviteSheet.linkCopied"
+        static let searchPlaceholder    = "clan.inviteSheet.searchPlaceholder"
+        static let loadingInviteLink    = "clan.inviteSheet.loadingInviteLink"
+        static let emptyTitle           = "clan.inviteSheet.emptyTitle"
+        static let emptyDescription     = "clan.inviteSheet.emptyDescription"
+        static let emptyAction          = "clan.inviteSheet.emptyAction"
+        static let sessionNotFound      = "clan.inviteSheet.sessionNotFound"
+        static let cannotCreateInvite   = "clan.inviteSheet.cannotCreateInvite"
+        static let cannotSendInvite     = "clan.inviteSheet.cannotSendInvite"
+        static let invite               = "clan.inviteSheet.invite"
+        static let invited              = "clan.inviteSheet.invited"
+        static let unknownClan          = "clan.inviteSheet.unknownClan"
+    }
+
     enum ThreadList {
         static let searchPlaceholder = "threadList.searchPlaceholder"
         static let empty = "threadList.empty"
@@ -517,6 +536,22 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+        "clan.inviteSheet.title":           "Invite a friend",
+        "clan.inviteSheet.share":           "Share Invite",
+        "clan.inviteSheet.copy":            "Copy Link",
+        "clan.inviteSheet.qrCode":          "QR Code",
+        "clan.inviteSheet.linkCopied":      "Link Copied!",
+        "clan.inviteSheet.searchPlaceholder":"Invite friend to clan",
+        "clan.inviteSheet.loadingInviteLink":"Creating invite link...",
+        "clan.inviteSheet.emptyTitle":      "No friends to invite",
+        "clan.inviteSheet.emptyDescription":"Add friends to your friend list to invite them to this clan.",
+        "clan.inviteSheet.emptyAction":     "Add some friends",
+        "clan.inviteSheet.sessionNotFound": "Session not found.",
+        "clan.inviteSheet.cannotCreateInvite":"Cannot create clan invite link.",
+        "clan.inviteSheet.cannotSendInvite":"Cannot send invite to %@.",
+        "clan.inviteSheet.invite":          "Invite",
+        "clan.inviteSheet.invited":         "Invited",
+        "clan.inviteSheet.unknownClan":     "Unknown Clan",
 
         "threadList.searchPlaceholder": "Search for Thread Name",
         "threadList.empty": "No threads yet",
@@ -831,6 +866,22 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+        "clan.inviteSheet.title":           "Mời bạn bè",
+        "clan.inviteSheet.share":           "Chia sẻ",
+        "clan.inviteSheet.copy":            "Sao chép",
+        "clan.inviteSheet.qrCode":          "Mã QR",
+        "clan.inviteSheet.linkCopied":      "Đã sao chép liên kết!",
+        "clan.inviteSheet.searchPlaceholder":"Mời bạn bè vào clan",
+        "clan.inviteSheet.loadingInviteLink":"Đang tạo link mời...",
+        "clan.inviteSheet.emptyTitle":      "Không có bạn bè nào để mời",
+        "clan.inviteSheet.emptyDescription":"Thêm bạn bè vào danh sách bạn bè của bạn để mời họ vào clan này.",
+        "clan.inviteSheet.emptyAction":     "Thêm vài người bạn",
+        "clan.inviteSheet.sessionNotFound": "Không tìm thấy phiên đăng nhập.",
+        "clan.inviteSheet.cannotCreateInvite":"Không tạo được link mời clan.",
+        "clan.inviteSheet.cannotSendInvite":"Không thể gửi lời mời cho %@.",
+        "clan.inviteSheet.invite":          "Mời",
+        "clan.inviteSheet.invited":         "Đã mời",
+        "clan.inviteSheet.unknownClan":     "Clan không xác định",
 
         "threadList.searchPlaceholder": "Tìm theo tên chủ đề",
         "threadList.empty": "Chưa có chủ đề",

@@ -361,6 +361,7 @@ final class ChannelListViewController: ViewController {
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
+            onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
             onQRTapped: { [weak self] in
                 guard let self else { return }
@@ -493,6 +494,20 @@ final class ChannelListViewController: ViewController {
             avatarURL: clanLogoURL
         )
         self.enclosingNavigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func presentInviteClanSheet() {
+        guard clanId != 0 else { return }
+        let vc = ClanInviteSheetViewController(context: context, clanId: clanId)
+        vc.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sheet = vc.sheetPresentationController {
+                sheet.prefersGrabberVisible = true
+                sheet.detents = [.medium(), .large()]
+                sheet.selectedDetentIdentifier = .medium
+            }
+        }
+        present(vc, animated: true)
     }
 
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
