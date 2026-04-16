@@ -117,11 +117,6 @@ final class MediaGalleryNode: ASDisplayNode {
         return max(1, floor(inner / columns))
     }
 
-    private func thumbnailProxyPixels(forItemSide pt: CGFloat) -> Int {
-        let px = Int((pt * UIScreen.main.scale).rounded(.up))
-        return max(96, min(px, 512))
-    }
-
     private func fullScreenProxyPixels() -> Int {
         let longest = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
         let px = Int((longest * UIScreen.main.scale).rounded(.up))
@@ -250,12 +245,10 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
     func collectionNode(_ collectionNode: ASCollectionNode, nodeBlockForItemAt indexPath: IndexPath)
         -> ASCellNodeBlock
     {
-        let attachment = attachments[indexPath.item]
-        let side = gridItemSide(collectionWidth: collectionNode.bounds.width > 1 ? collectionNode.bounds.width : 300)
-        let px = thumbnailProxyPixels(forItemSide: side)
+               let attachment = attachments[indexPath.item]
         let isVideo = Self.isVideo(attachment)
         let imageThumbURL = ImgproxyURL.attachmentURL(
-            from: attachment.url, width: px, height: px, resizeType: "fit")
+            from: attachment.url, width: 100, height: 100, resizeType: "fit")
         let index = indexPath.item
         return { [weak self] in
             let cell = MediaThumbCellNode(

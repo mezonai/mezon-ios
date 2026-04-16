@@ -606,8 +606,7 @@ final class VoiceChannelPiPOverlay: NSObject {
             avatarView.image = nil
             if let raw = url, !raw.isEmpty {
                 initialLabel.isHidden = true
-                let side = Int(50 * UIScreen.main.scale)
-                let proxy = ImgproxyURL.create(from: raw, width: side, height: side)
+                let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }
                     self.avatarView.image = img
@@ -961,8 +960,7 @@ private enum VoiceCallSystemPiPFactory {
         let avatarURLStr = voiceChannelResolveAvatarURL(context: context, clanId: clanId, identityKey: localId)
         if let avatarURLStr, !avatarURLStr.isEmpty {
             pipInitialLabel.isHidden = true
-            let side = Int(60 * UIScreen.main.scale)
-            let proxy = ImgproxyURL.create(from: avatarURLStr, width: side, height: side)
+            let proxy = ImgproxyURL.create(from: avatarURLStr, width: 150, height: 150)
             ImageCache.shared.loadAvatar(urlString: proxy) { img in
                 pipAvatarView.image = img
                 if img == nil {
@@ -1816,8 +1814,7 @@ final class VoiceChannelRoomViewController: ViewController {
 
         let key = "\(userId)"
         if let raw = voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: key), !raw.isEmpty {
-            let px = Int(32 * UIScreen.main.scale)
-            let proxy = ImgproxyURL.create(from: raw, width: px, height: px)
+            let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
             ImageCache.shared.loadAvatar(urlString: proxy) { img in
                 avatar.image = img
             }
@@ -3570,7 +3567,6 @@ private final class VoiceParticipantRowView: UIView {
     private var soundReactionTrailingToCard: NSLayoutConstraint?
     private var soundReactionTrailingToRaiseHand: NSLayoutConstraint?
     private var lastAvatarURL: String?
-    private var avatarLoadPixelSide: Int = 0
     private var badgeMicOn = true
     private var layoutMetrics = VoiceParticipantTileLayoutMetrics.fallback
     private var avatarWidthConstraint: NSLayoutConstraint!
@@ -3812,22 +3808,6 @@ private final class VoiceParticipantRowView: UIView {
         let raiseCfg = UIImage.SymbolConfiguration(pointSize: m.raiseHandIconSide * 0.9, weight: .semibold)
         raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
         refreshBadgeSymbols()
-        let newPixelSide = Int(ceil(m.avatarDiameter * UIScreen.main.scale))
-        if newPixelSide != avatarLoadPixelSide, avatarView.isHidden == false, let raw = lastAvatarURL, !raw.isEmpty {
-            avatarLoadPixelSide = newPixelSide
-            let proxy = ImgproxyURL.create(from: raw, width: newPixelSide, height: newPixelSide)
-            let fallbackInitial = (badgeLabel.text.map { String($0.prefix(1)).uppercased() }) ?? "?"
-            ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
-                guard let self else { return }
-                self.avatarView.image = img
-                if img != nil {
-                    self.initialLabel.isHidden = true
-                } else {
-                    self.initialLabel.isHidden = false
-                    self.initialLabel.text = fallbackInitial
-                }
-            }
-        }
     }
 
     private func refreshBadgeSymbols() {
@@ -3859,7 +3839,6 @@ private final class VoiceParticipantRowView: UIView {
         setSoundReactionCornerVisible(false)
         setRaiseHandCornerVisible(false)
         lastAvatarURL = nil
-        avatarLoadPixelSide = 0
     }
 
     func applyTheme() {
@@ -3973,13 +3952,10 @@ private final class VoiceParticipantRowView: UIView {
 
         if avatarURL != lastAvatarURL {
             lastAvatarURL = avatarURL
-            avatarLoadPixelSide = 0
             avatarView.image = nil
             if let raw = avatarURL, !raw.isEmpty {
                 initialLabel.isHidden = true
-                let side = Int(ceil(layoutMetrics.avatarDiameter * UIScreen.main.scale))
-                avatarLoadPixelSide = side
-                let proxy = ImgproxyURL.create(from: raw, width: side, height: side)
+                let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }
                     self.avatarView.image = img

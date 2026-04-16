@@ -67,6 +67,7 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         } else {
             try await room.localParticipant.setCamera(enabled: false)
         }
+        syncFrontCameraVideoProcessor()
     }
 
     func isCameraEnabled() -> Bool {
@@ -77,6 +78,18 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         guard let track = room.localParticipant.firstCameraVideoTrack as? LocalVideoTrack,
               let capturer = track.capturer as? CameraCapturer else { return }
         _ = try await capturer.switchCameraPosition()
+        syncFrontCameraVideoProcessor()
+    }
+
+    private func syncFrontCameraVideoProcessor() {
+        guard let track = room.localParticipant.firstCameraVideoTrack as? LocalVideoTrack,
+              let capturer = track.capturer as? CameraCapturer
+        else { return }
+        if capturer.position == .front {
+            track.processor = VoiceFrontCameraPublishFlipProcessor.shared
+        } else {
+            track.processor = nil
+        }
     }
 
     func room(_ room: Room, didUpdateConnectionState connectionState: ConnectionState, from oldConnectionState: ConnectionState) {
@@ -120,6 +133,9 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
     }
 
     func room(_ room: Room, participant: LocalParticipant, didPublishTrack publication: LocalTrackPublication) {
+        if publication.track is LocalVideoTrack {
+            syncFrontCameraVideoProcessor()
+        }
         notifyParticipantsChanged()
     }
 

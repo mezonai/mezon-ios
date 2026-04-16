@@ -336,10 +336,21 @@ final class ClanListViewController: ViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    private func applyUnreadDMsFromCache() {
+        let cached = context.account.postbox.getCachedDMChannelList()
+        let unread = cached.filter { $0.countMessUnread > 0 }
+        guard !unread.isEmpty else { return }
+        let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: unreadDMs)
+        setUnreadDMs(merged)
+    }
+
     func fetchUnreadDMs() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getToken() else {
+                self.applyUnreadDMsFromCache()
+                return
+            }
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 do {
@@ -353,6 +364,7 @@ final class ClanListViewController: ViewController {
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
+                self.applyUnreadDMsFromCache()
             }
         }
     }

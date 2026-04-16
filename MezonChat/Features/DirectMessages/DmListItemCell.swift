@@ -224,7 +224,7 @@ final class DmListItemCell: UITableViewCell {
     }
 
     private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString)
+        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
             avatarView.image = cached
             return

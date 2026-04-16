@@ -557,6 +557,158 @@ final class SearchViewController: ViewController {
         chatVC.pendingJumpToMessageId = doc.messageID
         navigationController?.pushViewController(chatVC, animated: true)
     }
+
+    private func effectiveClanId(for channel: Mezon_Api_ChannelDescription) -> Int64 {
+        channel.clanID != 0 ? channel.clanID : clanId
+    }
+
+    private func encodeChannelIdPreference(_ id: Int64) -> Data {
+        var le = id.littleEndian
+        return withUnsafeBytes(of: &le) { Data($0) }
+    }
+
+    private func persistSelectedChannelForVoice(_ channel: Mezon_Api_ChannelDescription) {
+        let cid = effectiveClanId(for: channel)
+        context.account.postbox.setPreferenceData(
+            key: PreferencesKeys.selectedChannelId(clanId: cid),
+            value: encodeChannelIdPreference(channel.channelID))
+    }
+
+    private func parentChannelName(for channel: Mezon_Api_ChannelDescription) -> String? {
+        guard channel.parentID != 0 else { return nil }
+        return allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+    }
+
+    private func resolveVoiceMember(uid: String, clanIdForChannel: Int64) -> VoiceMemberDisplay? {
+        guard let uidInt = Int64(uid) else { return nil }
+
+        let member = context.account.postbox.read {
+            $0.getClanMembers(clanId: clanIdForChannel)
+        }.first(where: { $0.userId == uidInt })
+
+        let name: String
+        if let m = member {
+            if !m.clanNick.isEmpty {
+                name = m.clanNick
+            } else if !m.displayName.isEmpty {
+                name = m.displayName
+            } else if !m.username.isEmpty {
+                name = m.username
+            } else {
+                return nil
+            }
+        } else if let profile = context.account.postbox.read({ $0.getProfile(userId: uid) }) {
+            name = profile.displayName ?? profile.username
+        } else {
+            return nil
+        }
+
+        let avatar: String?
+        if let m = member {
+            if !m.clanAvatar.isEmpty {
+                avatar = m.clanAvatar
+            } else {
+                avatar = context.account.postbox.read({ $0.getProfile(userId: uid) })?.avatarUrl
+            }
+        } else {
+            avatar = context.account.postbox.read({ $0.getProfile(userId: uid) })?.avatarUrl
+        }
+
+        return VoiceMemberDisplay(name: name, avatarURL: avatar)
+    }
+
+    private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
+        let clanIdForChannel = effectiveClanId(for: channel)
+        let title = channel.channelLabel.isEmpty
+            ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
+            : channel.channelLabel
+
+        var voiceUserIds: [String] = []
+        let sources: [Mezon_Api_VoiceChannelUserList?] = [
+            context.engine.clanData.getVoiceUsers(clanId: clanIdForChannel),
+            context.engine.clanData.getStreamUsers(clanId: clanIdForChannel),
+        ]
+        for list in sources.compactMap({ $0 }) {
+            for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !voiceUserIds.contains(uid) {
+                    voiceUserIds.append(uid)
+                }
+            }
+        }
+        let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember(uid: $0, clanIdForChannel: clanIdForChannel) }
+
+        let sheet = JoinVoiceChannelSheetViewController(
+            channelTitle: title,
+            chatUnreadCount: Int(channel.countMessUnread),
+            members: resolvedMembers,
+            onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
+            onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
+            onInvite: {}
+        )
+        sheet.modalPresentationStyle = UIModalPresentationStyle.pageSheet
+        if #available(iOS 15.0, *) {
+            sheet.sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
+                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
+                    min(targetHeight, context.maximumDetentValue)
+                }
+                sheet.sheetPresentationController?.detents = [contentDetent]
+                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheet.sheetPresentationController?.detents = [
+                    UISheetPresentationController.Detent.medium(),
+                    UISheetPresentationController.Detent.large(),
+                ]
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        present(sheet, animated: true)
+        CATransaction.commit()
+    }
+
+    private func pushChatFromVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
+        let targetClanId = effectiveClanId(for: channel)
+        persistSelectedChannelForVoice(channel)
+        context.currentClanId = targetClanId
+        var parentName: String?
+        if channel.parentID != 0 {
+            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: targetClanId, channel: channel, context: context, parentName: parentName)
+        navigationController?.pushViewController(chatVC, animated: true)
+    }
+
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+        persistSelectedChannelForVoice(channel)
+        context.currentClanId = effectiveClanId(for: channel)
+        guard let nav = navigationController else { return }
+
+        let pip = VoiceChannelPiPOverlay.shared
+        if pip.isActive {
+            if pip.channel?.channelID == channel.channelID {
+                let vc = VoiceChannelRoomViewController(
+                    context: context, channel: channel,
+                    parentChannelName: parentChannelName(for: channel),
+                    existingPiPOverlay: pip)
+                nav.pushViewController(vc, animated: true)
+                return
+            } else {
+                pip.dismiss()
+            }
+        }
+
+        let vc = VoiceChannelRoomViewController(
+            context: context, channel: channel,
+            parentChannelName: parentChannelName(for: channel))
+        nav.pushViewController(vc, animated: true)
+    }
 }
 
 extension SearchViewController: UITextFieldDelegate {
@@ -702,7 +854,12 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
         case .channels:
             guard indexPath.row < filteredChannels.count else { return }
-            navigateToChannel(filteredChannels[indexPath.row])
+            let channel = filteredChannels[indexPath.row]
+            if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                presentJoinVoiceSheet(for: channel)
+                return
+            }
+            navigateToChannel(channel)
 
         case .messages:
             let section = indexPath.section
@@ -1133,7 +1290,7 @@ final class SearchEmptyCellNode: ASCellNode {
 }
 
 final class MemberSearchCellNode: ASCellNode {
-    private let avatarNode = ASNetworkImageNode()
+    private let avatarNode = TransformImageNode()
     private let statusDotNode = ASDisplayNode()
     private let nameNode = ASTextNode2()
     private let usernameNode = ASTextNode2()
@@ -1164,8 +1321,24 @@ final class MemberSearchCellNode: ASCellNode {
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = t.tertiary
-        if !user.avatarURL.isEmpty, let url = URL(string: ImgproxyURL.create(from: user.avatarURL)) {
-            avatarNode.url = url
+        avatarNode.contentAnimations = [.firstUpdate]
+        if !user.avatarURL.isEmpty {
+            let raw = user.avatarURL
+            let proxy = ImgproxyURL.create(from: raw, width: 100, height: 100)
+            let hasMem = ImageCache.shared.memoryImage(forKey: proxy) != nil
+                || ImageCache.shared.memoryImage(forKey: raw) != nil
+            avatarNode.setSignal(
+                remoteAttachmentImageSignal(proxyURL: proxy, originalURL: raw, resizeMode: .fill),
+                attemptSynchronously: hasMem
+            )
+            let avatarSz = Self.avatarSize
+            let args = TransformImageArguments(
+                corners: ImageCorners(radius: avatarSz / 2),
+                imageSize: CGSize(width: avatarSz, height: avatarSz),
+                boundingSize: CGSize(width: avatarSz, height: avatarSz),
+                intrinsicInsets: .zero
+            )
+            avatarNode.asyncLayout()(args)()
         }
 
         statusDotNode.backgroundColor = user.online
@@ -1396,7 +1569,7 @@ final class MessageSearchCellNode: ASCellNode {
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = t.tertiary
-        if !document.avatarURL.isEmpty, let url = URL(string: ImgproxyURL.create(from: document.avatarURL)) {
+        if !document.avatarURL.isEmpty, let url = URL(string: ImgproxyURL.create(from: document.avatarURL, width: 150, height: 150)) {
             avatarNode.url = url
         }
 
