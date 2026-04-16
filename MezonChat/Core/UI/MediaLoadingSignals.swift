@@ -310,9 +310,14 @@ func remoteAvatarSignal(url: String) -> Signal<(TransformImageArguments) -> Draw
     }
 }
 
+private func emptyDrawingTransform() -> (TransformImageArguments) -> DrawingContext? {
+    return { _ in nil }
+}
+
 func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         guard let imageURL = URL(string: url), !url.isEmpty else {
+            subscriber.putNext(emptyDrawingTransform())
             subscriber.putCompletion()
             return EmptyDisposable
         }
@@ -335,7 +340,9 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
                 return
             }
             let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
-                guard !cancelled.with({ $0 }), let data else {
+                guard !cancelled.with({ $0 }) else { return }
+                guard let data else {
+                    subscriber.putNext(emptyDrawingTransform())
                     subscriber.putCompletion()
                     return
                 }
@@ -343,6 +350,8 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
                 if let image {
                     cache.setImage(image, data: data, forKey: url)
                     subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+                } else {
+                    subscriber.putNext(emptyDrawingTransform())
                 }
                 subscriber.putCompletion()
             }

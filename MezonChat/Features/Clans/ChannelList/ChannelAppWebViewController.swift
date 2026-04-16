@@ -3,7 +3,7 @@ import UIKit
 import WebKit
 
 @MainActor
-final class ChannelAppWebViewController: ViewController {
+final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
 
     private let pageURL: URL
     private let appTitle: String
@@ -297,6 +297,7 @@ final class ChannelAppWebViewController: ViewController {
             WKUserScript(source: viewportFix, injectionTime: .atDocumentStart, forMainFrameOnly: true))
 
         let wv = WKWebView(frame: .zero, configuration: config)
+        wv.navigationDelegate = self
         wv.isOpaque = false
         wv.backgroundColor = UIColor.theme.primary
         wv.scrollView.backgroundColor = UIColor.theme.primary
@@ -307,5 +308,22 @@ final class ChannelAppWebViewController: ViewController {
 
         webView = wv
         wv.load(URLRequest(url: pageURL))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+        let scheme = url.scheme?.lowercased() ?? ""
+        if scheme == "https" || scheme == "http" || scheme == "about" || scheme == "blob" {
+            decisionHandler(.allow)
+        } else {
+            decisionHandler(.cancel)
+        }
     }
 }

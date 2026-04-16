@@ -149,6 +149,7 @@ final class NotificationsViewController: ViewController {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         dataDisposable?.dispose()
     }
 

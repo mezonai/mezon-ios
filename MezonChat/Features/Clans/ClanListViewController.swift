@@ -269,7 +269,7 @@ final class ClanListViewController: ViewController {
     deinit {
         debouncedUnreadDmFetchWorkItem?.cancel()
         disposables.dispose()
-        NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func setClans(_ v: [Mezon_Api_ClanDesc]) { clans = v; clansPipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -433,6 +433,21 @@ final class ClanListViewController: ViewController {
 
     private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"
 
+    private func syncClanDescsToClanTable(_ apiClans: [Mezon_Api_ClanDesc]) {
+        guard !apiClans.isEmpty else { return }
+        let records = apiClans.map { api -> ClanRecord in
+            let data = (try? api.serializedData()) ?? Data()
+            return ClanRecord(
+                id: api.clanID,
+                name: api.clanName,
+                icon: api.logo.isEmpty ? nil : api.logo,
+                ownerId: api.creatorID == 0 ? nil : String(api.creatorID),
+                data: data
+            )
+        }
+        context.account.postbox.writeSync { tx in tx.updateClans(records) }
+    }
+
     private func restoreFromPostbox() {
         let records = self.context.account.postbox.read { tx in tx.getClans() }
         if !records.isEmpty {
@@ -444,7 +459,9 @@ final class ClanListViewController: ViewController {
             }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
             setClans(apiClans)
         } else if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.clans) {
-            setClans(decodeProtoArray(data).sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID })
+            let sorted = decodeProtoArray(data).sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+            syncClanDescsToClanTable(sorted)
+            setClans(sorted)
         }
 
         var restoredId: Int64 = 0
@@ -490,12 +507,17 @@ final class ClanListViewController: ViewController {
 
             let postboxDisposable = (self.context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
                     guard let self else { return }
-                    self.clans = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
+                    let mapped = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
                         guard !record.data.isEmpty else {
                         var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
                         }
                         return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
                 }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+                    if mapped.isEmpty, !self.clans.isEmpty {
+                        subscriber.putNext(self.currentState)
+                        return
+                    }
+                    self.clans = mapped
                     subscriber.putNext(self.currentState)
                 })
             let reloadDisposable = (self.needsReloadPipe.signal()

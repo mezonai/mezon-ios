@@ -67,7 +67,7 @@ final class SessionRefreshManager {
                 onReady()
             }
 
-            let timeoutTask = Task {
+            let timeoutTask = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: launchRefreshTimeout)
                 safeOnReady(source: "timeout")
             }

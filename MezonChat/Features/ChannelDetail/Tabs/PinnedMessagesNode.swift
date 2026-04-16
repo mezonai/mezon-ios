@@ -47,7 +47,8 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     private func fetchPins() {
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
                 let token = await context.getToken() ?? ""
                 let targetClanId =

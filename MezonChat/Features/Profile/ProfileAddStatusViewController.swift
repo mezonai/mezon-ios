@@ -202,9 +202,10 @@ final class ProfileAddStatusViewController: UIViewController {
 
         let (minutes, noClear) = Self.minutesAndNoClear(forSelectedDuration: selectedDurationValue)
 
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                try await context.submitCustomStatus(text: trimmed, minutes: minutes, noClear: noClear)
+                try await self.context.submitCustomStatus(text: trimmed, minutes: minutes, noClear: noClear)
                 self.dismiss(animated: true)
             } catch {
                 Toast.error(L(L10n.Profile.statusUpdateFailed))

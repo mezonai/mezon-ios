@@ -18,18 +18,27 @@ final class NetworkMonitor {
         let newMonitor = NWPathMonitor()
         monitor = newMonitor
         newMonitor.pathUpdateHandler = { [weak self] path in
-            let connected = path.status == .satisfied
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isConnected = connected
-                NotificationCenter.default.post(
-                    name: NetworkMonitor.statusDidChangeNotification,
-                    object: nil,
-                    userInfo: ["isConnected": connected]
-                )
-            }
+            self?.publishConnectivity(path.status == .satisfied)
         }
         newMonitor.start(queue: queue)
+        queue.async { [weak self] in
+            guard let self, let mon = self.monitor else { return }
+            let connected = mon.currentPath.status == .satisfied
+            self.publishConnectivity(connected)
+        }
+    }
+
+    private func publishConnectivity(_ connected: Bool) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.isConnected != connected else { return }
+            self.isConnected = connected
+            NotificationCenter.default.post(
+                name: NetworkMonitor.statusDidChangeNotification,
+                object: nil,
+                userInfo: ["isConnected": connected]
+            )
+        }
     }
 
     func stop() {

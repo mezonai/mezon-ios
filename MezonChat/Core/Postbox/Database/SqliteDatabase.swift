@@ -1,26 +1,36 @@
 import Foundation
+import os.log
 
 final class SqliteDatabase {
 
     private(set) var handle: OpaquePointer?
+    private(set) var isValid = false
+    private static let log = OSLog(subsystem: "mezon.postbox", category: "sqlite")
 
     init(path: String, encryptionKey: Data? = nil) {
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
-        guard sqlite3_open_v2(path, &handle, flags, nil) == SQLITE_OK else {
+        let rc = sqlite3_open_v2(path, &handle, flags, nil)
+        guard rc == SQLITE_OK else {
+            os_log(.error, log: Self.log, "sqlite3_open_v2 failed: %d for %{public}@", rc, path)
             return
         }
 
         if let key = encryptionKey {
-            let rc = key.withUnsafeBytes { ptr in
+            let keyRC = key.withUnsafeBytes { ptr in
                 sqlite3_key(handle, ptr.baseAddress, Int32(key.count))
             }
-            if rc != SQLITE_OK {
+            if keyRC != SQLITE_OK {
+                os_log(.error, log: Self.log, "sqlite3_key failed: %d for %{public}@", keyRC, path)
+                sqlite3_close(handle)
+                handle = nil
+                return
             }
         }
 
         rawExecute("PRAGMA journal_mode=WAL")
         rawExecute("PRAGMA synchronous=NORMAL")
         rawExecute("PRAGMA foreign_keys=ON")
+        isValid = true
     }
 
     deinit {

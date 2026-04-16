@@ -13,6 +13,7 @@ final class AccountContextImpl: AccountContext {
     let account: Account
     let engine: MezonEngine
 
+    private var socketEventsDisposable: Disposable?
     private let isLoggedInPipe = ValuePipe<Bool>()
     var isLoggedInSignal: Signal<Bool, NoError> { isLoggedInPipe.signal() }
 
@@ -228,6 +229,8 @@ final class AccountContextImpl: AccountContext {
 
     func logout() {
         account.network.bearerUnauthorizedRecovery = nil
+        socketEventsDisposable?.dispose()
+        socketEventsDisposable = nil
         let s = session
         let deviceId = currentUser?.username ?? ""
         account.socket.disconnect()
@@ -395,22 +398,11 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
-        account.socket.onTyping = { event in
-            Task { @MainActor in
-                NotificationCenter.default.post(
-                    name: .mezonMessageTypingReceived,
-                    object: nil,
-                    userInfo: [
-                        "clanId": NSNumber(value: event.clanID),
-                        "channelId": NSNumber(value: event.channelID),
-                        "topicId": NSNumber(value: event.topicID),
-                        "senderId": NSNumber(value: event.senderID),
-                        "senderUsername": event.senderUsername,
-                        "senderDisplayName": event.senderDisplayName,
-                        "mode": NSNumber(value: event.mode)
-                    ]
-                )
-            }
+        if socketEventsDisposable == nil {
+            socketEventsDisposable = account.socket.events().start(next: { [weak self] event in
+                guard let self else { return }
+                self.handleSocketEvent(event)
+            })
         }
 
         if connectSocket {
@@ -419,214 +411,6 @@ final class AccountContextImpl: AccountContext {
                 try await self.refreshSession()
                 guard let t = self.session?.token else { throw SessionError.noSession }
                 return t
-            }
-            account.socket.onConnected = { [weak self] in
-                self?.joinDirectMessageClanOnSocketConnected()
-                self?.rejoinCurrentChannel()
-            }
-            account.socket.onMessageReceived = { [weak self] apiMessage in
-                let channelId = Int64(apiMessage.channelID) ?? 0
-                let clanId = Int64(apiMessage.clanID) ?? 0
-                if apiMessage.code == 2 {
-                    let messageId = "\(apiMessage.messageID)"
-                    self?.account.postbox.write { tx in
-                        tx.deleteMessage(id: messageId)
-                    }
-                    return
-                }
-                if apiMessage.code == 1 {
-                    self?.account.postbox.write { tx in
-                        tx.addMessages([MessageRecord(from: apiMessage)])
-                    }
-                    return
-                }
-
-                self?.account.postbox.write { tx in
-                    tx.addMessages([MessageRecord(from: apiMessage)])
-                }
-
-                let messageCopy = apiMessage
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    let isSelf: Bool = {
-                        let sid = String(messageCopy.senderID)
-                        return sid == self.currentUser?.id
-                    }()
-                    if isSelf {
-                        let now = UInt32(Date().timeIntervalSince1970)
-                        NotificationCenter.default.post(
-                            name: Notification.Name("MezonChannelMarkedAsRead"),
-                            object: nil,
-                            userInfo: [
-                                "channelId": channelId,
-                                "clanId": clanId,
-                                "messageId": String(messageCopy.messageID),
-                                "timestampSeconds": now,
-                                "fromSelf": true
-                            ] as [String: Any]
-                        )
-                        return
-                    }
-
-                    let incrementDmBadge = Self.shouldIncrementDmBadgeForSocketMessage(
-                        messageCopy,
-                        channelId: channelId,
-                        currentUserId: self.currentUser?.id,
-                        currentClanId: self.currentClanId
-                    )
-                    let topicId = messageCopy.topicID
-                    var userInfo: [String: Any] = [
-                        "channelId": channelId,
-                        "clanId": clanId,
-                        "senderId": String(messageCopy.senderID),
-                        "mode": messageCopy.mode,
-                        "timestampSeconds": messageCopy.createTimeSeconds,
-                        "messageCode": messageCopy.code,
-                        "incrementDmBadge": incrementDmBadge,
-                        "topicId": topicId
-                    ]
-                    if let raw = try? messageCopy.serializedData() {
-                        userInfo["serializedChannelMessage"] = raw
-                    }
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MezonNewMessageReceived"),
-                        object: nil,
-                        userInfo: userInfo
-                    )
-                }
-            }
-            account.socket.onReaction = { [weak self] reaction in
-                let messageId = "\(reaction.messageID)"
-
-                self?.account.postbox.write { tx in
-                    tx.updateMessageReactions(messageId: messageId, reaction: reaction)
-                }
-            }
-            account.socket.onMessageRemoved = { [weak self] removed in
-                let messageId = "\(removed.messageID)"
-                self?.account.postbox.write { tx in
-                    tx.deleteMessage(id: messageId)
-                }
-            }
-            account.socket.onLastSeen = { event in
-                NotificationCenter.default.post(
-                    name: Notification.Name("MezonChannelMarkedAsRead"),
-                    object: nil,
-                    userInfo: [
-                        "channelId": event.channelID,
-                        "clanId": event.clanID,
-                        "channelUnreadCount": event.badgeCount,
-                        "messageId": String(event.messageID),
-                        "timestampSeconds": event.timestampSeconds
-                    ] as [String: Any]
-                )
-            }
-            account.socket.onVoiceJoined = { [weak self] ev in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)
-                }
-            }
-            account.socket.onVoiceLeaved = { [weak self] ev in
-                Task { @MainActor in
-                    guard let self else { return }
-                    self.engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
-                }
-            }
-            account.socket.onVoiceEnded = { [weak self] ev in
-                Task { @MainActor in
-                    guard let self else { return }
-                    let cid = Int64(ev.voiceChannelID) ?? 0
-                    guard cid != 0 else { return }
-                    self.engine.clanData.applyVoiceEnded(clanId: ev.clanID, channelId: cid)
-                }
-            }
-            account.socket.onNotification = { [weak self] noti in
-                guard let self else { return }
-                guard noti.channelID != 0 else { return }
-                if self.currentChannel?.channelID == noti.channelID, noti.clanID != 0 {
-                    return
-                }
-
-                let skipTypes: [Int32] = [
-                    MezonConstants.ChannelType.app.rawValue,
-                    MezonConstants.ChannelType.mezonVoice.rawValue
-                ]
-                guard !skipTypes.contains(noti.channelType) else { return }
-
-                let notificationCodeMentioned: Int32 = -9
-                let notificationCodeReplied: Int32 = -11
-                guard noti.code == notificationCodeMentioned || noti.code == notificationCodeReplied else { return }
-
-                var messageId: String = ""
-                if !noti.content.isEmpty,
-                   let json = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any] {
-                    if let mid = json["message_id"] {
-                        messageId = "\(mid)"
-                    }
-                }
-
-                let isTopicNotification = noti.topicID != 0
-                let clanId = noti.clanID
-                let channelId = noti.channelID
-                let topicId = noti.topicID
-
-                if isTopicNotification {
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MezonMentionReceived"),
-                        object: nil,
-                        userInfo: [
-                            "channelId": topicId,
-                            "clanId": clanId,
-                            "senderId": String(noti.senderID),
-                            "mode": noti.channelType,
-                            "timestampSeconds": noti.createTimeSeconds,
-                            "messageId": messageId,
-                            "topicId": topicId
-                        ] as [String: Any]
-                    )
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MezonMentionReceived"),
-                        object: nil,
-                        userInfo: [
-                            "channelId": channelId,
-                            "clanId": clanId,
-                            "senderId": String(noti.senderID),
-                            "mode": noti.channelType,
-                            "timestampSeconds": noti.createTimeSeconds,
-                            "messageId": messageId,
-                            "topicId": topicId,
-                            "isParentOfTopic": true
-                        ] as [String: Any]
-                    )
-                } else {
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MezonMentionReceived"),
-                        object: nil,
-                        userInfo: [
-                            "channelId": channelId,
-                            "clanId": clanId,
-                            "senderId": String(noti.senderID),
-                            "mode": noti.channelType,
-                            "timestampSeconds": noti.createTimeSeconds,
-                            "messageId": messageId
-                        ] as [String: Any]
-                    )
-                }
-            }
-            account.socket.onWebRTC = { msg in
-                Task { @MainActor in
-                    WebRTCCallManager.shared.handleSignalingMessage(msg)
-                }
-            }
-            account.socket.onCustomStatus = { [weak self] event in
-                self?.applyIncomingCustomStatusEvent(event)
-            }
-            account.socket.onUserStatus = { [weak self] event in
-                self?.applyIncomingUserStatusEvent(event)
-            }
-            account.socket.onStatusPresence = { [weak self] event in
-                self?.applyIncomingStatusPresenceEvent(event)
             }
             account.socket.connect(token: session.token, wsHostOverride: nil)
         }
@@ -784,6 +568,180 @@ final class AccountContextImpl: AccountContext {
             u.customStatus = cust
         }
         applyCurrentUser(u)
+    }
+
+    private func handleSocketEvent(_ event: SocketEvent) {
+        switch event {
+        case .connected:
+            joinDirectMessageClanOnSocketConnected()
+            rejoinCurrentChannel()
+
+        case .typing(let e):
+            NotificationCenter.default.post(
+                name: .mezonMessageTypingReceived,
+                object: nil,
+                userInfo: [
+                    "clanId": NSNumber(value: e.clanID),
+                    "channelId": NSNumber(value: e.channelID),
+                    "topicId": NSNumber(value: e.topicID),
+                    "senderId": NSNumber(value: e.senderID),
+                    "senderUsername": e.senderUsername,
+                    "senderDisplayName": e.senderDisplayName,
+                    "mode": NSNumber(value: e.mode)
+                ]
+            )
+
+        case .messageReceived(let apiMessage):
+            let channelId = Int64(apiMessage.channelID) ?? 0
+            let clanId = Int64(apiMessage.clanID) ?? 0
+            if apiMessage.code == 2 {
+                account.postbox.write { tx in tx.deleteMessage(id: "\(apiMessage.messageID)") }
+                return
+            }
+            if apiMessage.code == 1 {
+                account.postbox.write { tx in tx.addMessages([MessageRecord(from: apiMessage)]) }
+                return
+            }
+            account.postbox.write { tx in tx.addMessages([MessageRecord(from: apiMessage)]) }
+            let messageCopy = apiMessage
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let isSelf = String(messageCopy.senderID) == self.currentUser?.id
+                if isSelf {
+                    let now = UInt32(Date().timeIntervalSince1970)
+                    NotificationCenter.default.post(
+                        name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
+                        userInfo: [
+                            "channelId": channelId, "clanId": clanId,
+                            "messageId": String(messageCopy.messageID),
+                            "timestampSeconds": now, "fromSelf": true
+                        ] as [String: Any]
+                    )
+                    return
+                }
+                let incrementDmBadge = Self.shouldIncrementDmBadgeForSocketMessage(
+                    messageCopy, channelId: channelId,
+                    currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
+                )
+                var userInfo: [String: Any] = [
+                    "channelId": channelId, "clanId": clanId,
+                    "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
+                    "timestampSeconds": messageCopy.createTimeSeconds,
+                    "messageCode": messageCopy.code,
+                    "incrementDmBadge": incrementDmBadge, "topicId": messageCopy.topicID
+                ]
+                if let raw = try? messageCopy.serializedData() {
+                    userInfo["serializedChannelMessage"] = raw
+                }
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonNewMessageReceived"), object: nil, userInfo: userInfo
+                )
+            }
+
+        case .reaction(let reaction):
+            account.postbox.write { tx in tx.updateMessageReactions(messageId: "\(reaction.messageID)", reaction: reaction) }
+
+        case .messageRemoved(let removed):
+            account.postbox.write { tx in tx.deleteMessage(id: "\(removed.messageID)") }
+
+        case .lastSeen(let e):
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
+                userInfo: [
+                    "channelId": e.channelID, "clanId": e.clanID,
+                    "channelUnreadCount": e.badgeCount,
+                    "messageId": String(e.messageID),
+                    "timestampSeconds": e.timestampSeconds
+                ] as [String: Any]
+            )
+
+        case .voiceJoined(let ev):
+            engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)
+
+        case .voiceLeaved(let ev):
+            engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
+
+        case .voiceEnded(let ev):
+            let cid = Int64(ev.voiceChannelID) ?? 0
+            guard cid != 0 else { return }
+            engine.clanData.applyVoiceEnded(clanId: ev.clanID, channelId: cid)
+
+        case .notification(let noti):
+            handleSocketNotification(noti)
+
+        case .webRTC(let msg):
+            WebRTCCallManager.shared.handleSignalingMessage(msg)
+
+        case .customStatus(let e):
+            applyIncomingCustomStatusEvent(e)
+
+        case .userStatus(let e):
+            applyIncomingUserStatusEvent(e)
+
+        case .statusPresence(let e):
+            applyIncomingStatusPresenceEvent(e)
+
+        default:
+            break
+        }
+    }
+
+    private func handleSocketNotification(_ noti: Mezon_Api_Notification) {
+        guard noti.channelID != 0 else { return }
+        if currentChannel?.channelID == noti.channelID, noti.clanID != 0 { return }
+
+        let skipTypes: [Int32] = [
+            MezonConstants.ChannelType.app.rawValue,
+            MezonConstants.ChannelType.mezonVoice.rawValue
+        ]
+        guard !skipTypes.contains(noti.channelType) else { return }
+
+        let notificationCodeMentioned: Int32 = -9
+        let notificationCodeReplied: Int32 = -11
+        guard noti.code == notificationCodeMentioned || noti.code == notificationCodeReplied else { return }
+
+        var messageId: String = ""
+        if !noti.content.isEmpty,
+           let json = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any],
+           let mid = json["message_id"] {
+            messageId = "\(mid)"
+        }
+
+        let clanId = noti.clanID
+        let channelId = noti.channelID
+        let topicId = noti.topicID
+
+        if noti.topicID != 0 {
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonMentionReceived"), object: nil,
+                userInfo: [
+                    "channelId": topicId, "clanId": clanId,
+                    "senderId": String(noti.senderID), "mode": noti.channelType,
+                    "timestampSeconds": noti.createTimeSeconds,
+                    "messageId": messageId, "topicId": topicId
+                ] as [String: Any]
+            )
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonMentionReceived"), object: nil,
+                userInfo: [
+                    "channelId": channelId, "clanId": clanId,
+                    "senderId": String(noti.senderID), "mode": noti.channelType,
+                    "timestampSeconds": noti.createTimeSeconds,
+                    "messageId": messageId, "topicId": topicId,
+                    "isParentOfTopic": true
+                ] as [String: Any]
+            )
+        } else {
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonMentionReceived"), object: nil,
+                userInfo: [
+                    "channelId": channelId, "clanId": clanId,
+                    "senderId": String(noti.senderID), "mode": noti.channelType,
+                    "timestampSeconds": noti.createTimeSeconds,
+                    "messageId": messageId
+                ] as [String: Any]
+            )
+        }
     }
 
     private func mapAccountToUser(_ api: Mezon_Api_Account) -> User {

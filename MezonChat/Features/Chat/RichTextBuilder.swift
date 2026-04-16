@@ -167,19 +167,38 @@ enum RichTextBuilder {
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
 
-            case .hashtag(let channelId, _, let channelLabel):
-                var attrs = bodyAttributes(s)
-                attrs[.font] = s.mentionFont
-                attrs[.foregroundColor] = s.mentionColor
-                attrs[.backgroundColor] = s.mentionBgColor
-                attrs[.mezonHashtag] = (channelId ?? "") as NSString
-                let displayText: String
+            case .hashtag(let channelId, let clanId, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+                let chType = channelType ?? MezonConstants.ChannelType.channel.rawValue
+                let chPriv = channelPrivate ?? 0
+                let chAge = ageRestricted ?? 0
+                let iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                    type: chType, channelPrivate: chPriv, ageRestricted: chAge
+                )
+                let namePart: String
                 if let label = channelLabel, !label.isEmpty {
-                    displayText = "#\(label)"
+                    namePart = label.hasPrefix("#") ? String(label.dropFirst()) : label
+                } else if rawText.isEmpty {
+                    namePart = "channel"
                 } else {
-                    displayText = rawText.isEmpty ? "#channel" : rawText
+                    namePart = rawText.hasPrefix("#") ? String(rawText.dropFirst()) : rawText
                 }
-                result.append(NSAttributedString(string: displayText, attributes: attrs))
+                var tagAttrs = bodyAttributes(s)
+                tagAttrs[.font] = s.mentionFont
+                tagAttrs[.foregroundColor] = s.mentionColor
+                tagAttrs[.backgroundColor] = s.mentionBgColor
+                tagAttrs[.mezonHashtag] = [
+                    "c": channelId ?? "",
+                    "g": clanId ?? "",
+                ] as NSDictionary
+                if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: s.mentionColor, font: s.mentionFont) {
+                    let iconStr = NSMutableAttributedString(attachment: att)
+                    iconStr.addAttributes(tagAttrs, range: NSRange(location: 0, length: iconStr.length))
+                    result.append(iconStr)
+                    result.append(NSAttributedString(string: "\u{2009}", attributes: tagAttrs))
+                    result.append(NSAttributedString(string: namePart, attributes: tagAttrs))
+                } else {
+                    result.append(NSAttributedString(string: "#\(namePart)", attributes: tagAttrs))
+                }
 
             case .inlineCode:
                 var attrs = bodyAttributes(s)
@@ -322,6 +341,19 @@ enum RichTextBuilder {
             .font: s.bodyFont,
             .foregroundColor: s.bodyColor
         ]
+    }
+
+    private static func hashtagIconAttachment(named assetName: String, tint: UIColor, font: UIFont) -> NSTextAttachment? {
+        let side = max(ceil(font.capHeight), 12)
+        let raw = UIImage(named: assetName) ?? UIImage(systemName: "speaker.wave.2.fill")
+        guard let base = raw else { return nil }
+        let tpl = base.withRenderingMode(.alwaysTemplate)
+        let colored = tpl.withTintColor(tint, renderingMode: .alwaysOriginal)
+        let att = NSTextAttachment()
+        att.image = colored
+        let y = (font.capHeight - side) / 2 + font.descender * 0.35
+        att.bounds = CGRect(x: 0, y: y, width: side, height: side)
+        return att
     }
 
 

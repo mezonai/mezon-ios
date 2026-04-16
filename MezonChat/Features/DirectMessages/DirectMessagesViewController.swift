@@ -76,8 +76,7 @@ final class DirectMessagesViewController: ViewController {
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     @objc private func handleDirectMessagesThemeChange() {

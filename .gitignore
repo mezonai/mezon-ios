@@ -31,6 +31,7 @@ Podfile.lock
 .env.local
 *.xcconfig.local
 **/Secrets.swift
+**/GoogleService-Info.plist
 
 # Archives
 *.ipa
