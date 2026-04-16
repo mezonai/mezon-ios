@@ -41,7 +41,10 @@ final class AccountContextImpl: AccountContext {
     }
 
     func refreshAccountProfile() async {
-        guard let token = await getToken() else { return }
+        guard let token = await getToken() else {
+            applyCachedAccountIfAvailable()
+            return
+        }
         do {
             let apiAccount = try await engine.auth.getAccount(token: token)
             if let data = try? apiAccount.serializedData() {
@@ -49,6 +52,7 @@ final class AccountContextImpl: AccountContext {
             }
             applyCurrentUser(mapAccountToUser(apiAccount))
         } catch {
+            applyCachedAccountIfAvailable()
         }
     }
 
@@ -354,6 +358,7 @@ final class AccountContextImpl: AccountContext {
             displayName: saved.username ?? "Me",
             avatarURL: nil, status: .online, customStatus: nil, bio: nil
         ))
+        applyCachedAccountIfAvailable()
         setLoggedIn(true)
         account.network.updateBaseURL(from: saved)
 
@@ -371,7 +376,6 @@ final class AccountContextImpl: AccountContext {
             },
             onReady: { [weak self] in
                 guard let self else { return }
-
                 self.markSessionReady()
                 onReady(self)
             }
@@ -425,6 +429,7 @@ final class AccountContextImpl: AccountContext {
                 }
                 applyCurrentUser(mapAccountToUser(apiAccount))
             } catch {
+                applyCachedAccountIfAvailable()
             }
             self.fetchAllUserClansAndChannels(token: session.token)
         }
@@ -509,7 +514,10 @@ final class AccountContextImpl: AccountContext {
     }
 
     func refreshUserProfile() async {
-        guard let token = session?.token else { return }
+        guard let token = session?.token else {
+            applyCachedAccountIfAvailable()
+            return
+        }
         do {
             let apiAccount = try await engine.auth.getAccount(token: token)
             if let data = try? apiAccount.serializedData() {
@@ -517,7 +525,14 @@ final class AccountContextImpl: AccountContext {
             }
             currentUser = mapAccountToUser(apiAccount)
         } catch {
+            applyCachedAccountIfAvailable()
         }
+    }
+
+    func applyCachedAccountIfAvailable() {
+        guard let data = account.postbox.getPreferenceData(key: PreferencesKeys.account),
+              let api = try? Mezon_Api_Account(serializedData: data) else { return }
+        applyCurrentUser(mapAccountToUser(api))
     }
     
     private func currentUserNumericId() -> Int64? {

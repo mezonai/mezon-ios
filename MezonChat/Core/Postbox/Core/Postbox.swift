@@ -422,6 +422,11 @@ final class Postbox {
         return channels.first(where: { $0.channelID == channelId })
     }
 
+    func getCachedDMChannelList() -> [Mezon_Api_ChannelDescription] {
+        guard let data = getPreferenceData(key: PreferencesKeys.dmChannelList) else { return [] }
+        return decodeChannelList(data)
+    }
+
     private func decodeChannelList(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
         let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }

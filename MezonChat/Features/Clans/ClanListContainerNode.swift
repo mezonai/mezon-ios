@@ -414,7 +414,7 @@ private final class ClanCell: UICollectionViewCell {
     }
 
     private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString)
+        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
             avatarImageView.image = cached
             return
@@ -556,7 +556,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
 
         if !avatarURL.isEmpty {
             avatarContainer.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: avatarURL)
+            let proxyURL = ImgproxyURL.create(from: avatarURL, width: 150, height: 150)
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {

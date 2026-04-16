@@ -218,8 +218,7 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
     initNode.maximumNumberOfLines = 1
 
     if let av = m.avatarURL, !av.isEmpty {
-        let px = Int(s * UIScreen.main.scale)
-        let proxy = ImgproxyURL.create(from: av, width: px, height: px)
+        let proxy = ImgproxyURL.create(from: av, width: 150, height: 150)
         imgNode.url = URL(string: proxy)
         initNode.isHidden = true
     } else {

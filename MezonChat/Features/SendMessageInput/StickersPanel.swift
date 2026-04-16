@@ -1026,8 +1026,7 @@ private final class StickerCategoryStripCell: UICollectionViewCell {
             imageView.layer.cornerRadius = 6
             imageView.tintColor = nil
             imageView.image = nil
-            let px = Int(24 * UIScreen.main.scale)
-            let proxy = ImgproxyURL.create(from: logo, width: px, height: px)
+            let proxy = ImgproxyURL.create(from: logo, width: 150, height: 150)
             if let mem = ImageCache.shared.memoryImage(forKey: proxy) {
                 imageView.image = mem
             } else {

@@ -1000,9 +1000,8 @@ final class SharingViewController: UIViewController {
         filterChannels()
     }
 
-    private func imgproxyAvatarURLString(_ raw: String, displayPoints: CGFloat) -> String {
-        let side = Int(ceil(displayPoints * UIScreen.main.scale))
-        return ImgproxyURL.create(from: raw, width: side, height: side)
+    private func imgproxyAvatarURLString(_ raw: String) -> String {
+        ImgproxyURL.create(from: raw, width: 150, height: 150)
     }
 
     private func showSelectedChannel(_ channel: Mezon_Api_ChannelDescription) {
@@ -1023,7 +1022,7 @@ final class SharingViewController: UIViewController {
             selectedInitialLabel.isHidden = true
             selectedAvatarView.contentMode = .scaleAspectFill
             selectedAvatarView.backgroundColor = .clear
-            let urlStr = imgproxyAvatarURLString(url.absoluteString, displayPoints: 24)
+            let urlStr = imgproxyAvatarURLString(url.absoluteString)
             _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
                 self?.selectedAvatarView.image = image
             }
@@ -1032,7 +1031,7 @@ final class SharingViewController: UIViewController {
             selectedInitialLabel.isHidden = true
             selectedAvatarView.contentMode = .scaleAspectFill
             selectedAvatarView.backgroundColor = .clear
-            let urlStr = imgproxyAvatarURLString(url.absoluteString, displayPoints: 24)
+            let urlStr = imgproxyAvatarURLString(url.absoluteString)
             _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
                 self?.selectedAvatarView.image = image
             }
@@ -1361,7 +1360,7 @@ extension SharingViewController: UITableViewDataSourcePrefetching {
         for indexPath in indexPaths {
             guard let item = diffableDataSource.itemIdentifier(for: indexPath) else { continue }
             if let urlStr = item.avatarURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                let proxyURL = imgproxyAvatarURLString(url.absoluteString, displayPoints: 36)
+                let proxyURL = imgproxyAvatarURLString(url.absoluteString)
                 if ImageCache.shared.cachedImage(forURL: proxyURL) == nil {
                     _ = ImageCache.shared.loadImage(urlString: proxyURL) { _ in }
                 }

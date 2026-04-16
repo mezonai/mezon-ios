@@ -375,8 +375,8 @@ final class MessageMediaContentNode: ASDisplayNode {
         guard !media.isVideo, media.localImage == nil else { return }
         guard index < imageNodes.count else { return }
         let node = imageNodes[index]
-        let w = 200
-        let h = 200
+        let w = 400
+        let h = 400
         let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
         let proxyURL = ImgproxyURL.attachmentURL(
             from: media.url,
@@ -394,7 +394,11 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
         let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
-        node.setSignal(remoteImageSignal(url: proxyURL, resizeMode: resizeMode), attemptSynchronously: hasMem)
+            || ImageCache.shared.memoryImage(forKey: media.url) != nil
+        node.setSignal(
+            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: media.url, resizeMode: resizeMode),
+            attemptSynchronously: hasMem
+        )
     }
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {

@@ -127,7 +127,7 @@ final class MessageLocationNode: ASDisplayNode {
                 boundingSize: CGSize(width: size, height: size),
                 intrinsicInsets: .zero
             )
-            let proxyURL = ImgproxyURL.create(from: urlString, width: Int(size * UIScreen.main.scale), height: Int(size * UIScreen.main.scale))
+            let proxyURL = ImgproxyURL.create(from: urlString, width: 150, height: 150)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
             avatarImageNode.setSignal(remoteAvatarSignal(url: proxyURL), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()

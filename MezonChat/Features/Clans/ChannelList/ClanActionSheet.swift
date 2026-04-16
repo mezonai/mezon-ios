@@ -347,7 +347,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         avatarContainer.addSubview(avatarImageView)
 
         if !avatarURL.isEmpty {
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL)) { [weak avatarImageView, weak initialsLabel] image in
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) { [weak avatarImageView, weak initialsLabel] image in
                 if let image = image {
                     avatarImageView?.image = image
                     initialsLabel?.isHidden = true

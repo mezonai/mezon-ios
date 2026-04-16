@@ -252,41 +252,31 @@ final class DirectMessagesViewController: ViewController {
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
+    private static func sortDmChannels(_ channels: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+        channels.sorted { ch1, ch2 in
+            let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
+            let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
+            return t1 > t2
+        }
+    }
+
+    private func applyDmListFromCache() {
+        let cached = context.account.postbox.getCachedDMChannelList()
+        guard !cached.isEmpty else { return }
+        let sorted = Self.sortDmChannels(cached)
+        setDirectMessages(sorted)
+        setIsEmpty(sorted.isEmpty)
+        setErrorMessage(nil)
+    }
+
     func fetchDirectMessages() {
+        applyDmListFromCache()
         setIsLoading(true)
         setErrorMessage(nil)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { self.setIsLoading(false); return }
             defer { self.setIsLoading(false) }
-            do {
-                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
-                do {
-                    let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
-                        clanId: 0, token: token)
-                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
-                        into: &channels, badgeRows: badgeResponse.channeldesc)
-                } catch {
-                }
-                let sorted = channels.sorted { ch1, ch2 in
-                    let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
-                    let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
-                    return t1 > t2
-                }
-                self.setDirectMessages(sorted)
-                self.setIsEmpty(sorted.isEmpty)
-                self.persistDmChannelListToPostbox()
-            } catch {
-                self.setErrorMessage(error.localizedDescription)
-            }
-        }
-    }
-
-    private func refreshDirectMessages() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.directMessagesNode.endRefreshing() }
             guard let token = await self.context.getToken() else { return }
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
@@ -297,15 +287,43 @@ final class DirectMessagesViewController: ViewController {
                         into: &channels, badgeRows: badgeResponse.channeldesc)
                 } catch {
                 }
-                let sorted = channels.sorted { ch1, ch2 in
-                    let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
-                    let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
-                    return t1 > t2
+                let sorted = Self.sortDmChannels(channels)
+                self.setDirectMessages(sorted)
+                self.setIsEmpty(sorted.isEmpty)
+                self.persistDmChannelListToPostbox()
+                self.setErrorMessage(nil)
+            } catch {
+                self.applyDmListFromCache()
+                if self.directMessages.isEmpty {
+                    self.setErrorMessage(error.localizedDescription)
                 }
+            }
+        }
+    }
+
+    private func refreshDirectMessages() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.directMessagesNode.endRefreshing() }
+            guard let token = await self.context.getToken() else {
+                self.applyDmListFromCache()
+                return
+            }
+            do {
+                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                do {
+                    let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
+                        clanId: 0, token: token)
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
+                        into: &channels, badgeRows: badgeResponse.channeldesc)
+                } catch {
+                }
+                let sorted = Self.sortDmChannels(channels)
                 self.setDirectMessages(sorted)
                 self.setIsEmpty(sorted.isEmpty)
                 self.persistDmChannelListToPostbox()
             } catch {
+                self.applyDmListFromCache()
             }
         }
     }
