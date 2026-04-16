@@ -348,13 +348,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private func resetControlsTimer() {
         controlsHideTimer?.invalidate()
-        controlsHideTimer = Foundation.Timer.scheduledTimer(timeInterval: 4.0, target: self, selector: #selector(timerFired), userInfo: nil, repeats: false)
-    }
-
-    @objc private func timerFired() {
-        if self.player?.rate != 0 {
-            self.hideControls()
-            self.toggleOverlayVisibility?()
+        controlsHideTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 4.0, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            if self.player?.rate != 0 {
+                self.hideControls()
+                self.toggleOverlayVisibility?()
+            }
         }
     }
 

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import SwiftProtobuf
 
 struct MezonSession: Codable {
@@ -149,13 +150,27 @@ struct OTPRequestResponse: Decodable {
 }
 
 enum SessionStore {
-    private static let sessionKey = "mezon.session"
-    private static let configKey  = "mezon.config"
+    private static let service = "mezon.session.store"
+    private static let sessionAccount = "mezon.session"
+    private static let configKey = "mezon.config"
 
     static func save(_ session: MezonSession) {
-        if let data = try? JSONEncoder().encode(session) {
-            UserDefaults.standard.set(data, forKey: sessionKey)
-        }
+        guard let data = try? JSONEncoder().encode(session) else { return }
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: sessionAccount,
+        ]
+        SecItemDelete(query as CFDictionary)
+        let addQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: sessionAccount,
+            kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        SecItemAdd(addQuery as CFDictionary, nil)
+
         if let apiURL = session.apiURL, let wsURL = session.wsURL {
             let config: [String: String] = ["api_url": apiURL, "ws_url": wsURL]
             UserDefaults.standard.set(config, forKey: configKey)
@@ -163,14 +178,37 @@ enum SessionStore {
     }
 
     static func load() -> MezonSession? {
-        guard let data = UserDefaults.standard.data(forKey: sessionKey),
-              let session = try? JSONDecoder().decode(MezonSession.self, from: data)
-        else { return nil }
-        return session
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: sessionAccount,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecSuccess,
+           let data = result as? Data,
+           let session = try? JSONDecoder().decode(MezonSession.self, from: data) {
+            return session
+        }
+        if let data = UserDefaults.standard.data(forKey: "mezon.session"),
+           let session = try? JSONDecoder().decode(MezonSession.self, from: data) {
+            save(session)
+            UserDefaults.standard.removeObject(forKey: "mezon.session")
+            return session
+        }
+        return nil
     }
 
     static func clear() {
-        UserDefaults.standard.removeObject(forKey: sessionKey)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: sessionAccount,
+        ]
+        SecItemDelete(query as CFDictionary)
+        UserDefaults.standard.removeObject(forKey: "mezon.session")
         UserDefaults.standard.removeObject(forKey: configKey)
     }
 }

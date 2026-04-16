@@ -106,6 +106,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             let userInfo = notificationResponse.notification.request.content.userInfo
             let title = notificationResponse.notification.request.content.title
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
+            if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
+                accountContext?.currentClanId = clanIdInt
+            }
             Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
         }
     }
@@ -212,34 +215,41 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
 
+    private static func stringFromPushValue(_ value: Any?) -> String? {
+        guard let value else { return nil }
+        if let s = value as? String, !s.isEmpty { return s }
+        let s = "\(value)"
+        return s.isEmpty ? nil : s
+    }
+
     private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
-        let channelId: String? = {
-            if let s = userInfo["channel"] as? String { return s }
-            if let n = userInfo["channel"] { return "\(n)" }
-            if let s = userInfo["channel_id"] as? String { return s }
-            if let n = userInfo["channel_id"] { return "\(n)" }
-            return nil
-        }()
+        let channelId = stringFromPushValue(userInfo["channel"])
+            ?? stringFromPushValue(userInfo["channel_id"])
 
         var clanId: String?
         var isDM = false
-        if let link = userInfo["link"] as? String {
-            isDM = link.contains("direct/")
+
+        if let link = stringFromPushValue(userInfo["link"]) {
+            isDM = link.lowercased().contains("direct")
             if let url = URL(string: link) {
                 let parts = url.pathComponents
-                if let clansIdx = parts.firstIndex(of: "clans"), clansIdx + 1 < parts.count {
-                    clanId = parts[clansIdx + 1]
+                if let i = parts.firstIndex(of: "clans"), i + 1 < parts.count {
+                    clanId = parts[i + 1]
                 }
             }
         }
 
-        if clanId == nil || clanId == "0" {
-            if let s = userInfo["clan_id"] as? String, !s.isEmpty, s != "0" { clanId = s }
-            else if let n = userInfo["clan_id"] { let s = "\(n)"; if s != "0" && !s.isEmpty { clanId = s } }
-            if clanId == nil || clanId == "0" {
-                if let s = userInfo["clanId"] as? String { clanId = s }
-                else if let n = userInfo["clanId"] { clanId = "\(n)" }
-            }
+        if clanId == nil {
+            clanId = stringFromPushValue(userInfo["clan_id"])
+                ?? stringFromPushValue(userInfo["clanId"])
+        }
+
+        if let c = clanId, let v = Int64(c), v == 0 {
+            isDM = true
+        }
+
+        if isDM {
+            clanId = "0"
         }
 
         return (channelId, clanId, isDM)

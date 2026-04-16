@@ -135,7 +135,7 @@ private final class HashtagSuggestionCell: UITableViewCell {
 }
 
 extension Mezon_Api_ChannelDescription {
-    func channelListIconAssetName() -> String {
+    static func channelListIconAssetName(type: Int32, channelPrivate: Int32, ageRestricted: Int32) -> String {
         switch type {
         case MezonConstants.ChannelType.mezonVoice.rawValue:
             return "Channel/channelVoice"
@@ -154,5 +154,9 @@ extension Mezon_Api_ChannelDescription {
         default:
             return "Channel/channel"
         }
+    }
+
+    func channelListIconAssetName() -> String {
+        Self.channelListIconAssetName(type: type, channelPrivate: channelPrivate, ageRestricted: ageRestricted)
     }
 }

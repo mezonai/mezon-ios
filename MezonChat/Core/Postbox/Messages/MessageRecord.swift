@@ -73,14 +73,19 @@ extension MessageRecord {
         let contentData = api.content.data(using: .utf8) ?? Data()
         let createdAt   = Date(timeIntervalSince1970: TimeInterval(api.createTimeSeconds))
         let displayName: String = {
-            if !api.clanNick.isEmpty    { return api.clanNick }
-            if !api.displayName.isEmpty { return api.displayName }
-            if !api.username.isEmpty    { return api.username }
+            let cn = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cn.isEmpty { return cn }
+            let dn = api.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !dn.isEmpty { return dn }
+            let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !un.isEmpty { return un }
             return "\(api.senderID)"
         }()
         let avatarURL: String? = {
-            if !api.clanAvatar.isEmpty { return api.clanAvatar }
-            if !api.avatar.isEmpty     { return api.avatar }
+            let ca = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !ca.isEmpty { return ca }
+            let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !av.isEmpty { return av }
             return nil
         }()
         let channelId = api.topicID != 0 ? "topic-\(api.topicID)" : "\(api.channelID)"
@@ -116,8 +121,18 @@ extension MessageRecord {
     ) -> MessageRecord {
         let contentDataResolved = contentData
             ?? ((try? JSONSerialization.data(withJSONObject: ["t": text])) ?? Data())
-        let resolvedName = displayName ?? sender.displayName
-        let resolvedAvatar = avatarURL ?? sender.avatarURL?.absoluteString
+        let resolvedName: String = {
+            if let d = displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !d.isEmpty { return d }
+            let sdn = sender.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sdn.isEmpty { return sdn }
+            let sun = sender.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sun.isEmpty { return sun }
+            return sender.id
+        }()
+        let resolvedAvatar: String? = {
+            if let a = avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines), !a.isEmpty { return a }
+            return sender.avatarURL?.absoluteString
+        }()
         return MessageRecord(
             id:                localId,
             channelId:         channelId,

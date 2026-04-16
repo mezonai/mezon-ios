@@ -144,16 +144,17 @@ final class FileListNode: ASDisplayNode {
         isLoading = true
         loadFailed = false
         setNeedsLayout()
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                let token = await context.getToken() ?? ""
+                let token = await self.context.getToken() ?? ""
                 let targetClanId =
-                    (channelType == MezonConstants.ChannelType.dm.rawValue
-                        || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+                    (self.channelType == MezonConstants.ChannelType.dm.rawValue
+                        || self.channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : self.clanId
 
-                let res = try await context.account.network.listChannelAttachments(
+                let res = try await self.context.account.network.listChannelAttachments(
                     clanId: targetClanId,
-                    channelId: channelId,
+                    channelId: self.channelId,
                     fileType: "all",
                     limit: 100,
                     token: token

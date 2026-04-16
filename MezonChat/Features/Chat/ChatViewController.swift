@@ -1,6 +1,7 @@
 import SwiftProtobuf
 import UIKit
 import CoreLocation
+import QuartzCore
 
 enum ActiveChannelTracker {
     private static let lock = NSLock()
@@ -57,8 +58,31 @@ struct ParsedAttachment: Equatable {
             && lhs.isUploading == rhs.isUploading
     }
 
-    static var pendingImageCache: [String: [UIImage]] = [:]
-    static var pendingDocumentPlaceholders: [String: [ParsedAttachment]] = [:]
+    private static let maxPendingCacheEntries = 50
+
+    private static var _pendingImageCache: [String: [UIImage]] = [:]
+    static var pendingImageCache: [String: [UIImage]] {
+        get { _pendingImageCache }
+        set {
+            _pendingImageCache = newValue
+            if _pendingImageCache.count > maxPendingCacheEntries {
+                let keysToRemove = _pendingImageCache.keys.prefix(_pendingImageCache.count - maxPendingCacheEntries)
+                keysToRemove.forEach { _pendingImageCache.removeValue(forKey: $0) }
+            }
+        }
+    }
+
+    private static var _pendingDocumentPlaceholders: [String: [ParsedAttachment]] = [:]
+    static var pendingDocumentPlaceholders: [String: [ParsedAttachment]] {
+        get { _pendingDocumentPlaceholders }
+        set {
+            _pendingDocumentPlaceholders = newValue
+            if _pendingDocumentPlaceholders.count > maxPendingCacheEntries {
+                let keysToRemove = _pendingDocumentPlaceholders.keys.prefix(_pendingDocumentPlaceholders.count - maxPendingCacheEntries)
+                keysToRemove.forEach { _pendingDocumentPlaceholders.removeValue(forKey: $0) }
+            }
+        }
+    }
 }
 
 struct ParsedReactionSender: Equatable {
@@ -317,6 +341,7 @@ final class ChatViewController: ViewController {
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
+    private var pendingMarkAsRead = false
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
 
@@ -413,10 +438,19 @@ final class ChatViewController: ViewController {
             onMentionTapped: { [weak self] mentionId in
                 self?.showMemberProfileById(mentionId)
             },
-            onHashtagTapped: { [weak self] channelId in
-                guard let self, !channelId.isEmpty else { return }
-                guard channelId != "\(self.channel.channelID)" else { return }
-                AppDelegate.navigateToChannel(channelId: channelId, clanId: "\(self.clanId)")
+            onHashtagTapped: { [weak self] info in
+                guard let self else { return }
+                guard !info.channelId.isEmpty else { return }
+                guard info.channelId != "\(self.channel.channelID)" else { return }
+                let resolvedClan = info.clanId.flatMap { Int64($0) } ?? self.clanId
+                guard let idInt = Int64(info.channelId) else { return }
+                let channels = self.context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+                let ch = channels.first(where: { $0.channelID == idInt && (resolvedClan == 0 || $0.clanID == resolvedClan) })
+                if let ch, ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                    self.presentJoinVoiceSheet(for: ch)
+                    return
+                }
+                AppDelegate.navigateToChannel(channelId: info.channelId, clanId: "\(resolvedClan)")
             },
             onMessageLongPressed: { [weak self] display in
                 self?.showMessageActions(display)
@@ -500,7 +534,7 @@ final class ChatViewController: ViewController {
         lastLayout = layout
 
         let bottomInset = layout.intrinsicInsets.bottom
-        let rawInputH = layout.inputHeight ?? 0
+        let rawInputH = layout.inputHeight ?? (isKeyboardVisible ? trackedKeyboardHeight : 0)
         var rawKeyboardOffset = max(rawInputH - bottomInset, 0)
         var keyboardOffset = rawKeyboardOffset
 
@@ -602,6 +636,9 @@ final class ChatViewController: ViewController {
 
     @objc private func handleSocketReconnected(_ notification: Notification) {
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
+        if pendingMarkAsRead {
+            markChannelAsRead()
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
@@ -755,7 +792,7 @@ final class ChatViewController: ViewController {
             Self.removeDeliveredNotifications(forChannelId: channel.channelID)
         }
 
-        if channel.channelLabel.isEmpty {
+        if channel.channelLabel.isEmpty || channel.type == 0 {
             resolveChannelLabelFromCache()
         }
 
@@ -817,22 +854,26 @@ final class ChatViewController: ViewController {
 
     private func resolveChannelLabelFromCache() {
         if clanId == 0 {
-            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
             }
         } else {
-            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
             }
         }
     }
 
     private func resolveChannelLabelFromNetwork(token: String) {
-        guard channel.channelLabel.isEmpty else { return }
+        guard channel.channelLabel.isEmpty || channel.type == 0 else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
 
@@ -845,14 +886,17 @@ final class ChatViewController: ViewController {
                     if let found = channels.first(where: { $0.channelID == self.channel.channelID }) {
                         self.channel = found
                         self.setChannelLabel(found.channelLabel)
+                        self.syncChannelToComposer()
                         return
                     }
                 }
                 let channels = try await self.context.account.network.listChannelByUserId(token: token)
-                if let found = channels.channeldesc.first(where: { $0.channelID == self.channel.channelID }),
-                   !found.channelLabel.isEmpty {
+                if let found = channels.channeldesc.first(where: { $0.channelID == self.channel.channelID }) {
                     self.channel = found
-                    self.setChannelLabel(found.channelLabel)
+                    if !found.channelLabel.isEmpty {
+                        self.setChannelLabel(found.channelLabel)
+                    }
+                    self.syncChannelToComposer()
                 }
             } catch {
             }
@@ -861,21 +905,29 @@ final class ChatViewController: ViewController {
 
     private func tryResolveLabelFromPostbox() -> Bool {
         if clanId == 0 {
-            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
-                return true
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
+                return !cached.channelLabel.isEmpty && cached.type != 0
             }
         } else {
-            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID),
-               !cached.channelLabel.isEmpty {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
                 channel = cached
-                setChannelLabel(cached.channelLabel)
-                return true
+                if !cached.channelLabel.isEmpty {
+                    setChannelLabel(cached.channelLabel)
+                }
+                syncChannelToComposer()
+                return !cached.channelLabel.isEmpty && cached.type != 0
             }
         }
         return false
+    }
+
+    private func syncChannelToComposer() {
+        sendInputViewController.channel = channel
     }
 
     static func removeDeliveredNotifications(forChannelId channelId: Int64) {
@@ -922,9 +974,11 @@ final class ChatViewController: ViewController {
         guard let lastMessage = messages.last else { return }
         guard let messageId = Int64(lastMessage.message.id) else { return }
         guard context.account.socket.isConnected else {
+            pendingMarkAsRead = true
             return
         }
         hasMarkedAsRead = true
+        pendingMarkAsRead = false
 
         let channelUnreadCount = channel.countMessUnread
 
@@ -1279,7 +1333,8 @@ final class ChatViewController: ViewController {
         }
 
         let displays = validRecords.map { record -> ChatMessageDisplay in
-            let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
+            let parsedRaw = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
+            let parsed = enrichParsedHashtags(parsedRaw, fallbackClanId: record.clanId)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
 
@@ -1953,6 +2008,10 @@ final class ChatViewController: ViewController {
             advancePanelView.resetToCollapsed()
             UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
         }
+
+        if let layout = lastLayout {
+            containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
+        }
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
@@ -2369,6 +2428,161 @@ final class ChatViewController: ViewController {
         self.navigationController?.pushViewController(vc, animated: true)
     }
 
+    private func enrichParsedHashtags(_ parsed: ParsedContent, fallbackClanId: String?) -> ParsedContent {
+        let channels = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+        let fallbackClan = fallbackClanId.flatMap { Int64($0) } ?? 0
+        let newTokens: [ContentToken] = parsed.tokens.map { token in
+            guard case .hashtag(let cid, let clanIdOpt, let label, let ctype, let cpriv, let age) = token.kind else {
+                return token
+            }
+            if ctype != nil { return token }
+            guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
+            let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
+            if let ch = channels.first(where: { $0.channelID == idInt && (clanInt == 0 || $0.clanID == clanInt) }) {
+                return ContentToken(
+                    start: token.start,
+                    end: token.end,
+                    kind: .hashtag(
+                        channelId: cid,
+                        clanId: clanIdOpt,
+                        channelLabel: label,
+                        channelType: ch.type,
+                        channelPrivate: ch.channelPrivate,
+                        ageRestricted: ch.ageRestricted
+                    )
+                )
+            }
+            return token
+        }
+        return ParsedContent(text: parsed.text, tokens: newTokens, embeds: parsed.embeds)
+    }
+
+    private func resolveVoiceMemberForJoinVoice(userId: String, clanIdForMembers: Int64) -> VoiceMemberDisplay? {
+        guard let uidInt = Int64(userId) else { return nil }
+        let member = context.account.postbox.read {
+            $0.getClanMembers(clanId: clanIdForMembers)
+        }.first(where: { $0.userId == uidInt })
+        let name: String
+        if let m = member {
+            if !m.clanNick.isEmpty {
+                name = m.clanNick
+            } else if !m.displayName.isEmpty {
+                name = m.displayName
+            } else if !m.username.isEmpty {
+                name = m.username
+            } else {
+                return nil
+            }
+        } else if let profile = context.account.postbox.read({ $0.getProfile(userId: userId) }) {
+            name = profile.displayName ?? profile.username
+        } else {
+            return nil
+        }
+        let avatar: String?
+        if let m = member {
+            if !m.clanAvatar.isEmpty {
+                avatar = m.clanAvatar
+            } else {
+                avatar = context.account.postbox.read({ $0.getProfile(userId: userId) })?.avatarUrl
+            }
+        } else {
+            avatar = context.account.postbox.read({ $0.getProfile(userId: userId) })?.avatarUrl
+        }
+        return VoiceMemberDisplay(name: name, avatarURL: avatar)
+    }
+
+    private func parentChannelNameForVoice(channel: Mezon_Api_ChannelDescription) -> String? {
+        guard channel.parentID != 0 else { return nil }
+        let channels = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+        return channels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+    }
+
+    private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
+        view.endEditing(true)
+        let title = channel.channelLabel.isEmpty
+            ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
+            : channel.channelLabel
+        let clanForMembers = channel.clanID != 0 ? channel.clanID : clanId
+        var voiceUserIds: [String] = []
+        let sources: [Mezon_Api_VoiceChannelUserList?] = [
+            context.engine.clanData.getVoiceUsers(clanId: clanForMembers),
+            context.engine.clanData.getStreamUsers(clanId: clanForMembers),
+        ]
+        for list in sources.compactMap({ $0 }) {
+            for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !voiceUserIds.contains(uid) {
+                    voiceUserIds.append(uid)
+                }
+            }
+        }
+        let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMemberForJoinVoice(userId: $0, clanIdForMembers: clanForMembers) }
+        let targetClan = channel.clanID != 0 ? channel.clanID : clanId
+        let sheet = JoinVoiceChannelSheetViewController(
+            channelTitle: title,
+            chatUnreadCount: Int(channel.countMessUnread),
+            members: resolvedMembers,
+            onChat: { [weak self] in
+                guard let self, let nav = self.navigationController else { return }
+                let parentName = self.parentChannelNameForVoice(channel: channel)
+                let chatVC = ChatViewController(
+                    clanId: targetClan,
+                    channel: channel,
+                    context: self.context,
+                    parentName: parentName
+                )
+                nav.pushViewController(chatVC, animated: true)
+            },
+            onJoinVoice: { [weak self] in
+                guard let self, let nav = self.navigationController else { return }
+                let pip = VoiceChannelPiPOverlay.shared
+                let ch = channel
+                if pip.isActive {
+                    if pip.channel?.channelID == ch.channelID {
+                        let vc = VoiceChannelRoomViewController(
+                            context: self.context,
+                            channel: ch,
+                            parentChannelName: self.parentChannelNameForVoice(channel: ch),
+                            existingPiPOverlay: pip
+                        )
+                        nav.pushViewController(vc, animated: true)
+                        return
+                    } else {
+                        pip.dismiss()
+                    }
+                }
+                let vc = VoiceChannelRoomViewController(
+                    context: self.context,
+                    channel: ch,
+                    parentChannelName: self.parentChannelNameForVoice(channel: ch)
+                )
+                nav.pushViewController(vc, animated: true)
+            },
+            onInvite: {}
+        )
+        sheet.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            sheet.sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
+                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { ctx in
+                    min(targetHeight, ctx.maximumDetentValue)
+                }
+                sheet.sheetPresentationController?.detents = [contentDetent]
+                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        present(sheet, animated: true)
+        CATransaction.commit()
+    }
+
     private func showMemberProfile(_ display: ChatMessageDisplay) {
         let senderId = display.message.senderId
         guard let senderIdInt = Int64(senderId) else { return }
@@ -2405,15 +2619,12 @@ final class ChatViewController: ViewController {
 
         var user = Mezon_Api_User()
         user.id = userIdInt
-        if let clanUsers = context.engine.clanData.getClanUsers(clanId: context.currentClanId) {
-            if let found = clanUsers.clanUsers.first(where: { $0.user.id == userIdInt }) {
-                user = found.user
-            }
-        }
-        if user.displayName.isEmpty, let allUsers = context.engine.clanData.getAllUserClans() {
-            if let found = allUsers.users.first(where: { $0.id == userIdInt }) {
-                user = found
-            }
+        if clanId != 0, let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+           let found = clanUsers.clanUsers.first(where: { $0.user.id == userIdInt }) {
+            user = Self.apiUserForMemberProfile(from: found)
+        } else if let allUsers = context.engine.clanData.getAllUserClans(),
+                  let found = allUsers.users.first(where: { $0.id == userIdInt }) {
+            user = found
         }
 
         view.endEditing(true)
@@ -2724,6 +2935,17 @@ extension ChatViewController: CLLocationManagerDelegate {
 }
 
 extension ChatViewController {
+
+    fileprivate static func apiUserForMemberProfile(from clanUser: Mezon_Api_ClanUserList.ClanUser) -> Mezon_Api_User {
+        var u = clanUser.user
+        if !clanUser.clanNick.isEmpty {
+            u.displayName = clanUser.clanNick
+        }
+        if !clanUser.clanAvatar.isEmpty {
+            u.avatarURL = clanUser.clanAvatar
+        }
+        return u
+    }
 
     func startCall() {
         let isDM = clanId == 0

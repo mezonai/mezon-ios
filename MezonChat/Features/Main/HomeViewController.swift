@@ -28,6 +28,9 @@ final class HomeViewController: BaseViewController {
         bindSearchTapped()
         bindLogoTap()
         applyInitialClanSelection()
+        DispatchQueue.main.async { [weak self] in
+            self?.applyInitialClanSelection()
+        }
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleHomeThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonNewMessageReceived"), object: nil)
@@ -194,5 +197,8 @@ final class HomeViewController: BaseViewController {
         }
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        disposables.dispose()
+    }
 }

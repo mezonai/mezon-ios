@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os.log
 
 final class KeychainHelper {
 
@@ -7,6 +8,7 @@ final class KeychainHelper {
     private init() {}
 
     private let service = "mezon.postbox.dbkeys"
+    private static let log = OSLog(subsystem: "mezon.security", category: "keychain")
 
     func databaseKey(for identifier: String) -> Data {
         let account = "db.\(identifier)"
@@ -17,34 +19,44 @@ final class KeychainHelper {
             SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
         }
         guard result == errSecSuccess else {
-
-            return Data(repeating: 0xAB, count: 32)
+            fatalError("SecRandomCopyBytes failed with status \(result). Cannot generate database encryption key.")
         }
-        save(account: account, data: key)
+        guard save(account: account, data: key) else {
+            fatalError("Failed to save database encryption key to Keychain for \(identifier).")
+        }
         return key
     }
 
-    private func save(account: String, data: Data) {
-        let query: [CFString: Any] = [
-            kSecClass:           kSecClassGenericPassword,
-            kSecAttrService:     service,
-            kSecAttrAccount:     account,
-            kSecValueData:       data,
-            kSecAttrAccessible:  kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    @discardableResult
+    private func save(account: String, data: Data) -> Bool {
+        let deleteQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
         ]
-        SecItemDelete(query as CFDictionary)
-        let status = SecItemAdd(query as CFDictionary, nil)
+        SecItemDelete(deleteQuery as CFDictionary)
+        let addQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
         if status != errSecSuccess {
+            os_log(.error, log: Self.log, "SecItemAdd failed: %d for account %{public}@", status, account)
+            return false
         }
+        return true
     }
 
     private func load(account: String) -> Data? {
         let query: [CFString: Any] = [
-            kSecClass:       kSecClassGenericPassword,
+            kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
-            kSecReturnData:  true,
-            kSecMatchLimit:  kSecMatchLimitOne
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)

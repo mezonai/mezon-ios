@@ -132,6 +132,8 @@ private final class MentionSuggestionCell: UITableViewCell {
     private var avatarWidthConstraint: NSLayoutConstraint!
     private var nameLeadingToAvatarConstraint: NSLayoutConstraint!
     private var nameLeadingToContentConstraint: NSLayoutConstraint!
+    private var currentAvatarTask: URLSessionDataTask?
+    private var currentAvatarURL: String?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -174,6 +176,7 @@ private final class MentionSuggestionCell: UITableViewCell {
         let t = UIColor.theme
         backgroundColor = t.secondary
         contentView.backgroundColor = t.secondary
+        cancelAvatarLoad()
         avatarImageView.isHidden = false
         placeholderLabel.isHidden = true
         avatarImageView.image = nil
@@ -191,15 +194,17 @@ private final class MentionSuggestionCell: UITableViewCell {
             nameLabel.text = member.displayName
             usernameLabel.text = member.username
 
-            if let url = member.avatarURL, !url.isEmpty, let imageURL = URL(string: url) {
-                placeholderLabel.isHidden = true
-                avatarImageView.backgroundColor = .clear
-                loadAvatar(from: imageURL)
+            if let raw = member.avatarURL, !raw.isEmpty {
+                let proxied = ImgproxyURL.create(from: raw, width: 56, height: 56)
+                if let imageURL = URL(string: proxied) {
+                    placeholderLabel.isHidden = true
+                    avatarImageView.backgroundColor = .clear
+                    loadAvatar(from: imageURL, key: proxied)
+                } else {
+                    showPlaceholder(for: member.displayName)
+                }
             } else {
-                avatarImageView.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-                let initial = String(member.displayName.prefix(1)).uppercased()
-                placeholderLabel.text = initial
-                placeholderLabel.isHidden = false
+                showPlaceholder(for: member.displayName)
             }
 
         case .role(_, let title, let colorHex, let iconURL):
@@ -208,15 +213,17 @@ private final class MentionSuggestionCell: UITableViewCell {
             usernameLabel.text = ""
             nameLabel.text = title
             let accent = UIColor(hexString: colorHex) ?? t.textRoleLink
-            if let s = iconURL, !s.isEmpty, let imageURL = URL(string: s) {
-                avatarImageView.backgroundColor = .clear
-                avatarImageView.contentMode = .scaleAspectFit
-                loadAvatar(from: imageURL)
+            if let s = iconURL, !s.isEmpty {
+                let proxied = ImgproxyURL.create(from: s, width: 56, height: 56)
+                if let imageURL = URL(string: proxied) {
+                    avatarImageView.backgroundColor = .clear
+                    avatarImageView.contentMode = .scaleAspectFit
+                    loadAvatar(from: imageURL, key: proxied)
+                } else {
+                    showRolePlaceholder(accent: accent)
+                }
             } else {
-                avatarImageView.backgroundColor = .clear
-                avatarImageView.contentMode = .scaleAspectFit
-                avatarImageView.image = UIImage(systemName: "shield.fill")?.withRenderingMode(.alwaysTemplate)
-                avatarImageView.tintColor = accent
+                showRolePlaceholder(accent: accent)
             }
 
         case .here:
@@ -230,27 +237,51 @@ private final class MentionSuggestionCell: UITableViewCell {
         }
     }
 
-    private func loadAvatar(from url: URL) {
-        let cacheKey = url.absoluteString
-        if let cached = ImageCache.shared.image(forKey: cacheKey) {
+    private func showPlaceholder(for displayName: String) {
+        avatarImageView.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+        let initial = String(displayName.prefix(1)).uppercased()
+        placeholderLabel.text = initial
+        placeholderLabel.isHidden = false
+    }
+
+    private func showRolePlaceholder(accent: UIColor) {
+        avatarImageView.backgroundColor = .clear
+        avatarImageView.contentMode = .scaleAspectFit
+        avatarImageView.image = UIImage(systemName: "shield.fill")?.withRenderingMode(.alwaysTemplate)
+        avatarImageView.tintColor = accent
+    }
+
+    private func cancelAvatarLoad() {
+        currentAvatarTask?.cancel()
+        currentAvatarTask = nil
+        currentAvatarURL = nil
+    }
+
+    private func loadAvatar(from url: URL, key: String) {
+        currentAvatarURL = key
+        if let cached = ImageCache.shared.image(forKey: key) {
             avatarImageView.image = cached
             return
         }
         avatarImageView.image = nil
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
-            ImageCache.shared.setImage(image, data: data, forKey: cacheKey)
+            ImageCache.shared.setImage(image, data: data, forKey: key)
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.currentAvatarURL == key else { return }
                 self.avatarImageView.image = image
             }
-        }.resume()
+        }
+        currentAvatarTask = task
+        task.resume()
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        cancelAvatarLoad()
         avatarImageView.image = nil
         avatarImageView.tintColor = nil
+        avatarImageView.backgroundColor = .clear
         placeholderLabel.text = nil
         placeholderLabel.textColor = .white
         nameLabel.text = nil

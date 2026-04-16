@@ -1,11 +1,17 @@
 import Foundation
 import SwiftProtobuf
 
+struct ParsedEmbedField: Equatable {
+    let name: String
+    let value: String
+}
+
 struct ParsedEmbed {
     let color: String?
     let title: String?
     let url: String?
     let description: String?
+    let fields: [ParsedEmbedField]
     let imageURL: String?
     let imageWidth: Int?
     let imageHeight: Int?
@@ -53,7 +59,7 @@ struct ParsedContent {
 enum ContentTokenKind {
     case emoji(emojiId: String)
     case mention(userId: String?, roleId: String?, username: String?)
-    case hashtag(channelId: String?, clanId: String?, channelLabel: String?)
+    case hashtag(channelId: String?, clanId: String?, channelLabel: String?, channelType: Int32?, channelPrivate: Int32?, ageRestricted: Int32?)
     case inlineCode
     case codeBlock
     case bold
@@ -157,6 +163,11 @@ enum MessageContentParser {
         return []
     }
 
+    private static func int32Value(_ v: Any?) -> Int32? {
+        guard let i = intValue(v) else { return nil }
+        return Int32(i)
+    }
+
     private static func parseHashtags(_ items: [[String: Any]]) -> [ContentToken] {
         items.compactMap { item in
             guard let s = intValue(item["s"]),
@@ -164,7 +175,16 @@ enum MessageContentParser {
             let channelId = stringValue(item["channelId"]) ?? stringValue(item["channelid"])
             let clanId = stringValue(item["clanId"])
             let channelLabel = stringValue(item["channelLabel"]) ?? stringValue(item["channelIabel"])
-            return ContentToken(start: s, end: e, kind: .hashtag(channelId: channelId, clanId: clanId, channelLabel: channelLabel))
+            let channelType = int32Value(item["channelType"]) ?? int32Value(item["type"])
+            let channelPrivate = int32Value(item["channelPrivate"]) ?? 0
+            let ageRestricted = int32Value(item["ageRestricted"]) ?? 0
+            return ContentToken(
+                start: s, end: e,
+                kind: .hashtag(
+                    channelId: channelId, clanId: clanId, channelLabel: channelLabel,
+                    channelType: channelType, channelPrivate: channelPrivate, ageRestricted: ageRestricted
+                )
+            )
         }
     }
 
@@ -222,11 +242,19 @@ enum MessageContentParser {
 
             let timestamp = item["timestamp"] as? String
 
-            let hasContent = title != nil || description != nil || imageURL != nil || thumbnailURL != nil || authorName != nil
+            let fields: [ParsedEmbedField] = (item["fields"] as? [[String: Any]])?.compactMap { f in
+                let name = ((f["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let valueRaw = f["value"] as? String else { return nil }
+                let value = valueRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else { return nil }
+                return ParsedEmbedField(name: name, value: value)
+            } ?? []
+
+            let hasContent = title != nil || description != nil || !fields.isEmpty || imageURL != nil || thumbnailURL != nil || authorName != nil
             guard hasContent else { return nil }
 
             return ParsedEmbed(
-                color: color, title: title, url: url, description: description,
+                color: color, title: title, url: url, description: description, fields: fields,
                 imageURL: imageURL, imageWidth: imageWidth, imageHeight: imageHeight,
                 thumbnailURL: thumbnailURL, footerText: footerText, footerIconURL: footerIconURL,
                 authorName: authorName, authorIconURL: authorIconURL, timestamp: timestamp
