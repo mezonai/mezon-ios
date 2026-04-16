@@ -468,6 +468,9 @@ final class SettingsViewController: BaseViewController {
         guard let row = gesture.row else { return }
 
         switch row.title {
+        case L(L10n.Settings.account):
+            let vc = AccountSettingsViewController(context: context)
+            navigationController?.pushViewController(vc, animated: true)
         case L(L10n.Settings.appearance):
             let vc = AppThemeViewController()
             navigationController?.pushViewController(vc, animated: true)

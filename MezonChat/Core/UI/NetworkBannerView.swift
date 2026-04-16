@@ -65,12 +65,11 @@ final class NetworkBannerView: UIView {
     private func hide() {
         hideWorkItem?.cancel()
         hideWorkItem = nil
-        guard isShowing else { return }
         isShowing = false
+        let needsAnimate = !isHidden || alpha > 0.01
+        guard needsAnimate else { return }
         UIView.animate(withDuration: 0.3, animations: { self.alpha = 0 }) { _ in
-            if !self.isShowing {
-                self.isHidden = true
-            }
+            self.isHidden = true
         }
     }
 
@@ -106,9 +105,10 @@ final class NetworkBannerView: UIView {
             forName: NetworkMonitor.statusDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak banner] _ in
+        ) { [weak banner] notification in
             guard let banner else { return }
-            if NetworkMonitor.shared.isConnected {
+            let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+            if connected {
                 banner.hide()
             } else {
                 banner.show()

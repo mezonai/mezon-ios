@@ -10,8 +10,29 @@ struct ClanListInteraction {
 final class ClanListContainerNode: ASDisplayNode {
 
     static let iconSize: CGFloat = 42.swh
+    static let logoImageWidth: CGFloat = 42.swh
+    static let logoImageHeight: CGFloat = 42.swh
 
     private let collectionView: UICollectionView
+    private let logoHeaderView = UIView()
+    private let logoImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.backgroundColor = .clear
+        iv.layer.cornerRadius = 12.swh
+        iv.image = UIImage(named: "MezonLogo")
+        iv.translatesAutoresizingMaskIntoConstraints = true
+        iv.autoresizingMask = []
+        iv.isUserInteractionEnabled = true
+        return iv
+    }()
+    private let logoSeparatorLine: UIView = {
+        let line = UIView()
+        line.translatesAutoresizingMaskIntoConstraints = true
+        line.autoresizingMask = []
+        return line
+    }()
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
@@ -36,6 +57,7 @@ final class ClanListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
+                let prevDmFingerprint = Self.unreadDmStripFingerprint(self.state.unreadDMs)
                 let prevClanId = self.state.selectedClanId
                 let wasLoading = self.state.isLoading
                 let prevDMCount = self.state.unreadDMs.count
@@ -48,22 +70,32 @@ final class ClanListContainerNode: ASDisplayNode {
                     else { self.loadingIndicator.stopAnimating() }
                 }
 
-                let hasClanSection = self.collectionView.numberOfSections > 2
-                let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 2) : 0
+                let hasClanSection = self.collectionView.numberOfSections > 1
+                let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
 
                 let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
                 let newClanBadges = newState.clans.map { $0.badgeCount }
                 let badgesChanged = prevDMBadges != newDMBadges || prevClanBadges != newClanBadges
+                let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
+                let dmStripIdentityChanged = prevDmFingerprint != newDmFingerprint
 
                 if newState.clans.count != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged {
                     self.collectionView.reloadData()
+                } else if dmStripIdentityChanged {
+                    if self.collectionView.numberOfSections > 0 {
+                        UIView.performWithoutAnimation {
+                            self.collectionView.reloadSections(IndexSet(integer: 0))
+                        }
+                    } else {
+                        self.collectionView.reloadData()
+                    }
                 } else if prevClanId != newState.selectedClanId {
                     var paths: [IndexPath] = []
                     if let prev = prevClanId, let idx = newState.clans.firstIndex(where: { $0.clanID == prev }) {
-                        paths.append(IndexPath(item: idx, section: 2))
+                        paths.append(IndexPath(item: idx, section: 1))
                     }
                     if let curr = newState.selectedClanId, let idx = newState.clans.firstIndex(where: { $0.clanID == curr }) {
-                        paths.append(IndexPath(item: idx, section: 2))
+                        paths.append(IndexPath(item: idx, section: 1))
                     }
                     if !paths.isEmpty {
                         UIView.performWithoutAnimation { self.collectionView.reloadItems(at: paths) }
@@ -84,7 +116,6 @@ final class ClanListContainerNode: ASDisplayNode {
         collectionView.showsVerticalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.register(ClanCell.self, forCellWithReuseIdentifier: ClanCell.reuseID)
-        collectionView.register(LogoCell.self, forCellWithReuseIdentifier: LogoCell.reuseID)
         collectionView.register(UnreadDMBadgeCell.self, forCellWithReuseIdentifier: UnreadDMBadgeCell.reuseID)
         collectionView.register(UICollectionReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter, withReuseIdentifier: "separator")
         collectionView.dataSource = self
@@ -93,21 +124,49 @@ final class ClanListContainerNode: ASDisplayNode {
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
 
+        logoHeaderView.translatesAutoresizingMaskIntoConstraints = false
+        logoHeaderView.backgroundColor = .clear
+        logoHeaderView.clipsToBounds = false
+        logoHeaderView.addSubview(logoImageView)
+        logoHeaderView.addSubview(logoSeparatorLine)
+        let logoTap = UITapGestureRecognizer(target: self, action: #selector(logoTapped))
+        logoImageView.addGestureRecognizer(logoTap)
+
         view.addSubview(collectionView)
+        view.addSubview(logoHeaderView)
         view.addSubview(loadingIndicator)
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
-        let topY = layout.safeInsets.top + 6.sh
+        let topY = layout.safeInsets.top + 4.sh
         let centerX = layout.size.width / 2
+        let contentWidth = layout.size.width
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
         CATransaction.commit()
 
+        let logoTopPad: CGFloat = 6.sh
+        let logoHeaderHeight = logoTopPad + Self.logoImageHeight + 16.sh
+        transition.updateFrame(view: logoHeaderView, frame: CGRect(
+            x: 0, y: topY, width: contentWidth, height: logoHeaderHeight
+        ))
+
+        let logoX = (contentWidth - Self.logoImageWidth) / 2
+        logoImageView.frame = CGRect(
+            x: logoX, y: logoTopPad, width: Self.logoImageWidth, height: Self.logoImageHeight
+        )
+        let sepScale = 1.0 / UIScreen.main.scale
+        let sepW = contentWidth * 0.5
+        let sepY = logoHeaderHeight - 8.sh - sepScale / 2
+        logoSeparatorLine.frame = CGRect(
+            x: (contentWidth - sepW) / 2, y: sepY, width: sepW, height: sepScale
+        )
+
         transition.updateFrame(view: collectionView, frame: CGRect(
-            x: 0, y: topY, width: layout.size.width, height: layout.size.height - topY - layout.intrinsicInsets.bottom
+            x: 0, y: topY + logoHeaderHeight, width: contentWidth,
+            height: layout.size.height - topY - logoHeaderHeight - layout.intrinsicInsets.bottom
         ))
 
         let liSize: CGFloat = 24.swh
@@ -121,7 +180,20 @@ final class ClanListContainerNode: ASDisplayNode {
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         backgroundColor = .clear
         loadingIndicator.color = t.textDisabled
+        logoSeparatorLine.backgroundColor = t.border.withAlphaComponent(0.3)
         collectionView.reloadData()
+    }
+
+    private static func unreadDmStripFingerprint(_ dms: [Mezon_Api_ChannelDescription]) -> String {
+        dms.map { dm in
+            let avatarSig: String
+            if dm.type == MezonConstants.ChannelType.dm.rawValue {
+                avatarSig = dm.avatars.filter { !$0.isEmpty }.joined(separator: "|")
+            } else {
+                avatarSig = dm.channelAvatar
+            }
+            return "\(dm.channelID)|\(dm.type)|\(dm.countMessUnread)|\(avatarSig)|\(dm.channelLabel)"
+        }.joined(separator: "\u{1e}")
     }
 
     @objc private func logoTapped() { interaction.onLogoTapped() }
@@ -129,24 +201,18 @@ final class ClanListContainerNode: ASDisplayNode {
 
 extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
 
-    func numberOfSections(in collectionView: UICollectionView) -> Int { 3 }
+    func numberOfSections(in collectionView: UICollectionView) -> Int { 2 }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         switch section {
-        case 0: return 1
-        case 1: return state.unreadDMs.count
-        case 2: return state.clans.count
+        case 0: return state.unreadDMs.count
+        case 1: return state.clans.count
         default: return 0
         }
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if indexPath.section == 0 {
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LogoCell.reuseID, for: indexPath) as! LogoCell
-            cell.onTap = { [weak self] in self?.interaction.onLogoTapped() }
-            return cell
-        }
-        if indexPath.section == 1 {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: UnreadDMBadgeCell.reuseID, for: indexPath) as! UnreadDMBadgeCell
             let dm = state.unreadDMs[indexPath.item]
             cell.configure(with: dm)
@@ -160,8 +226,6 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         if indexPath.section == 0 {
-            interaction.onLogoTapped()
-        } else if indexPath.section == 1 {
             interaction.onSelectDM(state.unreadDMs[indexPath.item])
         } else {
             interaction.onSelectClan(state.clans[indexPath.item])
@@ -175,9 +239,6 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, insetForSectionAt section: Int) -> UIEdgeInsets {
         let sideInset = (collectionView.bounds.width - Self.iconSize) / 2
         if section == 0 {
-            return UIEdgeInsets(top: 6.sh, left: sideInset, bottom: 0, right: sideInset)
-        }
-        if section == 1 {
             return state.unreadDMs.isEmpty
                 ? .zero
                 : UIEdgeInsets(top: 4.sh, left: sideInset, bottom: 0, right: sideInset)
@@ -190,14 +251,14 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForFooterInSection section: Int) -> CGSize {
-        if section == 0 || (section == 1 && !state.unreadDMs.isEmpty) {
+        if section == 0 && !state.unreadDMs.isEmpty {
             return CGSize(width: collectionView.bounds.width, height: 16.sh)
         }
         return .zero
     }
 
     func collectionView(_ collectionView: UICollectionView, viewForSupplementaryElementOfKind kind: String, at indexPath: IndexPath) -> UICollectionReusableView {
-        if kind == UICollectionView.elementKindSectionFooter && (indexPath.section == 0 || (indexPath.section == 1 && !state.unreadDMs.isEmpty)) {
+        if kind == UICollectionView.elementKindSectionFooter && indexPath.section == 0 && !state.unreadDMs.isEmpty {
             let footer = collectionView.dequeueReusableSupplementaryView(ofKind: kind, withReuseIdentifier: "separator", for: indexPath)
             if footer.subviews.count <= 1 {
                 let line = UIView()
@@ -215,37 +276,6 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         }
         return UICollectionReusableView()
     }
-}
-
-private final class LogoCell: UICollectionViewCell {
-    static let reuseID = "LogoCell"
-
-    var onTap: (() -> Void)?
-
-    private let logoImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFill
-        iv.clipsToBounds = true
-        iv.backgroundColor = .clear
-        iv.layer.cornerRadius = 12.swh
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.addSubview(logoImageView)
-        let sz = ClanListContainerNode.iconSize
-        NSLayoutConstraint.activate([
-            logoImageView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            logoImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            logoImageView.widthAnchor.constraint(equalToConstant: sz),
-            logoImageView.heightAnchor.constraint(equalToConstant: sz),
-        ])
-        logoImageView.image = UIImage(named: "MezonLogo")
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
 }
 
 private final class ClanCell: UICollectionViewCell {
@@ -298,15 +328,6 @@ private final class ClanCell: UICollectionViewCell {
         return l
     }()
 
-    private let unreadDot: UIView = {
-        let v = UIView()
-        v.backgroundColor = .white
-        v.layer.cornerRadius = 4.swh
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.isHidden = true
-        return v
-    }()
-
     private var imageTask: URLSessionDataTask?
     private static let sz: CGFloat = ClanListContainerNode.iconSize
 
@@ -320,7 +341,6 @@ private final class ClanCell: UICollectionViewCell {
         avatarContainer.addSubview(avatarImageView)
         avatarContainer.addSubview(initialsLabel)
         contentView.addSubview(badgeLabel)
-        contentView.addSubview(unreadDot)
 
         NSLayoutConstraint.activate([
             indicatorBar.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -345,11 +365,6 @@ private final class ClanCell: UICollectionViewCell {
             badgeLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 5.swh),
             badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20.swh),
             badgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
-
-            unreadDot.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: -2.swh),
-            unreadDot.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor, constant: -4.swh),
-            unreadDot.widthAnchor.constraint(equalToConstant: 8.swh),
-            unreadDot.heightAnchor.constraint(equalToConstant: 8.swh),
         ])
     }
 
@@ -364,7 +379,6 @@ private final class ClanCell: UICollectionViewCell {
         badgeLabel.isHidden = true
         badgeLabel.layer.borderWidth = 0
         badgeLabel.layer.borderColor = nil
-        unreadDot.isHidden = true
     }
 
     func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool) {
@@ -400,7 +414,7 @@ private final class ClanCell: UICollectionViewCell {
     }
 
     private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString)
+        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
             avatarImageView.image = cached
             return
@@ -542,7 +556,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
 
         if !avatarURL.isEmpty {
             avatarContainer.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: avatarURL)
+            let proxyURL = ImgproxyURL.create(from: avatarURL, width: 150, height: 150)
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {

@@ -10,7 +10,7 @@ final class MessageTextContentNode: ASDisplayNode {
     private var useSegments = false
 
     var onMentionTapped: ((String) -> Void)?
-    var onHashtagTapped: ((String) -> Void)?
+    var onHashtagTapped: ((ChannelHashtagTapInfo) -> Void)?
     var onLinkTapped: ((URL) -> Void)?
 
     private var currentParsedContent: ParsedContent?
@@ -46,7 +46,11 @@ final class MessageTextContentNode: ASDisplayNode {
             if case .emoji = $0.kind { return true }
             return false
         }
-        hasEmoji = containsEmoji
+        let containsChannelHashtag = parsedContent.tokens.contains {
+            if case .hashtag = $0.kind { return true }
+            return false
+        }
+        hasEmoji = containsEmoji || containsChannelHashtag
 
         textNode?.removeFromSupernode()
         emojiLabelNode?.removeFromSupernode()
@@ -62,12 +66,23 @@ final class MessageTextContentNode: ASDisplayNode {
                 switch segment {
                 case .text(let attrText):
                     guard attrText.length > 0 else { continue }
-                    let tn = ASTextNode2()
-                    tn.isUserInteractionEnabled = false
-                    tn.maximumNumberOfLines = 0
-                    tn.attributedText = attrText
-                    addSubnode(tn)
-                    segmentNodes.append((tn, .zero))
+                    if Self.attributedTextNeedsUIKitTextView(attrText) {
+                        let node = ASDisplayNode {
+                            let v = EmojiTextView()
+                            v.attributedText = attrText
+                            return v
+                        }
+                        node.isUserInteractionEnabled = false
+                        addSubnode(node)
+                        segmentNodes.append((node, .zero))
+                    } else {
+                        let tn = ASTextNode2()
+                        tn.isUserInteractionEnabled = false
+                        tn.maximumNumberOfLines = 0
+                        tn.attributedText = attrText
+                        addSubnode(tn)
+                        segmentNodes.append((tn, .zero))
+                    }
 
                 case .codeBlock(let code):
                     let container = CodeBlockContainerNode(code: code)
@@ -84,7 +99,7 @@ final class MessageTextContentNode: ASDisplayNode {
         let attrText = RichTextBuilder.build(from: parsedContent, buzzStyled: buzzStyled)
         currentAttrText = attrText
 
-        if containsEmoji {
+        if containsEmoji || containsChannelHashtag {
             let node = ASDisplayNode { [weak self] () -> UIView in
                 let view = EmojiTextView()
                 view.attributedText = self?.currentAttrText ?? attrText
@@ -114,6 +129,11 @@ final class MessageTextContentNode: ASDisplayNode {
                     size = codeNode.measureSize(maxWidth: maxWidth)
                 } else if let textNode = node as? ASTextNode2 {
                     size = textNode.measure(CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
+                } else if let emojiView = node.view as? EmojiTextView, let attr = emojiView.attributedText {
+                    var w = maxWidth
+                    if w > 10000 || w == .infinity { w = UIScreen.main.bounds.width - 80 }
+                    let measured = Self.textSize(for: attr, maxWidth: w)
+                    size = CGSize(width: w, height: measured.height)
                 } else {
                     size = .zero
                 }
@@ -125,7 +145,7 @@ final class MessageTextContentNode: ASDisplayNode {
             return cachedTextSize
         }
 
-        if let emojiLabelNode, let attrText = currentAttrText {
+        if emojiLabelNode != nil, let attrText = currentAttrText {
             var safeMaxW = maxWidth
             if safeMaxW > 10000 || safeMaxW == .infinity {
                 safeMaxW = UIScreen.main.bounds.width - 80
@@ -165,6 +185,17 @@ final class MessageTextContentNode: ASDisplayNode {
         }
     }
 
+    private static func attributedTextNeedsUIKitTextView(_ attr: NSAttributedString) -> Bool {
+        var found = false
+        attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length)) { value, _, stop in
+            guard let att = value as? NSTextAttachment else { return }
+            if att is EmojiTextAttachment { return }
+            found = true
+            stop.pointee = true
+        }
+        return found
+    }
+
     private static func textSize(for attrText: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(size: CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
@@ -198,12 +229,21 @@ final class MessageTextContentNode: ASDisplayNode {
         }
 
         for (seg, _) in segmentNodes {
-            guard let tn = seg as? ASTextNode2, let attrText = tn.attributedText, attrText.length > 0 else { continue }
-            let localPoint = view.convert(point, to: tn.view)
-            guard tn.bounds.contains(localPoint) else { continue }
-            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: tn.bounds.size) {
-                dispatchLinkAction(result)
-                return
+            if let tn = seg as? ASTextNode2, let attrText = tn.attributedText, attrText.length > 0 {
+                let localPoint = view.convert(point, to: tn.view)
+                guard tn.bounds.contains(localPoint) else { continue }
+                if let result = linkAttribute(in: attrText, at: localPoint, containerSize: tn.bounds.size) {
+                    dispatchLinkAction(result)
+                    return
+                }
+            } else if let emojiView = seg.view as? EmojiTextView, let attrText = emojiView.attributedText, attrText.length > 0 {
+                let inWrap = view.convert(point, to: seg.view)
+                guard seg.bounds.contains(inWrap) else { continue }
+                let localPoint = view.convert(point, to: emojiView.textView)
+                if let result = linkAttribute(in: attrText, at: localPoint, containerSize: emojiView.textView.bounds.size) {
+                    dispatchLinkAction(result)
+                    return
+                }
             }
         }
     }
@@ -225,21 +265,25 @@ final class MessageTextContentNode: ASDisplayNode {
 
         if let val = attrs[.mezonMention] { return (.mezonMention, val) }
         if let val = attrs[.mezonLink] { return (.mezonLink, val) }
-        if let val = attrs[.mezonHashtag] { return (.mezonHashtag, val) }
+        if let pay = attrs[.mezonHashtag], let info = ChannelHashtagTapInfo.parse(pay) {
+            return (.mezonHashtag, info)
+        }
         return nil
     }
 
     private func dispatchLinkAction(_ result: (key: NSAttributedString.Key, value: Any)) {
-        let stringValue = "\(result.value)"
         switch result.key {
         case .mezonMention:
-            onMentionTapped?(stringValue)
+            onMentionTapped?("\(result.value)")
         case .mezonLink:
+            let stringValue = "\(result.value)"
             if let url = URL(string: stringValue) {
                 onLinkTapped?(url)
             }
         case .mezonHashtag:
-            onHashtagTapped?(stringValue)
+            if let info = result.value as? ChannelHashtagTapInfo {
+                onHashtagTapped?(info)
+            }
         default:
             break
         }
@@ -250,19 +294,21 @@ final class MessageTextContentNode: ASDisplayNode {
 
 extension MessageTextContentNode: ASTextNodeDelegate {
 
-    func textNode(_ textNode: ASTextNode, shouldHighlightLinkAttribute attribute: String, value: Any, at point: CGPoint) -> Bool {
-        return true
+    func textNode(_ textNode: ASTextNode!, shouldHighlightLinkAttribute attribute: String!, value: Any!, at point: CGPoint) -> Bool {
+        true
     }
 
-    func textNode(_ textNode: ASTextNode, tappedLinkAttribute attribute: String, value: Any, at point: CGPoint, textRange: NSRange) {
+    func textNode(_ textNode: ASTextNode!, tappedLinkAttribute attribute: String!, value: Any!, at point: CGPoint, textRange: NSRange) {
+        guard let attribute = attribute, let value = value else { return }
         let stringValue = "\(value)"
         if attribute == NSAttributedString.Key.mezonLink.rawValue,
            let url = URL(string: stringValue) {
             onLinkTapped?(url)
         } else if attribute == NSAttributedString.Key.mezonMention.rawValue {
             onMentionTapped?(stringValue)
-        } else if attribute == NSAttributedString.Key.mezonHashtag.rawValue {
-            onHashtagTapped?(stringValue)
+        } else if attribute == NSAttributedString.Key.mezonHashtag.rawValue,
+                  let info = ChannelHashtagTapInfo.parse(value) {
+            onHashtagTapped?(info)
         }
     }
 }

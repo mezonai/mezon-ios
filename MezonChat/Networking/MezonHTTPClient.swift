@@ -29,7 +29,6 @@ final class MezonHTTPClient {
         let cleaned = stripDefaultPort(apiURL)
         guard let url = URL(string: cleaned) else { return }
         protoBaseURL = url
-        AppLogger.network.info("MezonHTTPClient protoBaseURL updated to \(url)")
     }
 
     private func stripDefaultPort(_ urlString: String) -> String {
@@ -745,10 +744,8 @@ final class MezonHTTPClient {
         request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
         request.httpBody = data
 
-        AppLogger.network.debug("→ PUT (minio) \(url)")
         let (_, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
-        AppLogger.network.debug("← \(http.statusCode) (minio)")
         guard (200..<300).contains(http.statusCode) else {
             throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")
         }
@@ -763,6 +760,17 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.channelApps
+    }
+
+    func generateChannelAppHash(appId: Int64, token: String) async throws -> String {
+        var req = Mezon_Api_GenerateHashChannelAppsRequest()
+        req.appID = appId
+        let response: Mezon_Api_GenerateHashChannelAppsResponse = try await postProto(
+            path: "/mezon.api.Mezon/GenerateHashChannelApps",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.webAppData
     }
 
     func writeMessageReaction(
@@ -987,11 +995,9 @@ final class MezonHTTPClient {
         }
         request.httpBody = try message.serializedData()
 
-        AppLogger.network.debug("→ POST (proto) \(url.absoluteString)")
         let (data, response) = try await urlSession.data(for: request)
 
         guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
-        AppLogger.network.debug("← \(http.statusCode) \(url.path) (\(data.count) bytes)")
 
         if (200..<300).contains(http.statusCode) {
             return try Response(serializedBytes: data)
@@ -1002,7 +1008,6 @@ final class MezonHTTPClient {
             case .bearer = auth,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            AppLogger.network.info("[HTTP] \(http.statusCode) on proto \(url.path); retrying with refreshed session token")
             return try await postProto(
                 path: path,
                 message: message,
@@ -1063,13 +1068,11 @@ final class MezonHTTPClient {
     }
 
     private func execute<T: Decodable>(_ request: URLRequest, allowBearerRetry: Bool = true) async throws -> T {
-        AppLogger.network.debug("→ \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "")")
         let (data, response) = try await urlSession.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw MezonError.invalidResponse
         }
-        AppLogger.network.debug("← \(http.statusCode) \(request.url?.path ?? "")")
 
         if (200..<300).contains(http.statusCode) {
             if T.self == EmptyResponse.self { return EmptyResponse() as! T }
@@ -1081,7 +1084,6 @@ final class MezonHTTPClient {
             request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            AppLogger.network.info("[HTTP] \(http.statusCode) on \(request.url?.path ?? ""); retrying JSON request with refreshed token")
             var retry = request
             retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
             return try await execute(retry, allowBearerRetry: false)

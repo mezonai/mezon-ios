@@ -76,10 +76,22 @@ targets:
       - path: MezonChat
         excludes:
           - "**/.DS_Store"
-          - "**/Secrets.example.swift"
     resources:
       - path: MezonChat/Resources/Assets.xcassets
       - path: MezonChat/Resources/Images.xcassets
+    preBuildScripts:
+      - name: Validate Secrets.swift
+        script: |
+          if [ ! -f "${SRCROOT}/MezonChat/Networking/Secrets.swift" ]; then
+            echo "error: Secrets.swift not found. Create it with prod values (see Secrets enum)."
+            exit 1
+          fi
+          if [ ! -f "${SRCROOT}/MezonChat/GoogleService-Info.plist" ]; then
+            echo "error: GoogleService-Info.plist not found. Download from Firebase Console."
+            exit 1
+          fi
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
     postBuildScripts:
       - name: Generate LiveKitWebRTC dSYM
         script: |
@@ -103,8 +115,6 @@ targets:
         OTHER_SWIFT_FLAGS: "$(inherited) -Xfrontend -disable-target-os-checking"
         OTHER_LDFLAGS: "$(inherited)"
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/MezonChat/Core/SSignalKit/SSignalKit/Source $(SRCROOT)/MezonChat/Core/Display $(SRCROOT)/MezonChat/Core/Display/UIKitRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/ObjCRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/AppBundle"
-        TENOR_API_KEY: AIzaSyA7PmFsiGws1XF-t6jXsVuF6O2DQLa8BpE
-        TENOR_CLIENT_KEY: mezon.ai
       configs:
         Debug:
           DEBUG_INFORMATION_FORMAT: dwarf
@@ -153,8 +163,6 @@ targets:
         NSPasteboardUsageDescription: "Mezon needs access to the clipboard to paste content/images from other apps"
         NSPhotoLibraryAddUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
         NSPhotoLibraryUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
-        TENOR_API_KEY: "$(TENOR_API_KEY)"
-        TENOR_CLIENT_KEY: "$(TENOR_CLIENT_KEY)"
         UIBackgroundModes:
           - voip
           - remote-notification

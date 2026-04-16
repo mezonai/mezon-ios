@@ -7,7 +7,7 @@ enum MezonEnvironment {
     var apiHost: String {
         switch self {
         case .dev:  return "dev-mezon.nccsoft.vn"
-        case .prod: return "api.mezon.ai"
+        case .prod: return Secrets.prodApiHost
         }
     }
 
@@ -21,7 +21,7 @@ enum MezonEnvironment {
     var apiGWHost: String {
         switch self {
         case .dev:  return "dev-mezon.nccsoft.vn"
-        case .prod: return "gw.mezon.ai"
+        case .prod: return Secrets.prodApiGWHost
         }
     }
 
@@ -35,7 +35,7 @@ enum MezonEnvironment {
     var wsHost: String {
         switch self {
         case .dev:  return "dev-mezon.nccsoft.vn"
-        case .prod: return "sock.mezon.ai"
+        case .prod: return Secrets.prodWsHost
         }
     }
 
@@ -55,15 +55,29 @@ enum MezonEnvironment {
 
     var useSSL: Bool { return true }
 
-    var baseImgURL: String { return "https://cdn.mezon.ai" }
-    var profileImgURL: String { return "https://profile.mezon.ai" }
+    var baseImgURL: String {
+        switch self {
+        case .dev:  return "https://cdn.mezon.ai"
+        case .prod: return Secrets.prodBaseImgURL
+        }
+    }
+
+    var profileImgURL: String {
+        switch self {
+        case .dev:  return "https://profile.mezon.ai"
+        case .prod: return Secrets.prodProfileImgURL
+        }
+    }
 
     var authBaseURL: URL {
         var components = URLComponents()
         components.scheme = "https"
         components.host = apiGWHost
         components.port = apiGWPort
-        return components.url!
+        guard let url = components.url else {
+            fatalError("Invalid authBaseURL components: \(components)")
+        }
+        return url
     }
 
     var protoBaseURL: URL {
@@ -71,7 +85,10 @@ enum MezonEnvironment {
         components.scheme = "https"
         components.host = apiHost
         components.port = apiPort
-        return components.url!
+        guard let url = components.url else {
+            fatalError("Invalid protoBaseURL components: \(components)")
+        }
+        return url
     }
 
     func wsURL(token: String) -> URL {
@@ -84,7 +101,10 @@ enum MezonEnvironment {
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "format", value: "protobuf"),
         ]
-        return components.url!
+        guard let url = components.url else {
+            fatalError("Invalid wsURL components: \(components)")
+        }
+        return url
     }
 
     var basicAuthHeader: String {
@@ -107,13 +127,13 @@ enum MezonEnvironment {
         return t.isEmpty ? nil : t
     }
 
-    static var tenorAPIKey: String? { infoPlistString("TENOR_API_KEY") }
-    static var tenorClientKey: String? { infoPlistString("TENOR_CLIENT_KEY") }
+    static var tenorAPIKey: String? { Secrets.tenorAPIKey }
+    static var tenorClientKey: String? { Secrets.tenorClientKey }
 
     var mmnAPIURL: URL {
         switch self {
         case .dev:  return URL(string: "https://dev-mmn.nccsoft.vn/mmn-api/")!
-        case .prod: return URL(string: "https://dong.mezon.ai/mmn-api/")!
+        case .prod: return URL(string: Secrets.prodMmnAPIURL)!
         }
     }
 

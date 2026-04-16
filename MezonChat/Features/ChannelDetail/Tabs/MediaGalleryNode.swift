@@ -64,16 +64,14 @@ final class MediaGalleryNode: ASDisplayNode {
     }
 
     private func fetchMedia() {
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
                 let token = await context.getToken() ?? ""
                 let targetClanId =
                     (channelType == MezonConstants.ChannelType.dm.rawValue
                         || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
 
-                Self.logMediaDiagnostic(
-                    "fetch start channelId=\(channelId) clanId=\(clanId) targetClanId=\(targetClanId) channelType=\(channelType) tokenEmpty=\(token.isEmpty)"
-                )
 
                 let res = try await context.account.network.listChannelAttachments(
                     clanId: targetClanId,
@@ -86,42 +84,16 @@ final class MediaGalleryNode: ASDisplayNode {
                 let visual = raw.filter { Self.isVisualAttachment($0) }
                 self.attachments = visual
 
-                Self.logMediaDiagnostic(
-                    "fetch OK rawCount=\(raw.count) visualCount=\(visual.count) collectionBounds=\(self.collectionNode.bounds)"
-                )
-                if raw.isEmpty {
-                    Self.logMediaDiagnostic("API returned zero attachments for this channel (fileType=image).")
-                } else if visual.isEmpty {
-                    let sample = raw.prefix(5).map {
-                        "{\($0.filename) ft=\($0.filetype)}"
-                    }.joined(separator: ", ")
-                    Self.logMediaDiagnostic(
-                        "all \(raw.count) attachments filtered out as non-visual. sample: \(sample)"
-                    )
-                } else {
-                    let urls = visual.prefix(3).map(\.url).joined(separator: " | ")
-                    Self.logMediaDiagnostic("sample urls: \(urls)")
-                }
-
                 await self.collectionNode.reloadData()
                 self.mediaFetchCompleted = true
                 self.setNeedsLayout()
-                Self.logMediaDiagnostic("reloadData done items=\(self.attachments.count)")
             } catch {
-                AppLogger.network.error("Fetch media failed: \(error)")
-                Self.logMediaDiagnostic("fetch ERROR: \(error)")
                 self.mediaFetchCompleted = true
                 self.setNeedsLayout()
             }
         }
     }
 
-    private static func logMediaDiagnostic(_ message: String) {
-        let line = "[ChannelDetail.Media] \(message)"
-        AppLogger.network.info("\(line)")
-    }
-
-    /// Drops audio and other non-visual types that still appear under `image` filter (e.g. MP3 with ID3).
     private static func isVisualAttachment(_ att: Mezon_Api_ChannelAttachment) -> Bool {
         let ft = att.filetype.lowercased()
         if ft.contains("audio") || ft.hasPrefix("audio/") { return false }
@@ -143,11 +115,6 @@ final class MediaGalleryNode: ASDisplayNode {
         let spacing = flowLayout.minimumInteritemSpacing
         let inner = max(0, collectionWidth - spacing * (columns - 1))
         return max(1, floor(inner / columns))
-    }
-
-    private func thumbnailProxyPixels(forItemSide pt: CGFloat) -> Int {
-        let px = Int((pt * UIScreen.main.scale).rounded(.up))
-        return max(96, min(px, 512))
     }
 
     private func fullScreenProxyPixels() -> Int {
@@ -278,12 +245,10 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
     func collectionNode(_ collectionNode: ASCollectionNode, nodeBlockForItemAt indexPath: IndexPath)
         -> ASCellNodeBlock
     {
-        let attachment = attachments[indexPath.item]
-        let side = gridItemSide(collectionWidth: collectionNode.bounds.width > 1 ? collectionNode.bounds.width : 300)
-        let px = thumbnailProxyPixels(forItemSide: side)
+               let attachment = attachments[indexPath.item]
         let isVideo = Self.isVideo(attachment)
         let imageThumbURL = ImgproxyURL.attachmentURL(
-            from: attachment.url, width: px, height: px, resizeType: "fit")
+            from: attachment.url, width: 100, height: 100, resizeType: "fit")
         let index = indexPath.item
         return { [weak self] in
             let cell = MediaThumbCellNode(

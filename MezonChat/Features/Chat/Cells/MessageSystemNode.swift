@@ -111,8 +111,8 @@ final class MessageSystemNode: ASDisplayNode {
             interaction.onMentionTapped("\(userId)")
         } else if let link = attrs[.mezonLink] as? NSString, let url = URL(string: "\(link)") {
             UIApplication.shared.open(url)
-        } else if let channelId = attrs[.mezonHashtag] as? NSString {
-            interaction.onHashtagTapped("\(channelId)")
+        } else if let pay = attrs[.mezonHashtag], let info = ChannelHashtagTapInfo.parse(pay) {
+            interaction.onHashtagTapped(info)
         }
     }
 

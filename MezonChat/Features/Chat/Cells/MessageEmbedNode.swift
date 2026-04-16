@@ -53,6 +53,7 @@ final class EmbedItemNode: ASDisplayNode {
     private var authorNameNode: ASTextNode2?
     private var titleNode: ASTextNode2?
     private var descriptionNode: ASTextNode2?
+    private var fieldNodes: [ASTextNode2] = []
     private var imageNode: TransformImageNode?
     private var thumbnailNode: TransformImageNode?
     private var footerIconNode: TransformImageNode?
@@ -71,6 +72,7 @@ final class EmbedItemNode: ASDisplayNode {
     private var cachedAuthorNameSize: CGSize = .zero
     private var cachedTitleSize: CGSize = .zero
     private var cachedDescSize: CGSize = .zero
+    private var cachedFieldSizes: [CGSize] = []
     private var cachedImageSize: CGSize = .zero
     private var cachedThumbSize: CGSize = .zero
     private var cachedFooterIconSize: CGSize = .zero
@@ -159,17 +161,48 @@ final class EmbedItemNode: ASDisplayNode {
             addSubnode(node)
         }
 
+        fieldNodes = []
+        for field in embed.fields {
+            let node = ASTextNode2()
+            let mas = NSMutableAttributedString()
+            if !field.name.isEmpty {
+                mas.append(NSAttributedString(
+                    string: field.name + "\n",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: t.textStrong,
+                    ]
+                ))
+            }
+            mas.append(NSAttributedString(
+                string: field.value,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 13),
+                    .foregroundColor: t.text,
+                ]
+            ))
+            node.attributedText = mas
+            node.maximumNumberOfLines = 0
+            fieldNodes.append(node)
+            addSubnode(node)
+        }
+
         if let imageURL = embed.imageURL, !imageURL.isEmpty {
             let node = TransformImageNode()
             node.contentAnimations = [.firstUpdate]
-            node.setSignal(remoteImageSignal(url: imageURL, resizeMode: .fit), attemptSynchronously: false)
+            let scale = Int(UIScreen.main.scale)
+            let embedProxyURL = ImgproxyURL.attachmentURL(from: imageURL, width: Int(UIScreen.main.bounds.width) * scale, height: 400 * scale)
+            let hasMem = ImageCache.shared.memoryImage(forKey: embedProxyURL) != nil
+            node.setSignal(remoteImageSignal(url: embedProxyURL, resizeMode: .fit), attemptSynchronously: hasMem)
             imageNode = node
             addSubnode(node)
         }
 
         if let thumbURL = embed.thumbnailURL, !thumbURL.isEmpty {
             let node = TransformImageNode()
-            node.setSignal(remoteImageSignal(url: thumbURL, resizeMode: .fill), attemptSynchronously: false)
+            let thumbProxy = ImgproxyURL.attachmentURL(from: thumbURL, width: Int(Self.thumbnailSize) * Int(UIScreen.main.scale), height: Int(Self.thumbnailSize) * Int(UIScreen.main.scale), resizeType: "fill")
+            let hasThumbMem = ImageCache.shared.memoryImage(forKey: thumbProxy) != nil
+            node.setSignal(remoteImageSignal(url: thumbProxy, resizeMode: .fill), attemptSynchronously: hasThumbMem)
             let layout = node.asyncLayout()
             let apply = layout(TransformImageArguments(
                 corners: ImageCorners(radius: 4),
@@ -262,6 +295,12 @@ final class EmbedItemNode: ASDisplayNode {
             contentH += cachedDescSize.height + spacing
         }
 
+        cachedFieldSizes = fieldNodes.map {
+            $0.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
+        }
+        for sz in cachedFieldSizes {
+            contentH += sz.height + spacing
+        }
 
         if let footerTextNode {
             cachedFooterTextSize = footerTextNode.measure(CGSize(width: contentMaxW - 30, height: 30))
@@ -343,6 +382,11 @@ final class EmbedItemNode: ASDisplayNode {
         if let descriptionNode {
             descriptionNode.frame = CGRect(x: contentX, y: y, width: cachedDescSize.width, height: cachedDescSize.height)
             y += cachedDescSize.height + spacing
+        }
+
+        for (node, sz) in zip(fieldNodes, cachedFieldSizes) {
+            node.frame = CGRect(x: contentX, y: y, width: sz.width, height: sz.height)
+            y += sz.height + spacing
         }
 
         if let footerTextNode {

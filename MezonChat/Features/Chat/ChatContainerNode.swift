@@ -2,6 +2,26 @@ import AVFoundation
 import AsyncDisplayKit
 import UIKit
 
+struct ChannelHashtagTapInfo: Equatable {
+    let channelId: String
+    let clanId: String?
+
+    static func parse(_ payload: Any) -> ChannelHashtagTapInfo? {
+        if let d = payload as? NSDictionary {
+            let c = (d["c"] as? String) ?? (d["c"] as? NSString).map { "\($0)" } ?? ""
+            if c.isEmpty { return nil }
+            let gRaw = (d["g"] as? String) ?? (d["g"] as? NSString).map { "\($0)" } ?? ""
+            return ChannelHashtagTapInfo(channelId: c, clanId: gRaw.isEmpty ? nil : gRaw)
+        }
+        if let s = payload as? NSString {
+            let c = "\(s)"
+            if c.isEmpty { return nil }
+            return ChannelHashtagTapInfo(channelId: c, clanId: nil)
+        }
+        return nil
+    }
+}
+
 struct ChatInteraction {
     let onBackTapped: () -> Void
     let onHeaderTapped: () -> Void
@@ -14,7 +34,7 @@ struct ChatInteraction {
     let onScrolledToBottom: (Bool) -> Void
     let onJumpToPresent: () -> Void
     let onMentionTapped: (String) -> Void
-    let onHashtagTapped: (String) -> Void
+    let onHashtagTapped: (ChannelHashtagTapInfo) -> Void
     let onMessageLongPressed: (ChatMessageDisplay) -> Void
     let onReplyTapped: (String) -> Void
     let onTopicTapped: (TopicData) -> Void

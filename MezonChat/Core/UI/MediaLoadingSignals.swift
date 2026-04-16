@@ -310,9 +310,14 @@ func remoteAvatarSignal(url: String) -> Signal<(TransformImageArguments) -> Draw
     }
 }
 
+private func emptyDrawingTransform() -> (TransformImageArguments) -> DrawingContext? {
+    return { _ in nil }
+}
+
 func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         guard let imageURL = URL(string: url), !url.isEmpty else {
+            subscriber.putNext(emptyDrawingTransform())
             subscriber.putCompletion()
             return EmptyDisposable
         }
@@ -335,7 +340,9 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
                 return
             }
             let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
-                guard !cancelled.with({ $0 }), let data else {
+                guard !cancelled.with({ $0 }) else { return }
+                guard let data else {
+                    subscriber.putNext(emptyDrawingTransform())
                     subscriber.putCompletion()
                     return
                 }
@@ -343,12 +350,92 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
                 if let image {
                     cache.setImage(image, data: data, forKey: url)
                     subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+                } else {
+                    subscriber.putNext(emptyDrawingTransform())
                 }
                 subscriber.putCompletion()
             }
             dataTask = task
             task.resume()
         }
+
+        return ActionDisposable {
+            let _ = cancelled.modify { _ in true }
+            dataTask?.cancel()
+        }
+    }
+}
+
+func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMode: ImageResizeMode = .fit) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    Signal { subscriber in
+        let cancelled = Atomic<Bool>(value: false)
+        var dataTask: URLSessionDataTask?
+
+        func finishEmpty() {
+            guard !cancelled.with({ $0 }) else { return }
+            subscriber.putNext(emptyDrawingTransform())
+            subscriber.putCompletion()
+        }
+
+        func emitImage(_ image: UIImage) {
+            guard !cancelled.with({ $0 }) else { return }
+            subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+            subscriber.putCompletion()
+        }
+
+        func loadFromNetwork(_ urlString: String, onFailure: @escaping () -> Void) {
+            guard let imageURL = URL(string: urlString), !urlString.isEmpty else {
+                onFailure()
+                return
+            }
+            let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+                guard !cancelled.with({ $0 }) else { return }
+                guard let data, let image = UIImage.decompressedImage(from: data) else {
+                    onFailure()
+                    return
+                }
+                ImageCache.shared.setImage(image, data: data, forKey: urlString)
+                emitImage(image)
+            }
+            dataTask = task
+            task.resume()
+        }
+
+        func tryUrl(_ urlString: String, thenFallback: @escaping () -> Void) {
+            guard !urlString.isEmpty else {
+                thenFallback()
+                return
+            }
+            let cache = ImageCache.shared
+            if let cached = cache.memoryImage(forKey: urlString) {
+                emitImage(cached)
+                return
+            }
+            cache.imageFromDisk(forKey: urlString) { diskImage in
+                guard !cancelled.with({ $0 }) else { return }
+                if let diskImage {
+                    emitImage(diskImage)
+                    return
+                }
+                loadFromNetwork(urlString, onFailure: thenFallback)
+            }
+        }
+
+        guard !proxyURL.isEmpty else {
+            finishEmpty()
+            return EmptyDisposable
+        }
+
+        let fallback: () -> Void = {
+            guard !cancelled.with({ $0 }) else { return }
+            if !originalURL.isEmpty, originalURL != proxyURL {
+                tryUrl(originalURL, thenFallback: finishEmpty)
+            } else {
+                finishEmpty()
+            }
+        }
+
+        tryUrl(proxyURL, thenFallback: fallback)
 
         return ActionDisposable {
             let _ = cancelled.modify { _ in true }

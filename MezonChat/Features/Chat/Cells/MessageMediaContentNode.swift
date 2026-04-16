@@ -1,10 +1,52 @@
 import UIKit
 import AsyncDisplayKit
 
+private final class ShimmerPlaceholderNode: ASDisplayNode {
+    private let gradientLayer = CAGradientLayer()
+
+    override init() {
+        super.init()
+        isLayerBacked = true
+        cornerRadius = 8
+        clipsToBounds = true
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        backgroundColor = UIColor.theme.secondary
+        gradientLayer.colors = [
+            UIColor.theme.secondary.cgColor,
+            UIColor.theme.secondaryLight.cgColor,
+            UIColor.theme.secondary.cgColor,
+        ]
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        gradientLayer.locations = [0, 0.5, 1]
+        layer.addSublayer(gradientLayer)
+        startAnimation()
+    }
+
+    override func layout() {
+        super.layout()
+        gradientLayer.frame = CGRect(x: -bounds.width, y: 0, width: bounds.width * 3, height: bounds.height)
+    }
+
+    private func startAnimation() {
+        let anim = CABasicAnimation(keyPath: "locations")
+        anim.fromValue = [0, 0, 0.25]
+        anim.toValue = [0.75, 1, 1]
+        anim.duration = 1.2
+        anim.repeatCount = .infinity
+        anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        gradientLayer.add(anim, forKey: "shimmer")
+    }
+}
+
 final class MessageMediaContentNode: ASDisplayNode {
 
     private var imageNodes: [TransformImageNode] = []
     private var videoOverlayNodes: [ASDisplayNode] = []
+    private var shimmerNodes: [ShimmerPlaceholderNode] = []
     private var overlayCountNode: ASTextNode2?
     private var overlayBgNode: ASDisplayNode?
     private var stickerNode: ASDisplayNode?
@@ -20,6 +62,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var isSticker = false
     private var isGifSticker = false
     private var isMultiple = false
+    private var lastRemoteProxyURLByIndex: [Int: String] = [:]
 
     override init() {
         super.init()
@@ -31,6 +74,8 @@ final class MessageMediaContentNode: ASDisplayNode {
         imageNodes.removeAll()
         videoOverlayNodes.forEach { $0.removeFromSupernode() }
         videoOverlayNodes.removeAll()
+        shimmerNodes.forEach { $0.removeFromSupernode() }
+        shimmerNodes.removeAll()
         overlayCountNode?.removeFromSupernode()
         overlayCountNode = nil
         overlayBgNode?.removeFromSupernode()
@@ -38,6 +83,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         stickerNode?.removeFromSupernode()
         stickerNode = nil
         attachments = media
+        lastRemoteProxyURLByIndex.removeAll()
         cachedImageFrames = []
 
         isUploading = media.contains { $0.isUploading }
@@ -65,11 +111,17 @@ final class MessageMediaContentNode: ASDisplayNode {
             isSticker = false
             isSingleImage = true
             isMultiple = false
+            let shimmer = ShimmerPlaceholderNode()
+            shimmerNodes.append(shimmer)
+            addSubnode(shimmer)
             let node = TransformImageNode()
             node.contentAnimations = [.firstUpdate]
+            node.imageUpdated = { [weak shimmer] _ in
+                shimmer?.removeFromSupernode()
+            }
             imageNodes.append(node)
             addSubnode(node)
-            loadImage(at: 0, into: node, media: media[0], isMultiple: false)
+            loadImage(at: 0, into: node, media: media[0], isMultiple: false, measuredPtSize: nil)
 
             if media[0].isVideo {
                 let overlay = makePlayOverlayNode()
@@ -87,11 +139,17 @@ final class MessageMediaContentNode: ASDisplayNode {
             isMultiple = true
             let items = Array(media.prefix(4))
             for (i, att) in items.enumerated() {
+                let shimmer = ShimmerPlaceholderNode()
+                shimmerNodes.append(shimmer)
+                addSubnode(shimmer)
                 let node = TransformImageNode()
                 node.contentAnimations = [.firstUpdate]
+                node.imageUpdated = { [weak shimmer] _ in
+                    shimmer?.removeFromSupernode()
+                }
                 imageNodes.append(node)
                 addSubnode(node)
-                loadImage(at: i, into: node, media: att, isMultiple: true)
+                loadImage(at: i, into: node, media: att, isMultiple: true, measuredPtSize: nil)
 
                 if att.isVideo {
                     let overlay = makePlayOverlayNode()
@@ -176,6 +234,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 let apply = layout(args)
                 apply()
             }
+            ensureRemoteImageLoaded(at: 0, media: att, isMultiple: false)
             return cachedTotalSize
         }
 
@@ -209,6 +268,9 @@ final class MessageMediaContentNode: ASDisplayNode {
                 let layout = node.asyncLayout()
                 let apply = layout(args)
                 apply()
+                if i < attachments.count {
+                    ensureRemoteImageLoaded(at: i, media: attachments[i], isMultiple: true)
+                }
             }
 
             cachedImageFrames = frames
@@ -232,6 +294,9 @@ final class MessageMediaContentNode: ASDisplayNode {
         for (i, node) in imageNodes.enumerated() {
             guard i < cachedImageFrames.count else { break }
             node.frame = cachedImageFrames[i]
+            if i < shimmerNodes.count {
+                shimmerNodes[i].frame = cachedImageFrames[i]
+            }
         }
 
 
@@ -306,16 +371,43 @@ final class MessageMediaContentNode: ASDisplayNode {
         }.resume()
     }
 
-    private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool) {
+    private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
+        guard !media.isVideo, media.localImage == nil else { return }
+        guard index < imageNodes.count else { return }
+        let node = imageNodes[index]
+        let w = 400
+        let h = 400
+        let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
+        let proxyURL = ImgproxyURL.attachmentURL(
+            from: media.url,
+            width: w,
+            height: h,
+            resizeType: isMultiple ? "fill" : "fit"
+        )
+        if lastRemoteProxyURLByIndex[index] == proxyURL, node.image != nil { return }
+        lastRemoteProxyURLByIndex[index] = proxyURL
+        node.reset()
+        if index < shimmerNodes.count {
+            let sh = shimmerNodes[index]
+            if sh.supernode == nil {
+                insertSubnode(sh, belowSubnode: node)
+            }
+        }
+        let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
+            || ImageCache.shared.memoryImage(forKey: media.url) != nil
+        node.setSignal(
+            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: media.url, resizeMode: resizeMode),
+            attemptSynchronously: hasMem
+        )
+    }
+
+    private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {
         if let localImage = media.localImage {
             node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
-        } else {
-            let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
-            if media.isVideo {
-                node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
-            } else {
-                node.setSignal(remoteImageSignal(url: media.url, resizeMode: resizeMode), attemptSynchronously: false)
-            }
+        } else if media.isVideo {
+            node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
+        } else if measuredPtSize != nil {
+            ensureRemoteImageLoaded(at: index, media: media, isMultiple: isMultiple)
         }
     }
 

@@ -237,7 +237,11 @@ final class MessageBubbleNode: ASDisplayNode {
             tcn.configure(parsedContent: parsed, buzzStyled: display.isBuzzMessage)
             tcn.onMentionTapped = { interaction.onMentionTapped($0) }
             tcn.onHashtagTapped = { interaction.onHashtagTapped($0) }
-            tcn.onLinkTapped = { UIApplication.shared.open($0) }
+            tcn.onLinkTapped = { url in
+                let scheme = url.scheme?.lowercased() ?? ""
+                guard scheme == "https" || scheme == "http" else { return }
+                UIApplication.shared.open(url)
+            }
             textContentNode = tcn
             addSubnode(tcn)
         }
@@ -262,8 +266,11 @@ final class MessageBubbleNode: ASDisplayNode {
         if hasFiles {
             let fan = MessageFileAttachmentNode()
             fan.configure(files: fileAttachments)
-            fan.onFileTapped = { url in
-                guard let fileURL = URL(string: url) else { return }
+            fan.onFileTapped = { urlString in
+                guard let fileURL = URL(string: urlString),
+                      let scheme = fileURL.scheme?.lowercased(),
+                      scheme == "https" || scheme == "http"
+                else { return }
                 UIApplication.shared.open(fileURL)
             }
             fileAttachmentNode = fan
@@ -426,7 +433,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 boundingSize: CGSize(width: size, height: size),
                 intrinsicInsets: .zero
             )
-            let proxyURL = ImgproxyURL.create(from: urlString, width: Int(size * UIScreen.main.scale), height: Int(size * UIScreen.main.scale))
+            let proxyURL = ImgproxyURL.create(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
             avatarImageNode.setSignal(remoteAvatarSignal(url: proxyURL), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()

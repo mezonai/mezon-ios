@@ -91,19 +91,21 @@ final class NotificationsViewController: ViewController {
         } else {
             guard !isLoading else { return }
         }
-        guard let token = await context.getToken() else { return }
-
+        let token = await context.getToken()
         let clanId = context.currentClanId
+
+        if isLoadMore, token == nil { return }
 
         if category == 4 {
             dataDisposable?.dispose()
-            asyncDetached { [weak self] in
-                guard let self else { return }
-                do {
-                    try await context.engine.topicDiscussion.listTopics(
-                        clanId: clanId, token: token)
-                } catch {
-                    AppLogger.network.error("fetchTopics error: \(error)")
+            if let token {
+                asyncDetached { [weak self] in
+                    guard let self else { return }
+                    do {
+                        try await context.engine.topicDiscussion.listTopics(
+                            clanId: clanId, token: token)
+                    } catch {
+                    }
                 }
             }
 
@@ -138,6 +140,8 @@ final class NotificationsViewController: ViewController {
                 })
         }
 
+        guard let token else { return }
+
         do {
             try await context.engine.notifications.listNotifications(
                 clanId: clanId,
@@ -146,11 +150,11 @@ final class NotificationsViewController: ViewController {
                 token: token
             )
         } catch {
-            AppLogger.network.error("fetchNotifications error: \(error)")
         }
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         dataDisposable?.dispose()
     }
 

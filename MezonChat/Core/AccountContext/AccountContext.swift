@@ -25,6 +25,7 @@ protocol AccountContext: AnyObject {
     func getToken() async -> String?
     func applyCurrentUser(_ user: User)
     func refreshAccountProfile() async
+    func applyCachedAccountIfAvailable()
     func updatePresenceStatus(_ status: User.OnlineStatus) async throws
     func fetchCurrentUserStatus() async
     func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws

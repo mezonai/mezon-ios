@@ -726,7 +726,6 @@ final class ProfileContainerNode: ASDisplayNode {
             } catch {
                 guard !Task.isCancelled else { return }
                 self.walletDetail = nil
-                AppLogger.network.error("Failed to fetch wallet: \(error)")
             }
             self.updateBalanceUI()
         }

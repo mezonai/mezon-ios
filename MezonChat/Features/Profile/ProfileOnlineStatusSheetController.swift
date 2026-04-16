@@ -122,9 +122,10 @@ final class ProfileOnlineStatusSheetController: UIViewController {
     }
 
     private func clearCustomStatus() {
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                try await context.submitCustomStatus(text: "", minutes: 0, noClear: false)
+                try await self.context.submitCustomStatus(text: "", minutes: 0, noClear: false)
                 self.tableView.reloadData()
             } catch {
                 Toast.error(L(L10n.Profile.statusUpdateFailed))
@@ -137,9 +138,10 @@ final class ProfileOnlineStatusSheetController: UIViewController {
     }
 
     private func selectPresence(_ status: User.OnlineStatus) {
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                try await context.updatePresenceStatus(status)
+                try await self.context.updatePresenceStatus(status)
                 self.dismiss(animated: true)
             } catch {
                 Toast.error(L(L10n.Profile.presenceUpdateFailed))

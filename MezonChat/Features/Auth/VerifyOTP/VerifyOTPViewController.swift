@@ -389,6 +389,13 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.delegate = self
         tf.widthAnchor.constraint(equalToConstant: 44.sw).isActive = true
+        tf.onDeleteBackwardWhenEmpty = { [weak self, weak tf] in
+            guard let self, let tf, let idx = self.digitFields.firstIndex(of: tf), idx > 0 else { return }
+            let prev = self.digitFields[idx - 1]
+            prev.text = ""
+            prev.becomeFirstResponder()
+            self.updateOTPCode()
+        }
         return tf
     }
 
@@ -403,22 +410,22 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
 
 extension VerifyOTPViewController: UITextFieldDelegate {
     func textField(_ tf: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-        if string.isEmpty && (tf.text?.isEmpty == true) {
-            if let idx = digitFields.firstIndex(of: tf), idx > 0 {
-                digitFields[idx - 1].text = ""
-                digitFields[idx - 1].becomeFirstResponder()
-                updateOTPCode()
-            }
-            return false
-        }
+        if string.isEmpty { return true }
         return string.allSatisfy { $0.isNumber }
     }
 }
 
 private final class OTPDigitTextField: UITextField {
+    var onDeleteBackwardWhenEmpty: (() -> Void)?
+
     override func deleteBackward() {
-        super.deleteBackward()
-        sendActions(for: .editingChanged)
+        let hadText = !(text?.isEmpty ?? true)
+        if hadText {
+            super.deleteBackward()
+            sendActions(for: .editingChanged)
+            return
+        }
+        onDeleteBackwardWhenEmpty?()
     }
 }
 

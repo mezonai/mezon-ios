@@ -49,6 +49,7 @@ class BaseViewController: ViewController {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         disposables.dispose()
     }
 }

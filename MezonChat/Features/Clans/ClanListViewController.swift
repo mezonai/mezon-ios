@@ -119,7 +119,6 @@ final class ClanListViewController: ViewController {
             setClans(next)
             persistClanRecordsToPostbox(next)
         } catch {
-            AppLogger.network.debug("[ClanList] ListClanBadgeCount: \(error)")
         }
     }
 
@@ -153,7 +152,6 @@ final class ClanListViewController: ViewController {
         guard let senderId else { return }
 
         guard senderId != context.currentUser?.id else { return }
-
 
         if clanId != 0 {
             return
@@ -232,6 +230,7 @@ final class ClanListViewController: ViewController {
             }
         }
         clansPipe.putNext(clans)
+        persistClanRecordsToPostbox(clans)
         needsReloadPipe.putNext(())
     }
 
@@ -247,9 +246,6 @@ final class ClanListViewController: ViewController {
                     if channelUnread > 0 {
                         clans[i].badgeCount = max(0, clans[i].badgeCount - channelUnread)
                         changed = true
-                    }
-                    if (notification.userInfo?["fromSelf"] as? Bool) == true {
-
                     }
                 }
             }
@@ -273,7 +269,7 @@ final class ClanListViewController: ViewController {
     deinit {
         debouncedUnreadDmFetchWorkItem?.cancel()
         disposables.dispose()
-        NotificationCenter.default.removeObserver(self, name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func setClans(_ v: [Mezon_Api_ClanDesc]) { clans = v; clansPipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -340,10 +336,21 @@ final class ClanListViewController: ViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    private func applyUnreadDMsFromCache() {
+        let cached = context.account.postbox.getCachedDMChannelList()
+        let unread = cached.filter { $0.countMessUnread > 0 }
+        guard !unread.isEmpty else { return }
+        let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: unreadDMs)
+        setUnreadDMs(merged)
+    }
+
     func fetchUnreadDMs() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getToken() else {
+                self.applyUnreadDMsFromCache()
+                return
+            }
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 do {
@@ -351,14 +358,13 @@ final class ClanListViewController: ViewController {
                         .channeldesc
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
                 } catch {
-                    AppLogger.network.debug("[ClanList] DM ListChannelBadgeCount: \(error)")
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
 
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
-                AppLogger.network.error("fetchUnreadDMs: \(error)")
+                self.applyUnreadDMsFromCache()
             }
         }
     }
@@ -391,7 +397,6 @@ final class ClanListViewController: ViewController {
         if let n = value as? NSNumber { return n.int64Value }
         return nil
     }
-
 
     static func getCurrentUserRoleIds(context: AccountContext) -> Set<Int64> {
         let clanId = context.currentClanId
@@ -440,6 +445,21 @@ final class ClanListViewController: ViewController {
 
     private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"
 
+    private func syncClanDescsToClanTable(_ apiClans: [Mezon_Api_ClanDesc]) {
+        guard !apiClans.isEmpty else { return }
+        let records = apiClans.map { api -> ClanRecord in
+            let data = (try? api.serializedData()) ?? Data()
+            return ClanRecord(
+                id: api.clanID,
+                name: api.clanName,
+                icon: api.logo.isEmpty ? nil : api.logo,
+                ownerId: api.creatorID == 0 ? nil : String(api.creatorID),
+                data: data
+            )
+        }
+        context.account.postbox.writeSync { tx in tx.updateClans(records) }
+    }
+
     private func restoreFromPostbox() {
         let records = self.context.account.postbox.read { tx in tx.getClans() }
         if !records.isEmpty {
@@ -451,7 +471,9 @@ final class ClanListViewController: ViewController {
             }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
             setClans(apiClans)
         } else if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.clans) {
-            setClans(decodeProtoArray(data).sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID })
+            let sorted = decodeProtoArray(data).sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+            syncClanDescsToClanTable(sorted)
+            setClans(sorted)
         }
 
         var restoredId: Int64 = 0
@@ -497,12 +519,17 @@ final class ClanListViewController: ViewController {
 
             let postboxDisposable = (self.context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
                     guard let self else { return }
-                    self.clans = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
+                    let mapped = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
                         guard !record.data.isEmpty else {
                         var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
                         }
                         return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
                 }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+                    if mapped.isEmpty, !self.clans.isEmpty {
+                        subscriber.putNext(self.currentState)
+                        return
+                    }
+                    self.clans = mapped
                     subscriber.putNext(self.currentState)
                 })
             let reloadDisposable = (self.needsReloadPipe.signal()

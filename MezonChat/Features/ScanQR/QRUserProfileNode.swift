@@ -85,7 +85,6 @@ final class QRUserProfileNode: ASDisplayNode {
     private func setupButton(
         _ button: ASButtonNode, title: String, bgColor: UIColor, textColor: UIColor
     ) {
-        // Obsolete but kept for reference if needed, though removed from init
         button.setAttributedTitle(
             NSAttributedString(
                 string: title,

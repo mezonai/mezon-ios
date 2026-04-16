@@ -47,7 +47,8 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     private func fetchPins() {
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
                 let token = await context.getToken() ?? ""
                 let targetClanId =
@@ -63,7 +64,6 @@ final class PinnedMessagesNode: ASDisplayNode {
                 self.pinsFetchCompleted = true
                 await self.tableNode.reloadData()
             } catch {
-                AppLogger.network.error("Fetch pinned messages failed: \(error)")
                 self.pinsFetchCompleted = true
                 await self.tableNode.reloadData()
             }

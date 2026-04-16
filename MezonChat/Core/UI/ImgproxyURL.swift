@@ -2,7 +2,7 @@ import Foundation
 
 enum ImgproxyURL {
 
-    private static let proxyBase = "https://imgproxy.mezon.ai/K0YUZRIosDOcz5lY6qrgC6UIXmQgWzLjZv7VJ1RAA8c"
+    private static let proxyBase = "\(Secrets.imgproxyBaseURL)/\(Secrets.imgproxySigningPath)"
     private static let cdnHosts = ["cdn.mezon", "profile.mezon"]
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
@@ -51,6 +51,9 @@ enum ImgproxyURL {
     static func createEmoji(from sourceURL: String, width: Int, height: Int, resizeType: String = "fit") -> String {
         guard !sourceURL.isEmpty else { return sourceURL }
         guard cdnHosts.contains(where: { sourceURL.contains($0) }) else {
+            #if DEBUG
+            print("[EmojiURL] imgproxy createEmoji skipped (host check) source=\(sourceURL)")
+            #endif
             return sourceURL
         }
         let processingOptions = "rs:\(resizeType):\(width):\(height):1/mb:2097152"

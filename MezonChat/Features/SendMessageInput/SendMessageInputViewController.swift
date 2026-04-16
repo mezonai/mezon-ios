@@ -14,6 +14,9 @@ private struct ComposerHashtag {
     var clanId: Int64
     var parentId: Int64
     var channelLabel: String
+    var channelType: Int32
+    var channelPrivate: Int32
+    var ageRestricted: Int32
     var range: NSRange
 }
 
@@ -35,10 +38,16 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private let context: AccountContext
-    private let channel: Mezon_Api_ChannelDescription
+    internal var channel: Mezon_Api_ChannelDescription {
+        didSet {
+            guard channel.channelID != oldValue.channelID else { return }
+            rebindMentionForCurrentChannel()
+        }
+    }
     private let clanId: Int64
     var topicId: Int64 = 0
     private var disposables = DisposableSet()
+    private var mentionDisposables = DisposableSet()
 
     private let textPipe = ValuePipe<String>()
     private let placeholderPipe = ValuePipe<String>()
@@ -191,7 +200,6 @@ final class SendMessageInputViewController: UIViewController {
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    /// Matches circular action buttons (`40.swh`); corner radius is synced in `PastableTextView.layoutSubviews`.
     private static var textViewMinHeight: CGFloat { 40.swh }
     private static let inputBarPadding: CGFloat = 16
 
@@ -401,24 +409,49 @@ final class SendMessageInputViewController: UIViewController {
         channelStreamMode != MezonConstants.ChannelStreamMode.group.rawValue
     }
 
+    private var mentionLookupChannelIds: [Int64] {
+        var result: [Int64] = []
+        var seen = Set<Int64>()
+        func appendUnique(_ id: Int64) {
+            guard id != 0, seen.insert(id).inserted else { return }
+            result.append(id)
+        }
+        if clanId == 0 {
+            appendUnique(channel.channelID)
+            return result
+        }
+        if channel.type == MezonConstants.ChannelType.thread.rawValue {
+            appendUnique(channel.parentID)
+        }
+        appendUnique(channel.channelID)
+        return result
+    }
+
     private func bindMentionDataUpdates() {
-        disposables.add(
-            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue)
-                .start(next: { [weak self] updatedClanId in
-                    guard let self, updatedClanId == self.clanId else { return }
-                    if let clanUsers = self.context.engine.clanData.getClanUsers(clanId: self.clanId) {
-                        self.buildMentionMembers(from: clanUsers)
-                        self.rebuildMentionSuggestionItems()
-                    }
-                })
-        )
-        disposables.add(
+        mentionDisposables.dispose()
+        mentionDisposables = DisposableSet()
+        for cid in mentionLookupChannelIds {
+            mentionDisposables.add(
+                (context.account.postbox.channelMetaView(channelId: cid) |> deliverOnMainQueue)
+                    .start(next: { [weak self] _ in
+                        self?.reloadMentionMembersFromChannelMetaOnly()
+                    })
+            )
+        }
+        mentionDisposables.add(
             (context.engine.clanData.clanRolesUpdated.signal() |> deliverOnMainQueue)
                 .start(next: { [weak self] updatedClanId in
                     guard let self, updatedClanId == self.clanId else { return }
                     self.rebuildMentionSuggestionItems()
                 })
         )
+    }
+
+    private func rebindMentionForCurrentChannel() {
+        bindMentionDataUpdates()
+        allMentionMembers = []
+        allMentionSuggestionItems = []
+        loadClanMembers()
     }
 
     func send() {
@@ -824,6 +857,9 @@ final class SendMessageInputViewController: UIViewController {
                     clanId: h.clanId,
                     parentId: h.parentId,
                     channelLabel: h.channelLabel,
+                    channelType: h.channelType,
+                    channelPrivate: h.channelPrivate,
+                    ageRestricted: h.ageRestricted,
                     range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
                 )
             }
@@ -1327,30 +1363,138 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private var isPrivateOrThread: Bool {
+        channel.channelPrivate != 0
+            || channel.parentID != 0
+            || channel.type == MezonConstants.ChannelType.thread.rawValue
+    }
+
     private func loadClanMembers() {
-        guard clanId != 0 else {
-            allMentionMembers = []
+        if clanId == 0 {
+            loadDMMembers()
+        } else if isPrivateOrThread {
+            loadChannelMembersForPrivate()
+        } else {
+            loadClanMembersForPublic()
+        }
+    }
+
+    private func loadDMMembers() {
+        if let records = firstNonEmptyChannelMemberRecords() {
+            buildMentionMembers(from: records)
             rebuildMentionSuggestionItems()
             return
         }
-        if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
-            buildMentionMembers(from: clanUsers)
+        fetchDMChannelUsersFromNetwork()
+    }
+
+    private func loadChannelMembersForPrivate() {
+        if let records = firstNonEmptyChannelMemberRecords() {
+            buildMentionMembers(from: records)
             ensureRolesLoadedIfNeeded()
             rebuildMentionSuggestionItems()
-            if allMentionMembers.isEmpty {
+            return
+        }
+        fetchPrivateChannelUsersFromNetwork()
+    }
+
+    private func loadClanMembersForPublic() {
+        if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
+            buildMentionMembers(from: clanUsers)
+        }
+        ensureRolesLoadedIfNeeded()
+        rebuildMentionSuggestionItems()
+        fetchClanMembersFromNetwork()
+    }
+
+    private func firstNonEmptyChannelMemberRecords() -> [ChannelMemberRecord]? {
+        for cid in mentionLookupChannelIds {
+            let m = context.account.postbox.read { tx in
+                (tx.getChannelMeta(channelId: cid)?.members ?? []).filter { !$0.isBanned }
+            }
+            if !m.isEmpty { return m }
+        }
+        return nil
+    }
+
+    private func reloadMentionMembersFromChannelMetaOnly() {
+        guard let records = firstNonEmptyChannelMemberRecords() else { return }
+        buildMentionMembers(from: records)
+        rebuildMentionSuggestionItems()
+    }
+
+    private func fetchDMChannelUsersFromNetwork() {
+        guard #available(iOS 13.0, *) else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let channelType = channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue
+                let res = try await context.account.network.listChannelUsers(
+                    clanId: 0, channelId: channel.channelID, channelType: channelType, token: token)
+                let members = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+                let channelIdForStore = self.channel.channelID
+                context.account.postbox.write { [channelIdForStore] tx in
+                    tx.updateChannelMembers(members, channelId: channelIdForStore)
+                }
+                if let records = firstNonEmptyChannelMemberRecords() {
+                    buildMentionMembers(from: records)
+                }
+                rebuildMentionSuggestionItems()
+            } catch {
+            }
+        }
+    }
+
+    private func fetchPrivateChannelUsersFromNetwork() {
+        guard #available(iOS 13.0, *) else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else {
+                fetchClanMembersFromNetwork()
+                return
+            }
+            do {
+                if channel.parentID != 0 {
+                    let parentRes = try await context.account.network.listChannelUsers(
+                        clanId: clanId, channelId: channel.parentID,
+                        channelType: MezonConstants.ChannelType.channel.rawValue, token: token)
+                    let parentMembers = Self.enrichChannelUsers(parentRes.channelUsers, postbox: context.account.postbox)
+                    let parentIdForStore = self.channel.parentID
+                    context.account.postbox.write { [parentIdForStore] tx in
+                        tx.updateChannelMembers(parentMembers, channelId: parentIdForStore)
+                    }
+                }
+                let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
+                let res = try await context.account.network.listChannelUsers(
+                    clanId: clanId, channelId: channel.channelID, channelType: channelType, token: token)
+                let members = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+                let channelIdForStore = self.channel.channelID
+                context.account.postbox.write { [channelIdForStore] tx in
+                    tx.updateChannelMembers(members, channelId: channelIdForStore)
+                }
+                if let records = firstNonEmptyChannelMemberRecords() {
+                    buildMentionMembers(from: records)
+                }
+                ensureRolesLoadedIfNeeded()
+                rebuildMentionSuggestionItems()
+                if allMentionMembers.isEmpty {
+                    fetchClanMembersFromNetwork()
+                }
+            } catch {
                 fetchClanMembersFromNetwork()
             }
-        } else {
-            fetchClanMembersFromNetwork()
         }
     }
 
     private func fetchClanMembersFromNetwork() {
+        guard clanId > 0 else { return }
         guard #available(iOS 13.0, *) else { return }
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
             do {
                 let response = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+                if let data = try? response.serializedData() {
+                    context.account.postbox.setPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
+                }
                 buildMentionMembers(from: response)
                 ensureRolesLoadedIfNeeded()
                 rebuildMentionSuggestionItems()
@@ -1380,7 +1524,6 @@ final class SendMessageInputViewController: UIViewController {
                 }
                 rebuildMentionSuggestionItems()
             } catch {
-                AppLogger.network.warning("[MentionSuggestion] listRoles failed: \(error)")
             }
         }
     }
@@ -1444,23 +1587,123 @@ final class SendMessageInputViewController: UIViewController {
         return (colonIdx, keywordPart)
     }
 
-    private func buildMentionMembers(from clanUsers: Mezon_Api_ClanUserList) {
-        var nickMap: [Int64: String] = [:]
-        for cu in clanUsers.clanUsers where !cu.clanNick.isEmpty {
-            nickMap[cu.user.id] = cu.clanNick
+    private static func memberMatchesSender(_ userId: Int64, senderId: Int64, sender: User) -> Bool {
+        userId == senderId || "\(userId)" == sender.id
+    }
+
+    private static func layeredClanVisibleName(
+        clanNick: String,
+        displayName: String,
+        username: String,
+        userId: Int64,
+        profile: ProfileRecord?,
+        sender: User?
+    ) -> String {
+        let cn = clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cn.isEmpty { return cn }
+        let dn = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !dn.isEmpty { return dn }
+        let un = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !un.isEmpty { return un }
+        if let p = profile, let pdn = p.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !pdn.isEmpty {
+            return pdn
         }
+        let pun = profile?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !pun.isEmpty { return pun }
+        if let sender {
+            let sdn = sender.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sdn.isEmpty { return sdn }
+            let sun = sender.username.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sun.isEmpty { return sun }
+            return sender.id
+        }
+        return "\(userId)"
+    }
+
+    private func buildMentionMembers(from records: [ChannelMemberRecord]) {
+        let filtered = records.filter { !$0.isBanned }
+        allMentionMembers = context.account.postbox.read { tx -> [MentionMember] in
+            var seen = Set<Int64>()
+            var out: [MentionMember] = []
+            out.reserveCapacity(filtered.count)
+            for r in filtered {
+                guard seen.insert(r.userId).inserted else { continue }
+                let profile = tx.getProfile(userId: String(r.userId))
+                let display = Self.layeredClanVisibleName(
+                    clanNick: r.clanNick,
+                    displayName: r.displayName,
+                    username: r.username,
+                    userId: r.userId,
+                    profile: profile,
+                    sender: nil
+                )
+                let un = r.username.isEmpty ? (profile?.username ?? "") : r.username
+                let av: String?
+                if !r.clanAvatar.isEmpty {
+                    av = r.clanAvatar
+                } else if let u = profile?.avatarUrl, !u.isEmpty {
+                    av = u
+                } else {
+                    av = nil
+                }
+                out.append(MentionMember(userId: r.userId, displayName: display, username: un, avatarURL: av))
+            }
+            return out
+        }
+    }
+
+    private func buildMentionMembers(from clanUsers: Mezon_Api_ClanUserList) {
         var seen = Set<Int64>()
         allMentionMembers = clanUsers.clanUsers.compactMap { cu in
             let user = cu.user
             guard seen.insert(user.id).inserted else { return nil }
-            let nick = nickMap[user.id]
-            let display = nick ?? (user.displayName.isEmpty ? user.username : user.displayName)
+            let display = Self.layeredClanVisibleName(
+                clanNick: cu.clanNick,
+                displayName: user.displayName,
+                username: user.username,
+                userId: user.id,
+                profile: nil,
+                sender: nil
+            )
+            let ca = cu.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+            let av: String?
+            if !ca.isEmpty {
+                av = ca
+            } else {
+                let ua = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                av = ua.isEmpty ? nil : ua
+            }
             return MentionMember(
                 userId: user.id,
                 displayName: display,
                 username: user.username,
-                avatarURL: cu.clanAvatar.isEmpty ? (user.avatarURL.isEmpty ? nil : user.avatarURL) : cu.clanAvatar
+                avatarURL: av
             )
+        }
+    }
+
+    private static func enrichChannelUsers(
+        _ users: [Mezon_Api_ChannelUserList.ChannelUser],
+        postbox: Postbox
+    ) -> [ChannelMemberRecord] {
+        postbox.read { tx in
+            users.map { u in
+                let profile = tx.getProfile(userId: String(u.userID))
+                return ChannelMemberRecord(
+                    id: u.id,
+                    userId: u.userID,
+                    roleIds: u.roleID,
+                    threadId: u.threadID,
+                    clanNick: u.clanNick,
+                    clanAvatar: u.clanAvatar,
+                    clanId: u.clanID,
+                    isBanned: u.isBanned,
+                    expiredBanTime: u.expiredBanTime,
+                    isOnline: profile?.isOnline ?? false,
+                    displayName: profile?.displayName ?? "",
+                    username: profile?.username ?? ""
+                )
+            }
         }
     }
 
@@ -1600,7 +1843,6 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updateMentionSuggestions(keyword: String) {
-
         let pool = allMentionSuggestionItems
         let filtered: [MentionSuggestionItem]
         if keyword.isEmpty {
@@ -1824,6 +2066,9 @@ final class SendMessageInputViewController: UIViewController {
                     clanId: h.clanId,
                     parentId: h.parentId,
                     channelLabel: h.channelLabel,
+                    channelType: h.channelType,
+                    channelPrivate: h.channelPrivate,
+                    ageRestricted: h.ageRestricted,
                     range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
                 )
             }
@@ -1898,6 +2143,9 @@ final class SendMessageInputViewController: UIViewController {
                     clanId: h.clanId,
                     parentId: h.parentId,
                     channelLabel: h.channelLabel,
+                    channelType: h.channelType,
+                    channelPrivate: h.channelPrivate,
+                    ageRestricted: h.ageRestricted,
                     range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
                 )
             }
@@ -1908,6 +2156,9 @@ final class SendMessageInputViewController: UIViewController {
             clanId: channel.clanID,
             parentId: channel.parentID,
             channelLabel: label,
+            channelType: channel.type,
+            channelPrivate: channel.channelPrivate,
+            ageRestricted: channel.ageRestricted,
             range: NSRange(location: 0, length: 0)
         )
         appended.range = tagNSRange
@@ -1957,6 +2208,9 @@ final class SendMessageInputViewController: UIViewController {
                             clanId: h.clanId,
                             parentId: h.parentId,
                             channelLabel: h.channelLabel,
+                            channelType: h.channelType,
+                            channelPrivate: h.channelPrivate,
+                            ageRestricted: h.ageRestricted,
                             range: NSRange(location: h.range.location - deletedLength, length: h.range.length)
                         )
                     }
@@ -1997,6 +2251,9 @@ final class SendMessageInputViewController: UIViewController {
                             clanId: h.clanId,
                             parentId: h.parentId,
                             channelLabel: h.channelLabel,
+                            channelType: h.channelType,
+                            channelPrivate: h.channelPrivate,
+                            ageRestricted: h.ageRestricted,
                             range: NSRange(location: h.range.location - deletedLength, length: h.range.length)
                         )
                     }
@@ -2097,6 +2354,9 @@ final class SendMessageInputViewController: UIViewController {
             if !h.channelLabel.isEmpty {
                 dict["channelLabel"] = h.channelLabel
             }
+            dict["channelType"] = Int(h.channelType)
+            dict["channelPrivate"] = Int(h.channelPrivate)
+            dict["ageRestricted"] = Int(h.ageRestricted)
             return dict
         }
     }
@@ -2183,6 +2443,7 @@ final class SendMessageInputViewController: UIViewController {
             try? FileManager.default.removeItem(at: u)
         }
         disposables.dispose()
+        mentionDisposables.dispose()
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: Self.emojiListDidUpdateNotification, object: nil)
     }
@@ -2529,6 +2790,107 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private func resolvePendingSenderDisplay(
+        clanId: Int64,
+        sender: User,
+        senderId: Int64,
+        isDmOrGroup: Bool
+    ) -> (name: String, avatar: String?) {
+        if isDmOrGroup {
+            let name = Self.layeredClanVisibleName(
+                clanNick: "",
+                displayName: sender.displayName,
+                username: sender.username,
+                userId: 0,
+                profile: nil,
+                sender: sender
+            )
+            return (name, sender.avatarURL?.absoluteString)
+        }
+        let channelIds = mentionLookupChannelIds
+        let mentionSnapshot = allMentionMembers
+        return context.account.postbox.read { tx -> (String, String?) in
+            if clanId != 0,
+                let m = tx.getClanMembers(clanId: clanId).first(where: {
+                    Self.memberMatchesSender($0.userId, senderId: senderId, sender: sender)
+                })
+            {
+                let name = Self.layeredClanVisibleName(
+                    clanNick: m.clanNick,
+                    displayName: m.displayName,
+                    username: m.username,
+                    userId: m.userId,
+                    profile: tx.getProfile(userId: sender.id),
+                    sender: sender
+                )
+                let av: String?
+                let ca = m.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !ca.isEmpty {
+                    av = ca
+                } else if let p = tx.getProfile(userId: sender.id), let u = p.avatarUrl {
+                    let t = u.trimmingCharacters(in: .whitespacesAndNewlines)
+                    av = t.isEmpty ? sender.avatarURL?.absoluteString : t
+                } else {
+                    av = sender.avatarURL?.absoluteString
+                }
+                return (name, av)
+            }
+            for cid in channelIds {
+                let members = (tx.getChannelMeta(channelId: cid)?.members ?? []).filter { !$0.isBanned }
+                guard let r = members.first(where: {
+                    Self.memberMatchesSender($0.userId, senderId: senderId, sender: sender)
+                }) else { continue }
+                let name = Self.layeredClanVisibleName(
+                    clanNick: r.clanNick,
+                    displayName: r.displayName,
+                    username: r.username,
+                    userId: r.userId,
+                    profile: tx.getProfile(userId: sender.id),
+                    sender: sender
+                )
+                let av: String?
+                let ca = r.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !ca.isEmpty {
+                    av = ca
+                } else if let p = tx.getProfile(userId: sender.id), let u = p.avatarUrl {
+                    let t = u.trimmingCharacters(in: .whitespacesAndNewlines)
+                    av = t.isEmpty ? sender.avatarURL?.absoluteString : t
+                } else {
+                    av = sender.avatarURL?.absoluteString
+                }
+                return (name, av)
+            }
+            if let mm = mentionSnapshot.first(where: {
+                Self.memberMatchesSender($0.userId, senderId: senderId, sender: sender)
+            }) {
+                let name = Self.layeredClanVisibleName(
+                    clanNick: "",
+                    displayName: mm.displayName,
+                    username: mm.username,
+                    userId: mm.userId,
+                    profile: tx.getProfile(userId: sender.id),
+                    sender: sender
+                )
+                let mav = mm.avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let av: String?
+                if let mav, !mav.isEmpty {
+                    av = mav
+                } else {
+                    av = sender.avatarURL?.absoluteString
+                }
+                return (name, av)
+            }
+            let name = Self.layeredClanVisibleName(
+                clanNick: "",
+                displayName: sender.displayName,
+                username: sender.username,
+                userId: 0,
+                profile: tx.getProfile(userId: sender.id),
+                sender: sender
+            )
+            return (name, sender.avatarURL?.absoluteString)
+        }
+    }
 
     private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription) {
         let sendAsAnonymous = shouldSendAsAnonymousMessage
@@ -2592,12 +2954,10 @@ final class SendMessageInputViewController: UIViewController {
             }()
 
             let senderId = Int64(sender.id) ?? 0
-            let clanMember = self.allMentionMembers.first(where: { $0.userId == senderId })
-
-            let resolvedName: String = clanMember?.displayName
-                ?? (sender.displayName.isEmpty ? sender.username : sender.displayName)
-            let resolvedAvatar: String? = clanMember?.avatarURL
-                ?? sender.avatarURL?.absoluteString
+            let isDmOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
+                || channel.type == MezonConstants.ChannelType.group.rawValue
+            let resolved = resolvePendingSenderDisplay(
+                clanId: clanId, sender: sender, senderId: senderId, isDmOrGroup: isDmOrGroup)
 
             let pendingRecord = MessageRecord.pending(
                 localId: localId,
@@ -2605,8 +2965,8 @@ final class SendMessageInputViewController: UIViewController {
                 channelId: channelIdStr,
                 clanId: clanId,
                 sender: sender,
-                displayName: resolvedName,
-                avatarURL: resolvedAvatar,
+                displayName: resolved.name,
+                avatarURL: resolved.avatar,
                 referencesData: referencesData,
                 mentionsData: mentionsData,
                 contentData: outgoingContentData
@@ -2847,6 +3207,9 @@ extension SendMessageInputViewController: UITextViewDelegate {
                         clanId: h.clanId,
                         parentId: h.parentId,
                         channelLabel: h.channelLabel,
+                        channelType: h.channelType,
+                        channelPrivate: h.channelPrivate,
+                        ageRestricted: h.ageRestricted,
                         range: NSRange(location: h.range.location + insertLen, length: h.range.length)
                     )
                 }
@@ -2872,6 +3235,9 @@ extension SendMessageInputViewController: UITextViewDelegate {
                         clanId: h.clanId,
                         parentId: h.parentId,
                         channelLabel: h.channelLabel,
+                        channelType: h.channelType,
+                        channelPrivate: h.channelPrivate,
+                        ageRestricted: h.ageRestricted,
                         range: NSRange(location: h.range.location - range.length, length: h.range.length)
                     )
                 }
@@ -2898,6 +3264,9 @@ extension SendMessageInputViewController: UITextViewDelegate {
                         clanId: h.clanId,
                         parentId: h.parentId,
                         channelLabel: h.channelLabel,
+                        channelType: h.channelType,
+                        channelPrivate: h.channelPrivate,
+                        ageRestricted: h.ageRestricted,
                         range: NSRange(location: h.range.location + delta, length: h.range.length)
                     )
                 }
@@ -3028,7 +3397,6 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        // No action needed
     }
 }
 

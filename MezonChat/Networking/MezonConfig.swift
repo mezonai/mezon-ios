@@ -39,9 +39,22 @@ enum MezonConfig {
     }
 
     static func emojiImageURL(emojiId: String) -> URL? {
-        guard !emojiId.isEmpty else { return nil }
+        guard !emojiId.isEmpty else {
+            #if DEBUG
+            print("[EmojiURL] direct skipped: empty emojiId baseImgURL=\(env.baseImgURL)")
+            #endif
+            return nil
+        }
         let path = "\(env.baseImgURL)/emojis/\(emojiId).webp"
-        return URL(string: path)
+        let url = URL(string: path)
+        #if DEBUG
+        if let url {
+            print("[EmojiURL] direct ok emojiId=\(emojiId) -> \(url.absoluteString)")
+        } else {
+            print("[EmojiURL] direct URL(string:) failed emojiId=\(emojiId) path=\(path)")
+        }
+        #endif
+        return url
     }
 
 
@@ -49,7 +62,17 @@ enum MezonConfig {
         guard let direct = emojiImageURL(emojiId: emojiId) else { return nil }
         let side = max(1, imgproxyFitSide)
         let proxied = ImgproxyURL.createEmoji(from: direct.absoluteString, width: side, height: side)
-        return URL(string: proxied)
+        let final = URL(string: proxied)
+        #if DEBUG
+        if proxied == direct.absoluteString {
+            print("[EmojiURL] proxied same as direct (imgproxy skipped?) side=\(side) -> \(proxied)")
+        } else if let final {
+            print("[EmojiURL] proxied ok side=\(side) -> \(final.absoluteString)")
+        } else {
+            print("[EmojiURL] proxied URL(string:) failed side=\(side) string=\(proxied)")
+        }
+        #endif
+        return final
     }
 
     static func wsURL(token: String, wsHostOverride: String? = nil) -> URL {
@@ -75,4 +98,5 @@ enum MezonConfig {
         }
         return env.wsURL(token: token)
     }
+
 }

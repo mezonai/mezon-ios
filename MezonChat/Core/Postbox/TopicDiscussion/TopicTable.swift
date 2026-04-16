@@ -63,7 +63,9 @@ public final class TopicTable: Table {
     }
 
     func updateTopics(_ topics: [TopicRecord], clanId: Int64) {
-        db.rawExecute("DELETE FROM topics WHERE clan_id = \(clanId)")
+        db.run("DELETE FROM topics WHERE clan_id = ?") { s in
+            sqlite3_bind_int64(s, 1, clanId)
+        }
         for t in topics {
             db.run(
                 """

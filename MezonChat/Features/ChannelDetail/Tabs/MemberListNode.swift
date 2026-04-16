@@ -174,7 +174,6 @@ final class MemberListNode: ASDisplayNode {
                     }
                 }
             } catch {
-                AppLogger.network.error("Fetch members failed")
             }
         }
     }
@@ -694,7 +693,8 @@ private final class MemberCellNode: ASCellNode {
 
         if let urlString = !clanAvatar.isEmpty
             ? clanAvatar : (avatarUrl != nil && !avatarUrl!.isEmpty ? avatarUrl : initialAvatarUrl),
-            !urlString.isEmpty, let url = URL(string: urlString)
+            !urlString.isEmpty,
+            let url = URL(string: ImgproxyURL.create(from: urlString, width: 100, height: 100))
         {
             avatarNode.isHidden = false
             avatarNode.url = url

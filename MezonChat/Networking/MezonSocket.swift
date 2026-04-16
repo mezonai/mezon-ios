@@ -8,73 +8,80 @@ enum WebRTCSignalingType: Int32 {
     case hangUp = 4
 }
 
+enum SocketEvent {
+    case messageReceived(Mezon_Api_ChannelMessage)
+    case typing(Mezon_Realtime_MessageTypingEvent)
+    case reaction(Mezon_Api_MessageReaction)
+    case presence(Mezon_Realtime_ChannelPresenceEvent)
+    case notification(Mezon_Api_Notification)
+    case statusPresence(Mezon_Realtime_StatusPresenceEvent)
+    case lastSeen(Mezon_Realtime_LastSeenMessageEvent)
+    case lastPin(Mezon_Realtime_LastPinMessageEvent)
+    case unpinMessage(Mezon_Realtime_UnpinMessageEvent)
+    case messageRemoved(Mezon_Realtime_ChannelMessageRemove)
+    case messageButton(Mezon_Realtime_MessageButtonClicked)
+
+    case channelCreated(Mezon_Realtime_ChannelCreatedEvent)
+    case channelDeleted(Mezon_Realtime_ChannelDeletedEvent)
+    case channelUpdated(Mezon_Realtime_ChannelUpdatedEvent)
+    case categoryEvent(Mezon_Realtime_CategoryEvent)
+    case notiUserChannel(Mezon_Api_NotificationUserChannel)
+    case userChannelAdded(Mezon_Realtime_UserChannelAdded)
+    case userChannelRemoved(Mezon_Realtime_UserChannelRemoved)
+    case markAsRead(Mezon_Realtime_UnmuteEvent)
+
+    case clanUpdated(Mezon_Realtime_ClanUpdatedEvent)
+    case clanProfileUpdated(Mezon_Realtime_ClanProfileUpdatedEvent)
+    case clanDeleted(Mezon_Realtime_ClanDeletedEvent)
+    case userClanRemoved(Mezon_Realtime_UserClanRemoved)
+    case userClanAdded(Mezon_Realtime_AddClanUserEvent)
+
+    case voiceJoined(Mezon_Realtime_VoiceJoinedEvent)
+    case voiceLeaved(Mezon_Realtime_VoiceLeavedEvent)
+    case voiceEnded(Mezon_Realtime_VoiceEndedEvent)
+    case voiceReaction(Mezon_Realtime_VoiceReactionSend)
+    case streamingJoined(Mezon_Realtime_StreamingJoinedEvent)
+    case streamingLeaved(Mezon_Realtime_StreamingLeavedEvent)
+    case webRTC(Mezon_Realtime_WebrtcSignalingFwd)
+
+    case customStatus(Mezon_Realtime_CustomStatusEvent)
+    case userStatus(Mezon_Realtime_UserStatusEvent)
+    case userProfileUpdated(Mezon_Realtime_UserProfileUpdatedEvent)
+    case removeFriend(Mezon_Realtime_RemoveFriend)
+    case blockFriend(Mezon_Realtime_BlockFriend)
+    case tokenSent(Mezon_Api_TokenSentEvent)
+    case giveCoffee(Mezon_Api_GiveCoffeeEvent)
+
+    case roleEvent(Mezon_Realtime_RoleEvent)
+    case roleAssign(Mezon_Realtime_RoleAssignedEvent)
+    case permissionSet(Mezon_Realtime_PermissionSetEvent)
+    case permissionChanged(Mezon_Realtime_PermissionChangedEvent)
+
+    case stickerCreated(Mezon_Realtime_StickerCreateEvent)
+    case stickerUpdated(Mezon_Realtime_StickerUpdateEvent)
+    case stickerDeleted(Mezon_Realtime_StickerDeleteEvent)
+    case emojiEvent(Mezon_Realtime_EventEmoji)
+
+    case canvasEvent(Mezon_Realtime_ChannelCanvas)
+    case webhookEvent(Mezon_Api_Webhook)
+    case sdTopicEvent(Mezon_Realtime_SdTopicEvent)
+
+    case disconnected
+    case reconnected
+    case connected
+    case error(Error)
+}
+
 @MainActor
 final class MezonSocket: NSObject {
 
     static let shared = MezonSocket()
 
-    var onMessageReceived: ((Mezon_Api_ChannelMessage) -> Void)?
+    private let eventPipe = ValuePipe<SocketEvent>()
 
-    var onTyping:             ((Mezon_Realtime_MessageTypingEvent)         -> Void)?
-    var onReaction:           ((Mezon_Api_MessageReaction)                 -> Void)?
-    var onPresence:           ((Mezon_Realtime_ChannelPresenceEvent)       -> Void)?
-    var onNotification:       ((Mezon_Api_Notification)                    -> Void)?
-    var onStatusPresence:     ((Mezon_Realtime_StatusPresenceEvent)        -> Void)?
-    var onLastSeen:           ((Mezon_Realtime_LastSeenMessageEvent)       -> Void)?
-    var onLastPin:            ((Mezon_Realtime_LastPinMessageEvent)        -> Void)?
-    var onUnpinMessage:       ((Mezon_Realtime_UnpinMessageEvent)          -> Void)?
-    var onMessageRemoved:     ((Mezon_Realtime_ChannelMessageRemove)       -> Void)?
-    var onMessageButton:      ((Mezon_Realtime_MessageButtonClicked)       -> Void)?
-
-    var onChannelCreated:     ((Mezon_Realtime_ChannelCreatedEvent)        -> Void)?
-    var onChannelDeleted:     ((Mezon_Realtime_ChannelDeletedEvent)        -> Void)?
-    var onChannelUpdated:     ((Mezon_Realtime_ChannelUpdatedEvent)        -> Void)?
-    var onCategoryEvent:      ((Mezon_Realtime_CategoryEvent)              -> Void)?
-    var onNotiUserChannel:    ((Mezon_Api_NotificationUserChannel)         -> Void)?
-    var onUserChannelAdded:   ((Mezon_Realtime_UserChannelAdded)           -> Void)?
-    var onUserChannelRemoved: ((Mezon_Realtime_UserChannelRemoved)         -> Void)?
-    var onMarkAsRead:         ((Mezon_Realtime_UnmuteEvent)                -> Void)?
-
-    var onClanUpdated:        ((Mezon_Realtime_ClanUpdatedEvent)           -> Void)?
-    var onClanProfileUpdated: ((Mezon_Realtime_ClanProfileUpdatedEvent)    -> Void)?
-    var onClanDeleted:        ((Mezon_Realtime_ClanDeletedEvent)           -> Void)?
-    var onUserClanRemoved:    ((Mezon_Realtime_UserClanRemoved)            -> Void)?
-    var onUserClanAdded:      ((Mezon_Realtime_AddClanUserEvent)           -> Void)?
-
-    var onVoiceJoined:        ((Mezon_Realtime_VoiceJoinedEvent)           -> Void)?
-    var onVoiceLeaved:        ((Mezon_Realtime_VoiceLeavedEvent)           -> Void)?
-    var onVoiceEnded:         ((Mezon_Realtime_VoiceEndedEvent)            -> Void)?
-    var onVoiceReaction:      ((Mezon_Realtime_VoiceReactionSend)          -> Void)?
-    var onStreamingJoined:    ((Mezon_Realtime_StreamingJoinedEvent)       -> Void)?
-    var onStreamingLeaved:    ((Mezon_Realtime_StreamingLeavedEvent)       -> Void)?
-    var onWebRTC:             ((Mezon_Realtime_WebrtcSignalingFwd)         -> Void)?
-
-    var onCustomStatus:       ((Mezon_Realtime_CustomStatusEvent)          -> Void)?
-    var onUserStatus:         ((Mezon_Realtime_UserStatusEvent)            -> Void)?
-    var onUserProfileUpdated: ((Mezon_Realtime_UserProfileUpdatedEvent)    -> Void)?
-    var onRemoveFriend:       ((Mezon_Realtime_RemoveFriend)               -> Void)?
-    var onBlockFriend:        ((Mezon_Realtime_BlockFriend)                -> Void)?
-    var onTokenSent:          ((Mezon_Api_TokenSentEvent)                  -> Void)?
-    var onGiveCoffee:         ((Mezon_Api_GiveCoffeeEvent)                 -> Void)?
-
-    var onRoleEvent:          ((Mezon_Realtime_RoleEvent)                  -> Void)?
-    var onRoleAssign:         ((Mezon_Realtime_RoleAssignedEvent)          -> Void)?
-    var onPermissionSet:      ((Mezon_Realtime_PermissionSetEvent)         -> Void)?
-    var onPermissionChanged:  ((Mezon_Realtime_PermissionChangedEvent)     -> Void)?
-
-    var onStickerCreated:     ((Mezon_Realtime_StickerCreateEvent)         -> Void)?
-    var onStickerUpdated:     ((Mezon_Realtime_StickerUpdateEvent)         -> Void)?
-    var onStickerDeleted:     ((Mezon_Realtime_StickerDeleteEvent)         -> Void)?
-    var onEmojiEvent:         ((Mezon_Realtime_EventEmoji)                 -> Void)?
-
-    var onCanvasEvent:        ((Mezon_Realtime_ChannelCanvas)              -> Void)?
-    var onWebhookEvent:       ((Mezon_Api_Webhook)                        -> Void)?
-    var onSdTopicEvent:       ((Mezon_Realtime_SdTopicEvent)               -> Void)?
-
-    var onDisconnect:         (() -> Void)?
-    var onReconnect:          (() -> Void)?
-    var onConnected:          (() -> Void)?
-    var onError:              ((Error) -> Void)?
+    func events() -> Signal<SocketEvent, NoError> {
+        return eventPipe.signal()
+    }
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
@@ -111,7 +118,6 @@ final class MezonSocket: NSObject {
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
         receiveLoop()
-        AppLogger.app.info("MezonSocket connecting to \(url)")
     }
 
     func disconnect() {
@@ -127,7 +133,6 @@ final class MezonSocket: NSObject {
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
         pendingDataSocketCallbacks.removeAll()
-        onConnected = nil
     }
 
     func reconnectFromForeground() {
@@ -136,7 +141,6 @@ final class MezonSocket: NSObject {
         reconnectWorkItem = nil
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
-        AppLogger.app.info("MezonSocket reconnecting from foreground")
         Task { @MainActor in
             await performReconnect(useTokenRefresh: tokenProvider != nil)
         }
@@ -153,14 +157,8 @@ final class MezonSocket: NSObject {
 
     func send(_ envelope: Mezon_Realtime_Envelope) {
         guard let task = webSocketTask else { return }
-        do {
-            let data = try envelope.serializedData()
-            task.send(.data(data)) { error in
-                if let error { AppLogger.app.error("MezonSocket send error: \(error)") }
-            }
-        } catch {
-            AppLogger.app.error("MezonSocket encode error: \(error)")
-        }
+        guard let data = try? envelope.serializedData() else { return }
+        task.send(.data(data)) { _ in }
     }
 
     func joinClanChat(clanId: Int64) {
@@ -192,7 +190,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.handleParticipantMeetStateEvent = ev
         send(envelope)
-        AppLogger.app.info("[MezonSocket] voice meet state clan=\(clanId) channel=\(channelId) join=\(join)")
     }
 
     func sendVoiceReaction(channelId: Int64, senderId: Int64, emojis: [String], mediaType: Int32 = 0) {
@@ -242,7 +239,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.channelMessageRemove = remove
         send(envelope)
-        AppLogger.app.info("[MezonSocket] removeChannelMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
     func writeLastSeenMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, timestampSeconds: UInt32, badgeCount: Int32) {
@@ -256,7 +252,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.lastSeenMessageEvent = event
         send(envelope)
-        AppLogger.app.info("[MezonSocket] writeLastSeenMessage channelId=\(channelId) messageId=\(messageId)")
     }
 
     func writeCustomStatus(clanId: Int64, status: String, minutes: Int32, noClear: Bool) {
@@ -268,7 +263,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.customStatusEvent = ev
         send(envelope)
-        AppLogger.app.info("[MezonSocket] writeCustomStatus clanId=\(clanId) noClear=\(noClear) minutes=\(minutes)")
     }
 
     private func receiveLoop() {
@@ -283,10 +277,9 @@ final class MezonSocket: NSObject {
             case .failure(let error):
                 let nsErr = error as NSError
                 guard nsErr.code != NSURLErrorCancelled else { return }
-                AppLogger.app.error("MezonSocket receive error: \(error) (code=\(nsErr.code))")
                 Task { @MainActor in
                     self.cleanupForReconnect()
-                    self.onError?(error)
+                    self.eventPipe.putNext(.error(error))
                     self.scheduleReconnect()
                 }
             }
@@ -308,114 +301,113 @@ final class MezonSocket: NSObject {
             let envelope = try Mezon_Realtime_Envelope(serializedBytes: data)
             routeEnvelope(envelope)
         } catch {
-            AppLogger.app.error("MezonSocket decode error: \(error)")
         }
     }
 
     private func routeEnvelope(_ envelope: Mezon_Realtime_Envelope) {
         switch envelope.message {
         case .channelMessage(let m):
-            onMessageReceived?(m)
+            eventPipe.putNext(.messageReceived(m))
         case .channelMessageSend:
             break
         case .channelMessageUpdate:
             break
         case .channelMessageRemove(let m):
-            onMessageRemoved?(m)
+            eventPipe.putNext(.messageRemoved(m))
         case .messageTypingEvent(let m):
-            onTyping?(m)
+            eventPipe.putNext(.typing(m))
         case .messageReactionEvent(let m):
-            onReaction?(m)
+            eventPipe.putNext(.reaction(m))
         case .channelPresenceEvent(let m):
-            onPresence?(m)
+            eventPipe.putNext(.presence(m))
         case .notifications(let m):
-            m.notifications.forEach { onNotification?($0) }
+            m.notifications.forEach { eventPipe.putNext(.notification($0)) }
         case .statusPresenceEvent(let m):
-            onStatusPresence?(m)
+            eventPipe.putNext(.statusPresence(m))
         case .lastSeenMessageEvent(let m):
-            onLastSeen?(m)
+            eventPipe.putNext(.lastSeen(m))
         case .lastPinMessageEvent(let m):
-            onLastPin?(m)
+            eventPipe.putNext(.lastPin(m))
         case .unpinMessageEvent(let m):
-            onUnpinMessage?(m)
+            eventPipe.putNext(.unpinMessage(m))
         case .messageButtonClicked(let m):
-            onMessageButton?(m)
+            eventPipe.putNext(.messageButton(m))
         case .channelCreatedEvent(let m):
-            onChannelCreated?(m)
+            eventPipe.putNext(.channelCreated(m))
         case .channelDeletedEvent(let m):
-            onChannelDeleted?(m)
+            eventPipe.putNext(.channelDeleted(m))
         case .channelUpdatedEvent(let m):
-            onChannelUpdated?(m)
+            eventPipe.putNext(.channelUpdated(m))
         case .categoryEvent(let m):
-            onCategoryEvent?(m)
+            eventPipe.putNext(.categoryEvent(m))
         case .notiUserChannel(let m):
-            onNotiUserChannel?(m)
+            eventPipe.putNext(.notiUserChannel(m))
         case .userChannelAddedEvent(let m):
-            onUserChannelAdded?(m)
+            eventPipe.putNext(.userChannelAdded(m))
         case .userChannelRemovedEvent(let m):
-            onUserChannelRemoved?(m)
+            eventPipe.putNext(.userChannelRemoved(m))
         case .unmuteEvent(let m):
-            onMarkAsRead?(m)
+            eventPipe.putNext(.markAsRead(m))
         case .clanUpdatedEvent(let m):
-            onClanUpdated?(m)
+            eventPipe.putNext(.clanUpdated(m))
         case .clanProfileUpdatedEvent(let m):
-            onClanProfileUpdated?(m)
+            eventPipe.putNext(.clanProfileUpdated(m))
         case .clanDeletedEvent(let m):
-            onClanDeleted?(m)
+            eventPipe.putNext(.clanDeleted(m))
         case .userClanRemovedEvent(let m):
-            onUserClanRemoved?(m)
+            eventPipe.putNext(.userClanRemoved(m))
         case .addClanUserEvent(let m):
-            onUserClanAdded?(m)
+            eventPipe.putNext(.userClanAdded(m))
         case .voiceJoinedEvent(let m):
-            onVoiceJoined?(m)
+            eventPipe.putNext(.voiceJoined(m))
         case .voiceLeavedEvent(let m):
-            onVoiceLeaved?(m)
+            eventPipe.putNext(.voiceLeaved(m))
         case .voiceEndedEvent(let m):
-            onVoiceEnded?(m)
+            eventPipe.putNext(.voiceEnded(m))
         case .voiceReactionSend(let m):
-            onVoiceReaction?(m)
+            eventPipe.putNext(.voiceReaction(m))
         case .streamingJoinedEvent(let m):
-            onStreamingJoined?(m)
+            eventPipe.putNext(.streamingJoined(m))
         case .streamingLeavedEvent(let m):
-            onStreamingLeaved?(m)
+            eventPipe.putNext(.streamingLeaved(m))
         case .webrtcSignalingFwd(let m):
-            onWebRTC?(m)
+            eventPipe.putNext(.webRTC(m))
         case .customStatusEvent(let m):
-            onCustomStatus?(m)
+            eventPipe.putNext(.customStatus(m))
         case .userStatusEvent(let m):
-            onUserStatus?(m)
+            eventPipe.putNext(.userStatus(m))
         case .userProfileUpdatedEvent(let m):
-            onUserProfileUpdated?(m)
+            eventPipe.putNext(.userProfileUpdated(m))
         case .removeFriend(let m):
-            onRemoveFriend?(m)
+            eventPipe.putNext(.removeFriend(m))
         case .blockFriend(let m):
-            onBlockFriend?(m)
+            eventPipe.putNext(.blockFriend(m))
         case .tokenSentEvent(let m):
-            onTokenSent?(m)
+            eventPipe.putNext(.tokenSent(m))
         case .giveCoffeeEvent(let m):
-            onGiveCoffee?(m)
+            eventPipe.putNext(.giveCoffee(m))
         case .roleEvent(let m):
-            onRoleEvent?(m)
+            eventPipe.putNext(.roleEvent(m))
         case .roleAssignEvent(let m):
-            onRoleAssign?(m)
+            eventPipe.putNext(.roleAssign(m))
         case .permissionSetEvent(let m):
-            onPermissionSet?(m)
+            eventPipe.putNext(.permissionSet(m))
         case .permissionChangedEvent(let m):
-            onPermissionChanged?(m)
+            eventPipe.putNext(.permissionChanged(m))
         case .stickerCreateEvent(let m):
-            onStickerCreated?(m)
+            eventPipe.putNext(.stickerCreated(m))
         case .stickerUpdateEvent(let m):
-            onStickerUpdated?(m)
+            eventPipe.putNext(.stickerUpdated(m))
         case .stickerDeleteEvent(let m):
-            onStickerDeleted?(m)
+            eventPipe.putNext(.stickerDeleted(m))
         case .eventEmoji(let m):
-            onEmojiEvent?(m)
+            eventPipe.putNext(.emojiEvent(m))
         case .canvasEvent(let m):
-            onCanvasEvent?(m)
+            eventPipe.putNext(.canvasEvent(m))
         case .webhookEvent(let m):
-            onWebhookEvent?(m)
+            eventPipe.putNext(.webhookEvent(m))
         case .sdTopicEvent(let m):
-            onSdTopicEvent?(m)
+            eventPipe.putNext(.sdTopicEvent(m))
         case .ping:
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()
@@ -457,7 +449,6 @@ final class MezonSocket: NSObject {
 
     private func scheduleReconnect() {
         guard reconnectAttempts < maxReconnectAttempts || (tokenProvider != nil && !hasTriedRefreshSinceConnect) else {
-            AppLogger.app.error("MezonSocket reconnect abandoned after max attempts")
             return
         }
         reconnectAttempts += 1
@@ -483,26 +474,19 @@ final class MezonSocket: NSObject {
                 reconnectAttempts = 0
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, code == 401 || code == 403 {
-                    AppLogger.app.warning("MezonSocket token refresh failed with \(code) — session expired")
                     NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
                     return
                 }
-                AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
             } catch {
-                AppLogger.app.warning("MezonSocket token refresh failed: \(error), using stored token")
             }
         }
         guard let token = tokenToUse else {
-            AppLogger.app.error("MezonSocket reconnect aborted: no token")
             return
         }
         connect(token: token, wsHostOverride: wsHostOverride)
-        onReconnect?()
+        eventPipe.putNext(.reconnected)
     }
 
-    // MARK: - WebRTC Signaling
-
-    /// Forward a WebRTC signaling message to a remote peer (SDP offer/answer, ICE candidate, quit, etc.)
     func forwardWebrtcSignaling(
         receiverId: Int64,
         dataType: WebRTCSignalingType,
@@ -519,11 +503,8 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.webrtcSignalingFwd = fwd
         send(envelope)
-        let signalingTypeCode = Int(dataType.rawValue)
-        AppLogger.app.info("[MezonSocket] forwardWebrtcSignaling type=\(signalingTypeCode) to=\(receiverId)")
     }
 
-    /// Send VoIP push to receiver to trigger incoming call (CallKit on iOS)
     func makeCallPush(
         receiverId: Int64,
         jsonData: String,
@@ -538,7 +519,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.incomingCallPush = push
         send(envelope)
-        AppLogger.app.info("[MezonSocket] makeCallPush to=\(receiverId)")
     }
 
     func fetchListChannelBadgeCount(clanId: Int64) async throws -> [Mezon_Api_ChannelDescription] {
@@ -577,7 +557,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.isConnected = true
             self.reconnectAttempts = 0
             self.hasTriedRefreshSinceConnect = false
-            self.onConnected?()
+            self.eventPipe.putNext(.connected)
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
         }
     }
@@ -591,7 +571,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             self.isConnected = false
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
-            self.onDisconnect?()
+            self.eventPipe.putNext(.disconnected)
 
             if closeCode != .normalClosure {
                 self.scheduleReconnect()
