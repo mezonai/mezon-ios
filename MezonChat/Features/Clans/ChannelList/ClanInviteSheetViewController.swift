@@ -1,5 +1,598 @@
+import AsyncDisplayKit
 import CoreImage
 import UIKit
+
+private final class ClanInviteSearchWrapNode: ASDisplayNode {
+    let textField = UITextField()
+    let clearButton = UIButton(type: .system)
+    private let iconView = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+
+    override init() {
+        super.init()
+        backgroundColor = UIColor.theme.secondary
+        cornerRadius = 8.swh
+        clipsToBounds = true
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        iconView.tintColor = UIColor.theme.textDisabled
+        view.addSubview(iconView)
+
+        textField.placeholder = L(L10n.ClanInviteSheet.searchPlaceholder)
+        textField.borderStyle = .none
+        textField.font = .systemFont(ofSize: 15.sf, weight: .regular)
+        textField.clearButtonMode = .never
+        view.addSubview(textField)
+
+        clearButton.setImage(
+            UIImage(systemName: "xmark.circle.fill")?.withConfiguration(
+                UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .regular)
+            ),
+            for: .normal
+        )
+        clearButton.isHidden = true
+        view.addSubview(clearButton)
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        let iconSize: CGFloat = 18.swh
+        let clearSize: CGFloat = 24.swh
+
+        iconView.frame = CGRect(
+            x: 8.sw,
+            y: (b.height - iconSize) / 2,
+            width: iconSize,
+            height: iconSize
+        )
+        clearButton.frame = CGRect(
+            x: b.width - 8.sw - clearSize,
+            y: (b.height - clearSize) / 2,
+            width: clearSize,
+            height: clearSize
+        )
+        textField.frame = CGRect(
+            x: iconView.frame.maxX + 8.sw,
+            y: 0,
+            width: clearButton.frame.minX - 4.sw - iconView.frame.maxX - 8.sw,
+            height: b.height
+        )
+    }
+
+    func applyTheme() {
+        backgroundColor = UIColor.theme.secondary
+        iconView.tintColor = UIColor.theme.textDisabled
+        textField.textColor = UIColor.theme.textStrong
+        textField.tintColor = UIColor.theme.textDisabled
+        clearButton.tintColor = UIColor.theme.textStrong
+        textField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.ClanInviteSheet.searchPlaceholder),
+            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+        )
+    }
+}
+
+private final class ClanInviteActionButtonNode: ASDisplayNode {
+    private let iconWrapNode = ASDisplayNode()
+    private let iconNode = ASImageNode()
+    private let labelNode = ASTextNode()
+    var onTap: (() -> Void)?
+
+    init(iconAsset: String, fallbackSystemIcon: String, title: String) {
+        super.init()
+        automaticallyManagesSubnodes = false
+
+        iconWrapNode.isLayerBacked = true
+        iconNode.isLayerBacked = true
+        labelNode.isLayerBacked = true
+
+        iconWrapNode.backgroundColor = UIColor.theme.secondary
+        iconWrapNode.cornerRadius = 20.swh
+        iconWrapNode.clipsToBounds = true
+
+        let img = UIImage(named: iconAsset)?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
+        iconNode.image = img
+        iconNode.tintColor = UIColor.theme.textStrong
+        iconNode.contentMode = .scaleAspectFit
+
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        labelNode.attributedText = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 16.sf * 0.75, weight: .regular),
+                .foregroundColor: UIColor.theme.text,
+                .paragraphStyle: para,
+            ]
+        )
+        
+        addSubnode(iconWrapNode)
+        addSubnode(iconNode)
+        addSubnode(labelNode)
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+    }
+
+    @objc private func handleTap() { onTap?() }
+
+    override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
+        let labelSz = labelNode.calculateSizeThatFits(CGSize(width: 200, height: 40))
+        let maxW = max(40.swh, labelSz.width)
+        return CGSize(width: maxW, height: 62.sh) 
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        
+        let iconSz: CGFloat = 40.swh
+        let iconFrame = CGRect(x: (b.width - iconSz) / 2, y: 0, width: iconSz, height: iconSz)
+        iconWrapNode.frame = iconFrame
+        
+        let innerIconSz: CGFloat = 24.swh
+        iconNode.frame = CGRect(
+            x: iconFrame.minX + (iconSz - innerIconSz) / 2,
+            y: iconFrame.minY + (iconSz - innerIconSz) / 2,
+            width: innerIconSz,
+            height: innerIconSz
+        )
+        
+        let labelSz = labelNode.calculateSizeThatFits(CGSize(width: b.width, height: 20))
+        labelNode.frame = CGRect(
+            x: (b.width - labelSz.width) / 2,
+            y: iconFrame.maxY + 6.sh,
+            width: labelSz.width,
+            height: labelSz.height
+        )
+    }
+}
+
+private final class ClanInviteEmptyStateNode: ASDisplayNode {
+    private let imageNode = ASImageNode()
+    private let titleNode = ASTextNode()
+    private let descriptionNode = ASTextNode()
+    let actionButtonNode = ASButtonNode()
+
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = true
+        isHidden = true
+
+        imageNode.isLayerBacked = true
+        titleNode.isLayerBacked = true
+        descriptionNode.isLayerBacked = true
+
+        imageNode.image = UIImage(named: "Invite/EmptyFriendIcon", in: .main, compatibleWith: nil)?
+            .withRenderingMode(.alwaysOriginal)
+        imageNode.contentMode = .scaleAspectFit
+        imageNode.style.preferredSize = CGSize(width: 96.swh, height: 96.swh)
+        updateText()
+    }
+
+    private func updateText() {
+        let center = NSMutableParagraphStyle()
+        center.alignment = .center
+
+        titleNode.attributedText = NSAttributedString(
+            string: L(L10n.ClanInviteSheet.emptyTitle),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 30.sf * 0.6, weight: .bold),
+                .foregroundColor: UIColor.theme.textStrong,
+                .paragraphStyle: center,
+            ]
+        )
+        titleNode.maximumNumberOfLines = 2
+
+        descriptionNode.attributedText = NSAttributedString(
+            string: L(L10n.ClanInviteSheet.emptyDescription),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 24.sf * 0.6, weight: .regular),
+                .foregroundColor: UIColor.theme.textDisabled,
+                .paragraphStyle: center,
+            ]
+        )
+        descriptionNode.maximumNumberOfLines = 0
+
+        actionButtonNode.setTitle(
+            L(L10n.ClanInviteSheet.emptyAction),
+            with: .systemFont(ofSize: 14.sf, weight: .semibold),
+            with: UIColor.theme.textLink,
+            for: .normal
+        )
+    }
+
+    func applyTheme() { updateText() }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let topStack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 10.sh,
+            justifyContent: .center,
+            alignItems: .center,
+            children: [imageNode, titleNode, descriptionNode]
+        )
+        let outerStack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 14.sh,
+            justifyContent: .center,
+            alignItems: .center,
+            children: [topStack, actionButtonNode]
+        )
+        let inset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 24.sw, bottom: 0, right: 24.sw),
+            child: outerStack
+        )
+        return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: inset)
+    }
+}
+
+private final class ClanInviteFriendCellNode: ASCellNode {
+    var onInvite: (() -> Void)?
+
+    private let avatarBgNode = ASDisplayNode()
+    private let avatarNode = ASNetworkImageNode()
+    private let initialNode = ASTextNode()
+    private let groupIconNode = ASImageNode()
+    private let nameNode = ASTextNode()
+    private let inviteButtonNode = ASButtonNode()
+    private let spinnerWrapNode: ASDisplayNode
+
+    private enum AvatarMode { case image, group, initial }
+    private let avatarMode: AvatarMode
+    private let needsSpinner: Bool
+
+    init(name: String, avatarURL: String?, isGroupDM: Bool, isSent: Bool, isLoading: Bool) {
+        self.needsSpinner = isLoading
+
+        spinnerWrapNode = ASDisplayNode { () -> UIView in
+            let sp = UIActivityIndicatorView(style: .medium)
+            sp.hidesWhenStopped = true
+            if isLoading {
+                sp.startAnimating()
+            }
+            return sp
+        }
+
+        if let avatarURL, !avatarURL.isEmpty {
+            avatarMode = .image
+        } else if isGroupDM {
+            avatarMode = .group
+        } else {
+            avatarMode = .initial
+        }
+
+        super.init()
+        automaticallyManagesSubnodes = true
+        selectionStyle = .none
+        backgroundColor = .clear
+
+        avatarBgNode.isLayerBacked = true
+        avatarNode.isLayerBacked = true
+        initialNode.isLayerBacked = true
+        groupIconNode.isLayerBacked = true
+        nameNode.isLayerBacked = true
+
+        let avatarSize: CGFloat = 40.swh
+        avatarBgNode.cornerRadius = avatarSize / 2
+        avatarBgNode.clipsToBounds = true
+
+        avatarNode.cornerRadius = avatarSize / 2
+        avatarNode.clipsToBounds = true
+        avatarNode.contentMode = .scaleAspectFill
+
+        groupIconNode.image = UIImage(systemName: "person.2.fill")
+        groupIconNode.tintColor = .white
+        groupIconNode.contentMode = .scaleAspectFit
+
+        let initial = name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
+
+        switch avatarMode {
+        case .image:
+            let px = Int(avatarSize * UIScreen.main.scale)
+            let proxied = ImgproxyURL.create(from: avatarURL!, width: px, height: px)
+            avatarNode.url = URL(string: proxied)
+            avatarBgNode.backgroundColor = UIColor.theme.border
+        case .group:
+            avatarBgNode.backgroundColor = UIColor(red: 0.96, green: 0.55, blue: 0.16, alpha: 1)
+        case .initial:
+            avatarBgNode.backgroundColor = UIColor.theme.border
+            let para = NSMutableParagraphStyle()
+            para.alignment = .center
+            initialNode.attributedText = NSAttributedString(
+                string: initial,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
+                    .foregroundColor: UIColor.theme.textDisabled,
+                    .paragraphStyle: para,
+                ]
+            )
+        }
+
+        nameNode.maximumNumberOfLines = 1
+        nameNode.truncationMode = .byTruncatingTail
+        nameNode.attributedText = NSAttributedString(
+            string: name,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 15.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.textStrong,
+            ]
+        )
+
+        let title = isSent ? L(L10n.ClanInviteSheet.invited) : L(L10n.ClanInviteSheet.invite)
+        inviteButtonNode.backgroundColor = UIColor.theme.tertiary
+        inviteButtonNode.cornerRadius = 16.swh
+        inviteButtonNode.clipsToBounds = true
+        inviteButtonNode.borderWidth = 1 / UIScreen.main.scale
+        inviteButtonNode.borderColor = UIColor.theme.border.withAlphaComponent(0.8).cgColor
+        inviteButtonNode.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 12.sw, bottom: 6.sh, right: 12.sw)
+        inviteButtonNode.isEnabled = !isSent && !isLoading
+
+        if isLoading {
+            inviteButtonNode.setTitle("", with: .systemFont(ofSize: 14.sf, weight: .medium), with: .clear, for: .normal)
+        } else {
+            inviteButtonNode.setTitle(
+                title,
+                with: .systemFont(ofSize: 14.sf, weight: .medium),
+                with: UIColor.theme.textStrong,
+                for: .normal
+            )
+        }
+
+        inviteButtonNode.addTarget(self, action: #selector(inviteTapped), forControlEvents: .touchUpInside)
+        alpha = isSent ? 0.6 : 1.0
+    }
+
+    func updateState(isSent: Bool, isLoading: Bool) {
+        let title = isSent ? L(L10n.ClanInviteSheet.invited) : L(L10n.ClanInviteSheet.invite)
+        inviteButtonNode.isEnabled = !isSent && !isLoading
+        alpha = isSent ? 0.6 : 1.0
+
+        if isLoading {
+            inviteButtonNode.setTitle("", with: .systemFont(ofSize: 14.sf, weight: .medium), with: .clear, for: .normal)
+            if spinnerWrapNode.isNodeLoaded {
+                ASPerformBlockOnMainThread {
+                    if let spinner = self.spinnerWrapNode.view.subviews.first as? UIActivityIndicatorView {
+                        spinner.startAnimating()
+                    }
+                }
+            }
+        } else {
+            inviteButtonNode.setTitle(
+                title,
+                with: .systemFont(ofSize: 14.sf, weight: .medium),
+                with: UIColor.theme.textStrong,
+                for: .normal
+            )
+            if spinnerWrapNode.isNodeLoaded {
+                ASPerformBlockOnMainThread {
+                    if let spinner = self.spinnerWrapNode.view.subviews.first as? UIActivityIndicatorView {
+                        spinner.stopAnimating()
+                    }
+                }
+            }
+        }
+    }
+
+    @objc private func inviteTapped() { onInvite?() }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let avatarSize: CGFloat = 40.swh
+
+        avatarBgNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
+
+        let avatarOverlay: ASLayoutElement
+        switch avatarMode {
+        case .image:
+            avatarNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
+            avatarOverlay = avatarNode
+        case .group:
+            groupIconNode.style.preferredSize = CGSize(width: 20.swh, height: 20.swh)
+            avatarOverlay = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: groupIconNode)
+        case .initial:
+            avatarOverlay = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: initialNode)
+        }
+        let avatarComposite = ASOverlayLayoutSpec(child: avatarBgNode, overlay: avatarOverlay)
+        avatarComposite.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
+
+        nameNode.style.flexShrink = 1
+        nameNode.style.flexGrow = 0
+        let nameOffset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 10.sh, left: 0, bottom: 0, right: 0),
+            child: nameNode
+        )
+        nameOffset.style.flexShrink = 1
+
+        let spacer = ASLayoutSpec()
+        spacer.style.flexGrow = 1
+
+        inviteButtonNode.style.minWidth = ASDimensionMake(60.sw)
+        inviteButtonNode.style.maxWidth = ASDimensionMake(90.sw)
+        inviteButtonNode.style.height = ASDimensionMake(32.sh)
+
+        let spinnerCenter = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: spinnerWrapNode)
+        let buttonWithSpinner = ASOverlayLayoutSpec(child: inviteButtonNode, overlay: spinnerCenter)
+
+        let row = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 10.sw,
+            justifyContent: .start,
+            alignItems: .center,
+            children: [avatarComposite, nameOffset, spacer, buttonWithSpinner]
+        )
+
+        let inset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 20.sw, bottom: 0, right: 20.sw),
+            child: row
+        )
+        inset.style.height = ASDimensionMake(60.sh)
+        return inset
+    }
+}
+
+private final class ClanInviteSheetContainerNode: ASDisplayNode {
+    let titleNode = ASTextNode()
+    let shareButton: ClanInviteActionButtonNode
+    let copyButton: ClanInviteActionButtonNode
+    let qrButton: ClanInviteActionButtonNode
+    let dividerNode = ASDisplayNode()
+    let searchWrapNode = ClanInviteSearchWrapNode()
+    let listContainerNode = ASDisplayNode()
+    let tableNode = ASTableNode(style: .plain)
+    let emptyStateNode = ClanInviteEmptyStateNode()
+    let loadingSpinner = UIActivityIndicatorView(style: .medium)
+    let loadingLabel = UILabel()
+
+    override init() {
+        shareButton = ClanInviteActionButtonNode(
+            iconAsset: "Invite/ShareIcon",
+            fallbackSystemIcon: "square.and.arrow.up",
+            title: L(L10n.ClanInviteSheet.share)
+        )
+        copyButton = ClanInviteActionButtonNode(
+            iconAsset: "Invite/LinkIcon",
+            fallbackSystemIcon: "link",
+            title: L(L10n.ClanInviteSheet.copy)
+        )
+        qrButton = ClanInviteActionButtonNode(
+            iconAsset: "",
+            fallbackSystemIcon: "qrcode",
+            title: L(L10n.ClanInviteSheet.qrCode)
+        )
+
+        super.init()
+        automaticallyManagesSubnodes = false
+
+        titleNode.isLayerBacked = true
+        dividerNode.isLayerBacked = true
+
+        backgroundColor = UIColor.theme.primary
+        cornerRadius = 8.swh
+        clipsToBounds = true
+
+        let center = NSMutableParagraphStyle()
+        center.alignment = .center
+        titleNode.attributedText = NSAttributedString(
+            string: L(L10n.ClanInviteSheet.title),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 15.sf, weight: .bold),
+                .foregroundColor: UIColor.theme.textStrong,
+                .paragraphStyle: center,
+            ]
+        )
+
+        listContainerNode.backgroundColor = UIColor.theme.secondary
+        listContainerNode.cornerRadius = 10.swh
+        listContainerNode.clipsToBounds = true
+
+        tableNode.cornerRadius = 10.swh
+
+        loadingSpinner.startAnimating()
+        loadingLabel.text = L(L10n.ClanInviteSheet.loadingInviteLink)
+        loadingLabel.font = .systemFont(ofSize: 14.sf, weight: .regular)
+
+        addSubnode(titleNode)
+        addSubnode(shareButton)
+        addSubnode(copyButton)
+        addSubnode(qrButton)
+        addSubnode(dividerNode)
+        addSubnode(searchWrapNode)
+        addSubnode(listContainerNode)
+        listContainerNode.addSubnode(tableNode)
+        listContainerNode.addSubnode(emptyStateNode)
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+
+        tableNode.view.separatorStyle = .singleLine
+        tableNode.view.separatorColor = UIColor.theme.textDisabled.withAlphaComponent(0.45)
+        tableNode.view.separatorInset = .zero
+        tableNode.view.layoutMargins = .zero
+        tableNode.backgroundColor = .clear
+        tableNode.view.showsVerticalScrollIndicator = false
+
+        tableNode.leadingScreensForBatching = 2.0
+    }
+
+    func applyTheme() {
+        backgroundColor = UIColor.theme.primary
+
+        let center = NSMutableParagraphStyle()
+        center.alignment = .center
+        titleNode.attributedText = NSAttributedString(
+            string: L(L10n.ClanInviteSheet.title),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 15.sf, weight: .bold),
+                .foregroundColor: UIColor.theme.textStrong,
+                .paragraphStyle: center,
+            ]
+        )
+
+        dividerNode.backgroundColor = UIColor.theme.border.withAlphaComponent(0.6)
+        searchWrapNode.applyTheme()
+        loadingSpinner.color = UIColor.theme.textDisabled
+        loadingLabel.textColor = UIColor.theme.textDisabled
+        listContainerNode.backgroundColor = UIColor.theme.secondary
+        emptyStateNode.applyTheme()
+        tableNode.view.separatorColor = UIColor.theme.textDisabled.withAlphaComponent(0.45)
+        tableNode.reloadData()
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        let w = b.width
+        var y: CGFloat = 0
+
+        titleNode.frame = CGRect(x: 16.sw, y: 20.sh, width: w - 32.sw, height: 24.sh)
+        y = 60.sh
+
+        let aLead: CGFloat = 16.sw
+        let aTrail: CGFloat = 16.sw
+        let aTop = y + 16.sh
+
+        let shareSz = shareButton.calculateSizeThatFits(CGSize(width: w, height: 62.sh))
+        let copySz = copyButton.calculateSizeThatFits(CGSize(width: w, height: 62.sh))
+        let qrSz = qrButton.calculateSizeThatFits(CGSize(width: w, height: 62.sh))
+
+        let shareW = shareSz.width
+        let copyW = copySz.width
+        let qrW = qrSz.width
+
+        shareButton.frame = CGRect(x: aLead, y: aTop, width: shareW, height: 62.sh)
+        copyButton.frame = CGRect(x: (w - copyW) / 2, y: aTop, width: copyW, height: 62.sh)
+        qrButton.frame = CGRect(x: w - aTrail - qrW, y: aTop, width: qrW, height: 62.sh)
+        dividerNode.frame = CGRect(
+            x: 0,
+            y: y + 94.sh - 1 / UIScreen.main.scale,
+            width: w,
+            height: 1 / UIScreen.main.scale
+        )
+        y += 94.sh
+
+        let lx: CGFloat = 16.sw
+        let lw = w - 32.sw
+        searchWrapNode.frame = CGRect(x: lx, y: y + 16.sh, width: lw, height: 40.sh)
+        y += 62.sh
+
+        let lh = max(0, b.height - y - 10.sh)
+        listContainerNode.frame = CGRect(x: lx, y: y, width: lw, height: lh)
+        tableNode.frame = listContainerNode.bounds
+        emptyStateNode.frame = listContainerNode.bounds
+    }
+
+    func updateEmptyState(isEmpty: Bool) {
+        emptyStateNode.isHidden = !isEmpty
+        tableNode.isHidden = isEmpty
+    }
+}
 
 final class ClanInviteSheetViewController: ViewController {
     private static let inviteIdRegex = try? NSRegularExpression(pattern: "/invite/(\\d+)", options: [])
@@ -27,24 +620,9 @@ final class ClanInviteSheetViewController: ViewController {
     private var sendingIds = Set<Int64>()
     private var dmChannelsByUserId: [Int64: Mezon_Api_ChannelDescription] = [:]
 
-    private let rootStack = UIStackView()
-    private let headerWrap = UIView()
-    private let titleLabel = UILabel()
-    private let actionWrap = UIView()
-    private let actionRow = UIStackView()
-    private let actionBottomDivider = UIView()
-    private let searchWrap = UIView()
-    private let searchField = UITextField()
-    private let searchClearButton = UIButton(type: .system)
-    private let listContainer = UIView()
-    private let tableView = UITableView(frame: .zero, style: .plain)
-    private let loadingLabel = UILabel()
-    private let loadingSpinner = UIActivityIndicatorView(style: .medium)
-    private let emptyStateView = UIStackView()
-    private let emptyImageView = UIImageView()
-    private let emptyTitleLabel = UILabel()
-    private let emptyDescriptionLabel = UILabel()
-    private let emptyActionButton = UIButton(type: .system)
+    private var foldedNameCache: [Int64: String] = [:]
+
+    private var containerNode: ClanInviteSheetContainerNode { displayNode as! ClanInviteSheetContainerNode }
 
     init(context: AccountContext, clanId: Int64) {
         self.context = context
@@ -56,185 +634,33 @@ final class ClanInviteSheetViewController: ViewController {
         fatalError()
     }
 
+    override func loadDisplayNode() {
+        let node = ClanInviteSheetContainerNode()
+        displayNode = node
+
+        node.shareButton.onTap = { [weak self] in self?.shareInvite() }
+        node.copyButton.onTap = { [weak self] in self?.copyInvite() }
+        node.qrButton.onTap = { [weak self] in self?.showQR() }
+        node.emptyStateNode.actionButtonNode.addTarget(
+            self,
+            action: #selector(emptyActionTapped),
+            forControlEvents: .touchUpInside
+        )
+
+        node.tableNode.dataSource = self
+        node.tableNode.delegate = self
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
+        containerNode.searchWrapNode.textField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
+        containerNode.searchWrapNode.clearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         applyTheme()
         loadData()
     }
 
-    private func setupUI() {
-        view.backgroundColor = UIColor.theme.primary
-        view.layer.cornerRadius = 8.swh
-        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        view.clipsToBounds = true
-
-        rootStack.axis = .vertical
-        rootStack.spacing = 0
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(rootStack)
-
-        headerWrap.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.addArrangedSubview(headerWrap)
-
-        titleLabel.text = L(L10n.ClanInviteSheet.title)
-        titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
-        titleLabel.textAlignment = .center
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerWrap.addSubview(titleLabel)
-
-        actionWrap.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.addArrangedSubview(actionWrap)
-
-        actionRow.axis = .horizontal
-        actionRow.distribution = .equalSpacing
-        actionRow.spacing = 0
-        actionRow.translatesAutoresizingMaskIntoConstraints = false
-        actionWrap.addSubview(actionRow)
-
-        actionRow.addArrangedSubview(makeActionButton(iconAsset: "Invite/ShareIcon", fallbackSystemIcon: "square.and.arrow.up", title: L(L10n.ClanInviteSheet.share), action: #selector(shareInvite)))
-        actionRow.addArrangedSubview(makeActionButton(iconAsset: "Invite/LinkIcon", fallbackSystemIcon: "link", title: L(L10n.ClanInviteSheet.copy), action: #selector(copyInvite)))
-        actionRow.addArrangedSubview(makeActionButton(iconAsset: "", fallbackSystemIcon: "qrcode", title: L(L10n.ClanInviteSheet.qrCode), action: #selector(showQR)))
-
-        actionBottomDivider.translatesAutoresizingMaskIntoConstraints = false
-        actionWrap.addSubview(actionBottomDivider)
-
-        let searchOuter = UIView()
-        searchOuter.translatesAutoresizingMaskIntoConstraints = false
-        rootStack.addArrangedSubview(searchOuter)
-
-        searchWrap.backgroundColor = UIColor.theme.secondary
-        searchWrap.layer.cornerRadius = 8.swh
-        searchWrap.translatesAutoresizingMaskIntoConstraints = false
-        searchOuter.addSubview(searchWrap)
-
-        let iconView = UIImageView(image: UIImage(systemName: "magnifyingglass"))
-        iconView.tintColor = UIColor.theme.textDisabled
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        searchWrap.addSubview(iconView)
-
-        searchField.placeholder = L(L10n.ClanInviteSheet.searchPlaceholder)
-        searchField.borderStyle = .none
-        searchField.font = .systemFont(ofSize: 15.sf, weight: .regular)
-        searchField.clearButtonMode = .never
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
-        searchWrap.addSubview(searchField)
-
-        searchClearButton.translatesAutoresizingMaskIntoConstraints = false
-        searchClearButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .regular)
-            ),
-            for: .normal
-        )
-        searchClearButton.isHidden = true
-        searchClearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
-        searchWrap.addSubview(searchClearButton)
-
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: searchWrap.leadingAnchor, constant: 8.sw),
-            iconView.centerYAnchor.constraint(equalTo: searchWrap.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 18.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 18.swh),
-            searchField.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8.sw),
-            searchField.trailingAnchor.constraint(equalTo: searchClearButton.leadingAnchor, constant: -4.sw),
-            searchField.topAnchor.constraint(equalTo: searchWrap.topAnchor),
-            searchField.bottomAnchor.constraint(equalTo: searchWrap.bottomAnchor),
-            searchClearButton.trailingAnchor.constraint(equalTo: searchWrap.trailingAnchor, constant: -8.sw),
-            searchClearButton.centerYAnchor.constraint(equalTo: searchWrap.centerYAnchor),
-            searchClearButton.widthAnchor.constraint(equalToConstant: 24.swh),
-            searchClearButton.heightAnchor.constraint(equalToConstant: 24.swh),
-        ])
-
-        let loadingWrap = UIStackView(arrangedSubviews: [loadingSpinner, loadingLabel])
-        loadingWrap.axis = .horizontal
-        loadingWrap.spacing = 8.sw
-        loadingWrap.alignment = .center
-        loadingWrap.isHidden = true
-        rootStack.addArrangedSubview(loadingWrap)
-
-        loadingSpinner.startAnimating()
-        loadingLabel.text = L(L10n.ClanInviteSheet.loadingInviteLink)
-        loadingLabel.font = .systemFont(ofSize: 14.sf, weight: .regular)
-
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.separatorInset = .zero
-        tableView.separatorColor = UIColor.theme.textDisabled.withAlphaComponent(0.45)
-        tableView.layoutMargins = .zero
-        tableView.separatorStyle = .singleLine
-        tableView.backgroundColor = .clear
-        tableView.layer.cornerRadius = 10.swh
-        tableView.showsVerticalScrollIndicator = false
-        tableView.register(ClanInviteFriendCell.self, forCellReuseIdentifier: ClanInviteFriendCell.id)
-        listContainer.translatesAutoresizingMaskIntoConstraints = false
-        listContainer.backgroundColor = UIColor.theme.secondary
-        listContainer.layer.cornerRadius = 10.swh
-        listContainer.clipsToBounds = true
-        rootStack.addArrangedSubview(listContainer)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        listContainer.addSubview(tableView)
-        setupEmptyStateUI()
-
-        NSLayoutConstraint.activate([
-            rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            rootStack.topAnchor.constraint(equalTo: view.topAnchor),
-            rootStack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            headerWrap.heightAnchor.constraint(equalToConstant: 60.sh),
-            titleLabel.leadingAnchor.constraint(equalTo: headerWrap.leadingAnchor, constant: 16.sw),
-            titleLabel.trailingAnchor.constraint(equalTo: headerWrap.trailingAnchor, constant: -16.sw),
-            titleLabel.topAnchor.constraint(equalTo: headerWrap.topAnchor, constant: 20.sh),
-
-            actionRow.leadingAnchor.constraint(equalTo: actionWrap.leadingAnchor, constant: 8.sw),
-            actionRow.trailingAnchor.constraint(equalTo: actionWrap.trailingAnchor, constant: -16.sw),
-            actionRow.topAnchor.constraint(equalTo: actionWrap.topAnchor, constant: 16.sh),
-            actionRow.heightAnchor.constraint(equalToConstant: 62.sh),
-            actionBottomDivider.leadingAnchor.constraint(equalTo: actionWrap.leadingAnchor),
-            actionBottomDivider.trailingAnchor.constraint(equalTo: actionWrap.trailingAnchor),
-            actionBottomDivider.bottomAnchor.constraint(equalTo: actionWrap.bottomAnchor),
-            actionBottomDivider.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
-            actionWrap.heightAnchor.constraint(equalToConstant: 94.sh),
-
-            listContainer.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor, constant: 16.sw),
-            listContainer.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor, constant: -16.sw),
-            tableView.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor),
-            tableView.topAnchor.constraint(equalTo: listContainer.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: listContainer.bottomAnchor),
-
-            searchOuter.heightAnchor.constraint(equalToConstant: 62.sh),
-            searchWrap.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor),
-            searchWrap.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor),
-            searchWrap.topAnchor.constraint(equalTo: searchOuter.topAnchor, constant: 16.sh),
-            searchWrap.heightAnchor.constraint(equalToConstant: 40.sh),
-
-            loadingWrap.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor, constant: 16.sw),
-            loadingWrap.trailingAnchor.constraint(lessThanOrEqualTo: rootStack.trailingAnchor, constant: -16.sw),
-        ])
-
-        rootStack.setCustomSpacing(10.sh, after: listContainer)
-    }
-
     private func applyTheme() {
-        view.backgroundColor = UIColor.theme.primary
-        titleLabel.textColor = UIColor.theme.textStrong
-        actionBottomDivider.backgroundColor = UIColor.theme.border.withAlphaComponent(0.6)
-        searchField.textColor = UIColor.theme.textStrong
-        searchField.tintColor = UIColor.theme.textDisabled
-        searchClearButton.tintColor = UIColor.theme.textStrong
-        searchField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.ClanInviteSheet.searchPlaceholder),
-            attributes: [.foregroundColor: UIColor.theme.textDisabled]
-        )
-        loadingSpinner.color = UIColor.theme.textDisabled
-        loadingLabel.textColor = UIColor.theme.textDisabled
-        emptyTitleLabel.textColor = UIColor.theme.textStrong
-        emptyDescriptionLabel.textColor = UIColor.theme.textDisabled
-        emptyActionButton.setTitleColor(UIColor.theme.textLink, for: .normal)
-        tableView.reloadData()
+        containerNode.applyTheme()
     }
 
     private func loadData() {
@@ -320,15 +746,28 @@ final class ClanInviteSheetViewController: ViewController {
                 self.allFriends = merged.values.sorted {
                     $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
                 }
+
+                self.rebuildFoldedNameCache()
+
                 self.applyFilter()
-                self.loadingSpinner.stopAnimating()
+                self.containerNode.loadingSpinner.stopAnimating()
             } catch {
-                self.loadingSpinner.stopAnimating()
+                self.containerNode.loadingSpinner.stopAnimating()
                 self.filteredFriends = []
                 self.updateEmptyStateVisibility()
-                self.tableView.reloadData()
+                await self.containerNode.tableNode.reloadData()
                 AppLogger.network.warning("[ClanInviteSheet] load friend list failed: \(error)")
             }
+        }
+    }
+
+    private func rebuildFoldedNameCache() {
+        foldedNameCache.removeAll(keepingCapacity: true)
+        for item in allFriends {
+            foldedNameCache[item.id] = item.name.folding(
+                options: [.diacriticInsensitive, .caseInsensitive],
+                locale: .current
+            )
         }
     }
 
@@ -366,130 +805,47 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     private func applyFilter() {
-        let keyword = (searchField.text ?? "")
+        let keyword = (containerNode.searchWrapNode.textField.text ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
         if keyword.isEmpty {
             filteredFriends = allFriends
         } else {
             filteredFriends = allFriends.filter {
-                $0.name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current).contains(keyword)
+                (foldedNameCache[$0.id] ?? "").contains(keyword)
             }
         }
         updateEmptyStateVisibility()
-        tableView.reloadData()
-    }
-
-    private func setupEmptyStateUI() {
-        emptyStateView.axis = .vertical
-        emptyStateView.alignment = .center
-        emptyStateView.spacing = 10.sh
-        emptyStateView.isHidden = true
-        emptyStateView.translatesAutoresizingMaskIntoConstraints = false
-        listContainer.addSubview(emptyStateView)
-
-        emptyImageView.image = UIImage(named: "Invite/EmptyFriendIcon", in: .main, compatibleWith: nil)?
-            .withRenderingMode(.alwaysOriginal)
-
-        emptyImageView.contentMode = .scaleAspectFit
-        emptyImageView.translatesAutoresizingMaskIntoConstraints = false
-
-        emptyTitleLabel.text = L(L10n.ClanInviteSheet.emptyTitle)
-        emptyTitleLabel.font = .systemFont(ofSize: 30.sf * 0.6, weight: .bold)
-        emptyTitleLabel.textAlignment = .center
-        emptyTitleLabel.numberOfLines = 2
-
-        emptyDescriptionLabel.text = L(L10n.ClanInviteSheet.emptyDescription)
-        emptyDescriptionLabel.font = .systemFont(ofSize: 24.sf * 0.6, weight: .regular)
-        emptyDescriptionLabel.textAlignment = .center
-        emptyDescriptionLabel.numberOfLines = 0
-
-        emptyActionButton.setTitle(L(L10n.ClanInviteSheet.emptyAction), for: .normal)
-        emptyActionButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        emptyActionButton.addTarget(self, action: #selector(emptyActionTapped), for: .touchUpInside)
-
-        emptyStateView.addArrangedSubview(emptyImageView)
-        emptyStateView.addArrangedSubview(emptyTitleLabel)
-        emptyStateView.addArrangedSubview(emptyDescriptionLabel)
-        emptyStateView.setCustomSpacing(14.sh, after: emptyDescriptionLabel)
-        emptyStateView.addArrangedSubview(emptyActionButton)
-
-        NSLayoutConstraint.activate([
-            emptyStateView.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor, constant: 24.sw),
-            emptyStateView.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor, constant: -24.sw),
-            emptyStateView.centerXAnchor.constraint(equalTo: listContainer.centerXAnchor),
-            emptyStateView.centerYAnchor.constraint(equalTo: listContainer.centerYAnchor),
-            emptyImageView.widthAnchor.constraint(equalToConstant: 96.swh),
-            emptyImageView.heightAnchor.constraint(equalToConstant: 96.swh),
-        ])
+        containerNode.tableNode.reloadData()
     }
 
     private func updateEmptyStateVisibility() {
         let isEmpty = filteredFriends.isEmpty
-        emptyStateView.isHidden = !isEmpty
-        tableView.isHidden = isEmpty
-        loadingLabel.text = nil
+        containerNode.updateEmptyState(isEmpty: isEmpty)
+        containerNode.loadingLabel.text = nil
     }
 
-    private func makeActionButton(iconAsset: String, fallbackSystemIcon: String, title: String, action: Selector) -> UIView {
-        let container = UIView()
-
-        let iconWrap = UIView()
-        iconWrap.backgroundColor = UIColor.theme.secondary
-        iconWrap.layer.cornerRadius = 20.swh
-        iconWrap.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(iconWrap)
-
-        let iconImage = UIImage(named: iconAsset)?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
-        let iconView = UIImageView(image: iconImage)
-        iconView.tintColor = UIColor.theme.textStrong
-        iconView.contentMode = .scaleAspectFit
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconWrap.addSubview(iconView)
-
-        let label = UILabel()
-        label.text = title
-        label.font = .systemFont(ofSize: 16.sf * 0.75, weight: .regular)
-        label.textColor = UIColor.theme.text
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(label)
-
-        let button = UIButton(type: .custom)
-        button.addTarget(self, action: action, for: .touchUpInside)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(button)
-
-        NSLayoutConstraint.activate([
-            iconWrap.topAnchor.constraint(equalTo: container.topAnchor),
-            iconWrap.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            iconWrap.widthAnchor.constraint(equalToConstant: 40.swh),
-            iconWrap.heightAnchor.constraint(equalToConstant: 40.swh),
-            iconView.centerXAnchor.constraint(equalTo: iconWrap.centerXAnchor),
-            iconView.centerYAnchor.constraint(equalTo: iconWrap.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 24.swh),
-            label.topAnchor.constraint(equalTo: iconWrap.bottomAnchor, constant: 6.sh),
-            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            label.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            button.topAnchor.constraint(equalTo: container.topAnchor),
-            button.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            button.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            button.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        return container
+    private func updateCellState(for item: FriendItem) {
+        Task { @MainActor in
+            guard let rowIndex = self.filteredFriends.firstIndex(where: { $0.id == item.id }) else { return }
+            let indexPath = IndexPath(row: rowIndex, section: 0)
+            if let cell = self.containerNode.tableNode.nodeForRow(at: indexPath) as? ClanInviteFriendCellNode {
+                let isSent = self.sentIds.contains(item.id)
+                let isLoading = self.sendingIds.contains(item.id)
+                cell.updateState(isSent: isSent, isLoading: isLoading)
+            }
+        }
     }
 
     private func inviteUser(_ item: FriendItem) {
         guard !sentIds.contains(item.id), !sendingIds.contains(item.id) else { return }
         sendingIds.insert(item.id)
-        tableView.reloadData()
+        updateCellState(for: item)
 
         Task { @MainActor in
             defer {
                 self.sendingIds.remove(item.id)
-                self.tableView.reloadData()
+                self.updateCellState(for: item)
             }
             do {
                 guard let token = await context.getToken() else { throw NSError(domain: "session", code: -1) }
@@ -613,29 +969,35 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     @objc private func searchChanged() {
-        searchClearButton.isHidden = (searchField.text ?? "").isEmpty
+        containerNode.searchWrapNode.clearButton.isHidden = (containerNode.searchWrapNode.textField.text ?? "").isEmpty
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedApplyFilter), object: nil)
+        perform(#selector(debouncedApplyFilter), with: nil, afterDelay: 0.15)
+    }
+
+    @objc private func debouncedApplyFilter() {
         applyFilter()
     }
 
     @objc private func clearSearchTapped() {
-        searchField.text = ""
-        searchClearButton.isHidden = true
+        containerNode.searchWrapNode.textField.text = ""
+        containerNode.searchWrapNode.clearButton.isHidden = true
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedApplyFilter), object: nil)
         applyFilter()
     }
 
-    @objc private func copyInvite() {
+    private func copyInvite() {
         guard let inviteLink else { return }
         UIPasteboard.general.string = inviteLink
         Toast.success(L(L10n.ClanInviteSheet.linkCopied))
     }
 
-    @objc private func shareInvite() {
+    private func shareInvite() {
         guard let inviteLink else { return }
         let ac = UIActivityViewController(activityItems: [inviteLink], applicationActivities: nil)
         present(ac, animated: true)
     }
 
-    @objc private func showQR() {
+    private func showQR() {
         guard let inviteLink else { return }
         guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return }
         filter.setValue(inviteLink.data(using: .utf8), forKey: "inputMessage")
@@ -658,183 +1020,34 @@ final class ClanInviteSheetViewController: ViewController {
     }
 }
 
-extension ClanInviteSheetViewController: UITableViewDataSource, UITableViewDelegate {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+extension ClanInviteSheetViewController: ASTableDataSource, ASTableDelegate {
+    func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
         filteredFriends.count
     }
 
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        60.sh
-    }
-
-    func tableView(
-        _ tableView: UITableView,
-        cellForRowAt indexPath: IndexPath
-    ) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(
-            withIdentifier: ClanInviteFriendCell.id,
-            for: indexPath
-        ) as? ClanInviteFriendCell else {
-            return UITableViewCell()
-        }
-        let item = filteredFriends[indexPath.row]
-        cell.configure(
-            name: item.name,
-            avatarURL: item.avatarURL,
-            isGroupDM: item.isGroupDM,
-            isSent: sentIds.contains(item.id),
-            isLoading: sendingIds.contains(item.id)
+    func tableNode(_ tableNode: ASTableNode, constrainedSizeForRowAt indexPath: IndexPath) -> ASSizeRange {
+        ASSizeRange(
+            min: CGSize(width: 0, height: 60.sh),
+            max: CGSize(width: tableNode.bounds.width, height: 60.sh)
         )
-        cell.onInvite = { [weak self] in
-            self?.inviteUser(item)
+    }
+
+    func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
+        let item = filteredFriends[indexPath.row]
+        let isSent = sentIds.contains(item.id)
+        let isLoading = sendingIds.contains(item.id)
+        return { [weak self] in
+            let cell = ClanInviteFriendCellNode(
+                name: item.name,
+                avatarURL: item.avatarURL,
+                isGroupDM: item.isGroupDM,
+                isSent: isSent,
+                isLoading: isLoading
+            )
+            cell.onInvite = { [weak self] in
+                self?.inviteUser(item)
+            }
+            return cell
         }
-        return cell
     }
 }
-
-private final class ClanInviteFriendCell: UITableViewCell {
-    static let id = "ClanInviteFriendCell"
-
-    var onInvite: (() -> Void)?
-
-    private let avatarView = UIImageView()
-    private let groupIconView = UIImageView()
-    private let nameLabel = UILabel()
-    private let inviteButton = UIButton(type: .system)
-    private let spinner = UIActivityIndicatorView(style: .medium)
-    private var representedAvatarURL: String?
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        selectionStyle = .none
-        backgroundColor = .clear
-        contentView.backgroundColor = .clear
-        separatorInset = .zero
-        layoutMargins = .zero
-        preservesSuperviewLayoutMargins = false
-
-        avatarView.layer.cornerRadius = 20.swh
-        avatarView.clipsToBounds = true
-        avatarView.contentMode = .scaleAspectFill
-        avatarView.backgroundColor = UIColor.theme.border
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(avatarView)
-
-        groupIconView.image = UIImage(systemName: "person.2.fill")
-        groupIconView.tintColor = .white
-        groupIconView.contentMode = .scaleAspectFit
-        groupIconView.isHidden = true
-        groupIconView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(groupIconView)
-
-        nameLabel.font = .systemFont(ofSize: 15.sf, weight: .regular)
-        nameLabel.textColor = UIColor.theme.textStrong
-        nameLabel.numberOfLines = 1
-        nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(nameLabel)
-
-        inviteButton.layer.cornerRadius = 16.swh
-        inviteButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
-        inviteButton.addTarget(self, action: #selector(inviteTapped), for: .touchUpInside)
-        inviteButton.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(inviteButton)
-
-        spinner.hidesWhenStopped = true
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(spinner)
-
-        NSLayoutConstraint.activate([
-            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20.sw),
-            avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: 40.swh),
-            avatarView.heightAnchor.constraint(equalToConstant: 40.swh),
-            groupIconView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            groupIconView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
-            groupIconView.widthAnchor.constraint(equalToConstant: 20.swh),
-            groupIconView.heightAnchor.constraint(equalToConstant: 20.swh),
-            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10.sw),
-            nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor, constant: 5.sh),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: inviteButton.leadingAnchor, constant: -10.sw),
-            inviteButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20.sw),
-            inviteButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            inviteButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 60.sw),
-            inviteButton.heightAnchor.constraint(equalToConstant: 32.sh),
-            spinner.centerYAnchor.constraint(equalTo: inviteButton.centerYAnchor),
-            spinner.centerXAnchor.constraint(equalTo: inviteButton.centerXAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError()
-    }
-
-    func configure(name: String, avatarURL: String?, isGroupDM: Bool, isSent: Bool, isLoading: Bool) {
-        nameLabel.text = name
-        representedAvatarURL = avatarURL
-        let title = isSent ? L(L10n.ClanInviteSheet.invited) : L(L10n.ClanInviteSheet.invite)
-        inviteButton.setTitle(title, for: .normal)
-        inviteButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        inviteButton.backgroundColor = UIColor.theme.tertiary
-        inviteButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 12.sw, bottom: 6.sh, right: 12.sw)
-        inviteButton.layer.borderWidth = 1 / UIScreen.main.scale
-        inviteButton.layer.borderColor = UIColor.theme.border.withAlphaComponent(0.8).cgColor
-        inviteButton.isEnabled = !isSent && !isLoading
-        contentView.alpha = isSent ? 0.6 : 1.0
-
-        if isLoading {
-            inviteButton.setTitle(nil, for: .normal)
-            spinner.startAnimating()
-        } else {
-            spinner.stopAnimating()
-            inviteButton.setTitle(title, for: .normal)
-        }
-
-        avatarView.image = nil
-        groupIconView.isHidden = true
-        let initial = name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
-        if let avatarURL, !avatarURL.isEmpty {
-            let px = Int(40.swh * UIScreen.main.scale)
-            let proxied = ImgproxyURL.create(from: avatarURL, width: px, height: px)
-            if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
-                avatarView.image = cached
-            } else {
-                ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
-                    guard let self, let image else { return }
-                    DispatchQueue.main.async {
-                        guard self.representedAvatarURL == avatarURL else { return }
-                        self.avatarView.image = image
-                    }
-                }
-            }
-        } else {
-            if isGroupDM {
-                avatarView.backgroundColor = UIColor(
-                    red: 0.96,
-                    green: 0.55,
-                    blue: 0.16,
-                    alpha: 1
-                )
-                groupIconView.isHidden = false
-            } else {
-                avatarView.backgroundColor = UIColor.theme.border
-                let renderer = UIGraphicsImageRenderer(size: CGSize(width: 40.swh, height: 40.swh))
-                avatarView.image = renderer.image { _ in
-                    let attrs: [NSAttributedString.Key: Any] = [
-                        .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
-                        .foregroundColor: UIColor.theme.textDisabled
-                    ]
-                    let textSize = initial.size(withAttributes: attrs)
-                    let point = CGPoint(x: (40.swh - textSize.width) / 2, y: (40.swh - textSize.height) / 2)
-                    initial.draw(at: point, withAttributes: attrs)
-                }
-            }
-        }
-    }
-
-    @objc private func inviteTapped() {
-        onInvite?()
-    }
-}
-
