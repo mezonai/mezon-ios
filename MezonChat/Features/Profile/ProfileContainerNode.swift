@@ -573,7 +573,7 @@ final class ProfileContainerNode: ASDisplayNode {
         let user = context.currentUser
 
         if let url = user?.avatarURL {
-            let urlString = url.absoluteString
+            let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
             if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
                 avatarImageView.image = cached
                 headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonBackground

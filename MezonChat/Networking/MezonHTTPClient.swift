@@ -174,6 +174,23 @@ final class MezonHTTPClient {
         )
     }
 
+    func linkInviteUser(
+        clanId: Int64,
+        channelId: Int64,
+        expiryTime: Int32 = 10,
+        token: String
+    ) async throws -> Mezon_Api_LinkInviteUser {
+        var req = Mezon_Api_LinkInviteUserRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.expiryTime = expiryTime
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateLinkInviteUser",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
         var req = Mezon_Api_ListChannelDescsRequest()
         req.clanID      = clanId

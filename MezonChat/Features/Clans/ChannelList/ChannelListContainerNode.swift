@@ -7,6 +7,7 @@ struct ChannelListInteraction {
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
+    let onInviteClan: (() -> Void)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
     let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
@@ -808,6 +809,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                 guard let self else { return }
                 if action == .settings {
                     self.interaction.onPresentSettings?()
+                } else if action == .invite {
+                    self.interaction.onInviteClan?()
                 } else {
                 }
             }
