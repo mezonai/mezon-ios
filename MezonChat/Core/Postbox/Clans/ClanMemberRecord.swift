@@ -61,4 +61,19 @@ struct ClanMemberRecord: PostboxCoding, Equatable {
         ]
         return try? JSONSerialization.data(withJSONObject: dict)
     }
+
+    func toClanUserListClanUser() -> Mezon_Api_ClanUserList.ClanUser {
+        var u = Mezon_Api_User()
+        u.id = userId
+        u.online = isOnline
+        u.displayName = displayName
+        u.username = username
+        var c = Mezon_Api_ClanUserList.ClanUser()
+        c.user = u
+        c.roleID = roleIds
+        c.clanNick = clanNick
+        c.clanAvatar = clanAvatar
+        c.clanID = clanId
+        return c
+    }
 }

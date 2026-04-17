@@ -7,15 +7,21 @@ private enum VoiceReactionPickerSheetLayout {
     static let minBody: CGFloat = 120
 
     static func sheetHeight(layout: ContainerViewLayout, handleH: CGFloat) -> CGFloat {
+        let kb = layout.inputHeight ?? 0
         let safeBottom = layout.intrinsicInsets.bottom
-        let sheetCap = layout.size.height * heightFraction
+        let visibleH = layout.size.height - kb
+        let sheetCap = max(0, visibleH * heightFraction)
         let rawBody = sheetCap - handleH - safeBottom - bottomChrome
         let bodyH = max(minBody, rawBody)
-        return handleH + bodyH + safeBottom + bottomChrome
+        let uncapped = handleH + bodyH + safeBottom + bottomChrome
+        if visibleH > 0 {
+            return min(uncapped, visibleH)
+        }
+        return uncapped
     }
 }
 
-final class ReactionEmojiPickerSheetController: ViewController {
+class ReactionEmojiPickerSheetController: ViewController {
 
     private let engine: MezonEngine
     private let dismissOnEmojiSelect: Bool
@@ -25,6 +31,8 @@ final class ReactionEmojiPickerSheetController: ViewController {
     private var sheetNode: ReactionEmojiPickerSheetNode {
         displayNode as! ReactionEmojiPickerSheetNode
     }
+
+    override var overlayWantsToBeBelowKeyboard: Bool { true }
 
     init(engine: MezonEngine, dismissOnEmojiSelect: Bool = true, onEmojiPicked: @escaping (String, String) -> Void) {
         self.engine = engine
@@ -141,7 +149,8 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         let screenW = layout.size.width
         let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
         containerHeight = h
-        let containerY = layout.size.height - containerHeight
+        let kb = layout.inputHeight ?? 0
+        let containerY = layout.size.height - containerHeight - kb
         transition.updateFrame(node: dimmingNode, frame: bounds)
         transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
@@ -162,8 +171,9 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
             return
         }
         animateInRetryCount = 0
+        let kb = layout.inputHeight ?? 0
         let fromY = layout.size.height
-        let toY = layout.size.height - containerHeight
+        let toY = layout.size.height - containerHeight - kb
         containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.dimmingNode.alpha = 1
@@ -188,7 +198,7 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
     }
 }
 
-final class ReactionSoundStickerPickerSheetController: ViewController {
+class ReactionSoundStickerPickerSheetController: ViewController {
 
     private let engine: MezonEngine
     private let dismissOnStickerSelect: Bool
@@ -198,6 +208,8 @@ final class ReactionSoundStickerPickerSheetController: ViewController {
     private var sheetNode: ReactionSoundStickerPickerSheetNode {
         displayNode as! ReactionSoundStickerPickerSheetNode
     }
+
+    override var overlayWantsToBeBelowKeyboard: Bool { true }
 
     init(engine: MezonEngine, dismissOnStickerSelect: Bool = true, onStickerPicked: @escaping (CachedClanStickerRecord) -> Void) {
         self.engine = engine
@@ -315,7 +327,8 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
         let screenW = layout.size.width
         let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
         containerHeight = h
-        let containerY = layout.size.height - containerHeight
+        let kb = layout.inputHeight ?? 0
+        let containerY = layout.size.height - containerHeight - kb
         transition.updateFrame(node: dimmingNode, frame: bounds)
         transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
@@ -336,8 +349,9 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
             return
         }
         animateInRetryCount = 0
+        let kb = layout.inputHeight ?? 0
         let fromY = layout.size.height
-        let toY = layout.size.height - containerHeight
+        let toY = layout.size.height - containerHeight - kb
         containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.dimmingNode.alpha = 1

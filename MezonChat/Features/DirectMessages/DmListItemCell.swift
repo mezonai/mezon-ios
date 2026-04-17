@@ -164,7 +164,7 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, currentUserId: String?) {
+    func configure(channel: Mezon_Api_ChannelDescription) {
         avatarPlaceholder.textColor = .mezonTextPrimary
         groupIconView.tintColor = .mezonTextSecondary
 
@@ -209,7 +209,7 @@ final class DmListItemCell: UITableViewCell {
             }
         }
 
-        let (preview, time) = lastMessagePreview(channel: channel, currentUserId: currentUserId)
+        let (preview, time) = lastMessagePreview(channel: channel)
         lastMessageLabel.text = preview
         lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
@@ -245,8 +245,7 @@ final class DmListItemCell: UITableViewCell {
 
     private static let previewLayoutPlaceholder = "\u{200B}"
 
-
-    private func lastMessagePreview(channel: Mezon_Api_ChannelDescription, currentUserId: String?) -> (String, String) {
+    private func lastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
         let msg = channel.lastSentMessage
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let hasHeaderPayload =
@@ -270,56 +269,33 @@ final class DmListItemCell: UITableViewCell {
             return (Self.previewLayoutPlaceholder, time)
         }
 
-        let isFromMe: Bool = {
-            if let uid = currentUserId.flatMap({ Int64($0) }) { return uid == msg.senderID }
-            if let s = currentUserId { return String(msg.senderID) == s }
-            return false
-        }()
-
-        var senderPrefix = ""
-        if msg.senderID != 0 {
-            if isFromMe {
-                senderPrefix = "\(L(L10n.DirectMessage.you)): "
-            } else {
-                let senderName = channel.displayNames.first(where: { !$0.isEmpty }) ?? channel.usernames.first(where: { !$0.isEmpty }) ?? ""
-                if !senderName.isEmpty {
-                    senderPrefix = "\(senderName): "
-                }
-            }
-        }
-
         let time = formatRelativeTime(timestamp: msg.timestampSeconds)
-
 
         let preview: String
         if let payload = Self.messageContentPayload(from: msg.content) {
             if Self.isRNEmptyMessageContent(payload) {
-                preview = Self.previewWhenNoMessageBody(senderPrefix: senderPrefix, isGroup: isGroup)
+                preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
             } else {
-                preview = senderPrefix + Self.dmPreviewBody(from: payload)
+                preview = Self.dmPreviewBody(from: payload)
             }
         } else if msg.content.isEmpty {
-            preview = Self.previewWhenNoMessageBody(senderPrefix: senderPrefix, isGroup: isGroup)
+            preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
         } else {
-            preview = senderPrefix + msg.content
+            preview = msg.content
         }
 
         let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || (msg.senderID != 0 && trimmed == senderPrefix.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return (Self.previewWhenNoMessageBody(senderPrefix: senderPrefix, isGroup: isGroup), time)
+        if trimmed.isEmpty {
+            return (Self.previewWhenNoMessageBody(isGroup: isGroup), time)
         }
         return (preview, time)
     }
 
-    private static func previewWhenNoMessageBody(senderPrefix: String, isGroup: Bool) -> String {
+    private static func previewWhenNoMessageBody(isGroup: Bool) -> String {
         if isGroup {
-            return senderPrefix + L(L10n.DirectMessage.groupCreated)
+            return L(L10n.DirectMessage.groupCreated)
         }
-        let p = senderPrefix.trimmingCharacters(in: .whitespacesAndNewlines)
-        if p.isEmpty {
-            return "[\(L(L10n.DirectMessage.previewFile))]"
-        }
-        return p + " [\(L(L10n.DirectMessage.previewFile))]"
+        return "[\(L(L10n.DirectMessage.previewFile))]"
     }
 
 

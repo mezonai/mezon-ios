@@ -797,24 +797,32 @@ final class ChatViewController: ViewController {
         }
 
         let channelIdStr = storageChannelId
+        let messagesKeyInvalid = topicId == 0 && channel.channelID == 0
 
-        let cachedMessages = context.account.postbox.read { tx in
-            tx.getMessages(channelId: channelIdStr)
-        }
-        let hasCache = !cachedMessages.isEmpty
-        if !hasCache {
-            setIsLoading(true)
-        }
+        if messagesKeyInvalid {
+            setMessages([])
+            setIsLoading(false)
+        } else {
+            let cachedMessages = context.account.postbox.read { tx in
+                tx.getMessages(channelId: channelIdStr)
+            }
+            let hasCache = !cachedMessages.isEmpty
+            if !hasCache {
+                setIsLoading(true)
+            }
 
-        stateDisposables.add(
-            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
-                |> deliverOnMainQueue)
-                .start(next: { [weak self] view in
-                    guard let self else { return }
-                    let displays = self.buildDisplayMessages(from: view.messages)
-                    self.setMessages(displays)
-                })
-        )
+            stateDisposables.add(
+                (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
+                    |> deliverOnMainQueue)
+                    .start(next: { [weak self] view in
+                        guard let self else { return }
+                        guard view.channelId == channelIdStr else { return }
+                        let rows = view.messages.filter { $0.channelId == channelIdStr }
+                        let displays = self.buildDisplayMessages(from: rows)
+                        self.setMessages(displays)
+                    })
+            )
+        }
         stateDisposables.add(
             (self.context.account.postbox.channelMetaView(channelId: channel.channelID) |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
@@ -836,6 +844,7 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if self.topicId == 0 && self.channel.channelID == 0 { return }
             await self.context.waitForSessionReady()
             guard let token = await self.context.getToken() else {
                 return

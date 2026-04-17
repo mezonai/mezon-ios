@@ -91,7 +91,6 @@ final class DirectMessagesViewController: ViewController {
         }
     }
 
-
     @MainActor
     private func applyDmListChannelBadgeCount() async {
         guard !directMessages.isEmpty else { return }
@@ -247,7 +246,12 @@ final class DirectMessagesViewController: ViewController {
         )
     }
 
-    private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) { directMessages = v; directMessagesPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
+        directMessages = v
+        directMessagesPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
+
     private func setIsEmpty(_ v: Bool) { isEmpty = v; isEmptyPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }

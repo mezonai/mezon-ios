@@ -241,27 +241,46 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         let filteredInsert = rowsToInsert.filter { !sectionsToReload.contains($0.section) }
         let filteredDelete = rowsToDelete.filter { !sectionsToReload.contains($0.section) }
-        let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) }
+        var seenReload = Set<IndexPath>()
+        let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) && seenReload.insert($0).inserted }
 
         let hasChanges = !sectionsToReload.isEmpty || !filteredInsert.isEmpty
             || !filteredDelete.isEmpty || !filteredReload.isEmpty
         if hasChanges {
             let rowAnim = UITableView.RowAnimation.none
+            let sortedDeletes = filteredDelete.sorted {
+                if $0.section != $1.section { return $0.section > $1.section }
+                return $0.row > $1.row
+            }
+            let sortedInserts = filteredInsert.sorted {
+                if $0.section != $1.section { return $0.section < $1.section }
+                return $0.row < $1.row
+            }
             tableNode.performBatch(animated: false) {
+                if !sortedDeletes.isEmpty {
+                    self.tableNode.deleteRows(at: sortedDeletes, with: rowAnim)
+                }
+                if !sortedInserts.isEmpty {
+                    self.tableNode.insertRows(at: sortedInserts, with: rowAnim)
+                }
                 if !sectionsToReload.isEmpty {
                     self.tableNode.reloadSections(sectionsToReload, with: rowAnim)
                 }
-                if !filteredDelete.isEmpty {
-                    self.tableNode.deleteRows(at: filteredDelete, with: rowAnim)
-                }
-                if !filteredInsert.isEmpty {
-                    self.tableNode.insertRows(at: filteredInsert, with: rowAnim)
-                }
-                if !filteredReload.isEmpty {
-                    self.tableNode.reloadRows(at: filteredReload, with: .none)
-                }
             }
             tableNode.waitUntilAllUpdatesAreProcessed()
+
+            if !filteredReload.isEmpty {
+                let validReloads = filteredReload.filter { ip in
+                    ip.section < self.tableNode.numberOfSections
+                        && ip.row < self.tableNode.numberOfRows(inSection: ip.section)
+                }
+                if !validReloads.isEmpty {
+                    UIView.performWithoutAnimation {
+                        self.tableNode.reloadRows(at: validReloads, with: .none)
+                    }
+                    tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+            }
         }
         committedSectionCount = expectedAfter
     }

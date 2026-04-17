@@ -54,6 +54,9 @@ extension MezonEngine {
                     
                     tx.updateClanMembers(members, clanId: clanId)
                 }
+                if let data = try? response.serializedData() {
+                    postbox.setPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
+                }
 
                 clanUsersUpdated.putNext(clanId)
             } catch {
@@ -154,8 +157,17 @@ extension MezonEngine {
 
 
         func getClanUsers(clanId: Int64) -> Mezon_Api_ClanUserList? {
-            guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)) else { return nil }
-            return try? Mezon_Api_ClanUserList(serializedBytes: data)
+            if let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)),
+               let cached = try? Mezon_Api_ClanUserList(serializedBytes: data),
+               !cached.clanUsers.isEmpty {
+                return cached
+            }
+            let rows = postbox.read { $0.getClanMembers(clanId: clanId) }
+            guard !rows.isEmpty else { return nil }
+            var list = Mezon_Api_ClanUserList()
+            list.clanID = clanId
+            list.clanUsers = rows.map { $0.toClanUserListClanUser() }
+            return list
         }
 
         func getClanRoles(clanId: Int64) -> Mezon_Api_RoleListEventResponse? {
