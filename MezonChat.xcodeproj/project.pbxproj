@@ -168,6 +168,7 @@
 		5A0D06CE86368DB6F063FBFB /* TransformImageNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 834E032683CA0671FA880978 /* TransformImageNode.swift */; };
 		5AB418F26BDF2FA5E62BF341 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCACA49E871D8CD52F95EA9C /* ShareViewController.swift */; };
 		5D261893375D7DD1EEEB8191 /* ChannelListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* ClanInviteSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* ClanInviteSheetViewController.swift */; };
 		5E4D3681E98064C508631A88 /* NetworkBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C428DB3E4CB6BE4A7DBB3EDB /* NetworkBannerView.swift */; };
 		5E5F151A03D8C9FF6FDC3603 /* Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FCBF73086932953EE28120 /* Helpers.swift */; };
 		5EDBAF5A866B6875A253872C /* MmnClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37601E7B67BB3059B209B288 /* MmnClient.swift */; };
@@ -548,6 +549,7 @@
 		1F48D9F5694A70C203E73D55 /* MessageFileAttachmentNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageFileAttachmentNode.swift; sourceTree = "<group>"; };
 		1FDDD043AB2BCC3068283432 /* SBlockDisposable.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SBlockDisposable.m; sourceTree = "<group>"; };
 		20153ACC045764F57CE1B592 /* ClanActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanActionSheet.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* ClanInviteSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanInviteSheetViewController.swift; sourceTree = "<group>"; };
 		208C195B44CADEB924D95E84 /* UIImage+Decode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIImage+Decode.swift"; sourceTree = "<group>"; };
 		20AE25A5CC6C4330DFC371DC /* QRLoginConfirmNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRLoginConfirmNode.swift; sourceTree = "<group>"; };
 		217BAF002E75D223C6014B51 /* MyQRCodeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyQRCodeViewController.swift; sourceTree = "<group>"; };
@@ -1268,6 +1270,7 @@
 				65A153900FBAA757909C1A3B /* ChannelListContainerNode.swift */,
 				41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */,
 				20153ACC045764F57CE1B592 /* ClanActionSheet.swift */,
+				A1B2C3D4E5F60718293A4B5D /* ClanInviteSheetViewController.swift */,
 				96117A05EB08E5E9CB5F8DD8 /* JoinVoiceChannelSheetViewController.swift */,
 				BA847363D29EA9924D57EC4F /* ThreadItemCellNode.swift */,
 				CB933064BFA5A0EA136E5806 /* VoiceCallReactionFlightView.swift */,
@@ -2472,6 +2475,7 @@
 				034C7AC5A98E9BA060216981 /* ChildWindowHostView.swift in Sources */,
 				E688E176A5AFDA2269780E3B /* Circle.swift in Sources */,
 				641F336FB04677D70E70E580 /* ClanActionSheet.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* ClanInviteSheetViewController.swift in Sources */,
 				369F3DCF16F083FD79186781 /* ClanListContainerNode.swift in Sources */,
 				C610D1C8E8DE61EFF62AE6FF /* ClanListView.swift in Sources */,
 				97A30D3D6FB785C3CA7ACE80 /* ClanListViewController.swift in Sources */,
