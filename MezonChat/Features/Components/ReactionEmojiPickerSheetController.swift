@@ -2,15 +2,16 @@ import AsyncDisplayKit
 import UIKit
 
 private enum VoiceReactionPickerSheetLayout {
-    static let heightFraction: CGFloat = 0.5
+    static let collapsedFraction: CGFloat = 0.5
+    static let expandedFraction: CGFloat = 0.92
     static let bottomChrome: CGFloat = 16
     static let minBody: CGFloat = 120
 
-    static func sheetHeight(layout: ContainerViewLayout, handleH: CGFloat) -> CGFloat {
+    static func sheetHeight(layout: ContainerViewLayout, handleH: CGFloat, fraction: CGFloat) -> CGFloat {
         let kb = layout.inputHeight ?? 0
         let safeBottom = layout.intrinsicInsets.bottom
         let visibleH = layout.size.height - kb
-        let sheetCap = max(0, visibleH * heightFraction)
+        let sheetCap = max(0, visibleH * fraction)
         let rawBody = sheetCap - handleH - safeBottom - bottomChrome
         let bodyH = max(minBody, rawBody)
         let uncapped = handleH + bodyH + safeBottom + bottomChrome
@@ -78,7 +79,12 @@ class ReactionEmojiPickerSheetController: ViewController {
     }
 }
 
-private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
+private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
+
+    private enum SheetDetent {
+        case collapsed
+        case expanded
+    }
 
     private let engine: MezonEngine
     private let onEmojiSelected: (String, String) -> Void
@@ -92,6 +98,15 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private let handleH: CGFloat = 25
+    private var detent: SheetDetent = .collapsed
+    private var collapsedHeight: CGFloat = 0
+    private var expandedHeight: CGFloat = 0
+    private var displayedHeight: CGFloat = 0
+    private var panGesture: UIPanGestureRecognizer!
+    private var panStartDisplayedHeight: CGFloat = 0
+    private var isDraggingSheet = false
+
+    private var canResizeSheet: Bool { expandedHeight > collapsedHeight + 40 }
 
     init(engine: MezonEngine, onEmojiSelected: @escaping (String, String) -> Void, onDimTapped: @escaping () -> Void) {
         self.engine = engine
@@ -113,7 +128,6 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
 
-        emojisPanel.translatesAutoresizingMaskIntoConstraints = false
         emojisPanel.searchPlaceholderText = "Find the perfect reaction"
         emojisPanel.onEmojiSelected = { [weak self] id, sn in
             self?.onEmojiSelected(id, sn)
@@ -131,29 +145,152 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         emojisPanel.bindEmojiCache(engine: engine)
         emojisPanel.applyTheme(placement: .secondaryBottomSheet)
 
-        NSLayoutConstraint.activate([
-            emojisPanel.topAnchor.constraint(equalTo: containerNode.view.topAnchor, constant: handleH),
-            emojisPanel.leadingAnchor.constraint(equalTo: containerNode.view.leadingAnchor),
-            emojisPanel.trailingAnchor.constraint(equalTo: containerNode.view.trailingAnchor),
-            emojisPanel.bottomAnchor.constraint(equalTo: containerNode.view.bottomAnchor),
-        ])
+        panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGesture.delegate = self
+        containerNode.view.addGestureRecognizer(panGesture)
+        emojisPanel.sheetPanCoordinationScrollView.panGestureRecognizer.require(toFail: panGesture)
+        syncHostedPanelFrame()
+    }
+
+    override func layout() {
+        super.layout()
+        syncHostedPanelFrame()
+    }
+
+    private func syncHostedPanelFrame() {
+        guard emojisPanel.superview === containerNode.view else { return }
+        let w = containerNode.bounds.width
+        let h = containerNode.bounds.height
+        guard w > 0, h > handleH else { return }
+        let panelH = h - handleH
+        let r = CGRect(x: 0, y: handleH, width: w, height: panelH)
+        if !emojisPanel.frame.equalTo(r) {
+            emojisPanel.frame = r
+            emojisPanel.layoutIfNeeded()
+            (emojisPanel.sheetPanCoordinationScrollView as? UICollectionView)?.collectionViewLayout.invalidateLayout()
+        }
     }
 
     @objc private func dimTapped() {
         onDimTapped()
     }
 
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let layout = validLayout else { return }
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+        let kb = layout.inputHeight ?? 0
+        let fullBottom = layout.size.height - kb
+        let screenW = layout.size.width
+
+        switch gesture.state {
+        case .began:
+            isDraggingSheet = true
+            panStartDisplayedHeight = displayedHeight
+        case .changed:
+            var newH = panStartDisplayedHeight - translation.y
+            let minH = collapsedHeight
+            let maxH = expandedHeight
+            var dismissPull: CGFloat = 0
+            if newH < minH {
+                dismissPull = minH - newH
+                newH = minH
+            } else if newH > maxH {
+                newH = maxH
+            }
+            let newY = fullBottom - newH + dismissPull
+            displayedHeight = newH
+            containerHeight = newH
+            containerNode.frame = CGRect(x: 0, y: newY, width: screenW, height: newH)
+            syncHostedPanelFrame()
+            if dismissPull > 0 {
+                dimmingNode.alpha = max(0, 1 - dismissPull / max(minH * 0.45, 80))
+            } else {
+                dimmingNode.alpha = 1
+            }
+        case .ended, .cancelled:
+            isDraggingSheet = false
+            let baseCollapsedY = fullBottom - collapsedHeight
+            let dismissThreshold = min(collapsedHeight * 0.28, 120)
+            if containerNode.frame.origin.y > baseCollapsedY + dismissThreshold || velocity.y > 700 {
+                onDimTapped()
+                return
+            }
+            let mid = (collapsedHeight + expandedHeight) / 2
+            if canResizeSheet {
+                if velocity.y < -200 {
+                    detent = .expanded
+                } else if velocity.y > 200 {
+                    detent = .collapsed
+                } else {
+                    detent = displayedHeight > mid ? .expanded : .collapsed
+                }
+            } else {
+                detent = .collapsed
+            }
+            let targetH = detent == .expanded ? expandedHeight : collapsedHeight
+            let targetY = fullBottom - targetH
+            UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.92, initialSpringVelocity: 0, options: []) {
+                self.displayedHeight = targetH
+                self.containerHeight = targetH
+                self.containerNode.frame = CGRect(x: 0, y: targetY, width: screenW, height: targetH)
+                self.dimmingNode.alpha = 1
+                self.syncHostedPanelFrame()
+            }
+        default:
+            break
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === panGesture else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        let vel = panGesture.velocity(in: containerNode.view)
+        let p = panGesture.location(in: containerNode.view)
+        let onHandleStrip = p.y < handleH + 14
+        if onHandleStrip {
+            return abs(vel.y) >= abs(vel.x)
+        }
+        guard abs(vel.y) > abs(vel.x) else { return false }
+        let grid = emojisPanel.sheetPanCoordinationScrollView
+        let topInset = grid.adjustedContentInset.top
+        let atTop = grid.contentOffset.y <= -topInset + 1
+        let eps: CGFloat = 6
+        if vel.y < 0 {
+            return canResizeSheet && displayedHeight < expandedHeight - eps
+        }
+        if vel.y > 0 {
+            return atTop
+        }
+        return false
+    }
+
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
         let screenW = layout.size.width
-        let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
-        containerHeight = h
+        collapsedHeight = VoiceReactionPickerSheetLayout.sheetHeight(
+            layout: layout, handleH: handleH, fraction: VoiceReactionPickerSheetLayout.collapsedFraction)
+        expandedHeight = VoiceReactionPickerSheetLayout.sheetHeight(
+            layout: layout, handleH: handleH, fraction: VoiceReactionPickerSheetLayout.expandedFraction)
+        if expandedHeight <= collapsedHeight + 8 {
+            expandedHeight = min(layout.size.height - (layout.inputHeight ?? 0), collapsedHeight + 120)
+        }
+        if !isDraggingSheet {
+            displayedHeight = detent == .expanded ? expandedHeight : collapsedHeight
+        } else {
+            displayedHeight = min(max(displayedHeight, collapsedHeight), expandedHeight)
+        }
+        containerHeight = displayedHeight
         let kb = layout.inputHeight ?? 0
-        let containerY = layout.size.height - containerHeight - kb
+        let containerY = layout.size.height - kb - displayedHeight
         transition.updateFrame(node: dimmingNode, frame: bounds)
-        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
+        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: displayedHeight))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
+        syncHostedPanelFrame()
     }
 
     private var animateInRetryCount = 0
@@ -171,15 +308,18 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
             return
         }
         animateInRetryCount = 0
+        detent = .collapsed
+        displayedHeight = collapsedHeight
+        containerHeight = collapsedHeight
         let kb = layout.inputHeight ?? 0
         let fromY = layout.size.height
         let toY = layout.size.height - containerHeight - kb
         containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
+        syncHostedPanelFrame()
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.dimmingNode.alpha = 1
             self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: self.containerHeight)
-            self.containerNode.view.layoutIfNeeded()
-            self.emojisPanel.layoutIfNeeded()
+            self.syncHostedPanelFrame()
         }
     }
 
@@ -255,7 +395,12 @@ class ReactionSoundStickerPickerSheetController: ViewController {
     }
 }
 
-private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
+private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
+
+    private enum SheetDetent {
+        case collapsed
+        case expanded
+    }
 
     private let engine: MezonEngine
     private let onStickerSelected: (CachedClanStickerRecord) -> Void
@@ -269,6 +414,15 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private let handleH: CGFloat = 25
+    private var detent: SheetDetent = .collapsed
+    private var collapsedHeight: CGFloat = 0
+    private var expandedHeight: CGFloat = 0
+    private var displayedHeight: CGFloat = 0
+    private var panGesture: UIPanGestureRecognizer!
+    private var panStartDisplayedHeight: CGFloat = 0
+    private var isDraggingSheet = false
+
+    private var canResizeSheet: Bool { expandedHeight > collapsedHeight + 40 }
 
     init(engine: MezonEngine, onStickerSelected: @escaping (CachedClanStickerRecord) -> Void, onDimTapped: @escaping () -> Void) {
         self.engine = engine
@@ -290,7 +444,6 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
 
-        stickersPanel.translatesAutoresizingMaskIntoConstraints = false
         stickersPanel.searchPlaceholderText = "Find sound sticker"
         stickersPanel.onStickerSelected = { [weak self] sticker in
             self?.onStickerSelected(sticker)
@@ -309,29 +462,152 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
         stickersPanel.configureVoiceReactionSoundOnlyLayout(true)
         stickersPanel.applyTheme(placement: .secondaryBottomSheet)
 
-        NSLayoutConstraint.activate([
-            stickersPanel.topAnchor.constraint(equalTo: containerNode.view.topAnchor, constant: handleH),
-            stickersPanel.leadingAnchor.constraint(equalTo: containerNode.view.leadingAnchor),
-            stickersPanel.trailingAnchor.constraint(equalTo: containerNode.view.trailingAnchor),
-            stickersPanel.bottomAnchor.constraint(equalTo: containerNode.view.bottomAnchor),
-        ])
+        panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGesture.delegate = self
+        containerNode.view.addGestureRecognizer(panGesture)
+        stickersPanel.sheetPanCoordinationScrollView.panGestureRecognizer.require(toFail: panGesture)
+        syncHostedPanelFrame()
+    }
+
+    override func layout() {
+        super.layout()
+        syncHostedPanelFrame()
+    }
+
+    private func syncHostedPanelFrame() {
+        guard stickersPanel.superview === containerNode.view else { return }
+        let w = containerNode.bounds.width
+        let h = containerNode.bounds.height
+        guard w > 0, h > handleH else { return }
+        let panelH = h - handleH
+        let r = CGRect(x: 0, y: handleH, width: w, height: panelH)
+        if !stickersPanel.frame.equalTo(r) {
+            stickersPanel.frame = r
+            stickersPanel.layoutIfNeeded()
+            (stickersPanel.sheetPanCoordinationScrollView as? UICollectionView)?.collectionViewLayout.invalidateLayout()
+        }
     }
 
     @objc private func dimTapped() {
         onDimTapped()
     }
 
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let layout = validLayout else { return }
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+        let kb = layout.inputHeight ?? 0
+        let fullBottom = layout.size.height - kb
+        let screenW = layout.size.width
+
+        switch gesture.state {
+        case .began:
+            isDraggingSheet = true
+            panStartDisplayedHeight = displayedHeight
+        case .changed:
+            var newH = panStartDisplayedHeight - translation.y
+            let minH = collapsedHeight
+            let maxH = expandedHeight
+            var dismissPull: CGFloat = 0
+            if newH < minH {
+                dismissPull = minH - newH
+                newH = minH
+            } else if newH > maxH {
+                newH = maxH
+            }
+            let newY = fullBottom - newH + dismissPull
+            displayedHeight = newH
+            containerHeight = newH
+            containerNode.frame = CGRect(x: 0, y: newY, width: screenW, height: newH)
+            syncHostedPanelFrame()
+            if dismissPull > 0 {
+                dimmingNode.alpha = max(0, 1 - dismissPull / max(minH * 0.45, 80))
+            } else {
+                dimmingNode.alpha = 1
+            }
+        case .ended, .cancelled:
+            isDraggingSheet = false
+            let baseCollapsedY = fullBottom - collapsedHeight
+            let dismissThreshold = min(collapsedHeight * 0.28, 120)
+            if containerNode.frame.origin.y > baseCollapsedY + dismissThreshold || velocity.y > 700 {
+                onDimTapped()
+                return
+            }
+            let mid = (collapsedHeight + expandedHeight) / 2
+            if canResizeSheet {
+                if velocity.y < -200 {
+                    detent = .expanded
+                } else if velocity.y > 200 {
+                    detent = .collapsed
+                } else {
+                    detent = displayedHeight > mid ? .expanded : .collapsed
+                }
+            } else {
+                detent = .collapsed
+            }
+            let targetH = detent == .expanded ? expandedHeight : collapsedHeight
+            let targetY = fullBottom - targetH
+            UIView.animate(withDuration: 0.28, delay: 0, usingSpringWithDamping: 0.92, initialSpringVelocity: 0, options: []) {
+                self.displayedHeight = targetH
+                self.containerHeight = targetH
+                self.containerNode.frame = CGRect(x: 0, y: targetY, width: screenW, height: targetH)
+                self.dimmingNode.alpha = 1
+                self.syncHostedPanelFrame()
+            }
+        default:
+            break
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === panGesture else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        let vel = panGesture.velocity(in: containerNode.view)
+        let p = panGesture.location(in: containerNode.view)
+        let onHandleStrip = p.y < handleH + 14
+        if onHandleStrip {
+            return abs(vel.y) >= abs(vel.x)
+        }
+        guard abs(vel.y) > abs(vel.x) else { return false }
+        let grid = stickersPanel.sheetPanCoordinationScrollView
+        let topInset = grid.adjustedContentInset.top
+        let atTop = grid.contentOffset.y <= -topInset + 1
+        let eps: CGFloat = 6
+        if vel.y < 0 {
+            return canResizeSheet && displayedHeight < expandedHeight - eps
+        }
+        if vel.y > 0 {
+            return atTop
+        }
+        return false
+    }
+
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
         let screenW = layout.size.width
-        let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
-        containerHeight = h
+        collapsedHeight = VoiceReactionPickerSheetLayout.sheetHeight(
+            layout: layout, handleH: handleH, fraction: VoiceReactionPickerSheetLayout.collapsedFraction)
+        expandedHeight = VoiceReactionPickerSheetLayout.sheetHeight(
+            layout: layout, handleH: handleH, fraction: VoiceReactionPickerSheetLayout.expandedFraction)
+        if expandedHeight <= collapsedHeight + 8 {
+            expandedHeight = min(layout.size.height - (layout.inputHeight ?? 0), collapsedHeight + 120)
+        }
+        if !isDraggingSheet {
+            displayedHeight = detent == .expanded ? expandedHeight : collapsedHeight
+        } else {
+            displayedHeight = min(max(displayedHeight, collapsedHeight), expandedHeight)
+        }
+        containerHeight = displayedHeight
         let kb = layout.inputHeight ?? 0
-        let containerY = layout.size.height - containerHeight - kb
+        let containerY = layout.size.height - kb - displayedHeight
         transition.updateFrame(node: dimmingNode, frame: bounds)
-        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
+        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: displayedHeight))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
+        syncHostedPanelFrame()
     }
 
     private var animateInRetryCount = 0
@@ -349,15 +625,18 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
             return
         }
         animateInRetryCount = 0
+        detent = .collapsed
+        displayedHeight = collapsedHeight
+        containerHeight = collapsedHeight
         let kb = layout.inputHeight ?? 0
         let fromY = layout.size.height
         let toY = layout.size.height - containerHeight - kb
         containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
+        syncHostedPanelFrame()
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
             self.dimmingNode.alpha = 1
             self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: self.containerHeight)
-            self.containerNode.view.layoutIfNeeded()
-            self.stickersPanel.layoutIfNeeded()
+            self.syncHostedPanelFrame()
         }
     }
 

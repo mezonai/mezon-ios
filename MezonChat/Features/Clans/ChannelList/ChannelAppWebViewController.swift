@@ -26,6 +26,8 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         super.init(navigationBarPresentationData: nil)
     }
 
+    override var overlayWantsToBeBelowKeyboard: Bool { true }
+
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
@@ -135,7 +137,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         let top = layout.safeInsets.top
         let left = layout.safeInsets.left
         let right = layout.safeInsets.right
-        let bottom = layout.safeInsets.bottom
+        let bottom = max(layout.safeInsets.bottom, layout.inputHeight ?? 0)
         let innerWidth = max(0, layout.size.width - left - right)
         let headerFrame = CGRect(x: left, y: top, width: innerWidth, height: headerH)
         let webTop = top + headerH

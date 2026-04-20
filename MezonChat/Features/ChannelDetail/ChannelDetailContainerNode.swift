@@ -56,8 +56,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             channel: channel, context: context)
         self.membersListNode = MemberListNode(
             context: context, clanId: clanId, channelId: channel.channelID,
-            channelType: channel.type, isPrivate: channel.channelPrivate != 0,
-            channelDescription: channel)
+            channelType: channel.type, channelDescription: channel)
         self.mediaGalleryNode = MediaGalleryNode(
             context: context, clanId: clanId, channelId: channel.channelID,
             channelType: channel.type)

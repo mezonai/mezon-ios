@@ -41,6 +41,8 @@ final class EmojisPanel: UIView {
 
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
 
+    var sheetPanCoordinationScrollView: UIScrollView { emojiGrid }
+
     var searchPlaceholderText: String = "Find the perfect emoji"
 
     private weak var cacheEngine: MezonEngine?
