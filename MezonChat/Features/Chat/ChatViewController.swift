@@ -265,7 +265,7 @@ final class ChatViewController: ViewController {
             self?.updateInputBarHeight(newHeight)
         }
         vc.onToggleEmojiPicker = { [weak self] visible, collapsedH in
-            self?.handleEmojiPickerToggle(visible: visible, collapsedHeight: collapsedH)
+            self?.emojiPicker.setVisible(visible, collapsedHeight: collapsedH)
         }
         vc.onToggleAdvancePanel = { [weak self] visible, collapsedH in
             self?.handleAdvancePanelToggle(visible: visible, collapsedHeight: collapsedH)
@@ -278,42 +278,17 @@ final class ChatViewController: ViewController {
     }()
 
 
-    private lazy var emojiPickerView: PanelKeyboardView = {
-        let v = PanelKeyboardView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.isHidden = true
-        v.onEmojiSelected = { [weak self] emojiId, shortname in
-            guard let self else { return }
-            self.sendInputViewController.insertEmoji(emojiId, shortname: shortname)
-            self.sendInputViewController.hideEmojiPickerIfNeeded()
-            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
+    private lazy var emojiPicker: ChatEmojiPickerPresenter = {
+        let p = ChatEmojiPickerPresenter(sendInput: sendInputViewController)
+        p.onRequestRelayout = { [weak self] transition in
+            guard let self, let layout = self.lastLayout else { return }
+            self.containerLayoutUpdated(layout, transition: transition)
         }
-        v.onStickerSelected = { [weak self] sticker in
-            guard let self else { return }
-            self.sendInputViewController.sendSticker(sticker)
-            self.sendInputViewController.hideEmojiPickerIfNeeded()
-            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
+        p.onSetSuppressNextScrollToBottom = { [weak self] value in
+            self?.suppressScrollToBottomForNextKeyboardInset = value
         }
-        v.onGifSelected = { [weak self] url in
-            guard let self else { return }
-            self.sendInputViewController.sendGif(url: url)
-            self.sendInputViewController.hideEmojiPickerIfNeeded()
-            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
-        }
-        v.onHeightChanged = { [weak self] newHeight in
-            self?.updateEmojiPickerOverlayHeight(newHeight)
-        }
-        v.onPanelSearchBegin = {
-            DispatchQueue.main.async { [weak self] in
-                self?.updateEmojiPickerHeightForSearchKeyboard()
-            }
-        }
-        return v
+        return p
     }()
-
-    private var emojiPickerHeightConstraint: NSLayoutConstraint?
-    private var emojiPickerBottomConstraint: NSLayoutConstraint?
-    private var emojiPickerCollapsedHeight: CGFloat = 0
 
     private lazy var advancePanelView: AdvancedFunctionPanelView = {
         let v = AdvancedFunctionPanelView()
@@ -342,7 +317,6 @@ final class ChatViewController: ViewController {
     private var currentKeyboardOffset: CGFloat = 0
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
-    private var wasEmojiPickerJustDismissed = false
     private var suppressScrollToBottomForNextKeyboardInset = false
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
@@ -603,7 +577,7 @@ final class ChatViewController: ViewController {
         }
 
         if suppressScrollToBottomForNextKeyboardInset,
-           emojiPickerCollapsedHeight == 0,
+           emojiPicker.collapsedHeight == 0,
            advancePanelCollapsedHeight == 0,
            keyboardOffset < 0.5 {
             keyboardOffset = max(
@@ -612,7 +586,15 @@ final class ChatViewController: ViewController {
             )
         }
 
-        let emojiOffset = emojiPickerCollapsedHeight
+        if emojiPicker.isEmojiPanelSearchConsumingKeyboard {
+            keyboardOffset = 0
+        }
+
+        if isReactionEmojiPickerSheetHostingFirstResponder {
+            keyboardOffset = 0
+        }
+
+        let emojiOffset = emojiPicker.panelHeightForChatLayout
         let advanceOffset = advancePanelCollapsedHeight
         let bottomOffset = max(keyboardOffset, max(emojiOffset, advanceOffset))
 
@@ -627,7 +609,7 @@ final class ChatViewController: ViewController {
         )
         transition.updateFrame(view: sendInputViewController.view, frame: inputFrame)
 
-        emojiPickerBottomConstraint?.constant = -bottomInset
+        emojiPicker.updateBottomInset(bottomInset)
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
@@ -641,13 +623,13 @@ final class ChatViewController: ViewController {
         )
 
         let totalInputArea = totalBottomH + bottomOffset
-        if bottomOffset > 0 && currentKeyboardOffset == 0 && !wasEmojiPickerJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
+        if bottomOffset > 0 && currentKeyboardOffset == 0 && !emojiPicker.wasJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
             let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
             if totalInputArea > previousTotalInputArea + 20 {
                 scrollToBottomIfNeeded()
             }
         }
-        wasEmojiPickerJustDismissed = false
+        emojiPicker.clearJustDismissedFlag()
         if suppressScrollToBottomForNextKeyboardInset, rawKeyboardOffset > 0.5 {
             suppressScrollToBottomForNextKeyboardInset = false
         }
@@ -670,8 +652,8 @@ final class ChatViewController: ViewController {
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
         }
-        let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
-        if !hasFirstResponder {
+        let hasComposerFR = sendInputViewController.view.findFirstResponder() != nil
+        if !hasComposerFR && !isReactionEmojiPickerSheetHostingFirstResponder {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
         }
@@ -2011,19 +1993,7 @@ final class ChatViewController: ViewController {
         sendInputViewController.didMove(toParent: self)
 
 
-        view.addSubview(emojiPickerView)
-        let emojiH = emojiPickerView.heightAnchor.constraint(equalToConstant: 0)
-        emojiPickerHeightConstraint = emojiH
-        let emojiBottom = emojiPickerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        emojiPickerBottomConstraint = emojiBottom
-        NSLayoutConstraint.activate([
-            emojiPickerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            emojiPickerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            emojiH,
-            emojiBottom,
-        ])
-
-        emojiPickerView.configureMediaPanelCache(engine: context.engine)
+        emojiPicker.install(in: view, engine: context.engine)
 
         view.addSubview(advancePanelView)
         let advH = advancePanelView.heightAnchor.constraint(equalToConstant: 0)
@@ -2043,7 +2013,7 @@ final class ChatViewController: ViewController {
         remoteTypingStripView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
         view.bringSubviewToFront(sendInputViewController.view)
-        view.bringSubviewToFront(emojiPickerView)
+        emojiPicker.bringToFront()
         view.bringSubviewToFront(advancePanelView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
@@ -2061,22 +2031,13 @@ final class ChatViewController: ViewController {
             trackedKeyboardHeight = frame.height
         }
 
-        let searchFocused = emojiPickerView.isPanelSearchFocused || emojiPickerView.isSearchFieldActive
-
-
-        if emojiPickerCollapsedHeight > 0 && searchFocused {
-            updateEmojiPickerHeightForSearchKeyboard()
-            return
-        }
-
-
-        if emojiPickerCollapsedHeight > 0 {
-            wasEmojiPickerJustDismissed = true
-            emojiPickerCollapsedHeight = 0
-            emojiPickerHeightConstraint?.constant = 0
-            emojiPickerView.isHidden = true
-            emojiPickerView.resetToCollapsed()
+        switch emojiPicker.handleKeyboardWillShow() {
+        case .searchAbsorbed:
+            break
+        case .dismissedForKeyboard:
             UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+        case .unaffected:
+            break
         }
 
         if advancePanelCollapsedHeight > 0 {
@@ -2097,9 +2058,7 @@ final class ChatViewController: ViewController {
         trackedKeyboardHeight = 0
 
 
-        if emojiPickerCollapsedHeight > 0 && !emojiPickerView.isHidden {
-            emojiPickerView.applySnapCollapsed()
-        }
+        emojiPicker.handleKeyboardWillHide()
         if advancePanelCollapsedHeight > 0 && !advancePanelView.isHidden {
             advancePanelView.applySnapCollapsed()
         }
@@ -2110,58 +2069,6 @@ final class ChatViewController: ViewController {
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
         }
-    }
-
-    private func handleEmojiPickerToggle(visible: Bool, collapsedHeight: CGFloat) {
-        if visible {
-            suppressScrollToBottomForNextKeyboardInset = false
-            let screenH = UIScreen.main.bounds.height
-            let expandedH = max(screenH * 0.85, collapsedHeight + 200)
-            emojiPickerView.collapsedHeight = collapsedHeight
-            emojiPickerView.expandedHeight = expandedH
-            emojiPickerView.resetToCollapsed()
-
-            emojiPickerCollapsedHeight = collapsedHeight
-            emojiPickerHeightConstraint?.constant = collapsedHeight
-            emojiPickerView.isHidden = false
-            emojiPickerView.applyTheme()
-            emojiPickerView.refreshMediaPanelCache()
-        } else {
-            suppressScrollToBottomForNextKeyboardInset = true
-            emojiPickerCollapsedHeight = 0
-            emojiPickerHeightConstraint?.constant = 0
-            emojiPickerView.isHidden = true
-            emojiPickerView.resetToCollapsed()
-        }
-
-        if let layout = lastLayout {
-            let transition: ContainedViewLayoutTransition = visible
-                ? .animated(duration: 0.25, curve: .easeInOut)
-                : .immediate
-            containerLayoutUpdated(layout, transition: transition)
-        }
-        if visible {
-            UIView.animate(withDuration: 0.25) {
-                self.view.layoutIfNeeded()
-            }
-        } else {
-            view.layoutIfNeeded()
-        }
-    }
-
-    private func updateEmojiPickerOverlayHeight(_ newHeight: CGFloat) {
-        emojiPickerHeightConstraint?.constant = newHeight
-        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    private func updateEmojiPickerHeightForSearchKeyboard() {
-        guard emojiPickerCollapsedHeight > 0, !emojiPickerView.isHidden else { return }
-        guard emojiPickerView.isPanelSearchFocused || emojiPickerView.isSearchFieldActive else { return }
-
-        let panelH = emojiPickerView.expandedHeight
-        emojiPickerView.applySnapExpanded(height: panelH)
     }
 
     private func clanPreventsAnonymous() -> Bool {
@@ -2189,12 +2096,7 @@ final class ChatViewController: ViewController {
     private func handleAdvancePanelToggle(visible: Bool, collapsedHeight: CGFloat) {
         if visible {
             rebuildAdvancePanelActions()
-            if emojiPickerCollapsedHeight > 0 {
-                emojiPickerCollapsedHeight = 0
-                emojiPickerHeightConstraint?.constant = 0
-                emojiPickerView.isHidden = true
-                emojiPickerView.resetToCollapsed()
-            }
+            emojiPicker.dismissSilently(markAsJustDismissed: false)
 
             suppressScrollToBottomForNextKeyboardInset = false
             let screenH = UIScreen.main.bounds.height
@@ -2835,6 +2737,11 @@ final class ChatViewController: ViewController {
     }
 
     private weak var reactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
+
+    private var isReactionEmojiPickerSheetHostingFirstResponder: Bool {
+        guard let v = reactionEmojiPickerSheet?.viewIfLoaded, v.window != nil else { return false }
+        return v.findFirstResponder() != nil
+    }
 
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
         view.endEditing(true)
