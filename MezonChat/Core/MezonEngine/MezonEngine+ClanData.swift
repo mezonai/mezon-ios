@@ -44,15 +44,26 @@ extension MezonEngine {
         private func fetchClanUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listClanUsers(clanId: clanId, token: token)
-                
+
+                if response.clanUsers.isEmpty {
+                    let cachedNonEmpty = !postbox.read({ tx in tx.getClanMembers(clanId: clanId) }).isEmpty
+                        || (postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId))?.isEmpty == false)
+                    if cachedNonEmpty {
+                        return
+                    }
+                }
+
                 let members = response.clanUsers.map { ClanMemberRecord(from: $0) }
-                
+
                 postbox.write { tx in
                     for clanUser in response.clanUsers {
                         tx.updateProfile(ProfileRecord(from: clanUser))
                     }
-                    
+
                     tx.updateClanMembers(members, clanId: clanId)
+                }
+                if let data = try? response.serializedData() {
+                    postbox.setPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
                 }
 
                 clanUsersUpdated.putNext(clanId)
@@ -154,8 +165,17 @@ extension MezonEngine {
 
 
         func getClanUsers(clanId: Int64) -> Mezon_Api_ClanUserList? {
-            guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)) else { return nil }
-            return try? Mezon_Api_ClanUserList(serializedBytes: data)
+            if let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)),
+               let cached = try? Mezon_Api_ClanUserList(serializedBytes: data),
+               !cached.clanUsers.isEmpty {
+                return cached
+            }
+            let rows = postbox.read { $0.getClanMembers(clanId: clanId) }
+            guard !rows.isEmpty else { return nil }
+            var list = Mezon_Api_ClanUserList()
+            list.clanID = clanId
+            list.clanUsers = rows.map { $0.toClanUserListClanUser() }
+            return list
         }
 
         func getClanRoles(clanId: Int64) -> Mezon_Api_RoleListEventResponse? {

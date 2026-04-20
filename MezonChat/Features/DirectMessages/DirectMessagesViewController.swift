@@ -73,6 +73,13 @@ final class DirectMessagesViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+    }
+
+    @objc private func handleNetworkStatusChanged(_ notification: Notification) {
+        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+        guard connected else { return }
+        fetchDirectMessages()
     }
 
     deinit {
@@ -90,7 +97,6 @@ final class DirectMessagesViewController: ViewController {
             await self.applyDmListChannelBadgeCount()
         }
     }
-
 
     @MainActor
     private func applyDmListChannelBadgeCount() async {
@@ -247,7 +253,12 @@ final class DirectMessagesViewController: ViewController {
         )
     }
 
-    private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) { directMessages = v; directMessagesPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
+        directMessages = v
+        directMessagesPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
+
     private func setIsEmpty(_ v: Bool) { isEmpty = v; isEmptyPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -271,6 +282,10 @@ final class DirectMessagesViewController: ViewController {
 
     func fetchDirectMessages() {
         applyDmListFromCache()
+        if !NetworkMonitor.shared.isConnected {
+            setIsLoading(false)
+            return
+        }
         setIsLoading(true)
         setErrorMessage(nil)
 

@@ -140,12 +140,18 @@ struct ChatMessageDisplay: Identifiable {
     let isForward: Bool
     let showForwardHeader: Bool
     let messageCode: Int32
+    let clanInviteLinkCode: String?
     var isFailed: Bool { sendingState == .failed }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
     var isLocation: Bool { locationData != nil }
+
+    var isAnonymousSender: Bool {
+        senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("Anonymous") == .orderedSame
+    }
 
     var isSystemMessage: Bool {
         let code = MezonConstants.MessageCode(rawValue: messageCode)
@@ -259,7 +265,7 @@ final class ChatViewController: ViewController {
             self?.updateInputBarHeight(newHeight)
         }
         vc.onToggleEmojiPicker = { [weak self] visible, collapsedH in
-            self?.handleEmojiPickerToggle(visible: visible, collapsedHeight: collapsedH)
+            self?.emojiPicker.setVisible(visible, collapsedHeight: collapsedH)
         }
         vc.onToggleAdvancePanel = { [weak self] visible, collapsedH in
             self?.handleAdvancePanelToggle(visible: visible, collapsedHeight: collapsedH)
@@ -272,42 +278,17 @@ final class ChatViewController: ViewController {
     }()
 
 
-    private lazy var emojiPickerView: PanelKeyboardView = {
-        let v = PanelKeyboardView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.isHidden = true
-        v.onEmojiSelected = { [weak self] emojiId, shortname in
-            guard let self else { return }
-            self.sendInputViewController.insertEmoji(emojiId, shortname: shortname)
-            self.sendInputViewController.hideEmojiPickerIfNeeded()
-            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
+    private lazy var emojiPicker: ChatEmojiPickerPresenter = {
+        let p = ChatEmojiPickerPresenter(sendInput: sendInputViewController)
+        p.onRequestRelayout = { [weak self] transition in
+            guard let self, let layout = self.lastLayout else { return }
+            self.containerLayoutUpdated(layout, transition: transition)
         }
-        v.onStickerSelected = { [weak self] sticker in
-            guard let self else { return }
-            self.sendInputViewController.sendSticker(sticker)
-            self.sendInputViewController.hideEmojiPickerIfNeeded()
-            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
+        p.onSetSuppressNextScrollToBottom = { [weak self] value in
+            self?.suppressScrollToBottomForNextKeyboardInset = value
         }
-        v.onGifSelected = { [weak self] url in
-            guard let self else { return }
-            self.sendInputViewController.sendGif(url: url)
-            self.sendInputViewController.hideEmojiPickerIfNeeded()
-            self.sendInputViewController.focusComposerAfterEmojiPanelSelection()
-        }
-        v.onHeightChanged = { [weak self] newHeight in
-            self?.updateEmojiPickerOverlayHeight(newHeight)
-        }
-        v.onPanelSearchBegin = {
-            DispatchQueue.main.async { [weak self] in
-                self?.updateEmojiPickerHeightForSearchKeyboard()
-            }
-        }
-        return v
+        return p
     }()
-
-    private var emojiPickerHeightConstraint: NSLayoutConstraint?
-    private var emojiPickerBottomConstraint: NSLayoutConstraint?
-    private var emojiPickerCollapsedHeight: CGFloat = 0
 
     private lazy var advancePanelView: AdvancedFunctionPanelView = {
         let v = AdvancedFunctionPanelView()
@@ -336,7 +317,6 @@ final class ChatViewController: ViewController {
     private var currentKeyboardOffset: CGFloat = 0
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
-    private var wasEmojiPickerJustDismissed = false
     private var suppressScrollToBottomForNextKeyboardInset = false
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
@@ -476,6 +456,57 @@ final class ChatViewController: ViewController {
             onSwipeReply: { [weak self] display in
                 self?.sendInputViewController.setReply(display)
             },
+            loadClanInviteInfo: { [weak self] code, completion in
+                guard let self else {
+                    completion(nil)
+                    return
+                }
+                let token = self.context.session?.token ?? ""
+                guard !token.isEmpty else {
+                    completion(nil)
+                    return
+                }
+                Task {
+                    do {
+                        let info = try await self.context.engine.clanData.getInviteInfo(code: code, token: token)
+                        await MainActor.run { completion(info) }
+                    } catch {
+                        await MainActor.run { completion(nil) }
+                    }
+                }
+            },
+            onClanInvitePrimaryAction: { [weak self] code, info in
+                guard let self else { return }
+                let token = self.context.session?.token ?? ""
+                guard !token.isEmpty else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    return
+                }
+                if info.user_joined == true, let cid = info.clan_id, !cid.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .mezonQRSelectClan,
+                        object: nil,
+                        userInfo: ["clanId": cid]
+                    )
+                    return
+                }
+                Task {
+                    do {
+                        let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .mezonQRSelectClan,
+                                object: nil,
+                                userInfo: ["clanId": "\(response.clanID)"]
+                            )
+                        }
+                    } catch {
+                        await MainActor.run {
+                            Toast.error(error.localizedDescription)
+                        }
+                    }
+                }
+            },
             onMessagesReloaded: nil
         )
         interaction.onMessagesReloaded = { [weak self] in
@@ -505,6 +536,23 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnected(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+    }
+
+    @objc private func handleNetworkStatusChanged(_ notification: Notification) {
+        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+        guard connected else { return }
+        guard !hasCompletedInitialFetch else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.context.waitForSessionReady()
+            guard let token = await self.context.getToken() else {
+                self.setIsLoading(false)
+                return
+            }
+            self.hasCompletedInitialFetch = true
+            self.fetchMessages(token: token)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -546,7 +594,7 @@ final class ChatViewController: ViewController {
         }
 
         if suppressScrollToBottomForNextKeyboardInset,
-           emojiPickerCollapsedHeight == 0,
+           emojiPicker.collapsedHeight == 0,
            advancePanelCollapsedHeight == 0,
            keyboardOffset < 0.5 {
             keyboardOffset = max(
@@ -555,7 +603,15 @@ final class ChatViewController: ViewController {
             )
         }
 
-        let emojiOffset = emojiPickerCollapsedHeight
+        if emojiPicker.isEmojiPanelSearchConsumingKeyboard {
+            keyboardOffset = 0
+        }
+
+        if isReactionEmojiPickerSheetHostingFirstResponder {
+            keyboardOffset = 0
+        }
+
+        let emojiOffset = emojiPicker.panelHeightForChatLayout
         let advanceOffset = advancePanelCollapsedHeight
         let bottomOffset = max(keyboardOffset, max(emojiOffset, advanceOffset))
 
@@ -570,7 +626,7 @@ final class ChatViewController: ViewController {
         )
         transition.updateFrame(view: sendInputViewController.view, frame: inputFrame)
 
-        emojiPickerBottomConstraint?.constant = -bottomInset
+        emojiPicker.updateBottomInset(bottomInset)
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
@@ -584,13 +640,13 @@ final class ChatViewController: ViewController {
         )
 
         let totalInputArea = totalBottomH + bottomOffset
-        if bottomOffset > 0 && currentKeyboardOffset == 0 && !wasEmojiPickerJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
+        if bottomOffset > 0 && currentKeyboardOffset == 0 && !emojiPicker.wasJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
             let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
             if totalInputArea > previousTotalInputArea + 20 {
                 scrollToBottomIfNeeded()
             }
         }
-        wasEmojiPickerJustDismissed = false
+        emojiPicker.clearJustDismissedFlag()
         if suppressScrollToBottomForNextKeyboardInset, rawKeyboardOffset > 0.5 {
             suppressScrollToBottomForNextKeyboardInset = false
         }
@@ -613,8 +669,8 @@ final class ChatViewController: ViewController {
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
         }
-        let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
-        if !hasFirstResponder {
+        let hasComposerFR = sendInputViewController.view.findFirstResponder() != nil
+        if !hasComposerFR && !isReactionEmojiPickerSheetHostingFirstResponder {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
         }
@@ -797,24 +853,34 @@ final class ChatViewController: ViewController {
         }
 
         let channelIdStr = storageChannelId
+        let messagesKeyInvalid = topicId == 0 && channel.channelID == 0
 
-        let cachedMessages = context.account.postbox.read { tx in
-            tx.getMessages(channelId: channelIdStr)
-        }
-        let hasCache = !cachedMessages.isEmpty
-        if !hasCache {
-            setIsLoading(true)
-        }
+        if messagesKeyInvalid {
+            setMessages([])
+            setIsLoading(false)
+        } else {
+            let cachedMessages = context.account.postbox.read { tx in
+                tx.getMessages(channelId: channelIdStr)
+            }
+            let hasCache = !cachedMessages.isEmpty
+            if !hasCache && NetworkMonitor.shared.isConnected {
+                setIsLoading(true)
+            } else {
+                setIsLoading(false)
+            }
 
-        stateDisposables.add(
-            (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
-                |> deliverOnMainQueue)
-                .start(next: { [weak self] view in
-                    guard let self else { return }
-                    let displays = self.buildDisplayMessages(from: view.messages)
-                    self.setMessages(displays)
-                })
-        )
+            stateDisposables.add(
+                (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
+                    |> deliverOnMainQueue)
+                    .start(next: { [weak self] view in
+                        guard let self else { return }
+                        guard view.channelId == channelIdStr else { return }
+                        let rows = view.messages.filter { $0.channelId == channelIdStr }
+                        let displays = self.buildDisplayMessages(from: rows)
+                        self.setMessages(displays)
+                    })
+            )
+        }
         stateDisposables.add(
             (self.context.account.postbox.channelMetaView(channelId: channel.channelID) |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
@@ -836,8 +902,17 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if self.topicId == 0 && self.channel.channelID == 0 {
+                self.setIsLoading(false)
+                return
+            }
+            if !NetworkMonitor.shared.isConnected {
+                self.setIsLoading(false)
+                return
+            }
             await self.context.waitForSessionReady()
             guard let token = await self.context.getToken() else {
+                self.setIsLoading(false)
                 return
             }
             self.hasCompletedInitialFetch = true
@@ -1017,6 +1092,10 @@ final class ChatViewController: ViewController {
 
     func fetchMessages(token: String? = nil) {
         let hadCachedMessages = !messages.isEmpty
+        if !NetworkMonitor.shared.isConnected {
+            setIsLoading(false)
+            return
+        }
         if !hadCachedMessages {
             setIsLoading(true)
         }
@@ -1034,6 +1113,9 @@ final class ChatViewController: ViewController {
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }
+                if records.isEmpty && hadCachedMessages {
+                    return
+                }
                 self.context.account.postbox.write { tx in
                     tx.replaceAllMessages(records, channelId: self.storageChannelId)
                 }
@@ -1116,6 +1198,7 @@ final class ChatViewController: ViewController {
         pendingScrollToBottom = true
         setHasMoreNewer(false)
 
+        let hadCachedMessages = !messages.isEmpty
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
                 self.pendingScrollToBottom = false
@@ -1127,6 +1210,9 @@ final class ChatViewController: ViewController {
                     messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token
                 )
                 self.setHasMoreOlder(response.messages.count >= 30)
+                if response.messages.isEmpty && hadCachedMessages {
+                    return
+                }
                 self.context.account.postbox.write { tx in
                     tx.replaceAllMessages(
                         response.messages.map { self.messageRecord(from: $0) },
@@ -1194,8 +1280,13 @@ final class ChatViewController: ViewController {
                         token: token
                     )
                     let parentMembers = parentResponse.channelUsers.map { ChannelMemberRecord(from: $0) }
-                    self.context.account.postbox.write { tx in
-                        tx.updateChannelMembers(parentMembers, channelId: self.channel.parentID)
+                    let parentHasCached = !(self.context.account.postbox.read { tx in
+                        tx.getChannelMeta(channelId: self.channel.parentID)?.members ?? []
+                    }).isEmpty
+                    if !(parentMembers.isEmpty && parentHasCached) {
+                        self.context.account.postbox.write { tx in
+                            tx.updateChannelMembers(parentMembers, channelId: self.channel.parentID)
+                        }
                     }
                 }
 
@@ -1207,8 +1298,13 @@ final class ChatViewController: ViewController {
                         token: token
                     )
                     let members = response.channelUsers.map { ChannelMemberRecord(from: $0) }
-                    self.context.account.postbox.write { tx in
-                        tx.updateChannelMembers(members, channelId: channelId)
+                    let hasCached = !(self.context.account.postbox.read { tx in
+                        tx.getChannelMeta(channelId: channelId)?.members ?? []
+                    }).isEmpty
+                    if !(members.isEmpty && hasCached) {
+                        self.context.account.postbox.write { tx in
+                            tx.updateChannelMembers(members, channelId: channelId)
+                        }
                     }
                 }
             } catch {
@@ -1258,12 +1354,18 @@ final class ChatViewController: ViewController {
         )
     }
 
+    private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
+        let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)"
+    }
+
     func stateSignal() -> Signal<ChatState, NoError> {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
             var lastIds = self.messages.map { $0.id }
             var lastSendingStates = self.messages.map { $0.sendingState }
             var lastReactions = self.messages.map { $0.reactions }
+            var lastMessageTokens = self.messages.map { Self.messageUpdateToken($0) }
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
             var lastLoadingNewer = self.isLoadingNewer
@@ -1285,9 +1387,11 @@ final class ChatViewController: ViewController {
                     let newIds = newState.messages.map { $0.id }
                     let newSendingStates = newState.messages.map { $0.sendingState }
                     let newReactions = newState.messages.map { $0.reactions }
+                    let newMessageTokens = newState.messages.map { Self.messageUpdateToken($0) }
                 let changed = newIds != lastIds
                         || newSendingStates != lastSendingStates
                         || newReactions != lastReactions
+                        || newMessageTokens != lastMessageTokens
                         || newState.isLoading != lastLoading
                         || newState.isLoadingMore != lastLoadingMore
                         || newState.isLoadingNewer != lastLoadingNewer
@@ -1300,6 +1404,7 @@ final class ChatViewController: ViewController {
                     lastIds = newIds
                     lastSendingStates = newSendingStates
                     lastReactions = newReactions
+                    lastMessageTokens = newMessageTokens
                     lastLoading = newState.isLoading
                     lastLoadingMore = newState.isLoadingMore
                     lastLoadingNewer = newState.isLoadingNewer
@@ -1397,12 +1502,14 @@ final class ChatViewController: ViewController {
                 from: record.content, code: record.code,
                 avatarURL: record.senderAvatarURL, senderName: record.senderDisplayName, isMe: isMe
             )
+            let clanInviteLinkCode = ClanInviteLinkParser.firstInviteCode(in: content)
             return ChatMessageDisplay(
                 message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
-                isForward: isForward, showForwardHeader: false, messageCode: record.code
+                isForward: isForward, showForwardHeader: false, messageCode: record.code,
+                clanInviteLinkCode: clanInviteLinkCode
             )
         }
         return Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
@@ -1539,7 +1646,8 @@ final class ChatViewController: ViewController {
                 attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
                 topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
-                isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode
+                isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode,
+                clanInviteLinkCode: d.clanInviteLinkCode
             )
         }
     }
@@ -1933,19 +2041,7 @@ final class ChatViewController: ViewController {
         sendInputViewController.didMove(toParent: self)
 
 
-        view.addSubview(emojiPickerView)
-        let emojiH = emojiPickerView.heightAnchor.constraint(equalToConstant: 0)
-        emojiPickerHeightConstraint = emojiH
-        let emojiBottom = emojiPickerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        emojiPickerBottomConstraint = emojiBottom
-        NSLayoutConstraint.activate([
-            emojiPickerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            emojiPickerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            emojiH,
-            emojiBottom,
-        ])
-
-        emojiPickerView.configureMediaPanelCache(engine: context.engine)
+        emojiPicker.install(in: view, engine: context.engine)
 
         view.addSubview(advancePanelView)
         let advH = advancePanelView.heightAnchor.constraint(equalToConstant: 0)
@@ -1965,7 +2061,7 @@ final class ChatViewController: ViewController {
         remoteTypingStripView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
         view.bringSubviewToFront(sendInputViewController.view)
-        view.bringSubviewToFront(emojiPickerView)
+        emojiPicker.bringToFront()
         view.bringSubviewToFront(advancePanelView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
@@ -1983,22 +2079,13 @@ final class ChatViewController: ViewController {
             trackedKeyboardHeight = frame.height
         }
 
-        let searchFocused = emojiPickerView.isPanelSearchFocused || emojiPickerView.isSearchFieldActive
-
-
-        if emojiPickerCollapsedHeight > 0 && searchFocused {
-            updateEmojiPickerHeightForSearchKeyboard()
-            return
-        }
-
-
-        if emojiPickerCollapsedHeight > 0 {
-            wasEmojiPickerJustDismissed = true
-            emojiPickerCollapsedHeight = 0
-            emojiPickerHeightConstraint?.constant = 0
-            emojiPickerView.isHidden = true
-            emojiPickerView.resetToCollapsed()
+        switch emojiPicker.handleKeyboardWillShow() {
+        case .searchAbsorbed:
+            break
+        case .dismissedForKeyboard:
             UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+        case .unaffected:
+            break
         }
 
         if advancePanelCollapsedHeight > 0 {
@@ -2019,9 +2106,7 @@ final class ChatViewController: ViewController {
         trackedKeyboardHeight = 0
 
 
-        if emojiPickerCollapsedHeight > 0 && !emojiPickerView.isHidden {
-            emojiPickerView.applySnapCollapsed()
-        }
+        emojiPicker.handleKeyboardWillHide()
         if advancePanelCollapsedHeight > 0 && !advancePanelView.isHidden {
             advancePanelView.applySnapCollapsed()
         }
@@ -2032,58 +2117,6 @@ final class ChatViewController: ViewController {
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
         }
-    }
-
-    private func handleEmojiPickerToggle(visible: Bool, collapsedHeight: CGFloat) {
-        if visible {
-            suppressScrollToBottomForNextKeyboardInset = false
-            let screenH = UIScreen.main.bounds.height
-            let expandedH = max(screenH * 0.85, collapsedHeight + 200)
-            emojiPickerView.collapsedHeight = collapsedHeight
-            emojiPickerView.expandedHeight = expandedH
-            emojiPickerView.resetToCollapsed()
-
-            emojiPickerCollapsedHeight = collapsedHeight
-            emojiPickerHeightConstraint?.constant = collapsedHeight
-            emojiPickerView.isHidden = false
-            emojiPickerView.applyTheme()
-            emojiPickerView.refreshMediaPanelCache()
-        } else {
-            suppressScrollToBottomForNextKeyboardInset = true
-            emojiPickerCollapsedHeight = 0
-            emojiPickerHeightConstraint?.constant = 0
-            emojiPickerView.isHidden = true
-            emojiPickerView.resetToCollapsed()
-        }
-
-        if let layout = lastLayout {
-            let transition: ContainedViewLayoutTransition = visible
-                ? .animated(duration: 0.25, curve: .easeInOut)
-                : .immediate
-            containerLayoutUpdated(layout, transition: transition)
-        }
-        if visible {
-            UIView.animate(withDuration: 0.25) {
-                self.view.layoutIfNeeded()
-            }
-        } else {
-            view.layoutIfNeeded()
-        }
-    }
-
-    private func updateEmojiPickerOverlayHeight(_ newHeight: CGFloat) {
-        emojiPickerHeightConstraint?.constant = newHeight
-        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
-            self.view.layoutIfNeeded()
-        }
-    }
-
-    private func updateEmojiPickerHeightForSearchKeyboard() {
-        guard emojiPickerCollapsedHeight > 0, !emojiPickerView.isHidden else { return }
-        guard emojiPickerView.isPanelSearchFocused || emojiPickerView.isSearchFieldActive else { return }
-
-        let panelH = emojiPickerView.expandedHeight
-        emojiPickerView.applySnapExpanded(height: panelH)
     }
 
     private func clanPreventsAnonymous() -> Bool {
@@ -2111,12 +2144,7 @@ final class ChatViewController: ViewController {
     private func handleAdvancePanelToggle(visible: Bool, collapsedHeight: CGFloat) {
         if visible {
             rebuildAdvancePanelActions()
-            if emojiPickerCollapsedHeight > 0 {
-                emojiPickerCollapsedHeight = 0
-                emojiPickerHeightConstraint?.constant = 0
-                emojiPickerView.isHidden = true
-                emojiPickerView.resetToCollapsed()
-            }
+            emojiPicker.dismissSilently(markAsJustDismissed: false)
 
             suppressScrollToBottomForNextKeyboardInset = false
             let screenH = UIScreen.main.bounds.height
@@ -2758,6 +2786,11 @@ final class ChatViewController: ViewController {
 
     private weak var reactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
 
+    private var isReactionEmojiPickerSheetHostingFirstResponder: Bool {
+        guard let v = reactionEmojiPickerSheet?.viewIfLoaded, v.window != nil else { return false }
+        return v.findFirstResponder() != nil
+    }
+
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
         view.endEditing(true)
         let sheet = ReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
@@ -2850,11 +2883,10 @@ final class ChatViewController: ViewController {
         case .quickMenu:
             break
         case .editMessage:
-            break
+            sendInputViewController.setEditingMessage(display)
+            sendInputViewController.view.becomeFirstResponder()
         case .report:
-            break // TODO: implement report
-        case .editMessage:
-            break // TODO: implement edit
+            break
         }
     }
 

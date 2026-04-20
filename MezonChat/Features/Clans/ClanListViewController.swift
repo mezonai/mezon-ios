@@ -318,6 +318,9 @@ final class ClanListViewController: ViewController {
                 self.error = error.localizedDescription
                 if !self.clans.isEmpty {
                     self.clansLoadedPromise.set(true)
+                    if let sid = self.selectedClanId, sid != 0, self.clans.contains(where: { $0.clanID == sid }) {
+                        self.fetchClanData(clanId: sid)
+                    }
                 }
             }
         }

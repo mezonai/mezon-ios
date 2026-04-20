@@ -98,9 +98,33 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         setupTabs()
         setupPanels()
         setupGestures()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleEmojiCacheUpdated),
+            name: Notification.Name("MezonEmojiListDidUpdate"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleStickerCacheUpdated),
+            name: Notification.Name("MezonStickerListDidUpdate"),
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleEmojiCacheUpdated() {
+        emojisPanel.reloadFromPostboxCache()
+    }
+
+    @objc private func handleStickerCacheUpdated() {
+        stickersPanel.reloadFromPostboxCache()
+    }
 
     private func setupLayout() {
         addSubview(handleArea)

@@ -226,7 +226,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
-        cell.configure(channel: state.directMessages[indexPath.row], currentUserId: context.currentUser?.id)
+        cell.configure(channel: state.directMessages[indexPath.row])
         return cell
     }
 

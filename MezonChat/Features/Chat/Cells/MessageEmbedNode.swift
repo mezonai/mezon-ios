@@ -5,6 +5,7 @@ final class MessageEmbedNode: ASDisplayNode {
 
     private var embedNodes: [EmbedItemNode] = []
     private var cachedTotalSize: CGSize = .zero
+    var onEmbedImageTapped: ((String) -> Void)?
 
     override init() {
         super.init()
@@ -13,7 +14,12 @@ final class MessageEmbedNode: ASDisplayNode {
     func configure(embeds: [ParsedEmbed]) {
         embedNodes.forEach { $0.removeFromSupernode() }
         embedNodes = embeds.map { EmbedItemNode(embed: $0) }
-        embedNodes.forEach { addSubnode($0) }
+        for node in embedNodes {
+            node.onEmbedImageTapped = { [weak self] url in
+                self?.onEmbedImageTapped?(url)
+            }
+            addSubnode(node)
+        }
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
@@ -60,11 +66,15 @@ final class EmbedItemNode: ASDisplayNode {
     private var footerTextNode: ASTextNode2?
 
     private let embed: ParsedEmbed
+    var onEmbedImageTapped: ((String) -> Void)?
 
     private static let colorBarWidth: CGFloat = 4
     private static let thumbnailSize: CGFloat = 50
     private static let contentInsetH: CGFloat = 10
     private static let contentInsetV: CGFloat = 10
+    static let embedImageProxyDimension: Int = 200
+    private static let embedImageMinDisplayHeight: CGFloat = 260
+    private static let embedImageMaxDisplayHeight: CGFloat = 400
 
     fileprivate(set) var cachedSize: CGSize = .zero
 
@@ -190,10 +200,10 @@ final class EmbedItemNode: ASDisplayNode {
         if let imageURL = embed.imageURL, !imageURL.isEmpty {
             let node = TransformImageNode()
             node.contentAnimations = [.firstUpdate]
-            let scale = Int(UIScreen.main.scale)
-            let embedProxyURL = ImgproxyURL.attachmentURL(from: imageURL, width: Int(UIScreen.main.bounds.width) * scale, height: 400 * scale)
+            let d = Self.embedImageProxyDimension
+            let embedProxyURL = ImgproxyURL.attachmentURL(from: imageURL, width: d, height: d)
             let hasMem = ImageCache.shared.memoryImage(forKey: embedProxyURL) != nil
-            node.setSignal(remoteImageSignal(url: embedProxyURL, resizeMode: .fit), attemptSynchronously: hasMem)
+            node.setSignal(remoteImageSignal(url: embedProxyURL, resizeMode: .fillLeading), attemptSynchronously: hasMem)
             imageNode = node
             addSubnode(node)
         }
@@ -257,11 +267,22 @@ final class EmbedItemNode: ASDisplayNode {
             let tap = UITapGestureRecognizer(target: self, action: #selector(handleTitleTap))
             titleNode.view.addGestureRecognizer(tap)
         }
+        if let imageNode {
+            imageNode.isUserInteractionEnabled = true
+            imageNode.view.isUserInteractionEnabled = true
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleEmbedMainImageTap))
+            imageNode.view.addGestureRecognizer(tap)
+        }
     }
 
     @objc private func handleTitleTap() {
         guard let urlStr = embed.url, let url = URL(string: urlStr) else { return }
         UIApplication.shared.open(url)
+    }
+
+    @objc private func handleEmbedMainImageTap() {
+        guard let url = embed.imageURL, !url.isEmpty else { return }
+        onEmbedImageTapped?(url)
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
@@ -320,12 +341,13 @@ final class EmbedItemNode: ASDisplayNode {
 
 
         if let imageNode {
-            let imgW = CGFloat(embed.imageWidth ?? 400)
-            let imgH = CGFloat(embed.imageHeight ?? 200)
             let imgContentW = maxWidth - barW - inH * 2
-            let ratio = min(imgContentW / max(imgW, 1), 1.0)
-            let finalW = max(floor(imgW * ratio), 100)
-            let finalH = max(floor(imgH * ratio), 60)
+            let finalW = max(imgContentW, 100)
+            let metaW = max(CGFloat(embed.imageWidth ?? 400), 1)
+            let metaH = max(CGFloat(embed.imageHeight ?? 200), 1)
+            let aspect = metaW / metaH
+            var finalH = floor(finalW / aspect)
+            finalH = min(Self.embedImageMaxDisplayHeight, max(Self.embedImageMinDisplayHeight, finalH))
             cachedImageSize = CGSize(width: finalW, height: finalH)
 
             let args = TransformImageArguments(

@@ -8,8 +8,8 @@ final class MemberListNode: ASDisplayNode {
     private let clanId: Int64
     private let channelId: Int64
     private let channelType: Int32
-    private let isPrivate: Bool
     private let dmMemberLabelByUserId: [Int64: String]
+    private let useClanListWhenChannelUsersEmpty: Bool
     private let tableNode = ASTableNode()
 
     private enum MemberListItem {
@@ -38,14 +38,20 @@ final class MemberListNode: ASDisplayNode {
 
     init(
         context: AccountContext, clanId: Int64, channelId: Int64, channelType: Int32,
-        isPrivate: Bool, channelDescription: Mezon_Api_ChannelDescription
+        channelDescription: Mezon_Api_ChannelDescription
     ) {
         self.context = context
         self.clanId = clanId
         self.channelId = channelId
         self.channelType = channelType
-        self.isPrivate = isPrivate
         self.dmMemberLabelByUserId = Self.dmMemberLabels(from: channelDescription)
+        let dm = MezonConstants.ChannelType.dm.rawValue
+        let group = MezonConstants.ChannelType.group.rawValue
+        self.useClanListWhenChannelUsersEmpty =
+            clanId > 0
+            && channelDescription.channelPrivate == 0
+            && channelDescription.type != dm
+            && channelDescription.type != group
         super.init()
         self.automaticallyManagesSubnodes = true
 
@@ -115,116 +121,169 @@ final class MemberListNode: ASDisplayNode {
 
     private func fetchMembersIfNeeded() {
         Task {
+            guard channelId > 0 else { return }
+            let token = await context.getToken() ?? ""
             do {
-                let token = await context.getToken() ?? ""
-                let isDMOrGroup =
-                    channelType == MezonConstants.ChannelType.dm.rawValue
-                    || channelType == MezonConstants.ChannelType.group.rawValue
-
-                if clanId > 0 && !isPrivate && !isDMOrGroup {
-                    let res = try await context.account.network.listClanUsers(
-                        clanId: clanId, token: token)
-                    context.account.postbox.write { tx in
-                        let members = res.clanUsers.map { ClanMemberRecord(from: $0) }
-                        tx.updateClanMembers(members, clanId: self.clanId)
-                        for u in res.clanUsers {
-                            tx.updateProfile(ProfileRecord(from: u))
-                        }
-                    }
-                } else if channelId > 0 {
-                    let res = try await context.account.network.listChannelUsers(
-                        clanId: clanId,
-                        channelId: channelId,
-                        channelType: channelType,
-                        token: token
-                    )
-                    context.account.postbox.write { tx in
-                        let members = res.channelUsers.map { u in
-                            let profile = tx.getProfile(userId: String(u.userID))
-                            var displayName = profile?.displayName ?? ""
-                            var username = profile?.username ?? ""
-                            if displayName.isEmpty, username.isEmpty,
-                                let fb = self.dmMemberLabelByUserId[u.userID], !fb.isEmpty
-                            {
-                                displayName = fb
-                            }
-                            return ChannelMemberRecord(
-                                id: u.id, userId: u.userID, roleIds: u.roleID,
-                                threadId: u.threadID, clanNick: u.clanNick,
-                                clanAvatar: u.clanAvatar, clanId: u.clanID,
-                                isBanned: u.isBanned, expiredBanTime: u.expiredBanTime,
-                                isOnline: profile?.isOnline ?? false,
-                                displayName: displayName,
-                                username: username
-                            )
-                        }
-                        for u in res.channelUsers {
-                            let uid = String(u.userID)
-                            let existing = tx.getProfile(userId: uid)
-                            if existing != nil { continue }
-                            guard let fb = self.dmMemberLabelByUserId[u.userID], !fb.isEmpty else {
-                                continue
-                            }
-                            tx.updateProfile(
-                                ProfileRecord(
-                                    userId: uid, username: fb, displayName: fb, avatarUrl: nil,
-                                    status: 0, isOnline: false))
-                        }
-                        tx.updateChannelMembers(members, channelId: self.channelId)
-                    }
+                let res = try await context.account.network.listChannelUsers(
+                    clanId: clanId,
+                    channelId: channelId,
+                    channelType: channelType,
+                    token: token
+                )
+                if res.channelUsers.isEmpty, useClanListWhenChannelUsersEmpty {
+                    try await applyClanMembersFallback(token: token)
+                    return
                 }
+                applyChannelUserList(res.channelUsers)
             } catch {
+                if useClanListWhenChannelUsersEmpty {
+                    try? await applyClanMembersFallback(token: token)
+                }
             }
         }
     }
 
+    private func applyChannelUserList(_ channelUsers: [Mezon_Api_ChannelUserList.ChannelUser]) {
+        if channelUsers.isEmpty {
+            let hasCached = !(context.account.postbox.read { tx in
+                tx.getChannelMeta(channelId: self.channelId)?.members ?? []
+            }).isEmpty
+            if hasCached { return }
+        }
+        context.account.postbox.write { tx in
+            for u in channelUsers {
+                let merged = self.mergedProfile(
+                    tx: tx,
+                    channelUser: u,
+                    dmLabel: self.dmMemberLabelByUserId[u.userID]
+                )
+                tx.updateProfile(merged)
+            }
+            let members = channelUsers.map { u in
+                let uid = String(u.userID)
+                let profile = tx.getProfile(userId: uid)
+                var displayName = profile?.displayName ?? ""
+                var username = profile?.username ?? ""
+                if displayName.isEmpty, username.isEmpty,
+                    let fb = self.dmMemberLabelByUserId[u.userID], !fb.isEmpty
+                {
+                    displayName = fb
+                }
+                return ChannelMemberRecord(
+                    id: u.id, userId: u.userID, roleIds: u.roleID,
+                    threadId: u.threadID, clanNick: u.clanNick,
+                    clanAvatar: u.clanAvatar, clanId: u.clanID,
+                    isBanned: u.isBanned, expiredBanTime: u.expiredBanTime,
+                    isOnline: profile?.isOnline ?? false,
+                    displayName: displayName,
+                    username: username
+                )
+            }
+            tx.updateChannelMembers(members, channelId: self.channelId)
+        }
+    }
+
+    private func applyClanMembersFallback(token: String) async throws {
+        let clanRes = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+        if clanRes.clanUsers.isEmpty {
+            let hasCached = !context.account.postbox.read({ tx in
+                tx.getClanMembers(clanId: self.clanId)
+            }).isEmpty
+            if hasCached { return }
+        }
+        context.account.postbox.write { tx in
+            let clanMembers = clanRes.clanUsers.map { ClanMemberRecord(from: $0) }
+            tx.updateClanMembers(clanMembers, clanId: self.clanId)
+            for u in clanRes.clanUsers {
+                tx.updateProfile(ProfileRecord(from: u))
+            }
+            let members = clanRes.clanUsers.map { ChannelMemberRecord(from: $0) }
+            tx.updateChannelMembers(members, channelId: self.channelId)
+        }
+    }
+
+    private func mergedProfile(
+        tx: PostboxTransaction,
+        channelUser u: Mezon_Api_ChannelUserList.ChannelUser,
+        dmLabel: String?
+    ) -> ProfileRecord {
+        let uid = String(u.userID)
+        let existing = tx.getProfile(userId: uid)
+        let trimmedAvatar = u.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nick = u.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let avatarUrl: String?
+        if !trimmedAvatar.isEmpty {
+            avatarUrl = trimmedAvatar
+        } else if let a = existing?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !a.isEmpty
+        {
+            avatarUrl = a
+        } else {
+            avatarUrl = nil
+        }
+
+        let displayName: String?
+        if !nick.isEmpty {
+            displayName = nick
+        } else if let e = existing?.displayName, !e.isEmpty {
+            displayName = e
+        } else if let fb = dmLabel, !fb.isEmpty {
+            displayName = fb
+        } else {
+            displayName = existing?.displayName
+        }
+
+        let username: String
+        if let e = existing, !e.username.isEmpty {
+            username = e.username
+        } else if !nick.isEmpty {
+            username = nick
+        } else if let fb = dmLabel, !fb.isEmpty {
+            username = fb
+        } else {
+            username = ""
+        }
+
+        return ProfileRecord(
+            userId: uid,
+            username: username,
+            displayName: displayName,
+            avatarUrl: avatarUrl,
+            status: existing?.status ?? 0,
+            isOnline: existing?.isOnline ?? false
+        )
+    }
+
     private func observeMembers() {
+        guard channelId > 0 else { return }
         let isDMOrGroup =
             channelType == MezonConstants.ChannelType.dm.rawValue
             || channelType == MezonConstants.ChannelType.group.rawValue
-
-        if clanId > 0 && !isPrivate && !isDMOrGroup {
-            let signal =
-                context.account.postbox.clanMemberView(clanId: clanId) |> map { $0.members }
-            disposables.add(
-                (signal |> deliverOnMainQueue).start(next: { [weak self] allMembers in
-                    guard let self else { return }
-                    let online = allMembers.filter { $0.isOnline }.sorted {
-                        self.getName(member: .clan($0)) < self.getName(member: .clan($1))
+        let signal =
+            context.account.postbox.channelMetaView(channelId: channelId)
+            |> map { $0.record?.members ?? [] }
+        disposables.add(
+            (signal |> deliverOnMainQueue).start(next: { [weak self] members in
+                guard let self else { return }
+                if isDMOrGroup {
+                    let sorted = members.sorted {
+                        self.getName(member: .channel($0)) < self.getName(member: .channel($1))
                     }
-                    let offline = allMembers.filter { !$0.isOnline }.sorted {
-                        self.getName(member: .clan($0)) < self.getName(member: .clan($1))
+                    self.onlineMembers = .channel(sorted)
+                    self.offlineMembers = .channel([])
+                } else {
+                    let online = members.filter { $0.isOnline }.sorted {
+                        self.getName(member: .channel($0)) < self.getName(member: .channel($1))
                     }
-                    self.onlineMembers = .clan(online)
-                    self.offlineMembers = .clan(offline)
-                    self.tableNode.reloadData()
-                }))
-        } else if channelId > 0 {
-            let signal =
-                context.account.postbox.channelMetaView(channelId: channelId)
-                |> map { $0.record?.members ?? [] }
-            disposables.add(
-                (signal |> deliverOnMainQueue).start(next: { [weak self] members in
-                    guard let self else { return }
-                    if isDMOrGroup {
-                        let sorted = members.sorted {
-                            self.getName(member: .channel($0)) < self.getName(member: .channel($1))
-                        }
-                        self.onlineMembers = .channel(sorted)
-                        self.offlineMembers = .channel([])
-                    } else {
-                        let online = members.filter { $0.isOnline }.sorted {
-                            self.getName(member: .channel($0)) < self.getName(member: .channel($1))
-                        }
-                        let offline = members.filter { !$0.isOnline }.sorted {
-                            self.getName(member: .channel($0)) < self.getName(member: .channel($1))
-                        }
-                        self.onlineMembers = .channel(online)
-                        self.offlineMembers = .channel(offline)
+                    let offline = members.filter { !$0.isOnline }.sorted {
+                        self.getName(member: .channel($0)) < self.getName(member: .channel($1))
                     }
-                    self.tableNode.reloadData()
-                }))
-        }
+                    self.onlineMembers = .channel(online)
+                    self.offlineMembers = .channel(offline)
+                }
+                self.tableNode.reloadData()
+            }))
     }
 
     private func getName(member: MemberListItem) -> String {
@@ -251,6 +310,16 @@ final class MemberListNode: ASDisplayNode {
     deinit {
         disposables.dispose()
     }
+}
+
+fileprivate func memberListResolvedAvatarURL(_ raw: String) -> String {
+    let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return "" }
+    if let u = URL(string: t), u.scheme != nil { return t }
+    if t.hasPrefix("//") { return "https:\(t)" }
+    let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    if t.hasPrefix("/") { return "\(base)\(t)" }
+    return "\(base)/\(t)"
 }
 
 extension MemberListNode: ASTableDataSource, ASTableDelegate {
@@ -561,6 +630,7 @@ private final class MemberCellNode: ASCellNode {
     private let clanAvatar: String
 
     private let avatarContainerNode = ASDisplayNode()
+    private let avatarBackplate = ASDisplayNode()
     private let avatarNode = ASNetworkImageNode()
     private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
@@ -594,22 +664,35 @@ private final class MemberCellNode: ASCellNode {
         avatarContainerNode.backgroundColor = .colorAvatarDefault
         avatarContainerNode.automaticallyManagesSubnodes = true
 
+        avatarBackplate.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
+        avatarBackplate.backgroundColor = .clear
+
         avatarNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
         avatarNode.cornerRadius = 20.sf
         avatarNode.clipsToBounds = true
 
         avatarPlaceholderNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
 
+        avatarContainerNode.addSubnode(avatarBackplate)
         avatarContainerNode.addSubnode(avatarNode)
         avatarContainerNode.addSubnode(avatarPlaceholderNode)
         avatarContainerNode.layoutSpecBlock = { [weak self] _, _ in
             guard let self else { return ASLayoutSpec() }
+            let imageCentered = ASCenterLayoutSpec(
+                centeringOptions: .XY,
+                sizingOptions: .minimumXY,
+                child: self.avatarNode
+            )
+            let initialsCentered = ASCenterLayoutSpec(
+                centeringOptions: .XY,
+                sizingOptions: .minimumXY,
+                child: self.avatarPlaceholderNode
+            )
             return ASOverlayLayoutSpec(
-                child: self.avatarNode,
-                overlay: ASCenterLayoutSpec(
-                    centeringOptions: .XY,
-                    sizingOptions: .minimumXY,
-                    child: self.avatarPlaceholderNode
+                child: self.avatarBackplate,
+                overlay: ASOverlayLayoutSpec(
+                    child: imageCentered,
+                    overlay: initialsCentered
                 )
             )
         }
@@ -691,22 +774,36 @@ private final class MemberCellNode: ASCellNode {
         nameNode.style.flexShrink = 1.0
         nameNode.style.flexGrow = 1.0
 
-        if let urlString = !clanAvatar.isEmpty
-            ? clanAvatar : (avatarUrl != nil && !avatarUrl!.isEmpty ? avatarUrl : initialAvatarUrl),
-            !urlString.isEmpty,
-            let url = URL(string: ImgproxyURL.create(from: urlString, width: 100, height: 100))
+        let rawAvatar: String = {
+            if !clanAvatar.isEmpty { return clanAvatar }
+            if let a = avatarUrl, !a.isEmpty { return a }
+            return initialAvatarUrl
+        }()
+        let absolute = memberListResolvedAvatarURL(rawAvatar)
+        if !absolute.isEmpty,
+            let url = URL(string: ImgproxyURL.create(from: absolute, width: 100, height: 100))
         {
-            avatarNode.isHidden = false
             avatarNode.url = url
-            avatarPlaceholderNode.isHidden = true
+            avatarNode.alpha = 1.0
+            avatarPlaceholderNode.alpha = 0.0
         } else {
-            avatarNode.isHidden = true
-            avatarPlaceholderNode.isHidden = false
+            avatarNode.url = nil
+            avatarNode.alpha = 0.0
+            avatarPlaceholderNode.alpha = 1.0
+            let initial = String(name.prefix(1)).uppercased()
+            let side = 40.sf
+            let font = UIFont.systemFont(ofSize: 16.sf, weight: .semibold)
+            let p = NSMutableParagraphStyle()
+            p.alignment = .center
+            p.minimumLineHeight = side
+            p.maximumLineHeight = side
+            avatarPlaceholderNode.maximumNumberOfLines = 1
             avatarPlaceholderNode.attributedText = NSAttributedString(
-                string: String(name.prefix(1)).uppercased(),
+                string: initial,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
+                    .font: font,
                     .foregroundColor: UIColor.white,
+                    .paragraphStyle: p,
                 ]
             )
         }

@@ -139,12 +139,16 @@ final class MediaGalleryNode: ASDisplayNode {
         guard index >= 0, index < attachments.count else { return }
         let fullPx = fullScreenProxyPixels()
         let items: [GalleryItemInfo] = attachments.map { att in
+            let isVideo = Self.isVideo(att)
             let url: String
-            if Self.isVideo(att) {
+            var placeholderURL: String? = nil
+            if isVideo {
                 url = att.url
             } else {
                 url = ImgproxyURL.attachmentURL(
                     from: att.url, width: fullPx, height: fullPx, resizeType: "fit")
+                placeholderURL = ImgproxyURL.attachmentURL(
+                    from: att.url, width: 100, height: 100, resizeType: "fit")
             }
             let ts: Date? =
                 att.createTimeSeconds > 0
@@ -152,10 +156,11 @@ final class MediaGalleryNode: ASDisplayNode {
             return GalleryItemInfo(
                 url: url,
                 image: nil,
+                placeholderURL: placeholderURL,
                 senderName: "",
                 senderAvatarURL: nil,
                 timestamp: ts,
-                isVideo: Self.isVideo(att)
+                isVideo: isVideo
             )
         }
         let gallery = GalleryController(items: items, initialIndex: index)

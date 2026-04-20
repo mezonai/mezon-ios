@@ -127,17 +127,119 @@ enum RichTextBuilder {
             return attributedPlainTextWithMarkdownHeadings(text, style: s)
         }
 
-        let result = NSMutableAttributedString()
-        var lastUTF16 = 0
         let utf16Len = text.utf16.count
+        let sortedTokens = content.tokens.sorted(by: { $0.start < $1.start })
+        let hasCodeBlock = sortedTokens.contains {
+            if case .codeBlock = $0.kind { return true }
+            return false
+        }
+        if hasCodeBlock {
+            return buildAttributedStringTokenWalk(
+                text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s,
+                lineHeadingLevel: nil, lineBodyFont: nil, lineMentionFont: nil
+            )
+        }
+        return buildAttributedStringWithLineWiseHeadings(
+            text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s
+        )
+    }
 
-        for token in content.tokens.sorted(by: { $0.start < $1.start }) {
+    private static func buildAttributedStringWithLineWiseHeadings(
+        text: String,
+        sortedTokens: [ContentToken],
+        utf16Len: Int,
+        style s: Style
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let ns = text as NSString
+        var lineStart = 0
+        while lineStart <= utf16Len {
+            let restLen = utf16Len - lineStart
+            let restRange = NSRange(location: lineStart, length: restLen)
+            let nl = ns.range(of: "\n", options: [], range: restRange)
+            let lineEnd = nl.location != NSNotFound ? nl.location : utf16Len
+            let lineTokens = sortedTokens.filter { $0.start >= lineStart && $0.end <= lineEnd && $0.start < lineEnd }
+            let lineStr = text.mezon_utf16Substring(from: lineStart, to: lineEnd)
+            let heading = markdownLineHeadingPrefix(line: lineStr, lineStartUTF16: lineStart, lineTokens: lineTokens)
+            let lineBodyFont = heading.map { headingFont(level: $0.level, fonts: s.headingFonts, fallback: s.bodyFont) }
+            let lineMentionFont = heading.map { headingFont(level: $0.level, fonts: s.headingFonts, fallback: s.mentionFont) }
+            let contentStart = lineStart + (heading?.prefixUTF16Length ?? 0)
+            let lineAttr = buildAttributedStringTokenWalk(
+                text: text,
+                sortedTokens: lineTokens,
+                utf16Len: utf16Len,
+                style: s,
+                lineHeadingLevel: heading?.level,
+                lineBodyFont: lineBodyFont,
+                lineMentionFont: lineMentionFont,
+                segmentStartUTF16: contentStart,
+                segmentEndUTF16: lineEnd
+            )
+            result.append(lineAttr)
+            if lineEnd < utf16Len {
+                result.append(NSAttributedString(string: "\n", attributes: bodyAttributes(s)))
+            }
+            if lineEnd >= utf16Len { break }
+            lineStart = lineEnd + 1
+        }
+        return result
+    }
+
+    private struct LineHeadingPrefix {
+        let level: Int
+        let prefixUTF16Length: Int
+    }
+
+    private static func markdownLineHeadingPrefix(
+        line: String,
+        lineStartUTF16: Int,
+        lineTokens: [ContentToken]
+    ) -> LineHeadingPrefix? {
+        let ns = line as NSString
+        let len = ns.length
+        guard len > 0,
+              let re = try? NSRegularExpression(pattern: "^(#{1,6})\\s+", options: []),
+              let m = re.firstMatch(in: line, options: [], range: NSRange(location: 0, length: len)),
+              m.numberOfRanges >= 2,
+              m.range(at: 1).location != NSNotFound else { return nil }
+        let fullR = m.range(at: 0)
+        let level = ns.substring(with: m.range(at: 1)).count
+        let prefixUTF16Length = fullR.length
+        let hasTextTail = fullR.location + fullR.length < len
+        let hasTokenInTail = lineTokens.contains { $0.start >= lineStartUTF16 + prefixUTF16Length }
+        guard hasTextTail || hasTokenInTail else { return nil }
+        return LineHeadingPrefix(level: level, prefixUTF16Length: prefixUTF16Length)
+    }
+
+    private static func buildAttributedStringTokenWalk(
+        text: String,
+        sortedTokens: [ContentToken],
+        utf16Len: Int,
+        style s: Style,
+        lineHeadingLevel: Int?,
+        lineBodyFont: UIFont?,
+        lineMentionFont: UIFont?,
+        segmentStartUTF16: Int = 0,
+        segmentEndUTF16: Int? = nil
+    ) -> NSAttributedString {
+        let endCap = segmentEndUTF16 ?? utf16Len
+        let tokensInSegment = sortedTokens.filter { $0.start >= segmentStartUTF16 && $0.end <= endCap && $0.start < endCap }
+        let result = NSMutableAttributedString()
+        var lastUTF16 = segmentStartUTF16
+
+        for token in tokensInSegment.sorted(by: { $0.start < $1.start }) {
             guard token.start >= 0, token.end <= utf16Len, token.start < token.end else { continue }
 
             if lastUTF16 < token.start {
                 let plainText = text.mezon_utf16Substring(from: lastUTF16, to: token.start)
                 if !plainText.isEmpty {
-                    result.append(attributedPlainTextWithMarkdownHeadings(plainText, style: s))
+                    if lineHeadingLevel != nil {
+                        var attrs = bodyAttributes(s)
+                        attrs[.font] = lineBodyFont ?? s.bodyFont
+                        result.append(NSAttributedString(string: plainText, attributes: attrs))
+                    } else {
+                        result.append(attributedPlainTextWithMarkdownHeadings(plainText, style: s))
+                    }
                 }
             }
 
@@ -145,17 +247,18 @@ enum RichTextBuilder {
 
             switch token.kind {
             case .emoji(let emojiId):
+                let baseline = lineBodyFont ?? s.bodyFont
                 let attachment = EmojiTextAttachment(
                     emojiId: emojiId,
                     emojiSize: s.emojiSize,
-                    baselineFont: s.bodyFont,
+                    baselineFont: baseline,
                     imgproxyFitSide: s.emojiImgproxyFitSide
                 )
                 result.append(NSAttributedString(attachment: attachment))
 
             case .mention(let userId, let roleId, _):
                 var attrs = bodyAttributes(s)
-                attrs[.font] = s.mentionFont
+                attrs[.font] = lineMentionFont ?? s.mentionFont
                 let isRoleMention = roleId != nil && userId == nil
                 attrs[.foregroundColor] = isRoleMention ? s.roleMentionColor : s.mentionColor
                 attrs[.backgroundColor] = isRoleMention ? s.roleMentionBgColor : s.mentionBgColor
@@ -182,15 +285,16 @@ enum RichTextBuilder {
                 } else {
                     namePart = rawText.hasPrefix("#") ? String(rawText.dropFirst()) : rawText
                 }
+                let tagFont = lineMentionFont ?? s.mentionFont
                 var tagAttrs = bodyAttributes(s)
-                tagAttrs[.font] = s.mentionFont
+                tagAttrs[.font] = tagFont
                 tagAttrs[.foregroundColor] = s.mentionColor
                 tagAttrs[.backgroundColor] = s.mentionBgColor
                 tagAttrs[.mezonHashtag] = [
                     "c": channelId ?? "",
                     "g": clanId ?? "",
                 ] as NSDictionary
-                if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: s.mentionColor, font: s.mentionFont) {
+                if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: s.mentionColor, font: tagFont) {
                     let iconStr = NSMutableAttributedString(attachment: att)
                     iconStr.addAttributes(tagAttrs, range: NSRange(location: 0, length: iconStr.length))
                     result.append(iconStr)
@@ -250,10 +354,16 @@ enum RichTextBuilder {
             lastUTF16 = token.end
         }
 
-        if lastUTF16 < utf16Len {
-            let remaining = text.mezon_utf16Substring(from: lastUTF16, to: utf16Len)
+        if lastUTF16 < endCap {
+            let remaining = text.mezon_utf16Substring(from: lastUTF16, to: endCap)
             if !remaining.isEmpty {
-                result.append(attributedPlainTextWithMarkdownHeadings(remaining, style: s))
+                if lineHeadingLevel != nil {
+                    var attrs = bodyAttributes(s)
+                    attrs[.font] = lineBodyFont ?? s.bodyFont
+                    result.append(NSAttributedString(string: remaining, attributes: attrs))
+                } else {
+                    result.append(attributedPlainTextWithMarkdownHeadings(remaining, style: s))
+                }
             }
         }
 

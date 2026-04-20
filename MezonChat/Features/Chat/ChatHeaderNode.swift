@@ -106,7 +106,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
         if isDM {
             channelIconNode.isHidden = true
-            callButtonNode.isHidden = false
+            callButtonNode.isHidden = true
         } else {
             channelIconNode.isHidden = false
             callButtonNode.isHidden = true

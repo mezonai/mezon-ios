@@ -65,6 +65,7 @@ final class SendMessageInputViewController: UIViewController {
     private var replyBannerHeightConstraint: NSLayoutConstraint?
 
     private(set) var replyDisplay: ChatMessageDisplay?
+    private var editingDisplay: ChatMessageDisplay?
     private static let replyBannerHeight: CGFloat = 40
 
     private static var channelAttachmentCache: [String: [UIImage]] = [:]
@@ -237,8 +238,9 @@ final class SendMessageInputViewController: UIViewController {
         let image = UIImage(named: "Chat/AnonymousIcon")?.withRenderingMode(.alwaysTemplate)
             ?? UIImage(systemName: "sunglasses.fill", withConfiguration: cfg)
         b.setImage(image, for: .normal)
+        b.imageView?.contentMode = .scaleAspectFit
         b.transform = CGAffineTransform(rotationAngle: CGFloat.pi / 6.0)
-        b.layer.cornerRadius = 11
+        b.layer.cornerRadius = 12
         b.clipsToBounds = true
         b.accessibilityLabel = "Anonymous message"
         b.addTarget(self, action: #selector(anonymousIndicatorTapped), for: .touchUpInside)
@@ -303,7 +305,7 @@ final class SendMessageInputViewController: UIViewController {
             h += AttachmentPreviewView.preferredHeight(
                 imageCount: pickedImages.count, fileCount: pickedFiles.count)
         }
-        if replyDisplay != nil {
+        if replyDisplay != nil || editingDisplay != nil {
             h += Self.replyBannerHeight
         }
         return h
@@ -458,11 +460,22 @@ final class SendMessageInputViewController: UIViewController {
         let plainText = buildPlainTextFromAttributed()
         let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
+        if let edit = editingDisplay, let mid = Int64(edit.message.id) {
+            guard !trimmed.isEmpty, !hasAttachments else { return }
+            sendChannelMessage(text: trimmed, images: [], clanId: clanId, channel: channel, editingMessageId: mid)
+            return
+        }
         guard !trimmed.isEmpty || hasAttachments else { return }
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
     }
 
-    @objc private func clearReplyAction() { clearReply() }
+    @objc private func clearReplyAction() {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        } else {
+            clearReply()
+        }
+    }
     @objc private func expandAttachControlsAction() { expandAttachControls() }
     @objc private func openPhotoPickerAction() { openPhotoPicker() }
     @objc private func toggleAdvancePanelAction() { toggleAdvancePanel() }
@@ -477,6 +490,9 @@ final class SendMessageInputViewController: UIViewController {
 
 
     func sendLocation(latitude: Double, longitude: Double) {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
         let googleMapsLink = "https://www.google.com/maps?q=\(latitude),\(longitude)&z=14&t=m&mapclient=embed"
         let linkLength = googleMapsLink.count
 
@@ -544,6 +560,9 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func sendBuzzMessage(text: String) {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
         let buzzText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !buzzText.isEmpty else { return }
 
@@ -602,6 +621,9 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func sendSticker(_ sticker: CachedClanStickerRecord) {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
         let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
         let imageUrl = !src.isEmpty ? src : "\(MezonConfig.baseImgURL)/stickers/\(sticker.id).webp"
 
@@ -620,6 +642,9 @@ final class SendMessageInputViewController: UIViewController {
 
 
     func sendGif(url: String) {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
         var att = Mezon_Api_MessageAttachment()
         att.url = url
         att.filetype = "image/gif"
@@ -627,10 +652,28 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func setReply(_ display: ChatMessageDisplay) {
+        editingDisplay = nil
         replyDisplay = display
-        replyLabel.text = "Replying to \(display.senderDisplayName)"
         updateReplyBannerVisibility()
         textView.becomeFirstResponder()
+    }
+
+    func setEditingMessage(_ display: ChatMessageDisplay) {
+        reloadEmojiSuggestionList()
+        replyDisplay = nil
+        editingDisplay = display
+        clearPickedImages()
+        populateComposerFromEditDisplay(display)
+        updateReplyBannerVisibility()
+        syncAttachControlsWithTypedText()
+        updateSendVoiceToggle()
+        textView.becomeFirstResponder()
+    }
+
+    func clearEditingMessage() {
+        editingDisplay = nil
+        clearText()
+        updateReplyBannerVisibility()
     }
 
     func clearReply() {
@@ -638,10 +681,19 @@ final class SendMessageInputViewController: UIViewController {
         updateReplyBannerVisibility()
     }
 
+    private func refreshBannerLabel() {
+        if editingDisplay != nil {
+            replyLabel.text = L(L10n.MessageAction.editingMessage)
+        } else if let r = replyDisplay {
+            replyLabel.text = "Replying to \(r.senderDisplayName)"
+        }
+    }
+
     private func updateReplyBannerVisibility() {
-        let shouldShow = replyDisplay != nil
+        let shouldShow = replyDisplay != nil || editingDisplay != nil
         let targetH: CGFloat = shouldShow ? Self.replyBannerHeight : 0
         let heightChanged = replyBannerHeightConstraint?.constant != targetH
+        refreshBannerLabel()
         if heightChanged {
             replyBannerHeightConstraint?.constant = targetH
             onHeightChanged?(totalHeight)
@@ -649,6 +701,113 @@ final class SendMessageInputViewController: UIViewController {
         UIView.animate(withDuration: 0.2) {
             self.view.superview?.layoutIfNeeded()
         }
+    }
+
+    private func populateComposerFromEditDisplay(_ display: ChatMessageDisplay) {
+        let parsed = display.parsedContent
+        activeMentions.removeAll()
+        activeHashtags.removeAll()
+        emojiIdByColonToken.removeAll()
+
+        let fullText = parsed.text
+        let t = UIColor.theme
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+        let highlightAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        ]
+
+        let attr = NSMutableAttributedString(string: fullText, attributes: normalAttrs)
+        let sorted = parsed.tokens.sorted { $0.start < $1.start }
+
+        for token in sorted {
+            guard token.start >= 0, token.end <= fullText.utf16.count, token.start < token.end else { continue }
+            let r = NSRange(location: token.start, length: token.end - token.start)
+            switch token.kind {
+            case .mention(let userIdStr, let roleIdStr, let username):
+                attr.addAttributes(highlightAttrs, range: r)
+                let raw = fullText.mezon_utf16Substring(from: token.start, to: token.end)
+                let displayName: String
+                if raw.hasPrefix("@") {
+                    displayName = String(raw.dropFirst())
+                } else {
+                    displayName = raw
+                }
+                let uid = Int64(userIdStr ?? "") ?? 0
+                let rid = Int64(roleIdStr ?? "") ?? 0
+                let uname = username?.lowercased() ?? ""
+                let mention: ComposerMention
+                if rid != 0 {
+                    mention = ComposerMention(userId: 0, roleId: rid, rolename: displayName, displayName: displayName, range: r)
+                } else if uid != 0 {
+                    mention = ComposerMention(userId: uid, roleId: 0, rolename: "", displayName: displayName, range: r)
+                } else if uname == "here" || displayName.lowercased() == "here" {
+                    mention = ComposerMention(userId: Self.mentionHereUserId, roleId: 0, rolename: "", displayName: "here", range: r)
+                } else {
+                    mention = ComposerMention(userId: uid, roleId: rid, rolename: "", displayName: displayName, range: r)
+                }
+                activeMentions.append(mention)
+
+            case .hashtag(let channelIdStr, let clanIdStr, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+                attr.addAttributes(highlightAttrs, range: r)
+                let raw = fullText.mezon_utf16Substring(from: token.start, to: token.end)
+                let labelFromText: String
+                if raw.hasPrefix("#") {
+                    labelFromText = String(raw.dropFirst())
+                } else {
+                    labelFromText = raw
+                }
+                let label = (channelLabel?.isEmpty == false ? channelLabel! : labelFromText)
+                let cid = Int64(channelIdStr ?? "") ?? 0
+                let gid = Int64(clanIdStr ?? "") ?? 0
+                var ch: Mezon_Api_ChannelDescription?
+                if cid != 0 {
+                    let channels = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+                    ch = channels.first(where: { $0.channelID == cid && (gid == 0 || $0.clanID == gid) })
+                }
+                let ctype = channelType ?? ch?.type ?? MezonConstants.ChannelType.channel.rawValue
+                let cpriv = channelPrivate ?? ch?.channelPrivate ?? 0
+                let cage = ageRestricted ?? ch?.ageRestricted ?? 0
+                let parentId = ch?.parentID ?? 0
+                let tag = ComposerHashtag(
+                    channelId: cid,
+                    clanId: ch?.clanID ?? gid,
+                    parentId: parentId,
+                    channelLabel: label,
+                    channelType: ctype,
+                    channelPrivate: cpriv,
+                    ageRestricted: cage,
+                    range: r
+                )
+                activeHashtags.append(tag)
+
+            case .emoji(let emojiId):
+                attr.addAttributes(highlightAttrs, range: r)
+                let raw = fullText.mezon_utf16Substring(from: token.start, to: token.end)
+                if raw.count >= 2, raw.first == ":", raw.last == ":" {
+                    emojiIdByColonToken[Self.normalizedEmojiToken(from: raw)] = emojiId
+                } else if let idInt = Int64(emojiId), let rec = allSuggestionEmojis.first(where: { $0.id == idInt }) {
+                    let key = Self.normalizedEmojiToken(from: rec.shortname)
+                    emojiIdByColonToken[key] = emojiId
+                }
+
+            default:
+                break
+            }
+        }
+
+        textView.attributedText = attr
+        text = fullText
+        placeholderLabel.isHidden = !text.isEmpty
+        textView.typingAttributes = normalAttrs
+        textView.isScrollEnabled = false
+        updateTextViewHeight()
+        hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
     }
 
     func clearText() {
@@ -1053,7 +1212,6 @@ final class SendMessageInputViewController: UIViewController {
         inputBarView.addSubview(voiceButton)
         inputBarView.addSubview(sendButton)
         inputBarView.addSubview(anonymousIndicatorButton)
-        inputBarView.insertSubview(anonymousIndicatorButton, aboveSubview: textView)
 
         let bottomConstraint = inputBarView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         inputBarBottomConstraint = bottomConstraint
@@ -1126,10 +1284,10 @@ final class SendMessageInputViewController: UIViewController {
             emojiButton.widthAnchor.constraint(equalToConstant: 28.swh),
             emojiButton.heightAnchor.constraint(equalToConstant: 28.swh),
 
-            anonymousIndicatorButton.widthAnchor.constraint(equalToConstant: 22),
-            anonymousIndicatorButton.heightAnchor.constraint(equalToConstant: 22),
+            anonymousIndicatorButton.widthAnchor.constraint(equalToConstant: 24),
+            anonymousIndicatorButton.heightAnchor.constraint(equalToConstant: 24),
             anonymousIndicatorButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: 4.sw),
-            anonymousIndicatorButton.topAnchor.constraint(equalTo: textView.topAnchor, constant: -14),
+            anonymousIndicatorButton.topAnchor.constraint(equalTo: textView.topAnchor, constant: -15),
 
             sendButton.trailingAnchor.constraint(equalTo: inputBarView.trailingAnchor, constant: -4.sw),
             sendButton.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
@@ -1179,6 +1337,8 @@ final class SendMessageInputViewController: UIViewController {
         let tapHint = UITapGestureRecognizer(target: self, action: #selector(handleVoiceTapForHint))
         tapHint.require(toFail: longPress)
         voiceButton.addGestureRecognizer(tapHint)
+
+        inputBarView.bringSubviewToFront(anonymousIndicatorButton)
     }
 
     private func collapseAttachControls() {
@@ -2892,18 +3052,42 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
-    private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription) {
+    private func applyOptimisticSendComposerReset() {
+        editingDisplay = nil
+        text = ""
+        activeMentions.removeAll()
+        activeHashtags.removeAll()
+        emojiIdByColonToken.removeAll()
+        textView.attributedText = nil
+        textView.text = ""
+        textView.typingAttributes = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor.theme.textStrong
+        ]
+        placeholderLabel.isHidden = false
+        textView.isScrollEnabled = false
+        resetTextViewHeight()
+        clearPickedImages()
+        clearReply()
+        hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
+        onSent?()
+    }
+
+    private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription, editingMessageId: Int64 = 0) {
+        let isEdit = editingMessageId != 0
         let sendAsAnonymous = shouldSendAsAnonymousMessage
         let localId = "pending-\(UUID().uuidString)"
         let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
 
-        let imagesToUpload = images
-        let fileURLsToUpload = pickedFileURLs
-        let filesToUpload = pickedFiles
-        if !imagesToUpload.isEmpty, !sendAsAnonymous {
+        let imagesToUpload = isEdit ? [] : images
+        let fileURLsToUpload = isEdit ? [:] : pickedFileURLs
+        let filesToUpload = isEdit ? [] : pickedFiles
+        if !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
-        if !filesToUpload.isEmpty, !sendAsAnonymous {
+        if !isEdit, !filesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingDocumentPlaceholders[localId] = filesToUpload.map { file in
                 ParsedAttachment(
                     url: "",
@@ -2918,7 +3102,7 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        let replyRef: Mezon_Api_MessageRef? = buildReplyRef()
+        let replyRef: Mezon_Api_MessageRef? = isEdit ? nil : buildReplyRef()
         let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
         let displayText = built.displayText
         let mentionList = buildMentionList(displayPlain: displayText)
@@ -2938,7 +3122,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         let outgoingContentData = (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
 
-        if !sendAsAnonymous, let sender = context.currentUser {
+        if !isEdit, !sendAsAnonymous, let sender = context.currentUser {
             let referencesData: Data = {
                 guard let ref = replyRef else { return Data() }
                 var list = Mezon_Api_MessageRefList()
@@ -2976,25 +3160,9 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        self.text = ""
-        self.activeMentions = []
-        self.activeHashtags = []
-        self.emojiIdByColonToken.removeAll()
-        textView.attributedText = nil
-        textView.text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
-        placeholderLabel.isHidden = false
-        textView.isScrollEnabled = false
-        resetTextViewHeight()
-        clearPickedImages()
-        clearReply()
-        hideMentionSuggestions()
-        hideEmojiSuggestions()
-        hideHashtagSuggestions()
-        onSent?()
+        if !isEdit {
+            applyOptimisticSendComposerReset()
+        }
 
         let contentStr: String = {
             guard let s = String(data: outgoingContentData, encoding: .utf8), !s.isEmpty else { return "{}" }
@@ -3021,7 +3189,7 @@ final class SendMessageInputViewController: UIViewController {
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                if !sendAsAnonymous {
+                if !isEdit, !sendAsAnonymous {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                     ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
@@ -3039,22 +3207,76 @@ final class SendMessageInputViewController: UIViewController {
                     uploadedAttachments.append(contentsOf: fileAttachments)
                 }
 
-                _ = try await self.context.account.network.sendChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    content: contentStr,
-                    mentions: mentionList,
-                    attachments: uploadedAttachments,
-                    references: references,
-                    anonymous: sendAsAnonymous,
-                    mentionEveryone: false,
-                    avatar: avatar,
-                    topicId: self.topicId,
-                    token: token
-                )
-                if !sendAsAnonymous {
+                if isEdit {
+                    let ack = try await self.context.account.network.updateChannelMessage(
+                        clanId: clanId,
+                        channelId: channel.channelID,
+                        mode: mode,
+                        isPublic: isPublic,
+                        messageId: editingMessageId,
+                        content: contentStr,
+                        mentions: mentionList,
+                        attachments: uploadedAttachments,
+                        hideEditted: false,
+                        topicId: self.topicId,
+                        isUpdateMsgTopic: false,
+                        token: token
+                    )
+                    let mentionsData: Data = {
+                        guard !mentionList.isEmpty else { return Data() }
+                        var list = Mezon_Api_MessageMentionList()
+                        list.mentions = mentionList
+                        return (try? list.serializedData()) ?? Data()
+                    }()
+                    let editedAt: Date = {
+                        if ack.updateTimeSeconds > 0 {
+                            return Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
+                        }
+                        return Date()
+                    }()
+                    self.context.account.postbox.write { tx in
+                        let lookup = "\(editingMessageId)"
+                        guard let old = tx.getMessageById(lookup) else {
+                            return
+                        }
+                        let updated = MessageRecord(
+                            id: old.id,
+                            channelId: old.channelId,
+                            clanId: old.clanId,
+                            senderId: old.senderId,
+                            content: outgoingContentData,
+                            createdAt: old.createdAt,
+                            editedAt: editedAt,
+                            isDeleted: old.isDeleted,
+                            code: old.code,
+                            senderDisplayName: old.senderDisplayName,
+                            senderAvatarURL: old.senderAvatarURL,
+                            sendingState: old.sendingState,
+                            attachmentsJSON: old.attachmentsJSON,
+                            reactionsJSON: old.reactionsJSON,
+                            referencesData: old.referencesData,
+                            mentionsJSON: mentionsData
+                        )
+                        tx.addMessages([updated])
+                    }
+                } else {
+                    _ = try await self.context.account.network.sendChannelMessage(
+                        clanId: clanId,
+                        channelId: channel.channelID,
+                        mode: mode,
+                        isPublic: isPublic,
+                        content: contentStr,
+                        mentions: mentionList,
+                        attachments: uploadedAttachments,
+                        references: references,
+                        anonymous: sendAsAnonymous,
+                        mentionEveryone: false,
+                        avatar: avatar,
+                        topicId: self.topicId,
+                        token: token
+                    )
+                }
+                if !isEdit, !sendAsAnonymous {
                     self.context.account.postbox.write { tx in
                         let msgs = tx.getMessages(channelId: channelIdStr)
                         let pendingStillExists = msgs.contains { $0.id == localId }
@@ -3066,8 +3288,11 @@ final class SendMessageInputViewController: UIViewController {
                         }
                     }
                 }
+                if isEdit {
+                    self.applyOptimisticSendComposerReset()
+                }
             } catch {
-                if !sendAsAnonymous {
+                if !isEdit, !sendAsAnonymous {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                     ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
@@ -3079,6 +3304,9 @@ final class SendMessageInputViewController: UIViewController {
 
 
     private func sendChannelMessageWithAttachments(text: String, attachments: [Mezon_Api_MessageAttachment]) {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
         let replyRef = buildReplyRef()
         let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
         let contentStr: String

@@ -178,12 +178,6 @@ final class AccountContextImpl: AccountContext {
     var currentClanId: Int64 = 0
     var currentChannel: Mezon_Api_ChannelDescription?
 
-    static let preview: AccountContext = {
-        let shared = SharedAccountContextImpl(mainWindow: nil)
-        let account = Account(id: "preview")
-        return AccountContextImpl(sharedContext: shared, account: account, session: nil, user: nil, onReady: { _ in })
-    }()
-
     init(
         sharedContext: SharedAccountContextImpl,
         account: Account,
@@ -613,11 +607,13 @@ final class AccountContextImpl: AccountContext {
                 account.postbox.write { tx in tx.deleteMessage(id: "\(apiMessage.messageID)") }
                 return
             }
-            if apiMessage.code == 1 {
-                account.postbox.write { tx in tx.addMessages([MessageRecord(from: apiMessage)]) }
-                return
+            let mid = "\(apiMessage.messageID)"
+            let merged = account.postbox.read { tx in
+                MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid))
             }
-            account.postbox.write { tx in tx.addMessages([MessageRecord(from: apiMessage)]) }
+            account.postbox.write { tx in tx.addMessages([merged]) }
+            guard apiMessage.code != 1 else { return }
+
             let messageCopy = apiMessage
             Task { @MainActor [weak self] in
                 guard let self else { return }

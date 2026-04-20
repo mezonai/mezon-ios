@@ -7,6 +7,7 @@ struct ChannelListInteraction {
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
+    let onInviteClan: (() -> Void)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
     let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
@@ -115,7 +116,9 @@ final class ChannelListContainerNode: ASDisplayNode {
 
                 if !newState.isLoading,
                    let selectedId = newState.selectedChannelId,
-                   selectedId != prevState.selectedChannelId {
+                   selectedId != prevState.selectedChannelId,
+                   let catIdx = self.firstCategoryIndexContainingListChannel(selectedId),
+                   self.state.categories[catIdx].id != ChannelCategory.favoritesCategoryId {
                     self.scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
                 }
                 self.refreshNewUnreadButton()
@@ -241,27 +244,46 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         let filteredInsert = rowsToInsert.filter { !sectionsToReload.contains($0.section) }
         let filteredDelete = rowsToDelete.filter { !sectionsToReload.contains($0.section) }
-        let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) }
+        var seenReload = Set<IndexPath>()
+        let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) && seenReload.insert($0).inserted }
 
         let hasChanges = !sectionsToReload.isEmpty || !filteredInsert.isEmpty
             || !filteredDelete.isEmpty || !filteredReload.isEmpty
         if hasChanges {
             let rowAnim = UITableView.RowAnimation.none
+            let sortedDeletes = filteredDelete.sorted {
+                if $0.section != $1.section { return $0.section > $1.section }
+                return $0.row > $1.row
+            }
+            let sortedInserts = filteredInsert.sorted {
+                if $0.section != $1.section { return $0.section < $1.section }
+                return $0.row < $1.row
+            }
             tableNode.performBatch(animated: false) {
+                if !sortedDeletes.isEmpty {
+                    self.tableNode.deleteRows(at: sortedDeletes, with: rowAnim)
+                }
+                if !sortedInserts.isEmpty {
+                    self.tableNode.insertRows(at: sortedInserts, with: rowAnim)
+                }
                 if !sectionsToReload.isEmpty {
                     self.tableNode.reloadSections(sectionsToReload, with: rowAnim)
                 }
-                if !filteredDelete.isEmpty {
-                    self.tableNode.deleteRows(at: filteredDelete, with: rowAnim)
-                }
-                if !filteredInsert.isEmpty {
-                    self.tableNode.insertRows(at: filteredInsert, with: rowAnim)
-                }
-                if !filteredReload.isEmpty {
-                    self.tableNode.reloadRows(at: filteredReload, with: .none)
-                }
             }
             tableNode.waitUntilAllUpdatesAreProcessed()
+
+            if !filteredReload.isEmpty {
+                let validReloads = filteredReload.filter { ip in
+                    ip.section < self.tableNode.numberOfSections
+                        && ip.row < self.tableNode.numberOfRows(inSection: ip.section)
+                }
+                if !validReloads.isEmpty {
+                    UIView.performWithoutAnimation {
+                        self.tableNode.reloadRows(at: validReloads, with: .none)
+                    }
+                    tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+            }
         }
         committedSectionCount = expectedAfter
     }
@@ -427,20 +449,32 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.commit()
     }
 
-    private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
-        let sectionOffset = hasChannelAppsSection ? 1 : 0
+    private func firstCategoryIndexContainingListChannel(_ channelId: Int64) -> Int? {
         for s in 0..<state.categories.count {
             let rows = rowsForSection(s)
-            if let r = rows.firstIndex(where: { row in
+            if rows.contains(where: { row in
                 switch row {
                 case .voiceMembersCollapsed, .voiceMemberExpanded: return false
                 default: return row.channelDesc.channelID == channelId
                 }
             }) {
-                return IndexPath(row: r, section: s + sectionOffset)
+                return s
             }
         }
         return nil
+    }
+
+    private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
+        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        guard let s = firstCategoryIndexContainingListChannel(channelId) else { return nil }
+        let rows = rowsForSection(s)
+        guard let r = rows.firstIndex(where: { row in
+            switch row {
+            case .voiceMembersCollapsed, .voiceMemberExpanded: return false
+            default: return row.channelDesc.channelID == channelId
+            }
+        }) else { return nil }
+        return IndexPath(row: r, section: s + sectionOffset)
     }
 
     private func rowHasNumericUnreadBadge(_ row: ChannelListRow) -> Bool {
@@ -789,6 +823,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                 guard let self else { return }
                 if action == .settings {
                     self.interaction.onPresentSettings?()
+                } else if action == .invite {
+                    self.interaction.onInviteClan?()
                 } else {
                 }
             }

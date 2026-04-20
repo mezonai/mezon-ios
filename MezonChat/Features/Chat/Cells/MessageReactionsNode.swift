@@ -35,6 +35,7 @@ final class MessageReactionsNode: ASDisplayNode {
         addReactionButtonNode.tintColor = t.textDisabled
         addReactionButtonNode.clipsToBounds = true
         addReactionButtonNode.contentMode = .center
+        addReactionButtonNode.isUserInteractionEnabled = false
         let iconSize = CGSize(width: 20, height: 20)
         if let pdf = UIImage(named: "Chat/FaceIcon")?.withRenderingMode(.alwaysTemplate) {
             let resized = UIGraphicsImageRenderer(size: iconSize).image { _ in
@@ -42,7 +43,6 @@ final class MessageReactionsNode: ASDisplayNode {
             }.withRenderingMode(.alwaysTemplate)
             addReactionButtonNode.setImage(resized, for: .normal)
         }
-        addReactionButtonNode.addTarget(self, action: #selector(addReactionControlTapped), forControlEvents: .touchUpInside)
     }
 
     override func didLoad() {
@@ -54,12 +54,16 @@ final class MessageReactionsNode: ASDisplayNode {
         long.minimumPressDuration = 0.32
         long.cancelsTouchesInView = false
         view.addGestureRecognizer(long)
+        tap.require(toFail: long)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended else { return }
         let loc = gesture.location(in: view)
-        if addButtonHit(at: loc) { return }
+        if addButtonHit(at: loc) {
+            onAddReactionTapped?()
+            return
+        }
         pillAt(location: loc).map { onReactionTapped?($0) }
     }
 
@@ -75,10 +79,6 @@ final class MessageReactionsNode: ASDisplayNode {
             return
         }
         onStripBackgroundLongPressed?()
-    }
-
-    @objc private func addReactionControlTapped() {
-        onAddReactionTapped?()
     }
 
     private func addButtonHit(at location: CGPoint) -> Bool {

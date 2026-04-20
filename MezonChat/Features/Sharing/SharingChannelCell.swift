@@ -12,7 +12,7 @@ final class SharingChannelCell: UITableViewCell {
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
-        iv.layer.cornerRadius = 18
+        iv.layer.cornerRadius = 16
         iv.backgroundColor = UIColor.white.withAlphaComponent(0.12)
         return iv
     }()
@@ -20,7 +20,7 @@ final class SharingChannelCell: UITableViewCell {
     private let avatarPlaceholder: UILabel = {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 14, weight: .semibold)
+        l.font = .systemFont(ofSize: 12, weight: .semibold)
         l.textColor = .white
         l.textAlignment = .center
         return l
@@ -44,6 +44,46 @@ final class SharingChannelCell: UITableViewCell {
         return l
     }()
 
+    private let clanAvatarView: UIImageView = {
+        let iv = UIImageView()
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        iv.layer.cornerRadius = 7
+        iv.backgroundColor = UIColor.white.withAlphaComponent(0.1)
+        iv.isHidden = true
+        return iv
+    }()
+
+    private let clanNameLabel: UILabel = {
+        let l = UILabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.textColor = UIColor.white.withAlphaComponent(0.55)
+        l.numberOfLines = 1
+        l.isHidden = true
+        return l
+    }()
+
+    private let clanRowStack: UIStackView = {
+        let s = UIStackView()
+        s.translatesAutoresizingMaskIntoConstraints = false
+        s.axis = .horizontal
+        s.alignment = .center
+        s.spacing = 6
+        s.isHidden = true
+        return s
+    }()
+
+    private let textColumnStack: UIStackView = {
+        let s = UIStackView()
+        s.translatesAutoresizingMaskIntoConstraints = false
+        s.axis = .vertical
+        s.alignment = .leading
+        s.spacing = 5
+        return s
+    }()
+
     private let checkmarkView: UIImageView = {
         let iv = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -53,7 +93,8 @@ final class SharingChannelCell: UITableViewCell {
         return iv
     }()
 
-    private var imageTask: URLSessionDataTask?
+    private var mainImageTask: URLSessionDataTask?
+    private var clanImageTask: URLSessionDataTask?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -64,12 +105,20 @@ final class SharingChannelCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        imageTask?.cancel()
+        mainImageTask?.cancel()
+        clanImageTask?.cancel()
+        mainImageTask = nil
+        clanImageTask = nil
         avatarView.image = nil
+        clanAvatarView.image = nil
         avatarPlaceholder.text = nil
         avatarPlaceholder.isHidden = true
         channelIconView.isHidden = true
         checkmarkView.isHidden = true
+        clanRowStack.isHidden = true
+        clanAvatarView.isHidden = true
+        clanNameLabel.isHidden = true
+        clanNameLabel.text = nil
     }
 
     private func setupLayout() {
@@ -79,10 +128,16 @@ final class SharingChannelCell: UITableViewCell {
         contentView.addSubview(avatarView)
         avatarView.addSubview(avatarPlaceholder)
         avatarView.addSubview(channelIconView)
-        contentView.addSubview(nameLabel)
+        contentView.addSubview(textColumnStack)
+        textColumnStack.addArrangedSubview(nameLabel)
+        textColumnStack.addArrangedSubview(clanRowStack)
+        clanRowStack.addArrangedSubview(clanAvatarView)
+        clanRowStack.addArrangedSubview(clanNameLabel)
         contentView.addSubview(checkmarkView)
 
-        let avatarSize: CGFloat = 36
+        let avatarSize: CGFloat = 32
+        clanAvatarView.widthAnchor.constraint(equalToConstant: 14).isActive = true
+        clanAvatarView.heightAnchor.constraint(equalToConstant: 14).isActive = true
 
         NSLayoutConstraint.activate([
             avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
@@ -95,12 +150,12 @@ final class SharingChannelCell: UITableViewCell {
 
             channelIconView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             channelIconView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
-            channelIconView.widthAnchor.constraint(equalToConstant: 18),
-            channelIconView.heightAnchor.constraint(equalToConstant: 18),
+            channelIconView.widthAnchor.constraint(equalToConstant: 15),
+            channelIconView.heightAnchor.constraint(equalToConstant: 15),
 
-            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 16),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: checkmarkView.leadingAnchor, constant: -8),
-            nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            textColumnStack.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
+            textColumnStack.trailingAnchor.constraint(lessThanOrEqualTo: checkmarkView.leadingAnchor, constant: -8),
+            textColumnStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
             checkmarkView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             checkmarkView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -109,20 +164,56 @@ final class SharingChannelCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, clanName: String?, isSelected: Bool) {
-        let isDM = channel.type == MezonConstants.ChannelType.dm.rawValue
-        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
+    func configure(item: SharingSuggestionItem, channel: Mezon_Api_ChannelDescription?, isSelected: Bool) {
+        let ch = channel
+        let isDM = item.type == MezonConstants.ChannelType.dm.rawValue
+        let isGroup = item.type == MezonConstants.ChannelType.group.rawValue
+        let isClanChannel = !isDM && !isGroup
 
-        let displayName = Self.displayName(for: channel)
+        let displayName: String
+        if let ch {
+            displayName = Self.displayName(for: ch)
+        } else {
+            displayName = item.displayName
+        }
         nameLabel.text = displayName
+
+        let itemClan = item.clanName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let chClan = ch?.clanName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let displayClanName: String? = {
+            if !itemClan.isEmpty { return itemClan }
+            if !chClan.isEmpty { return chClan }
+            return nil
+        }()
+
+        if isClanChannel, let cn = displayClanName, !cn.isEmpty {
+            clanRowStack.isHidden = false
+            clanNameLabel.isHidden = false
+            clanNameLabel.text = cn
+            let logoRaw = item.clanLogo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !logoRaw.isEmpty {
+                clanAvatarView.isHidden = false
+                loadClanLogo(raw: logoRaw)
+            } else {
+                clanAvatarView.isHidden = true
+                clanAvatarView.image = nil
+            }
+        } else {
+            clanRowStack.isHidden = true
+            clanAvatarView.isHidden = true
+            clanNameLabel.isHidden = true
+            clanAvatarView.image = nil
+        }
 
         if isDM {
             channelIconView.isHidden = true
-            if let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
+            let urlStr = item.avatarURL ?? ch?.avatars.first
+            if let s = urlStr, !s.isEmpty {
                 avatarPlaceholder.isHidden = true
                 avatarView.backgroundColor = .clear
-                loadImage(url: url)
+                loadMainAvatar(raw: s)
             } else {
+                avatarView.image = nil
                 avatarView.backgroundColor = colorFor(name: displayName)
                 avatarPlaceholder.isHidden = false
                 avatarPlaceholder.text = String(displayName.prefix(1)).uppercased()
@@ -132,38 +223,58 @@ final class SharingChannelCell: UITableViewCell {
             channelIconView.isHidden = false
             channelIconView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
             channelIconView.tintColor = .white
-            if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
-               let url = URL(string: channel.channelAvatar) {
+            let groupAv = ch?.channelAvatar ?? item.channelAvatar
+            if !groupAv.isEmpty, !groupAv.contains("avatar-group.png") {
                 channelIconView.isHidden = true
                 avatarView.backgroundColor = .clear
-                loadImage(url: url)
+                loadMainAvatar(raw: groupAv)
             } else {
                 avatarView.image = nil
                 avatarView.backgroundColor = Self.groupDefaultAvatarBackground
             }
         } else {
-            imageTask?.cancel()
             avatarView.image = nil
             avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
-            let iconName = channel.channelListIconAssetName()
+            let iconName: String
+            if let ch {
+                iconName = ch.channelListIconAssetName()
+            } else {
+                iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                    type: item.type,
+                    channelPrivate: item.channelPrivate,
+                    ageRestricted: item.ageRestricted
+                )
+            }
             channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
             channelIconView.tintColor = UIColor.theme.channelNormal
             avatarView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
-            nameLabel.text = displayName
         }
 
         checkmarkView.isHidden = !isSelected
     }
 
-    private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
-        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+    private func loadMainAvatar(raw: String) {
+        let proxied = SharingImageProxy.proxiedAvatarURLString(raw)
+        guard !proxied.isEmpty else { return }
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             avatarView.image = cached
             return
         }
-        imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
+        mainImageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             self?.avatarView.image = image
+        }
+    }
+
+    private func loadClanLogo(raw: String) {
+        let proxied = SharingImageProxy.proxiedAvatarURLString(raw)
+        guard !proxied.isEmpty else { return }
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+            clanAvatarView.image = cached
+            return
+        }
+        clanImageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            self?.clanAvatarView.image = image
         }
     }
 

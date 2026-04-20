@@ -110,7 +110,7 @@ final class MessageActionSheetController: ViewController {
 
         super.init(navigationBarPresentationData: nil)
 
-        self.statusBar.statusBarStyle = .Hide
+        self.statusBar.statusBarStyle = .Ignore
         self.blocksBackgroundWhenInOverlay = true
     }
 
@@ -181,6 +181,9 @@ final class MessageActionSheetController: ViewController {
         actions.append(.reply)
 
         let hasText = !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isOwnMessage, Self.canEditMessage(display: display, hasText: hasText) {
+            actions.append(.editMessage)
+        }
 
         actions.append(.forwardMessage)
         actions.append(.createThread)
@@ -204,6 +207,21 @@ final class MessageActionSheetController: ViewController {
         }
 
         return actions
+    }
+
+    private static func canEditMessage(display: ChatMessageDisplay, hasText: Bool) -> Bool {
+        guard hasText else { return false }
+        if display.isFailed { return false }
+        if display.isSystemMessage { return false }
+        if display.isCallLog { return false }
+        if display.message.isDeleted { return false }
+        if !display.attachments.isEmpty { return false }
+        if display.isLocation { return false }
+        if display.isTopic { return false }
+        if display.isBuzzMessage { return false }
+        if display.isForward { return false }
+        if display.message.id.hasPrefix("pending-") { return false }
+        return true
     }
 
     private static func includeQuickReactions(for display: ChatMessageDisplay) -> Bool {

@@ -2,20 +2,26 @@ import AsyncDisplayKit
 import UIKit
 
 private enum VoiceReactionPickerSheetLayout {
-    static let heightFraction: CGFloat = 0.5
+    static let defaultSheetFraction: CGFloat = 0.78
     static let bottomChrome: CGFloat = 16
     static let minBody: CGFloat = 120
 
-    static func sheetHeight(layout: ContainerViewLayout, handleH: CGFloat) -> CGFloat {
+    static func sheetHeight(layout: ContainerViewLayout, handleH: CGFloat, fraction: CGFloat) -> CGFloat {
+        let kb = layout.inputHeight ?? 0
         let safeBottom = layout.intrinsicInsets.bottom
-        let sheetCap = layout.size.height * heightFraction
+        let visibleH = layout.size.height - kb
+        let sheetCap = max(0, visibleH * fraction)
         let rawBody = sheetCap - handleH - safeBottom - bottomChrome
         let bodyH = max(minBody, rawBody)
-        return handleH + bodyH + safeBottom + bottomChrome
+        let uncapped = handleH + bodyH + safeBottom + bottomChrome
+        if visibleH > 0 {
+            return min(uncapped, visibleH)
+        }
+        return uncapped
     }
 }
 
-final class ReactionEmojiPickerSheetController: ViewController {
+class ReactionEmojiPickerSheetController: ViewController {
 
     private let engine: MezonEngine
     private let dismissOnEmojiSelect: Bool
@@ -26,12 +32,14 @@ final class ReactionEmojiPickerSheetController: ViewController {
         displayNode as! ReactionEmojiPickerSheetNode
     }
 
+    override var overlayWantsToBeBelowKeyboard: Bool { true }
+
     init(engine: MezonEngine, dismissOnEmojiSelect: Bool = true, onEmojiPicked: @escaping (String, String) -> Void) {
         self.engine = engine
         self.dismissOnEmojiSelect = dismissOnEmojiSelect
         self.onEmojiPicked = onEmojiPicked
         super.init(navigationBarPresentationData: nil)
-        statusBar.statusBarStyle = .Hide
+        statusBar.statusBarStyle = .Ignore
         blocksBackgroundWhenInOverlay = true
     }
 
@@ -85,6 +93,9 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
     private var validLayout: ContainerViewLayout?
     private let handleH: CGFloat = 25
 
+    private var emojiListObserver: NSObjectProtocol?
+    private var emojiPanelHostingConstraints: [NSLayoutConstraint] = []
+
     init(engine: MezonEngine, onEmojiSelected: @escaping (String, String) -> Void, onDimTapped: @escaping () -> Void) {
         self.engine = engine
         self.onEmojiSelected = onEmojiSelected
@@ -105,7 +116,6 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
 
-        emojisPanel.translatesAutoresizingMaskIntoConstraints = false
         emojisPanel.searchPlaceholderText = "Find the perfect reaction"
         emojisPanel.onEmojiSelected = { [weak self] id, sn in
             self?.onEmojiSelected(id, sn)
@@ -123,28 +133,77 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         emojisPanel.bindEmojiCache(engine: engine)
         emojisPanel.applyTheme(placement: .secondaryBottomSheet)
 
-        NSLayoutConstraint.activate([
+        emojiListObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("MezonEmojiListDidUpdate"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.emojisPanel.reloadFromPostboxCache()
+            self.emojisPanel.logEmojiLoadingState(tag: "MezonEmojiListDidUpdate")
+            self.syncHostedPanelFrame()
+        }
+        emojisPanel.logEmojiLoadingState(tag: "didLoadAfterBind")
+        syncHostedPanelFrame()
+    }
+
+    deinit {
+        if let emojiListObserver {
+            NotificationCenter.default.removeObserver(emojiListObserver)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        syncHostedPanelFrame()
+    }
+
+    private func installEmojiPanelHostingConstraintsIfNeeded() {
+        guard emojiPanelHostingConstraints.isEmpty,
+              emojisPanel.superview === containerNode.view else { return }
+        emojisPanel.translatesAutoresizingMaskIntoConstraints = false
+        let cs = [
             emojisPanel.topAnchor.constraint(equalTo: containerNode.view.topAnchor, constant: handleH),
             emojisPanel.leadingAnchor.constraint(equalTo: containerNode.view.leadingAnchor),
             emojisPanel.trailingAnchor.constraint(equalTo: containerNode.view.trailingAnchor),
             emojisPanel.bottomAnchor.constraint(equalTo: containerNode.view.bottomAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(cs)
+        emojiPanelHostingConstraints = cs
+    }
+
+    private func syncHostedPanelFrame() {
+        guard emojisPanel.superview === containerNode.view else { return }
+        installEmojiPanelHostingConstraintsIfNeeded()
+        containerNode.view.setNeedsLayout()
+        containerNode.view.layoutIfNeeded()
+        emojisPanel.notifyEmbeddedPanelBoundsChanged()
     }
 
     @objc private func dimTapped() {
         onDimTapped()
     }
 
+    private func sheetHeight(for layout: ContainerViewLayout) -> CGFloat {
+        VoiceReactionPickerSheetLayout.sheetHeight(
+            layout: layout,
+            handleH: handleH,
+            fraction: VoiceReactionPickerSheetLayout.defaultSheetFraction
+        )
+    }
+
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
         let screenW = layout.size.width
-        let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
-        containerHeight = h
-        let containerY = layout.size.height - containerHeight
+        let sh = sheetHeight(for: layout)
+        containerHeight = sh
+        let kb = layout.inputHeight ?? 0
+        let containerY = layout.size.height - kb - sh
         transition.updateFrame(node: dimmingNode, frame: bounds)
-        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
+        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: sh))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
+        syncHostedPanelFrame()
     }
 
     private var animateInRetryCount = 0
@@ -162,15 +221,22 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
             return
         }
         animateInRetryCount = 0
+        let sh = sheetHeight(for: layout)
+        containerHeight = sh
+        emojisPanel.reloadFromPostboxCache()
+        emojisPanel.logEmojiLoadingState(tag: "animateIn")
+        let kb = layout.inputHeight ?? 0
         let fromY = layout.size.height
-        let toY = layout.size.height - containerHeight
-        containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
+        let toY = layout.size.height - sh - kb
+        containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: sh)
+        syncHostedPanelFrame()
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [], animations: {
             self.dimmingNode.alpha = 1
-            self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: self.containerHeight)
-            self.containerNode.view.layoutIfNeeded()
-            self.emojisPanel.layoutIfNeeded()
-        }
+            self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: sh)
+            self.syncHostedPanelFrame()
+        }, completion: { _ in
+            self.syncHostedPanelFrame()
+        })
     }
 
     func animateOut(completion: @escaping () -> Void) {
@@ -188,7 +254,7 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
     }
 }
 
-final class ReactionSoundStickerPickerSheetController: ViewController {
+class ReactionSoundStickerPickerSheetController: ViewController {
 
     private let engine: MezonEngine
     private let dismissOnStickerSelect: Bool
@@ -199,12 +265,14 @@ final class ReactionSoundStickerPickerSheetController: ViewController {
         displayNode as! ReactionSoundStickerPickerSheetNode
     }
 
+    override var overlayWantsToBeBelowKeyboard: Bool { true }
+
     init(engine: MezonEngine, dismissOnStickerSelect: Bool = true, onStickerPicked: @escaping (CachedClanStickerRecord) -> Void) {
         self.engine = engine
         self.dismissOnStickerSelect = dismissOnStickerSelect
         self.onStickerPicked = onStickerPicked
         super.init(navigationBarPresentationData: nil)
-        statusBar.statusBarStyle = .Hide
+        statusBar.statusBarStyle = .Ignore
         blocksBackgroundWhenInOverlay = true
     }
 
@@ -257,6 +325,7 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private let handleH: CGFloat = 25
+    private var stickerPanelHostingConstraints: [NSLayoutConstraint] = []
 
     init(engine: MezonEngine, onStickerSelected: @escaping (CachedClanStickerRecord) -> Void, onDimTapped: @escaping () -> Void) {
         self.engine = engine
@@ -278,7 +347,6 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
 
-        stickersPanel.translatesAutoresizingMaskIntoConstraints = false
         stickersPanel.searchPlaceholderText = "Find sound sticker"
         stickersPanel.onStickerSelected = { [weak self] sticker in
             self?.onStickerSelected(sticker)
@@ -297,28 +365,61 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
         stickersPanel.configureVoiceReactionSoundOnlyLayout(true)
         stickersPanel.applyTheme(placement: .secondaryBottomSheet)
 
-        NSLayoutConstraint.activate([
+        syncHostedPanelFrame()
+    }
+
+    override func layout() {
+        super.layout()
+        syncHostedPanelFrame()
+    }
+
+    private func installStickerPanelHostingConstraintsIfNeeded() {
+        guard stickerPanelHostingConstraints.isEmpty,
+              stickersPanel.superview === containerNode.view else { return }
+        stickersPanel.translatesAutoresizingMaskIntoConstraints = false
+        let cs = [
             stickersPanel.topAnchor.constraint(equalTo: containerNode.view.topAnchor, constant: handleH),
             stickersPanel.leadingAnchor.constraint(equalTo: containerNode.view.leadingAnchor),
             stickersPanel.trailingAnchor.constraint(equalTo: containerNode.view.trailingAnchor),
             stickersPanel.bottomAnchor.constraint(equalTo: containerNode.view.bottomAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(cs)
+        stickerPanelHostingConstraints = cs
+    }
+
+    private func syncHostedPanelFrame() {
+        guard stickersPanel.superview === containerNode.view else { return }
+        installStickerPanelHostingConstraintsIfNeeded()
+        containerNode.view.setNeedsLayout()
+        containerNode.view.layoutIfNeeded()
+        stickersPanel.layoutIfNeeded()
+        (stickersPanel.sheetPanCoordinationScrollView as? UICollectionView)?.collectionViewLayout.invalidateLayout()
     }
 
     @objc private func dimTapped() {
         onDimTapped()
     }
 
+    private func sheetHeight(for layout: ContainerViewLayout) -> CGFloat {
+        VoiceReactionPickerSheetLayout.sheetHeight(
+            layout: layout,
+            handleH: handleH,
+            fraction: VoiceReactionPickerSheetLayout.defaultSheetFraction
+        )
+    }
+
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
         let screenW = layout.size.width
-        let h = VoiceReactionPickerSheetLayout.sheetHeight(layout: layout, handleH: handleH)
-        containerHeight = h
-        let containerY = layout.size.height - containerHeight
+        let sh = sheetHeight(for: layout)
+        containerHeight = sh
+        let kb = layout.inputHeight ?? 0
+        let containerY = layout.size.height - kb - sh
         transition.updateFrame(node: dimmingNode, frame: bounds)
-        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
+        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: sh))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
+        syncHostedPanelFrame()
     }
 
     private var animateInRetryCount = 0
@@ -336,15 +437,20 @@ private final class ReactionSoundStickerPickerSheetNode: ASDisplayNode {
             return
         }
         animateInRetryCount = 0
+        let sh = sheetHeight(for: layout)
+        containerHeight = sh
+        let kb = layout.inputHeight ?? 0
         let fromY = layout.size.height
-        let toY = layout.size.height - containerHeight
-        containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: containerHeight)
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
+        let toY = layout.size.height - sh - kb
+        containerNode.frame = CGRect(x: 0, y: fromY, width: layout.size.width, height: sh)
+        syncHostedPanelFrame()
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [], animations: {
             self.dimmingNode.alpha = 1
-            self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: self.containerHeight)
-            self.containerNode.view.layoutIfNeeded()
-            self.stickersPanel.layoutIfNeeded()
-        }
+            self.containerNode.frame = CGRect(x: 0, y: toY, width: layout.size.width, height: sh)
+            self.syncHostedPanelFrame()
+        }, completion: { _ in
+            self.syncHostedPanelFrame()
+        })
     }
 
     func animateOut(completion: @escaping () -> Void) {

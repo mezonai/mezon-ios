@@ -43,6 +43,8 @@ struct ChatInteraction {
     let onAddReactionTapped: (ChatMessageDisplay) -> Void
     let onAvatarTapped: (ChatMessageDisplay) -> Void
     let onSwipeReply: (ChatMessageDisplay) -> Void
+    let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
+    let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -65,7 +67,6 @@ final class ChatContainerNode: ASDisplayNode {
     }()
 
     private(set) var state: ChatState = .empty
-    private var committedItems: [ListViewItem] = []
     private(set) var committedMessageIds: [String] = []
     private let interaction: ChatInteraction
     private let isDM: Bool
@@ -365,7 +366,6 @@ final class ChatContainerNode: ASDisplayNode {
             insertItems.append(ListViewInsertItem(index: i, previousIndex: nil, item: item, directionHint: nil))
         }
 
-        committedItems = items
         committedMessageIds = Array(newIds)
 
         listView.transaction(
@@ -456,7 +456,6 @@ final class ChatContainerNode: ASDisplayNode {
 
         isLoadMoreGuardActive = true
 
-        committedItems = newItems
         committedMessageIds = Array(newIds)
 
         let isLoadMoreResult = old.isLoadingMore || old.isLoadingNewer
@@ -489,13 +488,18 @@ final class ChatContainerNode: ASDisplayNode {
         )
     }
 
+    private static func listFingerprint(_ m: ChatMessageDisplay) -> String {
+        let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)"
+    }
+
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
         let newItems = buildItems(from: new)
         var updateItems: [ListViewUpdateItem] = []
 
-        var oldLookup: [String: (reactions: [ParsedReaction], sendingState: SendingState)] = [:]
+        var oldLookup: [String: (reactions: [ParsedReaction], sendingState: SendingState, fingerprint: String)] = [:]
         for msg in old.messages {
-            oldLookup[msg.id] = (msg.reactions, msg.sendingState)
+            oldLookup[msg.id] = (msg.reactions, msg.sendingState, Self.listFingerprint(msg))
         }
 
         var itemIdx = 0
@@ -508,13 +512,9 @@ final class ChatContainerNode: ASDisplayNode {
 
             let changed: Bool
             if let oldEntry = oldLookup[newMsg.id] {
-                if forceAll {
-                    changed = oldEntry.reactions != newMsg.reactions
-                        || oldEntry.sendingState != newMsg.sendingState
-                } else {
-                    changed = oldEntry.reactions != newMsg.reactions
-                        || oldEntry.sendingState != newMsg.sendingState
-                }
+                changed = oldEntry.reactions != newMsg.reactions
+                    || oldEntry.sendingState != newMsg.sendingState
+                    || oldEntry.fingerprint != Self.listFingerprint(newMsg)
             } else {
                 changed = forceAll
             }
@@ -529,8 +529,6 @@ final class ChatContainerNode: ASDisplayNode {
             }
             itemIdx += 1
         }
-
-        committedItems = newItems
 
         if !updateItems.isEmpty {
             listView.transaction(

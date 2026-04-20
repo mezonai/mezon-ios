@@ -275,17 +275,3 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
 
     @objc private func handleLanguageChange() { loginNode.refreshLocalizedStrings() }
 }
-
-#if DEBUG
-import SwiftUI
-
-struct LoginViewController_Previews: PreviewProvider {
-    static var previews: some View {
-        UIViewControllerPreview {
-            UINavigationController(rootViewController: LoginViewController(context: AccountContextImpl.preview))
-        }
-        .edgesIgnoringSafeArea(.all)
-        .previewDisplayName("Login")
-    }
-}
-#endif

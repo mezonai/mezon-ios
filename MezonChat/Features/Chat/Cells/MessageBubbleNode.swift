@@ -21,7 +21,9 @@ final class MessageBubbleNode: ASDisplayNode {
     private var embedNode: MessageEmbedNode?
     private var reactionsNode: MessageReactionsNode?
     private var locationNode: MessageLocationNode?
+    private var clanInviteLinkNode: MessageClanInviteLinkNode?
     private var errorTextNode: ASTextNode2?
+    private var editedNode: ASTextNode2?
 
     private(set) var display: ChatMessageDisplay
     private let interaction: ChatInteraction
@@ -40,6 +42,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private var isFailed: Bool = false
 
     private static let avatarSize: CGFloat = 40
+    private static let anonymousIconWidth: CGFloat = 22.sf
+    private static let anonymousIconHeight: CGFloat = 22.sf
     private static let contentLeading: CGFloat = 40 + 12.sw
 
     private var cachedNameSize: CGSize = .zero
@@ -54,7 +58,9 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedEmbedSize: CGSize = .zero
     private var cachedReactionsSize: CGSize = .zero
     private var cachedLocationSize: CGSize = .zero
+    private var cachedClanInviteSize: CGSize = .zero
     private var cachedErrorSize: CGSize = .zero
+    private var cachedEditedSize: CGSize = .zero
     private var cachedForwardHeaderSize: CGSize = .zero
     private var cachedForwardLabelSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
@@ -172,15 +178,8 @@ final class MessageBubbleNode: ASDisplayNode {
         )
         nameNode.maximumNumberOfLines = 1
 
-        let timeText: String = {
-            var str = Self.formatDate(display.message.createdAt)
-            if display.message.editedAt != nil {
-                str += " (edited)"
-            }
-            return str
-        }()
         timeNode.attributedText = NSAttributedString(
-            string: timeText,
+            string: Self.timeText(for: display),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
                 .foregroundColor: t.textDisabled,
@@ -246,6 +245,12 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(tcn)
         }
 
+        if Self.hasClanInviteCard(for: display), let code = display.clanInviteLinkCode {
+            let n = MessageClanInviteLinkNode(inviteCode: code, interaction: interaction)
+            clanInviteLinkNode = n
+            addSubnode(n)
+        }
+
         if hasMedia {
             let mcn = MessageMediaContentNode()
             mcn.configure(media: mediaAttachments)
@@ -280,6 +285,9 @@ final class MessageBubbleNode: ASDisplayNode {
         if hasEmbeds {
             let en = MessageEmbedNode()
             en.configure(embeds: parsed.embeds)
+            en.onEmbedImageTapped = { [weak self] url in
+                self?.handleEmbedImageTap(url: url)
+            }
             embedNode = en
             addSubnode(en)
         }
@@ -313,6 +321,8 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(etn)
         }
 
+        applyEditedNode(for: display)
+
         self.isFailed = display.isFailed
     }
 
@@ -339,9 +349,89 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     func updateDisplay(_ newDisplay: ChatMessageDisplay) {
+        let oldDisplay = self.display
         let oldFailed = self.isFailed
         self.display = newDisplay
         self.isFailed = newDisplay.isFailed
+
+        let t = UIColor.theme
+
+        let nameChanged = oldDisplay.senderDisplayName != newDisplay.senderDisplayName
+        let oldTimeText = Self.timeText(for: oldDisplay)
+        let newTimeText = Self.timeText(for: newDisplay)
+        let timeChanged = oldTimeText != newTimeText
+        let textChanged = oldDisplay.parsedContent.text != newDisplay.parsedContent.text
+            || oldDisplay.isBuzzMessage != newDisplay.isBuzzMessage
+        let oldWantInvite = Self.hasClanInviteCard(for: oldDisplay)
+        let newWantInvite = Self.hasClanInviteCard(for: newDisplay)
+        let inviteChanged = oldDisplay.clanInviteLinkCode != newDisplay.clanInviteLinkCode
+        let avatarChanged = oldDisplay.avatarURL != newDisplay.avatarURL
+        let editedChanged = Self.shouldShowEditedLabel(for: oldDisplay) != Self.shouldShowEditedLabel(for: newDisplay)
+        let callLogIdentityChanged: Bool = {
+            switch (oldDisplay.callLog, newDisplay.callLog) {
+            case (nil, nil): return false
+            case (nil, _), (_, nil): return true
+            case let (l?, r?):
+                return l.callLogType != r.callLogType || l.isVideo != r.isVideo
+            }
+        }()
+        let callLogChanged = callLogIdentityChanged
+            || oldDisplay.isMe != newDisplay.isMe
+            || nameChanged
+            || textChanged
+
+        if !isCombine {
+            if nameChanged {
+                avatarPlaceholderNode.attributedText = NSAttributedString(
+                    string: String(newDisplay.senderDisplayName.prefix(1)).uppercased(),
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
+                        .foregroundColor: UIColor.white,
+                    ]
+                )
+                nameNode.attributedText = NSAttributedString(
+                    string: newDisplay.senderDisplayName,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
+                        .foregroundColor: t.textRoleLink,
+                    ]
+                )
+            }
+            if timeChanged {
+                timeNode.attributedText = NSAttributedString(
+                    string: newTimeText,
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 12.sf),
+                        .foregroundColor: t.textDisabled,
+                    ]
+                )
+            }
+        }
+
+        if !newWantInvite {
+            clanInviteLinkNode?.removeFromSupernode()
+            clanInviteLinkNode = nil
+        } else if !oldWantInvite && newWantInvite, let code = newDisplay.clanInviteLinkCode {
+            let n = MessageClanInviteLinkNode(inviteCode: code, interaction: interaction)
+            clanInviteLinkNode = n
+            addSubnode(n)
+        } else if newWantInvite && inviteChanged, let code = newDisplay.clanInviteLinkCode {
+            clanInviteLinkNode?.removeFromSupernode()
+            let n = MessageClanInviteLinkNode(inviteCode: code, interaction: interaction)
+            clanInviteLinkNode = n
+            addSubnode(n)
+        }
+
+        if textChanged, let tcn = textContentNode {
+            tcn.configure(parsedContent: newDisplay.parsedContent, buzzStyled: newDisplay.isBuzzMessage)
+        }
+        if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
+            cln.configure(callLog: callLog, isMe: newDisplay.isMe, senderName: newDisplay.senderDisplayName, contentText: newDisplay.parsedContent.text)
+        }
+
+        if editedChanged {
+            applyEditedNode(for: newDisplay)
+        }
 
         syncReactionStripWithDisplay(newDisplay)
 
@@ -371,12 +461,68 @@ final class MessageBubbleNode: ASDisplayNode {
         fileAttachmentNode?.alpha = contentAlpha
         embedNode?.alpha = contentAlpha
         locationNode?.alpha = contentAlpha
+        clanInviteLinkNode?.alpha = contentAlpha
         forwardHeaderIconNode?.alpha = contentAlpha
         forwardHeaderLabelNode?.alpha = contentAlpha
         forwardLeftBarNode?.alpha = contentAlpha
 
-        let _ = measureSize(width: cachedTotalSize.width)
-        setNeedsLayout()
+        let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
+            || editedChanged
+            || (oldFailed != newDisplay.isFailed)
+            || inviteChanged || (oldWantInvite != newWantInvite)
+        if needsRelayout {
+            let _ = measureSize(width: cachedTotalSize.width)
+            setNeedsLayout()
+        }
+        if !isCombine && avatarChanged {
+            loadAvatar()
+        }
+    }
+
+    private static func timeText(for display: ChatMessageDisplay) -> String {
+        return formatDate(display.message.createdAt)
+    }
+
+    private static func editedAttributedString() -> NSAttributedString {
+        let t = UIColor.theme
+        let baseFont = UIFont.systemFont(ofSize: 11.sf)
+        let italicFont = UIFont(
+            descriptor: baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) ?? baseFont.fontDescriptor,
+            size: 11.sf
+        )
+        return NSAttributedString(
+            string: L(L10n.MessageAction.editedSuffix),
+            attributes: [
+                .font: italicFont,
+                .foregroundColor: t.textDisabled,
+            ]
+        )
+    }
+
+    private static func shouldShowEditedLabel(for display: ChatMessageDisplay) -> Bool {
+        guard display.message.editedAt != nil else { return false }
+        if display.message.isDeleted { return false }
+        if display.isCallLog { return false }
+        if display.isSystemMessage { return false }
+        return true
+    }
+
+    private func applyEditedNode(for display: ChatMessageDisplay) {
+        let shouldShow = Self.shouldShowEditedLabel(for: display)
+        if shouldShow {
+            if editedNode == nil {
+                let n = ASTextNode2()
+                n.maximumNumberOfLines = 1
+                n.attributedText = Self.editedAttributedString()
+                editedNode = n
+                addSubnode(n)
+            } else {
+                editedNode?.attributedText = Self.editedAttributedString()
+            }
+        } else {
+            editedNode?.removeFromSupernode()
+            editedNode = nil
+        }
     }
 
     private func syncReactionStripWithDisplay(_ newDisplay: ChatMessageDisplay) {
@@ -423,32 +569,83 @@ final class MessageBubbleNode: ASDisplayNode {
         interaction.onMessageLongPressed(display)
     }
 
+    private static func anonymousAvatarCompositeImage(raw: UIImage, tint: UIColor) -> UIImage {
+        let tinted = raw.withRenderingMode(.alwaysTemplate)
+            .withTintColor(tint, renderingMode: .alwaysOriginal)
+        let iconMax = CGSize(width: anonymousIconWidth, height: anonymousIconHeight)
+        let canvas = CGSize(width: avatarSize, height: avatarSize)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
+            let tw = max(tinted.size.width, 1)
+            let th = max(tinted.size.height, 1)
+            let scale = min(iconMax.width / tw, iconMax.height / th)
+            let drawSize = CGSize(width: tw * scale, height: th * scale)
+            let origin = CGPoint(
+                x: (canvas.width - drawSize.width) / 2,
+                y: (canvas.height - drawSize.height) / 2
+            )
+            tinted.draw(in: CGRect(origin: origin, size: drawSize))
+        }
+    }
+
     private func loadAvatar() {
+        let size = Self.avatarSize
+        let args = TransformImageArguments(
+            corners: ImageCorners(radius: size / 2),
+            imageSize: CGSize(width: size, height: size),
+            boundingSize: CGSize(width: size, height: size),
+            intrinsicInsets: .zero
+        )
+        if display.isAnonymousSender {
+            if let raw = UIImage(named: "Chat/AnonymousIcon") {
+                avatarPlaceholderNode.isHidden = true
+                let img = Self.anonymousAvatarCompositeImage(
+                    raw: raw,
+                    tint: UIColor.theme.textStrong
+                )
+                avatarImageNode.reset()
+                avatarImageNode.setSignal(staticImageSignal(image: img, resizeMode: .fill), attemptSynchronously: true)
+                let avatarLayout = avatarImageNode.asyncLayout()
+                let apply = avatarLayout(args)
+                apply()
+            } else {
+                avatarImageNode.reset()
+                avatarPlaceholderNode.isHidden = false
+            }
+            return
+        }
         if let urlString = display.avatarURL, !urlString.isEmpty {
             avatarPlaceholderNode.isHidden = true
-            let size = Self.avatarSize
-            let args = TransformImageArguments(
-                corners: ImageCorners(radius: size / 2),
-                imageSize: CGSize(width: size, height: size),
-                boundingSize: CGSize(width: size, height: size),
-                intrinsicInsets: .zero
-            )
             let proxyURL = ImgproxyURL.create(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
+            avatarImageNode.reset()
             avatarImageNode.setSignal(remoteAvatarSignal(url: proxyURL), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()
         } else {
+            avatarImageNode.reset()
             avatarPlaceholderNode.isHidden = false
         }
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
+        let isMultiple = media.count > 1
         let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
-            GalleryItemInfo(
+            let placeholderURL: String? = att.isVideo
+                ? nil
+                : ImgproxyURL.attachmentURL(
+                    from: att.url,
+                    width: 400,
+                    height: 400,
+                    resizeType: isMultiple ? "fill" : "fit"
+                )
+            return GalleryItemInfo(
                 url: att.url,
                 image: nil,
+                placeholderURL: placeholderURL,
                 senderName: display.senderDisplayName,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
@@ -456,6 +653,29 @@ final class MessageBubbleNode: ASDisplayNode {
             )
         }
         let gallery = GalleryController(items: galleryItems, initialIndex: index)
+        if let vc = findViewController() {
+            vc.present(gallery, animated: true)
+        }
+    }
+
+    private func handleEmbedImageTap(url: String) {
+        let placeholderURL = ImgproxyURL.attachmentURL(
+            from: url,
+            width: EmbedItemNode.embedImageProxyDimension,
+            height: EmbedItemNode.embedImageProxyDimension
+        )
+        let galleryItems: [GalleryItemInfo] = [
+            GalleryItemInfo(
+                url: url,
+                image: nil,
+                placeholderURL: placeholderURL,
+                senderName: display.senderDisplayName,
+                senderAvatarURL: display.avatarURL,
+                timestamp: display.message.createdAt,
+                isVideo: false
+            ),
+        ]
+        let gallery = GalleryController(items: galleryItems, initialIndex: 0)
         if let vc = findViewController() {
             vc.present(gallery, animated: true)
         }
@@ -642,6 +862,16 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedTextSize = .zero
         }
 
+        if Self.hasClanInviteCard(for: display) {
+            cachedClanInviteSize = CGSize(
+                width: bodyContentWidth,
+                height: MessageClanInviteLinkNode.preferredHeight
+            )
+            totalH += cachedClanInviteSize.height + vertSpacing
+        } else {
+            cachedClanInviteSize = .zero
+        }
+
         if let mediaContentNode {
             cachedMediaSize = mediaContentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedMediaSize.height + vertSpacing
@@ -696,6 +926,13 @@ final class MessageBubbleNode: ASDisplayNode {
             totalH += cachedErrorSize.height + vertSpacing
         } else {
             cachedErrorSize = .zero
+        }
+
+        if let editedNode {
+            cachedEditedSize = editedNode.measure(CGSize(width: bodyContentWidth, height: 30))
+            totalH += cachedEditedSize.height + 2.sh
+        } else {
+            cachedEditedSize = .zero
         }
 
         totalH += 4.sh
@@ -783,6 +1020,17 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedTextSize.height + vertSpacing
         }
 
+        if let clanInviteLinkNode {
+            clanInviteLinkNode.frame = CGRect(
+                x: contentInnerX,
+                y: y,
+                width: bodyContentWidth,
+                height: cachedClanInviteSize.height
+            )
+            noteForwardBlock(topY: y, height: cachedClanInviteSize.height)
+            y += cachedClanInviteSize.height + vertSpacing
+        }
+
         if let mediaContentNode {
             mediaContentNode.frame = CGRect(x: contentInnerX, y: y, width: cachedMediaSize.width, height: cachedMediaSize.height)
             noteForwardBlock(topY: y, height: cachedMediaSize.height)
@@ -830,6 +1078,16 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedErrorSize.height + vertSpacing
         }
 
+        if let editedNode {
+            editedNode.frame = CGRect(
+                x: contentInnerX,
+                y: y,
+                width: cachedEditedSize.width,
+                height: cachedEditedSize.height
+            )
+            y += cachedEditedSize.height + 2.sh
+        }
+
         highlightNode.frame = bounds
         highlightBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
 
@@ -857,6 +1115,12 @@ final class MessageBubbleNode: ASDisplayNode {
         forwardHeaderIconNode?.alpha = contentAlpha
         forwardHeaderLabelNode?.alpha = contentAlpha
         forwardLeftBarNode?.alpha = contentAlpha
+        clanInviteLinkNode?.alpha = contentAlpha
+    }
+
+    private static func hasClanInviteCard(for display: ChatMessageDisplay) -> Bool {
+        guard let code = display.clanInviteLinkCode, !code.isEmpty else { return false }
+        return !display.isCallLog && !display.isLocation
     }
 
     private static let timeFormatter: DateFormatter = {

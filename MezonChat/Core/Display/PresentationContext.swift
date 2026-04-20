@@ -47,21 +47,16 @@ public final class PresentationContext {
 
     var statusBar: (style: UIStatusBarStyle, isHidden: Bool)? {
         for (controller, _) in self.controllers.reversed() {
-            if let controller = controller as? ViewController {
-                if controller.statusBar.statusBarStyle != .Ignore {
-                    var style: UIStatusBarStyle = .default
-                    var isHidden: Bool = false
-                    switch controller.statusBar.statusBarStyle {
-                    case .White:
-                        style = .lightContent
-                    case .Black:
-                        style = .darkContent
-                    case .Ignore, .Hide:
-                        style = .darkContent
-                        isHidden = true
-                    }
-                    return (style, isHidden)
-                }
+            guard let controller = controller as? ViewController else {
+                continue
+            }
+            switch controller.statusBar.statusBarStyle {
+            case .Ignore, .Hide:
+                continue
+            case .White:
+                return (.lightContent, false)
+            case .Black:
+                return (.darkContent, false)
             }
         }
         return nil

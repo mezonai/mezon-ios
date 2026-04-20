@@ -133,6 +133,7 @@ enum L10n {
         static let startTalking = "qrScanner.startTalking"
         static let inviteToJoinClan = "qrScanner.inviteToJoinClan"
         static let joinClan = "qrScanner.joinClan"
+        static let goToClan = "qrScanner.goToClan"
         static let noThanks = "qrScanner.noThanks"
         static let userProfile = "qrScanner.userProfile"
         static let message = "qrScanner.message"
@@ -260,6 +261,43 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum Sharing {
+        static let title                 = "sharing.title"
+        static let suggestionsSection    = "sharing.suggestionsSection"
+        static let searchPlaceholderAll  = "sharing.searchPlaceholderAll"
+        static let searchPlaceholderUsers = "sharing.searchPlaceholderUsers"
+        static let searchPlaceholderChannels = "sharing.searchPlaceholderChannels"
+        static let emptySuggestions      = "sharing.emptySuggestions"
+        static let commentPlaceholder    = "sharing.commentPlaceholder"
+        static let sending               = "sharing.sending"
+        static let filterTitle           = "sharing.filterTitle"
+        static let filterAll             = "sharing.filterAll"
+        static let filterUsers           = "sharing.filterUsers"
+        static let filterChannels        = "sharing.filterChannels"
+        static let sessionExpired        = "sharing.sessionExpired"
+        static let errorTitle            = "sharing.errorTitle"
+        static let alertOK             = "sharing.alertOK"
+    }
+
+    enum ClanInviteSheet {
+        static let title                = "clan.inviteSheet.title"
+        static let share                = "clan.inviteSheet.share"
+        static let copy                 = "clan.inviteSheet.copy"
+        static let qrCode               = "clan.inviteSheet.qrCode"
+        static let linkCopied           = "clan.inviteSheet.linkCopied"
+        static let searchPlaceholder    = "clan.inviteSheet.searchPlaceholder"
+        static let loadingInviteLink    = "clan.inviteSheet.loadingInviteLink"
+        static let emptyTitle           = "clan.inviteSheet.emptyTitle"
+        static let emptyDescription     = "clan.inviteSheet.emptyDescription"
+        static let emptyAction          = "clan.inviteSheet.emptyAction"
+        static let sessionNotFound      = "clan.inviteSheet.sessionNotFound"
+        static let cannotCreateInvite   = "clan.inviteSheet.cannotCreateInvite"
+        static let cannotSendInvite     = "clan.inviteSheet.cannotSendInvite"
+        static let invite               = "clan.inviteSheet.invite"
+        static let invited              = "clan.inviteSheet.invited"
+        static let unknownClan          = "clan.inviteSheet.unknownClan"
+    }
+
     enum ThreadList {
         static let searchPlaceholder = "threadList.searchPlaceholder"
         static let empty = "threadList.empty"
@@ -315,6 +353,7 @@ enum L10n {
         static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
         static let yourLocation          = "channelMessages.yourLocation"
         static let locationOf            = "channelMessages.locationOf"
+        static let clanInviteLoadFailed  = "channelMessages.clanInviteLoadFailed"
     }
 
     enum DirectMessage {
@@ -332,6 +371,8 @@ enum L10n {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
         static let editMessage      = "messageAction.editMessage"
+        static let editingMessage   = "messageAction.editingMessage"
+        static let editedSuffix     = "messageAction.editedSuffix"
         static let deleteMessage    = "messageAction.deleteMessage"
         static let pinMessage       = "messageAction.pinMessage"
         static let forward          = "messageAction.forward"
@@ -541,6 +582,38 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+        "sharing.title":                    "Share",
+        "sharing.suggestionsSection":       "Suggestions",
+        "sharing.searchPlaceholderAll":     "Select a channel or user",
+        "sharing.searchPlaceholderUsers":   "Select user",
+        "sharing.searchPlaceholderChannels":"Select channel",
+        "sharing.emptySuggestions":         "No channels or conversations yet. Open the app and browse your servers, then try again.",
+        "sharing.commentPlaceholder":       "Add a comment (optional)",
+        "sharing.sending":                  "Sending…",
+        "sharing.filterTitle":              "Filter",
+        "sharing.filterAll":                "All",
+        "sharing.filterUsers":              "Users",
+        "sharing.filterChannels":           "Channels",
+        "sharing.sessionExpired":           "Session expired",
+        "sharing.errorTitle": "Error",
+        "sharing.alertOK": "OK",
+
+        "clan.inviteSheet.title":           "Invite a friend",
+        "clan.inviteSheet.share":           "Share Invite",
+        "clan.inviteSheet.copy":            "Copy Link",
+        "clan.inviteSheet.qrCode":          "QR Code",
+        "clan.inviteSheet.linkCopied":      "Link Copied!",
+        "clan.inviteSheet.searchPlaceholder":"Invite friend to clan",
+        "clan.inviteSheet.loadingInviteLink":"Creating invite link...",
+        "clan.inviteSheet.emptyTitle":      "No friends to invite",
+        "clan.inviteSheet.emptyDescription":"Add friends to your friend list to invite them to this clan.",
+        "clan.inviteSheet.emptyAction":     "Add some friends",
+        "clan.inviteSheet.sessionNotFound": "Session not found.",
+        "clan.inviteSheet.cannotCreateInvite":"Cannot create clan invite link.",
+        "clan.inviteSheet.cannotSendInvite":"Cannot send invite to %@.",
+        "clan.inviteSheet.invite":          "Invite",
+        "clan.inviteSheet.invited":         "Invited",
+        "clan.inviteSheet.unknownClan":     "Unknown Clan",
 
         "threadList.searchPlaceholder": "Search for Thread Name",
         "threadList.empty": "No threads yet",
@@ -588,6 +661,7 @@ extension L10n {
         "channelMessages.voiceMessageA11y": "Voice message. Tap to play or pause.",
         "channelMessages.yourLocation": "Your location",
         "channelMessages.locationOf": "%@'s location",
+        "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -600,6 +674,8 @@ extension L10n {
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
         "messageAction.editMessage": "Edit Message",
+        "messageAction.editingMessage": "Editing message",
+        "messageAction.editedSuffix": "(edited)",
         "messageAction.deleteMessage": "Delete Message",
         "messageAction.pinMessage": "Pin Message",
         "messageAction.forward": "Forward",
@@ -673,6 +749,7 @@ extension L10n {
         "qrScanner.startTalking": "Start Talking",
         "qrScanner.inviteToJoinClan": "INVITE TO JOIN A CLAN",
         "qrScanner.joinClan": "Join",
+        "qrScanner.goToClan": "Go to Clan",
         "qrScanner.noThanks": "No, Thanks",
         "qrScanner.message": "Message",
         "qrScanner.userProfile": "USER PROFILE",
@@ -866,6 +943,37 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+        "sharing.title":                    "Chia sẻ",
+        "sharing.suggestionsSection":       "Gợi ý",
+        "sharing.searchPlaceholderAll":     "Chọn kênh hoặc người dùng",
+        "sharing.searchPlaceholderUsers":   "Chọn người dùng",
+        "sharing.searchPlaceholderChannels":"Chọn kênh",
+        "sharing.emptySuggestions":         "Chưa có kênh hoặc cuộc trò chuyện. Mở ứng dụng và vào máy chủ của bạn, rồi thử lại.",
+        "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
+        "sharing.sending":                  "Đang gửi…",
+        "sharing.filterTitle":              "Lọc",
+        "sharing.filterAll":                "Tất cả",
+        "sharing.filterUsers":              "Người dùng",
+        "sharing.filterChannels":           "Kênh",
+        "sharing.sessionExpired":           "Phiên đăng nhập hết hạn",
+        "sharing.errorTitle":               "Lỗi",
+        "sharing.alertOK":                  "OK",
+        "clan.inviteSheet.title":           "Mời bạn bè",
+        "clan.inviteSheet.share":           "Chia sẻ",
+        "clan.inviteSheet.copy":            "Sao chép",
+        "clan.inviteSheet.qrCode":          "Mã QR",
+        "clan.inviteSheet.linkCopied":      "Đã sao chép liên kết!",
+        "clan.inviteSheet.searchPlaceholder":"Mời bạn bè vào clan",
+        "clan.inviteSheet.loadingInviteLink":"Đang tạo link mời...",
+        "clan.inviteSheet.emptyTitle":      "Không có bạn bè nào để mời",
+        "clan.inviteSheet.emptyDescription":"Thêm bạn bè vào danh sách bạn bè của bạn để mời họ vào clan này.",
+        "clan.inviteSheet.emptyAction":     "Thêm vài người bạn",
+        "clan.inviteSheet.sessionNotFound": "Không tìm thấy phiên đăng nhập.",
+        "clan.inviteSheet.cannotCreateInvite":"Không tạo được link mời clan.",
+        "clan.inviteSheet.cannotSendInvite":"Không thể gửi lời mời cho %@.",
+        "clan.inviteSheet.invite":          "Mời",
+        "clan.inviteSheet.invited":         "Đã mời",
+        "clan.inviteSheet.unknownClan":     "Clan không xác định",
 
         "threadList.searchPlaceholder": "Tìm theo tên chủ đề",
         "threadList.empty": "Chưa có chủ đề",
@@ -913,6 +1021,7 @@ extension L10n {
         "channelMessages.voiceMessageA11y": "Tin nhắn thoại. Chạm để phát hoặc tạm dừng.",
         "channelMessages.yourLocation": "Vị trí của bạn",
         "channelMessages.locationOf": "Vị trí của %@",
+        "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
@@ -925,6 +1034,8 @@ extension L10n {
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
         "messageAction.editMessage": "Chỉnh sửa tin nhắn",
+        "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",
+        "messageAction.editedSuffix": "(đã chỉnh sửa)",
         "messageAction.deleteMessage": "Xóa tin nhắn",
         "messageAction.pinMessage": "Ghim tin nhắn",
         "messageAction.forward": "Chuyển tiếp",
@@ -1005,6 +1116,7 @@ extension L10n {
         "qrScanner.startTalking": "Bắt đầu trò chuyện",
         "qrScanner.inviteToJoinClan": "LỜI MỜI THAM GIA CLAN",
         "qrScanner.joinClan": "Tham gia",
+        "qrScanner.goToClan": "Vào clan",
         "qrScanner.noThanks": "Không, cảm ơn",
         "qrScanner.message": "Nhắn tin",
         "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",
