@@ -260,6 +260,24 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum Sharing {
+        static let title                 = "sharing.title"
+        static let suggestionsSection    = "sharing.suggestionsSection"
+        static let searchPlaceholderAll  = "sharing.searchPlaceholderAll"
+        static let searchPlaceholderUsers = "sharing.searchPlaceholderUsers"
+        static let searchPlaceholderChannels = "sharing.searchPlaceholderChannels"
+        static let emptySuggestions      = "sharing.emptySuggestions"
+        static let commentPlaceholder    = "sharing.commentPlaceholder"
+        static let sending               = "sharing.sending"
+        static let filterTitle           = "sharing.filterTitle"
+        static let filterAll             = "sharing.filterAll"
+        static let filterUsers           = "sharing.filterUsers"
+        static let filterChannels        = "sharing.filterChannels"
+        static let sessionExpired        = "sharing.sessionExpired"
+        static let errorTitle            = "sharing.errorTitle"
+        static let alertOK             = "sharing.alertOK"
+    }
+
     enum ClanInviteSheet {
         static let title                = "clan.inviteSheet.title"
         static let share                = "clan.inviteSheet.share"
@@ -560,6 +578,22 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+        "sharing.title":                    "Share",
+        "sharing.suggestionsSection":       "Suggestions",
+        "sharing.searchPlaceholderAll":     "Select a channel or user",
+        "sharing.searchPlaceholderUsers":   "Select user",
+        "sharing.searchPlaceholderChannels":"Select channel",
+        "sharing.emptySuggestions":         "No channels or conversations yet. Open the app and browse your servers, then try again.",
+        "sharing.commentPlaceholder":       "Add a comment (optional)",
+        "sharing.sending":                  "Sending…",
+        "sharing.filterTitle":              "Filter",
+        "sharing.filterAll":                "All",
+        "sharing.filterUsers":              "Users",
+        "sharing.filterChannels":           "Channels",
+        "sharing.sessionExpired":           "Session expired",
+        "sharing.errorTitle": "Error",
+        "sharing.alertOK": "OK",
+
         "clan.inviteSheet.title":           "Invite a friend",
         "clan.inviteSheet.share":           "Share Invite",
         "clan.inviteSheet.copy":            "Copy Link",
@@ -901,6 +935,21 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+        "sharing.title":                    "Chia sẻ",
+        "sharing.suggestionsSection":       "Gợi ý",
+        "sharing.searchPlaceholderAll":     "Chọn kênh hoặc người dùng",
+        "sharing.searchPlaceholderUsers":   "Chọn người dùng",
+        "sharing.searchPlaceholderChannels":"Chọn kênh",
+        "sharing.emptySuggestions":         "Chưa có kênh hoặc cuộc trò chuyện. Mở ứng dụng và vào máy chủ của bạn, rồi thử lại.",
+        "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
+        "sharing.sending":                  "Đang gửi…",
+        "sharing.filterTitle":              "Lọc",
+        "sharing.filterAll":                "Tất cả",
+        "sharing.filterUsers":              "Người dùng",
+        "sharing.filterChannels":           "Kênh",
+        "sharing.sessionExpired":           "Phiên đăng nhập hết hạn",
+        "sharing.errorTitle":               "Lỗi",
+        "sharing.alertOK":                  "OK",
         "clan.inviteSheet.title":           "Mời bạn bè",
         "clan.inviteSheet.share":           "Chia sẻ",
         "clan.inviteSheet.copy":            "Sao chép",

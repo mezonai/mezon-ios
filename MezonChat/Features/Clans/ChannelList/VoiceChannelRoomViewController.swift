@@ -414,9 +414,11 @@ final class VoiceChannelPiPOverlay: NSObject {
         setupOverlaySystemCallPiP(rootVC: rootVC)
         applyPiPChromeTheme()
         applyVoiceChannelPreservedAudioRouteToSession(preservedAudioRoute)
+        UIApplication.shared.isIdleTimerDisabled = true
     }
 
     func dismiss() {
+        UIApplication.shared.isIdleTimerDisabled = false
         overlayLiveKitReconnectTask?.cancel()
         overlayLiveKitReconnectTask = nil
         overlayPiPRootViewController = nil
@@ -554,7 +556,8 @@ final class VoiceChannelPiPOverlay: NSObject {
         }
 
         if let track = local.firstCameraVideoTrack {
-            showVideo(track: track, mirror: true)
+            let mirrorLocal = bridge.currentCameraCapturePosition() == .front
+            showVideo(track: track, mirror: mirrorLocal)
             let name = resolveDisplayName(local)
             showBadge(icon: local.isMicrophoneEnabled() ? "mic.fill" : "mic.slash.fill", name: name, micOn: local.isMicrophoneEnabled())
             return
@@ -1073,6 +1076,10 @@ final class VoiceChannelRoomViewController: ViewController {
     private let participantsGrid = UIStackView()
     private var orderedDescriptorKeys: [String] = []
     private var lastSyncedParticipantTileMetrics: VoiceParticipantTileLayoutMetrics?
+    private var participantStateRefreshWorkItem: DispatchWorkItem?
+    private var participantOrderRebuildWorkItem: DispatchWorkItem?
+    private var voiceParticipantListUserScrolling = false
+    private var pendingParticipantStateRefreshAfterScroll = false
 
     private var didUnlockOrientationForScreenShareDetail = false
 
@@ -1162,6 +1169,8 @@ final class VoiceChannelRoomViewController: ViewController {
         contentScroll.translatesAutoresizingMaskIntoConstraints = false
         contentScroll.alwaysBounceVertical = true
         contentScroll.showsVerticalScrollIndicator = false
+        contentScroll.delaysContentTouches = false
+        contentScroll.delegate = self
 
         participantArea.translatesAutoresizingMaskIntoConstraints = false
 
@@ -1889,7 +1898,7 @@ final class VoiceChannelRoomViewController: ViewController {
             self?.refreshParticipantRowsFromLiveKit()
         }
         bridge.onParticipantStateUpdated = { [weak self] in
-            self?.updateParticipantTilesInPlace()
+            self?.scheduleParticipantStateRefresh()
         }
         refreshMicButtonIcon()
         refreshCamButtonIcon()
@@ -1993,6 +2002,83 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
+    private func scheduleParticipantStateRefresh() {
+        if voiceParticipantListUserScrolling {
+            pendingParticipantStateRefreshAfterScroll = true
+            return
+        }
+        participantStateRefreshWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.participantStateRefreshWorkItem = nil
+            self.updateParticipantTilesInPlace()
+        }
+        participantStateRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+
+    private func flushPendingParticipantStateRefresh() {
+        participantStateRefreshWorkItem?.cancel()
+        participantStateRefreshWorkItem = nil
+        if pendingParticipantStateRefreshAfterScroll {
+            pendingParticipantStateRefreshAfterScroll = false
+            updateParticipantTilesInPlace()
+        }
+    }
+
+    private func voiceParticipantListScrollInteractionEnded() {
+        voiceParticipantListUserScrolling = false
+        lastSyncedParticipantTileMetrics = nil
+        syncParticipantTileGridLayout()
+        syncParticipantGridOrderAfterScrollIfNeeded()
+        flushPendingParticipantStateRefresh()
+    }
+
+    private func syncParticipantGridOrderAfterScrollIfNeeded() {
+        guard let bridge = liveKitBridge, let room = bridge.room else { return }
+        let ordered = orderedParticipants(room: room)
+        let descriptors = voiceTileDescriptors(participants: ordered)
+        let keys = descriptors.map(\.rowKey)
+        applyParticipantGridOrdering(orderedKeys: keys)
+    }
+
+    private func applyParticipantGridOrdering(orderedKeys: [String]) {
+        let previousKeys = orderedDescriptorKeys
+        let prevSet = Set(previousKeys)
+        let newSet = Set(orderedKeys)
+        if prevSet != newSet {
+            participantOrderRebuildWorkItem?.cancel()
+            participantOrderRebuildWorkItem = nil
+            orderedDescriptorKeys = orderedKeys
+            rebuildGrid()
+            syncRaiseHandBadgesToParticipantRows()
+        } else if previousKeys != orderedKeys {
+            if voiceParticipantListUserScrolling {
+                participantOrderRebuildWorkItem?.cancel()
+                participantOrderRebuildWorkItem = nil
+                syncRaiseHandBadgesToParticipantRows()
+                return
+            }
+            participantOrderRebuildWorkItem?.cancel()
+            let keysSnapshot = orderedKeys
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.participantOrderRebuildWorkItem = nil
+                if Set(self.orderedDescriptorKeys) != Set(keysSnapshot) { return }
+                if self.orderedDescriptorKeys == keysSnapshot { return }
+                self.orderedDescriptorKeys = keysSnapshot
+                self.rebuildGrid()
+                self.syncRaiseHandBadgesToParticipantRows()
+            }
+            participantOrderRebuildWorkItem = work
+            DispatchQueue.main.async(execute: work)
+        } else {
+            participantOrderRebuildWorkItem?.cancel()
+            participantOrderRebuildWorkItem = nil
+            syncRaiseHandBadgesToParticipantRows()
+        }
+    }
+
     private var isMinimizingToPiP = false
     private var isScreenShareExpandedPresented = false
 
@@ -2028,12 +2114,17 @@ final class VoiceChannelRoomViewController: ViewController {
             tearDownScreenSharePresentationAndPiP()
             connectTask?.cancel()
             connectTask = nil
+            participantStateRefreshWorkItem?.cancel()
+            participantStateRefreshWorkItem = nil
+            participantOrderRebuildWorkItem?.cancel()
+            participantOrderRebuildWorkItem = nil
 
             for row in participantRows.values {
                 row.prepareForRemoval()
             }
             participantRows.removeAll()
             lastSyncedParticipantTileMetrics = nil
+            orderedDescriptorKeys = []
 
             isMinimizingToPiP = true
             bridge.clearCallbacks()
@@ -2075,8 +2166,10 @@ final class VoiceChannelRoomViewController: ViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         dismissVoiceMoreToolsPopover()
-        UIApplication.shared.isIdleTimerDisabled = false
         let handoff = voiceRoomShouldTransferToPiPWhenDisappearing()
+        if !handoff && !isMinimizingToPiP && !isScreenShareDetailCoveringVoiceRoom {
+            UIApplication.shared.isIdleTimerDisabled = false
+        }
         let movingFromParent = isMovingFromParent
         let beingDismissed = isBeingDismissed
         if isMinimizingToPiP { return }
@@ -2276,7 +2369,7 @@ final class VoiceChannelRoomViewController: ViewController {
                 self?.refreshParticipantRowsFromLiveKit()
             }
             bridge.onParticipantStateUpdated = { [weak self] in
-                self?.updateParticipantTilesInPlace()
+                self?.scheduleParticipantStateRefresh()
             }
             liveKitBridge = bridge
 
@@ -2457,7 +2550,7 @@ final class VoiceChannelRoomViewController: ViewController {
                 speaking = false
             } else {
                 videoTrack = p.firstCameraVideoTrack
-                mirrorVideo = isLocal
+                mirrorVideo = isLocal && bridge.currentCameraCapturePosition() == .front
                 speaking = p.isSpeaking
             }
             row.configure(
@@ -2472,6 +2565,9 @@ final class VoiceChannelRoomViewController: ViewController {
         }
         refreshMicButtonIcon()
         if let room = bridge.room {
+            let ordered = orderedParticipants(room: room)
+            let descriptors = voiceTileDescriptors(participants: ordered)
+            applyParticipantGridOrdering(orderedKeys: descriptors.map(\.rowKey))
             updateCallPiPContent(room: room)
         }
     }
@@ -2502,7 +2598,7 @@ final class VoiceChannelRoomViewController: ViewController {
                 speaking = false
             case .mainVideo:
                 videoTrack = p.firstCameraVideoTrack
-                mirrorVideo = isLocal
+                mirrorVideo = isLocal && bridge.currentCameraCapturePosition() == .front
                 speaking = p.isSpeaking
             }
             row.configure(
@@ -2523,13 +2619,7 @@ final class VoiceChannelRoomViewController: ViewController {
             participantRows[k]?.removeFromSuperview()
             participantRows.removeValue(forKey: k)
         }
-        let previousKeys = orderedDescriptorKeys
-        orderedDescriptorKeys = orderedKeys
-        if previousKeys != orderedKeys {
-            rebuildGrid()
-        } else {
-            syncRaiseHandBadgesToParticipantRows()
-        }
+        applyParticipantGridOrdering(orderedKeys: orderedKeys)
         updateCallPiPContent(room: room)
     }
 
@@ -2552,19 +2642,19 @@ final class VoiceChannelRoomViewController: ViewController {
         }
         if pipTrack == nil, let t = local.firstCameraVideoTrack {
             pipTrack = t
-            pipMirror = true
+            pipMirror = liveKitBridge?.currentCameraCapturePosition() == .front
         }
         if let pipTrack {
-            callPiPVideoView.isHidden = false
-            callPiPVideoView.alpha = 1
             callPiPVideoView.mirrorMode = pipMirror ? .auto : .off
             if callPiPVideoView.track !== pipTrack {
                 callPiPVideoView.track = pipTrack
             }
+            callPiPVideoView.isHidden = false
+            callPiPVideoView.alpha = 1
             voiceCallSystemPiPSetChromeHidden(root, hidden: true)
         } else {
-            callPiPVideoView.track = nil
             callPiPVideoView.isHidden = true
+            callPiPVideoView.track = nil
             callPiPVideoView.alpha = 0
             voiceCallSystemPiPSetChromeHidden(root, hidden: false)
         }
@@ -2579,48 +2669,64 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 
     private func rebuildGrid() {
-        for v in participantsGrid.arrangedSubviews {
-            participantsGrid.removeArrangedSubview(v)
-            v.removeFromSuperview()
-        }
-        let gw = gridWidthForParticipantLayout()
-        let m = voiceParticipantTileLayoutMetrics(gridWidth: gw)
-        lastSyncedParticipantTileMetrics = m
-        let tiles: [VoiceParticipantRowView] = orderedDescriptorKeys.compactMap { participantRows[$0] }
-        var i = 0
-        while i < tiles.count {
-            if i + 1 < tiles.count {
-                let row = UIStackView()
-                row.axis = .horizontal
-                row.spacing = 10
-                row.alignment = .fill
-                row.distribution = .fillEqually
-                row.addArrangedSubview(tiles[i])
-                row.addArrangedSubview(tiles[i + 1])
-                row.heightAnchor.constraint(equalToConstant: m.tileHeight).isActive = true
-                participantsGrid.addArrangedSubview(row)
-                i += 2
-            } else {
-                let wrapper = UIView()
-                wrapper.translatesAutoresizingMaskIntoConstraints = false
-                let tile = tiles[i]
-                tile.translatesAutoresizingMaskIntoConstraints = false
-                wrapper.addSubview(tile)
-                NSLayoutConstraint.activate([
-                    wrapper.heightAnchor.constraint(equalToConstant: m.tileHeight),
-                    tile.centerXAnchor.constraint(equalTo: wrapper.centerXAnchor),
-                    tile.topAnchor.constraint(equalTo: wrapper.topAnchor),
-                    tile.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
-                    tile.widthAnchor.constraint(equalToConstant: m.columnWidth),
-                ])
-                participantsGrid.addArrangedSubview(wrapper)
-                i += 1
+        let savedOffset = contentScroll.contentOffset
+        let wasUserInteracting = contentScroll.isTracking || contentScroll.isDragging || contentScroll.isDecelerating
+        UIView.performWithoutAnimation {
+            for v in participantsGrid.arrangedSubviews {
+                participantsGrid.removeArrangedSubview(v)
+                v.removeFromSuperview()
+            }
+            let gw = gridWidthForParticipantLayout()
+            let m = voiceParticipantTileLayoutMetrics(gridWidth: gw)
+            lastSyncedParticipantTileMetrics = m
+            let tiles: [VoiceParticipantRowView] = orderedDescriptorKeys.compactMap { participantRows[$0] }
+            var i = 0
+            while i < tiles.count {
+                if i + 1 < tiles.count {
+                    let row = UIStackView()
+                    row.axis = .horizontal
+                    row.spacing = 10
+                    row.alignment = .fill
+                    row.distribution = .fillEqually
+                    row.addArrangedSubview(tiles[i])
+                    row.addArrangedSubview(tiles[i + 1])
+                    row.heightAnchor.constraint(equalToConstant: m.tileHeight).isActive = true
+                    participantsGrid.addArrangedSubview(row)
+                    i += 2
+                } else {
+                    let wrapper = UIView()
+                    wrapper.translatesAutoresizingMaskIntoConstraints = false
+                    let tile = tiles[i]
+                    tile.translatesAutoresizingMaskIntoConstraints = false
+                    wrapper.addSubview(tile)
+                    NSLayoutConstraint.activate([
+                        wrapper.heightAnchor.constraint(equalToConstant: m.tileHeight),
+                        tile.centerXAnchor.constraint(equalTo: wrapper.centerXAnchor),
+                        tile.topAnchor.constraint(equalTo: wrapper.topAnchor),
+                        tile.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+                        tile.widthAnchor.constraint(equalToConstant: m.columnWidth),
+                    ])
+                    participantsGrid.addArrangedSubview(wrapper)
+                    i += 1
+                }
+            }
+            for t in tiles {
+                t.applyLayoutMetrics(m)
+            }
+            syncRaiseHandBadgesToParticipantRows()
+            contentScroll.layoutIfNeeded()
+            let maxY = max(0, contentScroll.contentSize.height
+                + contentScroll.adjustedContentInset.top
+                + contentScroll.adjustedContentInset.bottom
+                - contentScroll.bounds.height)
+            let clampedY = min(max(savedOffset.y, -contentScroll.adjustedContentInset.top), maxY)
+            let target = CGPoint(x: savedOffset.x, y: clampedY)
+            if !wasUserInteracting && target != contentScroll.contentOffset {
+                contentScroll.setContentOffset(target, animated: false)
+            } else if wasUserInteracting {
+                contentScroll.contentOffset = CGPoint(x: savedOffset.x, y: max(savedOffset.y, -contentScroll.adjustedContentInset.top))
             }
         }
-        for t in tiles {
-            t.applyLayoutMetrics(m)
-        }
-        syncRaiseHandBadgesToParticipantRows()
     }
 
     private func voiceTileDescriptors(participants: [Participant]) -> [VoiceParticipantTileDescriptor] {
@@ -2812,6 +2918,7 @@ final class VoiceChannelRoomViewController: ViewController {
         Task { @MainActor in
             do {
                 try await bridge.switchCameraPosition()
+                self.refreshParticipantRowsFromLiveKit()
             } catch {
             }
         }
@@ -2844,6 +2951,10 @@ final class VoiceChannelRoomViewController: ViewController {
         connectTask = nil
         liveKitReconnectTask?.cancel()
         liveKitReconnectTask = nil
+        participantStateRefreshWorkItem?.cancel()
+        participantStateRefreshWorkItem = nil
+        participantOrderRebuildWorkItem?.cancel()
+        participantOrderRebuildWorkItem = nil
 
         let bridge = liveKitBridge
         liveKitBridge = nil
@@ -3219,6 +3330,32 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 }
 
+extension VoiceChannelRoomViewController: UIScrollViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === contentScroll else { return }
+        voiceParticipantListUserScrolling = true
+        participantOrderRebuildWorkItem?.cancel()
+        participantOrderRebuildWorkItem = nil
+        if participantStateRefreshWorkItem != nil {
+            participantStateRefreshWorkItem?.cancel()
+            participantStateRefreshWorkItem = nil
+            pendingParticipantStateRefreshAfterScroll = true
+        }
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard scrollView === contentScroll else { return }
+        if !decelerate {
+            voiceParticipantListScrollInteractionEnded()
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView === contentScroll else { return }
+        voiceParticipantListScrollInteractionEnded()
+    }
+}
+
 extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
@@ -3567,6 +3704,7 @@ private final class VoiceParticipantRowView: UIView {
     private var soundReactionTrailingToCard: NSLayoutConstraint?
     private var soundReactionTrailingToRaiseHand: NSLayoutConstraint?
     private var lastAvatarURL: String?
+    private var lastTileVisualState: (displayName: String, micOn: Bool, speaking: Bool, mirrorVideo: Bool, track: VideoTrack?, avatarURL: String?)?
     private var badgeMicOn = true
     private var layoutMetrics = VoiceParticipantTileLayoutMetrics.fallback
     private var avatarWidthConstraint: NSLayoutConstraint!
@@ -3602,6 +3740,7 @@ private final class VoiceParticipantRowView: UIView {
         videoView.isUserInteractionEnabled = false
         videoView.layer.cornerRadius = layoutMetrics.cardCornerRadius
         videoView.clipsToBounds = true
+        videoView.isHidden = true
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarView.contentMode = .scaleAspectFill
@@ -3839,6 +3978,7 @@ private final class VoiceParticipantRowView: UIView {
         setSoundReactionCornerVisible(false)
         setRaiseHandCornerVisible(false)
         lastAvatarURL = nil
+        lastTileVisualState = nil
     }
 
     func applyTheme() {
@@ -3918,6 +4058,15 @@ private final class VoiceParticipantRowView: UIView {
         videoTrack: VideoTrack?,
         mirrorVideo: Bool
     ) {
+        if let s = lastTileVisualState,
+           s.displayName == displayName,
+           s.micOn == micOn,
+           s.speaking == speaking,
+           s.mirrorVideo == mirrorVideo,
+           s.track === videoTrack,
+           s.avatarURL == avatarURL {
+            return
+        }
         badgeMicOn = micOn
         switch tileKind {
         case .mainVideo:
@@ -3930,14 +4079,14 @@ private final class VoiceParticipantRowView: UIView {
         if let track = videoTrack {
             avatarView.isHidden = true
             initialLabel.isHidden = true
-            videoView.isHidden = false
             videoView.mirrorMode = mirrorVideo ? .auto : .off
             if videoView.track !== track {
                 videoView.track = track
             }
+            videoView.isHidden = false
         } else {
-            videoView.track = nil
             videoView.isHidden = true
+            videoView.track = nil
             avatarView.isHidden = false
             initialLabel.isHidden = (avatarURL != nil && !(avatarURL ?? "").isEmpty)
         }
@@ -3973,5 +4122,6 @@ private final class VoiceParticipantRowView: UIView {
                 initialLabel.text = String(displayName.prefix(1)).uppercased()
             }
         }
+        lastTileVisualState = (displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL)
     }
 }

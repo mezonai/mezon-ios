@@ -40,6 +40,8 @@ final class StickersPanel: UIView {
 
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
 
+    var sheetPanCoordinationScrollView: UIScrollView { stickerGrid }
+
     var searchPlaceholderText: String = "Find the perfect sticker" {
         didSet { applyTheme() }
     }

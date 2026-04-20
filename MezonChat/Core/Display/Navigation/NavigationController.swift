@@ -1222,11 +1222,21 @@ open class NavigationController: UINavigationController, ContainableController, 
         }
 
         if let topVisibleOverlayContainerWithStatusBar = topVisibleOverlayContainerWithStatusBar {
-            statusBarStyle = topVisibleOverlayContainerWithStatusBar.controller.statusBar.statusBarStyle
+            switch topVisibleOverlayContainerWithStatusBar.controller.statusBar.statusBarStyle {
+            case .Black, .White:
+                statusBarStyle = topVisibleOverlayContainerWithStatusBar.controller.statusBar.statusBarStyle
+            case .Ignore, .Hide:
+                break
+            }
         }
 
         if let topVisibleModalContainerWithStatusBar = topVisibleModalContainerWithStatusBar {
-            statusBarStyle = topVisibleModalContainerWithStatusBar.container.statusBarStyle
+            switch topVisibleModalContainerWithStatusBar.container.statusBarStyle {
+            case .Black, .White:
+                statusBarStyle = topVisibleModalContainerWithStatusBar.container.statusBarStyle
+            case .Ignore, .Hide:
+                break
+            }
         }
 
         if self.currentStatusBarExternalHidden {

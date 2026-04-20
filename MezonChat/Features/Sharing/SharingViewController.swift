@@ -7,20 +7,6 @@ final class SharingViewController: UIViewController {
     private let context: AccountContext
     private let sharedContent: SharingManager.SharedContent
 
-    private struct SuggestionItem: Hashable {
-        let channelID: Int64
-        let clanID: Int64
-        let type: Int32
-        let displayName: String
-        let avatarURL: String?
-        let channelAvatar: String
-        let channelPrivate: Int32
-        let clanName: String?
-
-        func hash(into hasher: inout Hasher) { hasher.combine(channelID) }
-        static func == (lhs: Self, rhs: Self) -> Bool { lhs.channelID == rhs.channelID }
-    }
-
     private enum Section: Int, CaseIterable { case suggestions }
 
     private enum SuggestionFilter: Int {
@@ -29,8 +15,8 @@ final class SharingViewController: UIViewController {
         case channels = 2
     }
 
-    private var allSuggestions: [SuggestionItem] = []
-    private var filteredSuggestions: [SuggestionItem] = []
+    private var allSuggestions: [SharingSuggestionItem] = []
+    private var filteredSuggestions: [SharingSuggestionItem] = []
     private var channelMap: [Int64: Mezon_Api_ChannelDescription] = [:]
     private var clanNames: [Int64: String] = [:]
     private var clanLogos: [Int64: String] = [:]
@@ -42,10 +28,9 @@ final class SharingViewController: UIViewController {
     private var isUploading = false
     private var searchDebounceTimer: Foundation.Timer?
 
-    private var diffableDataSource: UITableViewDiffableDataSource<Section, SuggestionItem>!
+    private var diffableDataSource: UITableViewDiffableDataSource<Section, SharingSuggestionItem>!
 
     private var sharedMediaFiles: [SharingManager.SharedMediaFile] = []
-    private var sharedTexts: [String] = []
 
     private let headerView: UIView = {
         let v = UIView()
@@ -64,7 +49,7 @@ final class SharingViewController: UIViewController {
 
     private let titleLabel: UILabel = {
         let l = UILabel()
-        l.text = "Share"
+        l.text = ""
         l.font = .systemFont(ofSize: 20, weight: .bold)
         l.textColor = .white
         l.textAlignment = .center
@@ -165,7 +150,7 @@ final class SharingViewController: UIViewController {
     private let suggestionsTitle: UILabel = {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.text = "SUGGESTIONS"
+        l.text = ""
         l.font = .systemFont(ofSize: 13, weight: .semibold)
         l.textColor = .white
         return l
@@ -176,10 +161,21 @@ final class SharingViewController: UIViewController {
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.separatorStyle = .none
         tv.keyboardDismissMode = .onDrag
-        tv.rowHeight = 52
-        tv.estimatedRowHeight = 52
+        tv.rowHeight = UITableView.automaticDimension
+        tv.estimatedRowHeight = 58
         tv.showsVerticalScrollIndicator = false
         return tv
+    }()
+
+    private let emptySuggestionsLabel: UILabel = {
+        let l = UILabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 14, weight: .regular)
+        l.textColor = UIColor.white.withAlphaComponent(0.45)
+        l.textAlignment = .center
+        l.numberOfLines = 0
+        l.isHidden = true
+        return l
     }()
 
     private let bottomArea: UIView = {
@@ -234,7 +230,7 @@ final class SharingViewController: UIViewController {
         b.tintColor = .white
         b.layer.cornerRadius = 20
         b.isEnabled = false
-        b.alpha = 0.5
+        b.alpha = 1.0
         return b
     }()
 
@@ -284,7 +280,28 @@ final class SharingViewController: UIViewController {
         parseSharedContent()
         setupUI()
         applyTheme()
+        refreshLocalizedStrings()
+        updateSendButton()
         loadChannels()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
+    }
+
+    @objc private func handleLanguageChange() {
+        refreshLocalizedStrings()
+        applySnapshot(animated: false)
+    }
+
+    private func refreshLocalizedStrings() {
+        titleLabel.text = L(L10n.Sharing.title)
+        suggestionsTitle.text = L(L10n.Sharing.suggestionsSection).uppercased()
+        emptySuggestionsLabel.text = L(L10n.Sharing.emptySuggestions)
+        loadingLabel.text = L(L10n.Sharing.sending)
+        textField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.Sharing.commentPlaceholder),
+            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
+        )
+        refreshSearchPlaceholder()
     }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
@@ -306,11 +323,14 @@ final class SharingViewController: UIViewController {
     private func parseSharedContent() {
         switch sharedContent {
         case .media(let files):
-            sharedMediaFiles = files
+            sharedMediaFiles = files.filter { f in
+                guard let url = SharingManager.shared.localFileURL(from: f.path) else { return false }
+                return FileManager.default.fileExists(atPath: url.path)
+            }
         case .text(let texts):
-            sharedTexts = texts
-            if let firstText = texts.first {
-                textField.text = firstText
+            let trimmed = texts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            if let first = trimmed.first {
+                textField.text = first
             }
         }
     }
@@ -332,6 +352,7 @@ final class SharingViewController: UIViewController {
         view.addSubview(suggestionsCard)
         suggestionsCard.addSubview(suggestionsTitle)
         suggestionsCard.addSubview(tableView)
+        suggestionsCard.addSubview(emptySuggestionsLabel)
 
         view.addSubview(bottomArea)
         bottomArea.addSubview(attachmentScrollView)
@@ -389,8 +410,8 @@ final class SharingViewController: UIViewController {
 
             selectedAvatarView.leadingAnchor.constraint(equalTo: searchContainer.leadingAnchor, constant: 8),
             selectedAvatarView.centerYAnchor.constraint(equalTo: searchContainer.centerYAnchor),
-            selectedAvatarView.widthAnchor.constraint(equalToConstant: 24),
-            selectedAvatarView.heightAnchor.constraint(equalToConstant: 24),
+            selectedAvatarView.widthAnchor.constraint(equalToConstant: 20),
+            selectedAvatarView.heightAnchor.constraint(equalToConstant: 20),
 
             selectedInitialLabel.centerXAnchor.constraint(equalTo: selectedAvatarView.centerXAnchor),
             selectedInitialLabel.centerYAnchor.constraint(equalTo: selectedAvatarView.centerYAnchor),
@@ -413,6 +434,10 @@ final class SharingViewController: UIViewController {
             tableView.leadingAnchor.constraint(equalTo: suggestionsCard.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: suggestionsCard.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: suggestionsCard.bottomAnchor),
+
+            emptySuggestionsLabel.leadingAnchor.constraint(equalTo: suggestionsCard.leadingAnchor, constant: 20),
+            emptySuggestionsLabel.trailingAnchor.constraint(equalTo: suggestionsCard.trailingAnchor, constant: -20),
+            emptySuggestionsLabel.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
         ])
 
         let bottomConstraint = bottomArea.bottomAnchor.constraint(equalTo: view.bottomAnchor)
@@ -492,6 +517,7 @@ final class SharingViewController: UIViewController {
         searchTextField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
         searchClearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         textField.delegate = self
+        textField.addTarget(self, action: #selector(commentTextChanged(_:)), for: .editingChanged)
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         sendButton.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
 
@@ -518,7 +544,7 @@ final class SharingViewController: UIViewController {
             || type == MezonConstants.ChannelType.announcement.rawValue
     }
 
-    private func suggestionsForCurrentFilter() -> [SuggestionItem] {
+    private func suggestionsForCurrentFilter() -> [SharingSuggestionItem] {
         switch suggestionFilter {
         case .all: return allSuggestions
         case .users: return allSuggestions.filter { isUserFacingDMType($0.type) }
@@ -529,9 +555,9 @@ final class SharingViewController: UIViewController {
     private func refreshSearchPlaceholder() {
         let s: String
         switch suggestionFilter {
-        case .all: s = "Select a channel or user..."
-        case .users: s = "Select user"
-        case .channels: s = "Select channel"
+        case .all: s = L(L10n.Sharing.searchPlaceholderAll)
+        case .users: s = L(L10n.Sharing.searchPlaceholderUsers)
+        case .channels: s = L(L10n.Sharing.searchPlaceholderChannels)
         }
         searchTextField.attributedPlaceholder = NSAttributedString(
             string: s,
@@ -601,7 +627,7 @@ final class SharingViewController: UIViewController {
         panel.layer.masksToBounds = true
 
         let titleLabel = UILabel()
-        titleLabel.text = "Filter options"
+        titleLabel.text = L(L10n.Sharing.filterTitle)
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = .white
 
@@ -620,9 +646,9 @@ final class SharingViewController: UIViewController {
         panel.addSubview(titleLine)
 
         let rowSpecs: [(SuggestionFilter, String, String)] = [
-            (.all, "square.grid.2x2", "All"),
-            (.users, "person.2", "Users"),
-            (.channels, "bubble.left.and.bubble.right", "Channels"),
+            (.all, "square.grid.2x2", L(L10n.Sharing.filterAll)),
+            (.users, "person.2", L(L10n.Sharing.filterUsers)),
+            (.channels, "bubble.left.and.bubble.right", L(L10n.Sharing.filterChannels)),
         ]
         for (index, spec) in rowSpecs.enumerated() {
             let row = UIButton(type: .custom)
@@ -714,37 +740,62 @@ final class SharingViewController: UIViewController {
         suggestionFilter = filter
         refreshSearchPlaceholder()
         refreshFilterButtonAppearance()
-        filterChannels()
+        searchDebounceTimer?.invalidate()
+        performFilter(scrollToTop: true)
     }
 
-    private func itemMatchesSearch(_ item: SuggestionItem, query: String) -> Bool {
-        if item.displayName.lowercased().contains(query) { return true }
-        if item.clanName?.lowercased().contains(query) == true { return true }
+    private func sharingSearchFolded(_ s: String) -> String {
+        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+    }
+
+    private func itemMatchesSearch(_ item: SharingSuggestionItem, query: String) -> Bool {
+        if sharingSearchFolded(item.displayName).contains(query) { return true }
+        if let cn = item.clanName, sharingSearchFolded(cn).contains(query) { return true }
         guard let ch = channelMap[item.channelID] else { return false }
-        for u in ch.usernames where u.lowercased().contains(query) { return true }
-        for d in ch.displayNames where d.lowercased().contains(query) { return true }
+        if !ch.channelLabel.isEmpty, sharingSearchFolded(ch.channelLabel).contains(query) { return true }
+        for u in ch.usernames where sharingSearchFolded(u).contains(query) { return true }
+        for d in ch.displayNames where sharingSearchFolded(d).contains(query) { return true }
         return false
     }
 
+    private func scrollSuggestionsListToTop(animated: Bool) {
+        guard tableView.numberOfSections > 0 else {
+            tableView.setContentOffset(.zero, animated: animated)
+            return
+        }
+        let n = tableView.numberOfRows(inSection: 0)
+        guard n > 0 else {
+            tableView.setContentOffset(.zero, animated: animated)
+            return
+        }
+        tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: animated)
+    }
+
     private func setupDiffableDataSource() {
-        diffableDataSource = UITableViewDiffableDataSource<Section, SuggestionItem>(tableView: tableView) {
+        diffableDataSource = UITableViewDiffableDataSource<Section, SharingSuggestionItem>(tableView: tableView) {
             [weak self] tableView, indexPath, item in
             let cell = tableView.dequeueReusableCell(withIdentifier: SharingChannelCell.reuseId, for: indexPath) as! SharingChannelCell
             guard let self else { return cell }
-            if let channel = self.channelMap[item.channelID] {
-                let isSelected = self.selectedChannel?.channelID == item.channelID
-                cell.configure(channel: channel, clanName: item.clanName, isSelected: isSelected)
-            }
+            let channel = self.channelMap[item.channelID]
+            let isSelected = self.selectedChannel?.channelID == item.channelID
+            cell.configure(item: item, channel: channel, isSelected: isSelected)
             return cell
         }
         diffableDataSource.defaultRowAnimation = .none
     }
 
     private func applySnapshot(animated: Bool = false) {
-        var snapshot = NSDiffableDataSourceSnapshot<Section, SuggestionItem>()
+        var snapshot = NSDiffableDataSourceSnapshot<Section, SharingSuggestionItem>()
         snapshot.appendSections([.suggestions])
         snapshot.appendItems(filteredSuggestions, toSection: .suggestions)
         diffableDataSource.apply(snapshot, animatingDifferences: animated)
+        updateEmptySuggestionsVisibility()
+    }
+
+    private func updateEmptySuggestionsVisibility() {
+        let empty = filteredSuggestions.isEmpty
+        emptySuggestionsLabel.isHidden = !empty
+        tableView.isScrollEnabled = !empty
     }
 
     private func buildAttachmentPreviews() {
@@ -913,10 +964,6 @@ final class SharingViewController: UIViewController {
 
         inputPill.backgroundColor = t.primary
         textField.textColor = .white
-        textField.attributedPlaceholder = NSAttributedString(
-            string: "Add a Comment (Optional)",
-            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
-        )
 
         sendButton.backgroundColor = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0)
 
@@ -976,9 +1023,21 @@ final class SharingViewController: UIViewController {
     }
 
     @objc private func sendTapped() {
-        guard let channel = selectedChannel, !isUploading else { return }
+        guard let channel = selectedChannel, !isUploading, hasShareableContent() else { return }
         view.endEditing(true)
         performSend(to: channel)
+    }
+
+    @objc private func commentTextChanged(_ tf: UITextField) {
+        if tf === textField {
+            updateSendButton()
+        }
+    }
+
+    private func hasShareableContent() -> Bool {
+        if !sharedMediaFiles.isEmpty { return true }
+        let comment = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return !comment.isEmpty
     }
 
     @objc private func searchTextChanged(_ tf: UITextField) {
@@ -1000,10 +1059,6 @@ final class SharingViewController: UIViewController {
         filterChannels()
     }
 
-    private func imgproxyAvatarURLString(_ raw: String) -> String {
-        ImgproxyURL.create(from: raw, width: 150, height: 150)
-    }
-
     private func showSelectedChannel(_ channel: Mezon_Api_ChannelDescription) {
         searchTextField.isHidden = true
         searchIconView.isHidden = true
@@ -1022,7 +1077,7 @@ final class SharingViewController: UIViewController {
             selectedInitialLabel.isHidden = true
             selectedAvatarView.contentMode = .scaleAspectFill
             selectedAvatarView.backgroundColor = .clear
-            let urlStr = imgproxyAvatarURLString(url.absoluteString)
+            let urlStr = SharingImageProxy.proxiedAvatarURLString(url.absoluteString)
             _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
                 self?.selectedAvatarView.image = image
             }
@@ -1031,7 +1086,7 @@ final class SharingViewController: UIViewController {
             selectedInitialLabel.isHidden = true
             selectedAvatarView.contentMode = .scaleAspectFill
             selectedAvatarView.backgroundColor = .clear
-            let urlStr = imgproxyAvatarURLString(url.absoluteString)
+            let urlStr = SharingImageProxy.proxiedAvatarURLString(url.absoluteString)
             _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
                 self?.selectedAvatarView.image = image
             }
@@ -1057,6 +1112,22 @@ final class SharingViewController: UIViewController {
         selectedInitialLabel.isHidden = true
     }
 
+    private func resolvedClanInfo(for ch: Mezon_Api_ChannelDescription) -> (clanID: Int64, channelClanName: String) {
+        var clanID = ch.clanID
+        var channelClanName = ch.clanName
+        if ch.type == MezonConstants.ChannelType.thread.rawValue, ch.parentID != 0,
+            let parent = channelMap[ch.parentID]
+        {
+            if clanID == 0 {
+                clanID = parent.clanID
+            }
+            if channelClanName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                channelClanName = parent.clanName
+            }
+        }
+        return (clanID, channelClanName)
+    }
+
     private func loadChannels() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1073,8 +1144,12 @@ final class SharingViewController: UIViewController {
                 } catch {
                 }
                 dmList = dms
-                    .filter {
-                        $0.type != MezonConstants.ChannelType.mezonVoice.rawValue && !$0.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    .filter { ch in
+                        guard ch.type != MezonConstants.ChannelType.mezonVoice.rawValue else { return false }
+                        if !ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+                        if ch.displayNames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
+                        if ch.usernames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
+                        return false
                     }
                     .sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             } catch {
@@ -1101,25 +1176,35 @@ final class SharingViewController: UIViewController {
             } catch {
             }
 
-            var suggestions: [SuggestionItem] = []
+            if clanList.isEmpty {
+                do {
+                    let fetched = try await self.context.account.network.listChannelByUserId(token: token)
+                    if let data = try? fetched.serializedData() {
+                        self.context.account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+                    }
+                    clanList = fetched.channeldesc.filter { ch in
+                        let t = ch.type
+                        return t == MezonConstants.ChannelType.channel.rawValue
+                            || t == MezonConstants.ChannelType.thread.rawValue
+                            || t == MezonConstants.ChannelType.announcement.rawValue
+                    }
+                    clanList.sort { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
+                } catch {
+                }
+            }
+
+            var suggestions: [SharingSuggestionItem] = []
             suggestions.reserveCapacity(dmList.count + clanList.count)
 
             for ch in dmList {
                 self.channelMap[ch.channelID] = ch
-                suggestions.append(SuggestionItem(
-                    channelID: ch.channelID,
-                    clanID: ch.clanID,
-                    type: ch.type,
-                    displayName: SharingChannelCell.displayName(for: ch),
-                    avatarURL: ch.avatars.first,
-                    channelAvatar: ch.channelAvatar,
-                    channelPrivate: ch.channelPrivate,
-                    clanName: nil
-                ))
             }
             for ch in clanList {
                 self.channelMap[ch.channelID] = ch
-                suggestions.append(SuggestionItem(
+            }
+
+            for ch in dmList {
+                suggestions.append(SharingSuggestionItem(
                     channelID: ch.channelID,
                     clanID: ch.clanID,
                     type: ch.type,
@@ -1127,7 +1212,31 @@ final class SharingViewController: UIViewController {
                     avatarURL: ch.avatars.first,
                     channelAvatar: ch.channelAvatar,
                     channelPrivate: ch.channelPrivate,
-                    clanName: self.clanNames[ch.clanID]
+                    ageRestricted: ch.ageRestricted,
+                    clanName: nil,
+                    clanLogo: nil
+                ))
+            }
+            for ch in clanList {
+                let (cid, chClanNameRaw) = self.resolvedClanInfo(for: ch)
+                let mapName = (self.clanNames[cid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let chClanName = chClanNameRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                let resolvedClanName: String? = {
+                    if !mapName.isEmpty { return mapName }
+                    if !chClanName.isEmpty { return chClanName }
+                    return nil
+                }()
+                suggestions.append(SharingSuggestionItem(
+                    channelID: ch.channelID,
+                    clanID: cid,
+                    type: ch.type,
+                    displayName: SharingChannelCell.displayName(for: ch),
+                    avatarURL: ch.avatars.first,
+                    channelAvatar: ch.channelAvatar,
+                    channelPrivate: ch.channelPrivate,
+                    ageRestricted: ch.ageRestricted,
+                    clanName: resolvedClanName,
+                    clanLogo: self.clanLogos[cid]
                 ))
             }
 
@@ -1139,17 +1248,17 @@ final class SharingViewController: UIViewController {
     private func filterChannels() {
         searchDebounceTimer?.invalidate()
         searchDebounceTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] (_: Foundation.Timer) in
-            self?.performFilter()
+            self?.performFilter(scrollToTop: false)
         }
     }
 
-    private func performFilter() {
+    private func performFilter(scrollToTop: Bool = false) {
         let base = suggestionsForCurrentFilter()
-        let query = searchText.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = sharingSearchFolded(searchText.trimmingCharacters(in: .whitespacesAndNewlines))
         if query.isEmpty {
             filteredSuggestions = base
         } else {
-            var matched: [SuggestionItem] = []
+            var matched: [SharingSuggestionItem] = []
             var matchedIds = Set<Int64>()
             for item in base where itemMatchesSearch(item, query: query) {
                 matched.append(item)
@@ -1165,13 +1274,26 @@ final class SharingViewController: UIViewController {
             filteredSuggestions = matched
         }
         applySnapshot()
+        if scrollToTop {
+            DispatchQueue.main.async { [weak self] in
+                self?.scrollSuggestionsListToTop(animated: false)
+            }
+        }
     }
 
     private func updateSendButton() {
-        let hasContent = !sharedMediaFiles.isEmpty || !(textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !sharedTexts.isEmpty
+        let hasContent = hasShareableContent()
         let enabled = selectedChannel != nil && hasContent && !isUploading
         sendButton.isEnabled = enabled
-        sendButton.alpha = enabled ? 1.0 : 0.5
+        sendButton.alpha = 1.0
+        let sendBlue = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0)
+        if enabled {
+            sendButton.backgroundColor = sendBlue
+            sendButton.tintColor = .white
+        } else {
+            sendButton.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+            sendButton.tintColor = UIColor.white.withAlphaComponent(0.35)
+        }
     }
 
     private func performSend(to channel: Mezon_Api_ChannelDescription) {
@@ -1183,7 +1305,7 @@ final class SharingViewController: UIViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                self.showError("Session expired")
+                self.showError(L(L10n.Sharing.sessionExpired))
                 self.isUploading = false
                 self.loadingOverlay.isHidden = true
                 self.activityIndicator.stopAnimating()
@@ -1312,8 +1434,8 @@ final class SharingViewController: UIViewController {
     }
 
     private func showError(_ message: String) {
-        let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(title: L(L10n.Sharing.errorTitle), message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L(L10n.Sharing.alertOK), style: .default))
         present(alert, animated: true)
     }
 
@@ -1359,9 +1481,15 @@ extension SharingViewController: UITableViewDataSourcePrefetching {
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
             guard let item = diffableDataSource.itemIdentifier(for: indexPath) else { continue }
-            if let urlStr = item.avatarURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
-                let proxyURL = imgproxyAvatarURLString(url.absoluteString)
-                if ImageCache.shared.cachedImage(forURL: proxyURL) == nil {
+            if let urlStr = item.avatarURL, !urlStr.isEmpty {
+                let proxyURL = SharingImageProxy.proxiedAvatarURLString(urlStr)
+                if !proxyURL.isEmpty, ImageCache.shared.cachedImage(forURL: proxyURL) == nil {
+                    _ = ImageCache.shared.loadImage(urlString: proxyURL) { _ in }
+                }
+            }
+            if let rawLogo = item.clanLogo, !rawLogo.isEmpty {
+                let proxyURL = SharingImageProxy.proxiedAvatarURLString(rawLogo)
+                if !proxyURL.isEmpty, ImageCache.shared.cachedImage(forURL: proxyURL) == nil {
                     _ = ImageCache.shared.loadImage(urlString: proxyURL) { _ in }
                 }
             }

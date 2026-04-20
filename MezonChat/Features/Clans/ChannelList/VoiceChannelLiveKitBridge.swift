@@ -81,6 +81,12 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         syncFrontCameraVideoProcessor()
     }
 
+    func currentCameraCapturePosition() -> AVCaptureDevice.Position? {
+        guard let track = room.localParticipant.firstCameraVideoTrack as? LocalVideoTrack,
+              let capturer = track.capturer as? CameraCapturer else { return nil }
+        return capturer.position
+    }
+
     private func syncFrontCameraVideoProcessor() {
         guard let track = room.localParticipant.firstCameraVideoTrack as? LocalVideoTrack,
               let capturer = track.capturer as? CameraCapturer

@@ -178,12 +178,6 @@ final class AccountContextImpl: AccountContext {
     var currentClanId: Int64 = 0
     var currentChannel: Mezon_Api_ChannelDescription?
 
-    static let preview: AccountContext = {
-        let shared = SharedAccountContextImpl(mainWindow: nil)
-        let account = Account(id: "preview")
-        return AccountContextImpl(sharedContext: shared, account: account, session: nil, user: nil, onReady: { _ in })
-    }()
-
     init(
         sharedContext: SharedAccountContextImpl,
         account: Account,

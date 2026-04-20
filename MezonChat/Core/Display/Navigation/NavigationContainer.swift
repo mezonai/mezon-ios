@@ -291,8 +291,10 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                         }
                         strongSelf.state.transition = nil
 
-                        top.value.viewDidAppear(true)
-                        transition.previous.value.viewDidDisappear(true)
+                        top.value.driveAppearanceTransition(appearing: true, animated: true)
+                        top.value.finishAppearanceTransition()
+                        transition.previous.value.driveAppearanceTransition(appearing: false, animated: true)
+                        transition.previous.value.finishAppearanceTransition()
                     })
                 }
             }
@@ -517,11 +519,13 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     topTransition.previous.value.displayNode.removeFromSupernode()
                     topTransition.previous.value.setIgnoreAppearanceMethodInvocations(false)
                 }
-                topTransition.previous.value.viewDidDisappear(true)
+                topTransition.previous.value.driveAppearanceTransition(appearing: false, animated: true)
+                topTransition.previous.value.finishAppearanceTransition()
                 if let toValue = strongSelf.state.top, let layout = strongSelf.state.layout {
                     toValue.value.displayNode.frame = CGRect(origin: CGPoint(), size: layout.size)
                     strongSelf.applyLayout(layout: layout, to: toValue, isMaster: true, transition: .immediate)
-                    toValue.value.viewDidAppear(true)
+                    toValue.value.driveAppearanceTransition(appearing: true, animated: true)
+                    toValue.value.finishAppearanceTransition()
                 }
 
                 strongSelf.ignoreInputHeight = false

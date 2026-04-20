@@ -19,6 +19,8 @@ private enum EmojiCategoryOrdering {
 }
 
 private let emojiColumns = 9
+private let emojiGridInteritemSpacing: CGFloat = 2
+private let emojiGridLineSpacing: CGFloat = 4
 
 enum EmojisPanelThemePlacement {
     case composerInline
@@ -38,6 +40,8 @@ final class EmojisPanel: UIView {
     var onSearchFocusChanged: ((Bool) -> Void)?
 
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
+
+    var sheetPanCoordinationScrollView: UIScrollView { emojiGrid }
 
     var searchPlaceholderText: String = "Find the perfect emoji"
 
@@ -107,7 +111,7 @@ final class EmojisPanel: UIView {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
         layout.minimumInteritemSpacing = 0
-        layout.minimumLineSpacing = 0
+        layout.minimumLineSpacing = emojiGridLineSpacing
         layout.sectionInset = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
         cv.translatesAutoresizingMaskIntoConstraints = false
@@ -216,7 +220,8 @@ final class EmojisPanel: UIView {
         let inset: CGFloat = 8
         let availW = emojiGrid.bounds.width - inset * 2
         guard availW > 0 else { return 36 }
-        return floor(availW / CGFloat(emojiColumns))
+        let gaps = emojiGridInteritemSpacing * CGFloat(emojiColumns - 1)
+        return floor((availW - gaps) / CGFloat(emojiColumns))
     }
 
 
@@ -377,63 +382,29 @@ final class EmojisPanel: UIView {
     }
 
 
-    private static let imageCache = NSCache<NSString, UIImage>()
-    private static let resizedCache = NSCache<NSString, UIImage>()
-    private static let decodeQueue = DispatchQueue(label: "emoji.decode", qos: .userInitiated, attributes: .concurrent)
+    private static let emojiGridProxySide = 32
 
     fileprivate static func emojiImageURL(for emoji: CachedClanEmojiRecord) -> URL? {
-        if let url = URL(string: emoji.src), url.scheme != nil { return url }
-        return MezonConfig.emojiResourceURL(emojiId: "\(emoji.id)", imgproxyFitSide: 32)
-    }
-
-
-    private static func decodeEmojiImage(from data: Data) -> UIImage? {
-        UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+        let side = emojiGridProxySide
+        let trimmed = emoji.src.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let u = URL(string: trimmed), u.scheme != nil {
+            let proxied = ImgproxyURL.createEmoji(from: u.absoluteString, width: side, height: side)
+            return URL(string: proxied)
+        }
+        return MezonConfig.emojiResourceURL(emojiId: "\(emoji.id)", imgproxyFitSide: side)
     }
 
     fileprivate func loadEmojiImage(for emoji: CachedClanEmojiRecord, into imageView: UIImageView) {
         guard let url = Self.emojiImageURL(for: emoji) else { return }
-        let key = url.absoluteString as NSString
-
-
-        if let resized = Self.resizedCache.object(forKey: key) {
-            imageView.image = resized
+        let key = url.absoluteString
+        if let mem = ImageCache.shared.memoryImage(forKey: key) {
+            imageView.image = mem
             return
         }
-
-        if let raw = Self.imageCache.object(forKey: key) {
-            Self.decodeQueue.async { [weak imageView] in
-                let resized = Self.resizeImage(raw, to: CGSize(width: 32, height: 32))
-                Self.resizedCache.setObject(resized, forKey: key)
-                DispatchQueue.main.async { imageView?.image = resized }
-            }
-            return
-        }
-
         imageView.image = nil
-        URLSession.shared.dataTask(with: url) { [weak imageView] data, _, _ in
-            guard let data, !data.isEmpty, let img = Self.decodeEmojiImage(from: data) else { return }
-            Self.imageCache.setObject(img, forKey: key)
-            Self.decodeQueue.async {
-                let resized = Self.resizeImage(img, to: CGSize(width: 32, height: 32))
-                Self.resizedCache.setObject(resized, forKey: key)
-                DispatchQueue.main.async { imageView?.image = resized }
-            }
-        }.resume()
-    }
-
-    private static func resizeImage(_ img: UIImage, to size: CGSize) -> UIImage {
-        if let frames = img.images, frames.count > 1 {
-            let scaled = frames.map { resizeStaticImage($0, to: size) }
-            let duration = img.duration > 0 ? img.duration : Double(frames.count) * 0.06
-            return UIImage.animatedImage(with: scaled, duration: duration) ?? resizeStaticImage(img, to: size)
+        ReactionEmojiImageLoader.load(from: url) { [weak imageView] img in
+            imageView?.image = img
         }
-        return resizeStaticImage(img, to: size)
-    }
-
-    private static func resizeStaticImage(_ img: UIImage, to size: CGSize) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }
     }
 
     fileprivate func handleEmojiTap(_ emoji: CachedClanEmojiRecord) {
@@ -508,12 +479,9 @@ extension EmojisPanel: UICollectionViewDataSource, UICollectionViewDelegate, UIC
         for ip in indexPaths {
             guard ip.item < flatItems.count, case .emoji(let emoji) = flatItems[ip.item] else { continue }
             guard let url = Self.emojiImageURL(for: emoji) else { continue }
-            let key = url.absoluteString as NSString
-            guard Self.imageCache.object(forKey: key) == nil else { continue }
-            URLSession.shared.dataTask(with: url) { data, _, _ in
-                guard let data, let img = Self.decodeEmojiImage(from: data) else { return }
-                Self.imageCache.setObject(img, forKey: key)
-            }.resume()
+            let key = url.absoluteString
+            if ImageCache.shared.image(forKey: key) != nil { continue }
+            ReactionEmojiImageLoader.load(from: url) { _ in }
         }
     }
 
@@ -561,12 +529,12 @@ extension EmojisPanel: UICollectionViewDelegateFlowLayout {
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, minimumInteritemSpacingForSectionAt section: Int) -> CGFloat {
         if collectionView.tag == 1 { return 8 }
-        return 0
+        return emojiGridInteritemSpacing
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, minimumLineSpacingForSectionAt section: Int) -> CGFloat {
         if collectionView.tag == 1 { return 8 }
-        return 0
+        return emojiGridLineSpacing
     }
 }
 

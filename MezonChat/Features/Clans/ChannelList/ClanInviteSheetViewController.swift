@@ -756,7 +756,6 @@ final class ClanInviteSheetViewController: ViewController {
                 self.filteredFriends = []
                 self.updateEmptyStateVisibility()
                 await self.containerNode.tableNode.reloadData()
-                AppLogger.network.warning("[ClanInviteSheet] load friend list failed: \(error)")
             }
         }
     }
@@ -774,7 +773,6 @@ final class ClanInviteSheetViewController: ViewController {
     private func resolveInviteLink(token: String) async -> String? {
         let inviteChannelId = await resolveInviteChannelId(token: token)
         guard inviteChannelId != 0 else {
-            AppLogger.network.warning("[ClanInviteSheet] missing welcome channel id for clan=\(clanId)")
             return nil
         }
 
@@ -787,7 +785,6 @@ final class ClanInviteSheetViewController: ViewController {
             )
             return "\(MezonConfig.chatWebAppBaseURL)/invite/\(invite.inviteLink)"
         } catch {
-            AppLogger.network.warning("[ClanInviteSheet] create invite link failed: \(error)")
         }
         return nil
     }
@@ -799,7 +796,6 @@ final class ClanInviteSheetViewController: ViewController {
                 return clan.welcomeChannelID
             }
         } catch {
-            AppLogger.network.warning("[ClanInviteSheet] listClanDescs failed: \(error)")
         }
         return 0
     }
@@ -886,7 +882,6 @@ final class ClanInviteSheetViewController: ViewController {
                 )
                 self.sentIds.insert(item.id)
             } catch {
-                AppLogger.network.warning("[ClanInviteSheet] inviteUser failed: \(error)")
                 self.showSimpleAlert(message: String(format: L(L10n.ClanInviteSheet.cannotSendInvite), item.name))
             }
         }
@@ -917,7 +912,6 @@ final class ClanInviteSheetViewController: ViewController {
                     "image": image
                 ])
             } catch {
-                AppLogger.network.warning("[ClanInviteSheet] getInviteInfo failed: \(error)")
             }
         }
 
