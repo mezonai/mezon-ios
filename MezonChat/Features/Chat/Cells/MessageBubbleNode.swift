@@ -285,6 +285,9 @@ final class MessageBubbleNode: ASDisplayNode {
         if hasEmbeds {
             let en = MessageEmbedNode()
             en.configure(embeds: parsed.embeds)
+            en.onEmbedImageTapped = { [weak self] url in
+                self?.handleEmbedImageTap(url: url)
+            }
             embedNode = en
             addSubnode(en)
         }
@@ -640,6 +643,23 @@ final class MessageBubbleNode: ASDisplayNode {
             )
         }
         let gallery = GalleryController(items: galleryItems, initialIndex: index)
+        if let vc = findViewController() {
+            vc.present(gallery, animated: true)
+        }
+    }
+
+    private func handleEmbedImageTap(url: String) {
+        let galleryItems: [GalleryItemInfo] = [
+            GalleryItemInfo(
+                url: url,
+                image: nil,
+                senderName: display.senderDisplayName,
+                senderAvatarURL: display.avatarURL,
+                timestamp: display.message.createdAt,
+                isVideo: false
+            ),
+        ]
+        let gallery = GalleryController(items: galleryItems, initialIndex: 0)
         if let vc = findViewController() {
             vc.present(gallery, animated: true)
         }

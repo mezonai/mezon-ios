@@ -5,6 +5,7 @@ import AVFoundation
 enum ImageResizeMode {
     case fit
     case fill
+    case fillLeading
 }
 
 final class ImageCache {
@@ -255,16 +256,27 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
 
             let imageSize = image.size
             let fittedSize: CGSize
+            let drawOrigin: CGPoint
             switch resizeMode {
             case .fit:
                 fittedSize = imageSize.aspectFitted(arguments.boundingSize)
+                drawOrigin = CGPoint(
+                    x: (arguments.boundingSize.width - fittedSize.width) / 2,
+                    y: (arguments.boundingSize.height - fittedSize.height) / 2
+                )
             case .fill:
                 fittedSize = imageSize.aspectFilled(arguments.boundingSize)
+                drawOrigin = CGPoint(
+                    x: (arguments.boundingSize.width - fittedSize.width) / 2,
+                    y: (arguments.boundingSize.height - fittedSize.height) / 2
+                )
+            case .fillLeading:
+                fittedSize = imageSize.aspectFilled(arguments.boundingSize)
+                drawOrigin = CGPoint(
+                    x: 0,
+                    y: (arguments.boundingSize.height - fittedSize.height) / 2
+                )
             }
-            let drawOrigin = CGPoint(
-                x: (arguments.boundingSize.width - fittedSize.width) / 2,
-                y: (arguments.boundingSize.height - fittedSize.height) / 2
-            )
 
             if let cgImage = image.cgImage {
                 let imageRect = CGRect(origin: drawOrigin, size: fittedSize)
