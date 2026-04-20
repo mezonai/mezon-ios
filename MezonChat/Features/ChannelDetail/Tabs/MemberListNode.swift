@@ -144,6 +144,12 @@ final class MemberListNode: ASDisplayNode {
     }
 
     private func applyChannelUserList(_ channelUsers: [Mezon_Api_ChannelUserList.ChannelUser]) {
+        if channelUsers.isEmpty {
+            let hasCached = !(context.account.postbox.read { tx in
+                tx.getChannelMeta(channelId: self.channelId)?.members ?? []
+            }).isEmpty
+            if hasCached { return }
+        }
         context.account.postbox.write { tx in
             for u in channelUsers {
                 let merged = self.mergedProfile(
@@ -179,6 +185,12 @@ final class MemberListNode: ASDisplayNode {
 
     private func applyClanMembersFallback(token: String) async throws {
         let clanRes = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+        if clanRes.clanUsers.isEmpty {
+            let hasCached = !context.account.postbox.read({ tx in
+                tx.getClanMembers(clanId: self.clanId)
+            }).isEmpty
+            if hasCached { return }
+        }
         context.account.postbox.write { tx in
             let clanMembers = clanRes.clanUsers.map { ClanMemberRecord(from: $0) }
             tx.updateClanMembers(clanMembers, clanId: self.clanId)

@@ -632,10 +632,20 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
+        let isMultiple = media.count > 1
         let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
-            GalleryItemInfo(
+            let placeholderURL: String? = att.isVideo
+                ? nil
+                : ImgproxyURL.attachmentURL(
+                    from: att.url,
+                    width: 400,
+                    height: 400,
+                    resizeType: isMultiple ? "fill" : "fit"
+                )
+            return GalleryItemInfo(
                 url: att.url,
                 image: nil,
+                placeholderURL: placeholderURL,
                 senderName: display.senderDisplayName,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
@@ -649,10 +659,16 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleEmbedImageTap(url: String) {
+        let placeholderURL = ImgproxyURL.attachmentURL(
+            from: url,
+            width: EmbedItemNode.embedImageProxyDimension,
+            height: EmbedItemNode.embedImageProxyDimension
+        )
         let galleryItems: [GalleryItemInfo] = [
             GalleryItemInfo(
                 url: url,
                 image: nil,
+                placeholderURL: placeholderURL,
                 senderName: display.senderDisplayName,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,

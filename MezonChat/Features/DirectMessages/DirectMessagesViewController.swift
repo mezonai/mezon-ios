@@ -73,6 +73,13 @@ final class DirectMessagesViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+    }
+
+    @objc private func handleNetworkStatusChanged(_ notification: Notification) {
+        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+        guard connected else { return }
+        fetchDirectMessages()
     }
 
     deinit {
@@ -275,6 +282,10 @@ final class DirectMessagesViewController: ViewController {
 
     func fetchDirectMessages() {
         applyDmListFromCache()
+        if !NetworkMonitor.shared.isConnected {
+            setIsLoading(false)
+            return
+        }
         setIsLoading(true)
         setErrorMessage(nil)
 

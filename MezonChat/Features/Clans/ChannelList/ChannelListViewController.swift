@@ -385,12 +385,19 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForChannelBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
     }
 
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
         guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
         guard n.int64Value == clanId, clanId != 0 else { return }
         needsReloadPipe.putNext(())
+    }
+
+    @objc private func handleNetworkStatusChanged(_ notification: Notification) {
+        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+        guard connected, clanId != 0 else { return }
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
 
     @objc private func handleJoinedClanForChannelBadges(_ notification: Notification) {
@@ -760,15 +767,23 @@ final class ChannelListViewController: ViewController {
         if let p = pendingCache {
             applyChannelCachePayload(channels: p.channels, meta: p.meta)
         }
-        isLoading = pendingCache == nil
+        isLoading = pendingCache == nil && NetworkMonitor.shared.isConnected
         needsReloadPipe.putNext(())
 
-        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+        if NetworkMonitor.shared.isConnected {
+            fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+        }
     }
 
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
             isLoading = false
+            needsReloadPipe.putNext(())
+            return
+        }
+        guard NetworkMonitor.shared.isConnected else {
+            isLoading = false
+            isLoadingPipe.putNext(false)
             needsReloadPipe.putNext(())
             return
         }
@@ -780,12 +795,20 @@ final class ChannelListViewController: ViewController {
             |> deliverOnMainQueue
 
         let allowEmptyApps = allowEmptyChannelAppsOverwrite
+        let hadCachedChannels = !self.allChannels.isEmpty
         fetchDisposable.set(signal.start(next: { [weak self] result in
                 guard let self else { return }
                 guard self.clanId == clanId else { return }
                 self.isLoading = false
                 switch result {
                 case .success(let channels, let categoryDescs, let favoriteIds):
+                    if channels.isEmpty && hadCachedChannels {
+                        self.channelsLoadedPromise.set(true)
+                        self.channelListNode.endRefreshing()
+                        self.isLoadingPipe.putNext(false)
+                        self.needsReloadPipe.putNext(())
+                        return
+                    }
                     self.channelListCategoryDescs = categoryDescs
                     self.channelListFavoriteIds = favoriteIds
                     self.allChannels = channels

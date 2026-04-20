@@ -7,6 +7,7 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
     private let imageNode = TransformImageNode()
     private let spinnerNode: ASDisplayNode
     private var imageSize: CGSize = .zero
+    private var hasFullResolutionImage = false
 
     override init() {
         self.spinnerNode = ASDisplayNode(viewBlock: {
@@ -22,9 +23,21 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
 
     func configure(info: GalleryItemInfo) {
         if let existingImage = info.image {
+            hasFullResolutionImage = true
             self.setImage(existingImage)
-        } else if let url = URL(string: info.url), !info.url.isEmpty {
-            loadRemoteImage(url: url)
+            return
+        }
+
+        var hasPlaceholder = false
+        if let placeholderURL = info.placeholderURL,
+           !placeholderURL.isEmpty,
+           let cachedPlaceholder = ImageCache.shared.cachedImage(forURL: placeholderURL) {
+            self.setImage(cachedPlaceholder)
+            hasPlaceholder = true
+        }
+
+        if let url = URL(string: info.url), !info.url.isEmpty {
+            loadRemoteImage(url: url, keepSpinnerHidden: hasPlaceholder)
         }
     }
 
@@ -55,15 +68,21 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
         self.zoomableContent = (image.size, self.imageNode)
     }
 
-    private func loadRemoteImage(url: URL) {
+    private func loadRemoteImage(url: URL, keepSpinnerHidden: Bool = false) {
         let urlString = url.absoluteString
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            hasFullResolutionImage = true
             setImage(cached)
             return
         }
+        if keepSpinnerHidden {
+            spinnerNode.isHidden = true
+        }
         ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
-            guard let image else { return }
-            self?.setImage(image)
+            guard let self, let image else { return }
+            guard !self.hasFullResolutionImage else { return }
+            self.hasFullResolutionImage = true
+            self.setImage(image)
         }
     }
 

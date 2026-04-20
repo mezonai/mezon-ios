@@ -536,6 +536,23 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnected(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+    }
+
+    @objc private func handleNetworkStatusChanged(_ notification: Notification) {
+        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+        guard connected else { return }
+        guard !hasCompletedInitialFetch else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.context.waitForSessionReady()
+            guard let token = await self.context.getToken() else {
+                self.setIsLoading(false)
+                return
+            }
+            self.hasCompletedInitialFetch = true
+            self.fetchMessages(token: token)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -846,8 +863,10 @@ final class ChatViewController: ViewController {
                 tx.getMessages(channelId: channelIdStr)
             }
             let hasCache = !cachedMessages.isEmpty
-            if !hasCache {
+            if !hasCache && NetworkMonitor.shared.isConnected {
                 setIsLoading(true)
+            } else {
+                setIsLoading(false)
             }
 
             stateDisposables.add(
@@ -883,9 +902,17 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            if self.topicId == 0 && self.channel.channelID == 0 { return }
+            if self.topicId == 0 && self.channel.channelID == 0 {
+                self.setIsLoading(false)
+                return
+            }
+            if !NetworkMonitor.shared.isConnected {
+                self.setIsLoading(false)
+                return
+            }
             await self.context.waitForSessionReady()
             guard let token = await self.context.getToken() else {
+                self.setIsLoading(false)
                 return
             }
             self.hasCompletedInitialFetch = true
@@ -1065,6 +1092,10 @@ final class ChatViewController: ViewController {
 
     func fetchMessages(token: String? = nil) {
         let hadCachedMessages = !messages.isEmpty
+        if !NetworkMonitor.shared.isConnected {
+            setIsLoading(false)
+            return
+        }
         if !hadCachedMessages {
             setIsLoading(true)
         }
@@ -1082,6 +1113,9 @@ final class ChatViewController: ViewController {
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }
+                if records.isEmpty && hadCachedMessages {
+                    return
+                }
                 self.context.account.postbox.write { tx in
                     tx.replaceAllMessages(records, channelId: self.storageChannelId)
                 }
@@ -1164,6 +1198,7 @@ final class ChatViewController: ViewController {
         pendingScrollToBottom = true
         setHasMoreNewer(false)
 
+        let hadCachedMessages = !messages.isEmpty
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
                 self.pendingScrollToBottom = false
@@ -1175,6 +1210,9 @@ final class ChatViewController: ViewController {
                     messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token
                 )
                 self.setHasMoreOlder(response.messages.count >= 30)
+                if response.messages.isEmpty && hadCachedMessages {
+                    return
+                }
                 self.context.account.postbox.write { tx in
                     tx.replaceAllMessages(
                         response.messages.map { self.messageRecord(from: $0) },
@@ -1242,8 +1280,13 @@ final class ChatViewController: ViewController {
                         token: token
                     )
                     let parentMembers = parentResponse.channelUsers.map { ChannelMemberRecord(from: $0) }
-                    self.context.account.postbox.write { tx in
-                        tx.updateChannelMembers(parentMembers, channelId: self.channel.parentID)
+                    let parentHasCached = !(self.context.account.postbox.read { tx in
+                        tx.getChannelMeta(channelId: self.channel.parentID)?.members ?? []
+                    }).isEmpty
+                    if !(parentMembers.isEmpty && parentHasCached) {
+                        self.context.account.postbox.write { tx in
+                            tx.updateChannelMembers(parentMembers, channelId: self.channel.parentID)
+                        }
                     }
                 }
 
@@ -1255,8 +1298,13 @@ final class ChatViewController: ViewController {
                         token: token
                     )
                     let members = response.channelUsers.map { ChannelMemberRecord(from: $0) }
-                    self.context.account.postbox.write { tx in
-                        tx.updateChannelMembers(members, channelId: channelId)
+                    let hasCached = !(self.context.account.postbox.read { tx in
+                        tx.getChannelMeta(channelId: channelId)?.members ?? []
+                    }).isEmpty
+                    if !(members.isEmpty && hasCached) {
+                        self.context.account.postbox.write { tx in
+                            tx.updateChannelMembers(members, channelId: channelId)
+                        }
                     }
                 }
             } catch {

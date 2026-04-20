@@ -39,7 +39,7 @@ class ReactionEmojiPickerSheetController: ViewController {
         self.dismissOnEmojiSelect = dismissOnEmojiSelect
         self.onEmojiPicked = onEmojiPicked
         super.init(navigationBarPresentationData: nil)
-        statusBar.statusBarStyle = .Hide
+        statusBar.statusBarStyle = .Ignore
         blocksBackgroundWhenInOverlay = true
     }
 
@@ -177,7 +177,6 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         installEmojiPanelHostingConstraintsIfNeeded()
         containerNode.view.setNeedsLayout()
         containerNode.view.layoutIfNeeded()
-        print("[ReactionEmojiPicker] syncHostedPanelFrame containerBounds=\(containerNode.view.bounds) panelBounds=\(emojisPanel.bounds) \(emojisPanel.emojiGridDebugSummary())")
         emojisPanel.notifyEmbeddedPanelBoundsChanged()
     }
 
@@ -273,7 +272,7 @@ class ReactionSoundStickerPickerSheetController: ViewController {
         self.dismissOnStickerSelect = dismissOnStickerSelect
         self.onStickerPicked = onStickerPicked
         super.init(navigationBarPresentationData: nil)
-        statusBar.statusBarStyle = .Hide
+        statusBar.statusBarStyle = .Ignore
         blocksBackgroundWhenInOverlay = true
     }
 

@@ -23,7 +23,6 @@ private let emojiGridInteritemSpacing: CGFloat = 2
 private let emojiGridLineSpacing: CGFloat = 4
 
 private func dbg(_ message: String) {
-    print("[EmojisPanel] \(message)")
 }
 
 enum EmojisPanelThemePlacement {
@@ -156,9 +155,7 @@ final class EmojisPanel: UIView {
     }
 
     func logEmojiLoadingState(tag: String) {
-        let c = cacheEngine?.data.cachedEmojiList(clanId: 0)
-        let n = c?.emojis.count ?? 0
-        print("[ReactionEmojiPicker] emojiState.\(tag) engineNil=\(cacheEngine == nil) postboxCache=\(c != nil) postboxCount=\(n) flatItems=\(flatItems.count) strip=\(categoryStripCategories.count)")
+        _ = tag
     }
 
     func emojiGridDebugSummary() -> String {
@@ -204,10 +201,8 @@ final class EmojisPanel: UIView {
         )
         if placement == .secondaryBottomSheet {
             if let p = categoryStripCategories.first(where: { $0 != EmojiCategoryOrdering.forSale }) {
-                print("[ReactionEmojiPicker] applyTheme secondary selectCategoryFromStrip=\(p) strip=\(categoryStripCategories)")
                 selectCategoryFromStrip(p)
             } else {
-                print("[ReactionEmojiPicker] applyTheme secondary no non-forSale strip category strip=\(categoryStripCategories) collapsedForSale=\(collapsedCategories.contains(EmojiCategoryOrdering.forSale))")
                 categoryCollection.reloadData()
                 emojiGridNode.reloadData()
             }
@@ -572,14 +567,8 @@ extension EmojisPanel: ASCollectionDataSource, ASCollectionDelegate, ASCollectio
         guard indexPath.item < flatItems.count else { return }
         switch flatItems[indexPath.item] {
         case .emoji(let emoji):
-            if themePlacement == .secondaryBottomSheet {
-                print("[ReactionEmojiPicker] didSelectItem emoji id=\(emoji.id) sn=\(emoji.shortname) idx=\(indexPath.item)")
-            }
             handleEmojiTap(emoji)
         case .header(let key, _, _):
-            if themePlacement == .secondaryBottomSheet {
-                print("[ReactionEmojiPicker] didSelectItem header key=\(key) idx=\(indexPath.item)")
-            }
             toggleSectionHeaderByKey(key)
         case .emptyPad:
             break
@@ -747,12 +736,15 @@ private final class EmojiCellNode: ASCellNode {
             imageNode.image = mem
             return
         }
+        if !NetworkMonitor.shared.isConnected {
+            return
+        }
         imageTask?.cancel()
         imageTask = ReactionEmojiImageLoader.load(from: url) { [weak self] img in
             guard let self else { return }
             if let img {
                 self.imageNode.image = img
-            } else {
+            } else if NetworkMonitor.shared.isConnected {
                 dbg("EmojiCellNode load failed id=\(self.emoji.id) url=\(url.absoluteString)")
             }
         }

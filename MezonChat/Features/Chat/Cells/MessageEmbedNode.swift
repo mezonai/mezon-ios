@@ -72,7 +72,7 @@ final class EmbedItemNode: ASDisplayNode {
     private static let thumbnailSize: CGFloat = 50
     private static let contentInsetH: CGFloat = 10
     private static let contentInsetV: CGFloat = 10
-    private static let embedImageProxyDimension: Int = 200
+    static let embedImageProxyDimension: Int = 200
     private static let embedImageMinDisplayHeight: CGFloat = 260
     private static let embedImageMaxDisplayHeight: CGFloat = 400
 
