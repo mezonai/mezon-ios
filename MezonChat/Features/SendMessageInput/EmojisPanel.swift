@@ -1,5 +1,5 @@
 import UIKit
-
+import AsyncDisplayKit
 
 private enum EmojiCategoryOrdering {
     static let forSale = "forsale"
@@ -22,6 +22,9 @@ private let emojiColumns = 9
 private let emojiGridInteritemSpacing: CGFloat = 2
 private let emojiGridLineSpacing: CGFloat = 4
 
+private func dbg(_ message: String) {
+}
+
 enum EmojisPanelThemePlacement {
     case composerInline
     case secondaryBottomSheet
@@ -41,7 +44,7 @@ final class EmojisPanel: UIView {
 
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
 
-    var sheetPanCoordinationScrollView: UIScrollView { emojiGrid }
+    var sheetPanCoordinationScrollView: UIScrollView { emojiGridNode.view }
 
     var searchPlaceholderText: String = "Find the perfect emoji"
 
@@ -55,11 +58,9 @@ final class EmojisPanel: UIView {
     private var isSearchActive = false
     private var searchQuery = ""
 
-
     private var flatItems: [EmojiGridItem] = []
 
     private var headerIndexMap: [String: Int] = [:]
-
 
     private let searchBarContainer: UIView = {
         let v = UIView()
@@ -106,27 +107,18 @@ final class EmojisPanel: UIView {
         return cv
     }()
 
-
-    private lazy var emojiGrid: UICollectionView = {
+    private lazy var emojiGridNode: ASCollectionNode = {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .vertical
         layout.minimumInteritemSpacing = 0
         layout.minimumLineSpacing = emojiGridLineSpacing
         layout.sectionInset = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
-        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        cv.translatesAutoresizingMaskIntoConstraints = false
-        cv.backgroundColor = .clear
-        cv.showsVerticalScrollIndicator = true
-        cv.alwaysBounceVertical = true
-        cv.keyboardDismissMode = .onDrag
-        cv.register(EmojiCell.self, forCellWithReuseIdentifier: EmojiCell.reuseId)
-        cv.register(EmojiSectionHeaderCell.self, forCellWithReuseIdentifier: EmojiSectionHeaderCell.reuseId)
-        cv.register(UICollectionViewCell.self, forCellWithReuseIdentifier: "pad")
-        cv.dataSource = self
-        cv.delegate = self
-        cv.prefetchDataSource = self
-        cv.tag = 2
-        return cv
+        let node = ASCollectionNode(collectionViewLayout: layout)
+        node.backgroundColor = .clear
+        node.isLayerBacked = false
+        node.dataSource = self
+        node.delegate = self
+        return node
     }()
 
     private var categoryStripCategories: [String] = []
@@ -135,6 +127,8 @@ final class EmojisPanel: UIView {
 
     private var themePlacement: EmojisPanelThemePlacement = .composerInline
 
+    private var lastGridLayoutSize: CGSize = .zero
+    private var lastNotifyPanelSize: CGSize = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -147,8 +141,8 @@ final class EmojisPanel: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-
     func bindEmojiCache(engine: MezonEngine) {
+        dbg("bindEmojiCache")
         cacheEngine = engine
         reloadFromPostboxCache()
     }
@@ -156,7 +150,37 @@ final class EmojisPanel: UIView {
     func reloadFromPostboxCache() {
         let cache = cacheEngine?.data.cachedEmojiList(clanId: 0)
         let emojis = cache?.emojis ?? []
+        dbg("reloadFromPostboxCache rawCount=\(emojis.count) cacheNil=\(cache == nil)")
         ingestEmojis(emojis)
+    }
+
+    func logEmojiLoadingState(tag: String) {
+        _ = tag
+    }
+
+    func emojiGridDebugSummary() -> String {
+        let gv = emojiGridNode.view
+        return "flatItems=\(flatItems.count) gridContentH=\(gv.contentSize.height) gridBounds=\(gv.bounds.size) visible=\(gv.visibleCells.count)"
+    }
+
+    func notifyEmbeddedPanelBoundsChanged() {
+        let panelSz = bounds.size
+        if abs(panelSz.width - lastNotifyPanelSize.width) > 0.5 || abs(panelSz.height - lastNotifyPanelSize.height) > 0.5 {
+            lastNotifyPanelSize = panelSz
+            lastGridLayoutSize = .zero
+        }
+        setNeedsLayout()
+        layoutIfNeeded()
+        layoutEmojiGridViewFrameIfNeeded()
+        let gv = emojiGridNode.view
+        emojiGridNode.relayoutItems()
+        gv.collectionViewLayout.invalidateLayout()
+        gv.layoutIfNeeded()
+        let sz = gv.bounds.size
+        if sz.width > 0, sz.height > 0 {
+            lastGridLayoutSize = sz
+        }
+        dbg("notifyEmbedded bounds panel=\(bounds.size) gridView=\(gv.bounds.size) contentSize=\(gv.contentSize) visibleCells=\(gv.visibleCells.count)")
     }
 
     func applyTheme(placement: EmojisPanelThemePlacement = .composerInline) {
@@ -175,17 +199,33 @@ final class EmojisPanel: UIView {
             string: searchPlaceholderText,
             attributes: [.foregroundColor: t.textDisabled]
         )
-        categoryCollection.reloadData()
-        emojiGrid.reloadData()
+        if placement == .secondaryBottomSheet {
+            if let p = categoryStripCategories.first(where: { $0 != EmojiCategoryOrdering.forSale }) {
+                selectCategoryFromStrip(p)
+            } else {
+                categoryCollection.reloadData()
+                emojiGridNode.reloadData()
+            }
+        } else {
+            categoryCollection.reloadData()
+            emojiGridNode.reloadData()
+        }
     }
-
 
     private func setupLayout() {
         addSubview(searchBarContainer)
         searchBarContainer.addSubview(searchIconView)
         searchBarContainer.addSubview(searchTextField)
         addSubview(categoryCollection)
-        addSubview(emojiGrid)
+
+        let gridView = emojiGridNode.view
+        gridView.translatesAutoresizingMaskIntoConstraints = true
+        gridView.backgroundColor = .clear
+        gridView.showsVerticalScrollIndicator = true
+        gridView.alwaysBounceVertical = true
+        gridView.keyboardDismissMode = .onDrag
+        gridView.tag = 2
+        addSubview(gridView)
 
         NSLayoutConstraint.activate([
             searchBarContainer.topAnchor.constraint(equalTo: topAnchor, constant: 6),
@@ -207,23 +247,58 @@ final class EmojisPanel: UIView {
             categoryCollection.leadingAnchor.constraint(equalTo: leadingAnchor),
             categoryCollection.trailingAnchor.constraint(equalTo: trailingAnchor),
             categoryCollection.heightAnchor.constraint(equalToConstant: 44),
-
-            emojiGrid.topAnchor.constraint(equalTo: categoryCollection.bottomAnchor, constant: 4),
-            emojiGrid.leadingAnchor.constraint(equalTo: leadingAnchor),
-            emojiGrid.trailingAnchor.constraint(equalTo: trailingAnchor),
-            emojiGrid.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
     }
 
+    private func layoutEmojiGridViewFrameIfNeeded() {
+        let gridView = emojiGridNode.view
+        let top = categoryCollection.frame.maxY + 4
+        let h = bounds.height - top
+        guard bounds.width > 0, h > 0 else { return }
+        let r = CGRect(x: 0, y: top, width: bounds.width, height: h)
+        if gridView.frame != r {
+            gridView.frame = r
+        }
+    }
 
-    private func emojiCellWidth() -> CGFloat {
+    private func emojiGridCellColumnWidth(forGridWidth gridW: CGFloat) -> CGFloat {
         let inset: CGFloat = 8
-        let availW = emojiGrid.bounds.width - inset * 2
+        let availW = gridW - inset * 2
         guard availW > 0 else { return 36 }
         let gaps = emojiGridInteritemSpacing * CGFloat(emojiColumns - 1)
         return floor((availW - gaps) / CGFloat(emojiColumns))
     }
 
+    private func emojiGridFlowLayoutItemSize(at indexPath: IndexPath, gridLayoutWidth gridW: CGFloat) -> CGSize {
+        guard indexPath.item < flatItems.count else { return CGSize(width: 44, height: 44) }
+        let cellW = emojiGridCellColumnWidth(forGridWidth: gridW)
+        switch flatItems[indexPath.item] {
+        case .header:
+            let w = max(gridW - 16, 0)
+            return CGSize(width: w, height: 36)
+        case .emoji, .emptyPad:
+            return CGSize(width: cellW, height: 44)
+        }
+    }
+
+    private func emojiCellWidth() -> CGFloat {
+        let gridW = emojiGridNode.bounds.width > 0 ? emojiGridNode.bounds.width : emojiGridNode.view.bounds.width
+        return emojiGridCellColumnWidth(forGridWidth: gridW)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutEmojiGridViewFrameIfNeeded()
+        let gv = emojiGridNode.view
+        let sz = gv.bounds.size
+        if sz.width > 0, sz.height > 0,
+           abs(sz.width - lastGridLayoutSize.width) > 0.5 || abs(sz.height - lastGridLayoutSize.height) > 0.5 {
+            dbg("layoutSubviews grid size \(lastGridLayoutSize) -> \(sz)")
+            lastGridLayoutSize = sz
+            emojiGridNode.relayoutItems()
+            gv.collectionViewLayout.invalidateLayout()
+        }
+    }
 
     private func ingestEmojis(_ emojis: [CachedClanEmojiRecord]) {
         allEmojis = emojis
@@ -250,7 +325,8 @@ final class EmojisPanel: UIView {
         emojisByCategory = map
         rebuildFlatItems()
         rebuildCategoryStrip()
-        emojiGrid.reloadData()
+        dbg("ingest done flatItems=\(flatItems.count) stripCategories=\(categoryStripCategories.count)")
+        emojiGridNode.reloadData()
         categoryCollection.reloadData()
     }
 
@@ -299,7 +375,6 @@ final class EmojisPanel: UIView {
         return "\(base)/\(t)"
     }
 
-
     private func rebuildFlatItems() {
         var items: [EmojiGridItem] = []
         var hMap: [String: Int] = [:]
@@ -338,7 +413,6 @@ final class EmojisPanel: UIView {
         }
     }
 
-
     @objc private func searchTextChanged() {
         searchDebounceWorkItem?.cancel()
         let text = searchTextField.text ?? ""
@@ -347,7 +421,7 @@ final class EmojisPanel: UIView {
             self.searchQuery = text.trimmingCharacters(in: .whitespacesAndNewlines)
             self.isSearchActive = !self.searchQuery.isEmpty
             self.rebuildFlatItems()
-            self.emojiGrid.reloadData()
+            self.emojiGridNode.reloadData()
         }
         searchDebounceWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
@@ -356,31 +430,18 @@ final class EmojisPanel: UIView {
     @objc private func searchEditingDidBegin() { onSearchFocusChanged?(true) }
     @objc private func searchEditingDidEnd() { onSearchFocusChanged?(false) }
 
-
     private func selectCategoryFromStrip(_ categoryKey: String) {
         selectedStripCategory = categoryKey
         collapsedCategories.remove(categoryKey)
         rebuildFlatItems()
         categoryCollection.reloadData()
-        emojiGrid.reloadData()
-        emojiGrid.layoutIfNeeded()
+        emojiGridNode.reloadData()
+        emojiGridNode.view.layoutIfNeeded()
 
         if let idx = headerIndexMap[categoryKey], idx < flatItems.count {
-            emojiGrid.scrollToItem(at: IndexPath(item: idx, section: 0), at: .top, animated: true)
+            emojiGridNode.scrollToItem(at: IndexPath(item: idx, section: 0), at: .top, animated: true)
         }
     }
-
-    @objc private func toggleSectionHeader(_ gesture: UITapGestureRecognizer) {
-        guard let key = gesture.view?.accessibilityIdentifier, !key.isEmpty else { return }
-        if collapsedCategories.contains(key) {
-            collapsedCategories.remove(key)
-        } else {
-            collapsedCategories.insert(key)
-        }
-        rebuildFlatItems()
-        emojiGrid.reloadData()
-    }
-
 
     private static let emojiGridProxySide = 32
 
@@ -394,19 +455,6 @@ final class EmojisPanel: UIView {
         return MezonConfig.emojiResourceURL(emojiId: "\(emoji.id)", imgproxyFitSide: side)
     }
 
-    fileprivate func loadEmojiImage(for emoji: CachedClanEmojiRecord, into imageView: UIImageView) {
-        guard let url = Self.emojiImageURL(for: emoji) else { return }
-        let key = url.absoluteString
-        if let mem = ImageCache.shared.memoryImage(forKey: key) {
-            imageView.image = mem
-            return
-        }
-        imageView.image = nil
-        ReactionEmojiImageLoader.load(from: url) { [weak imageView] img in
-            imageView?.image = img
-        }
-    }
-
     fileprivate func handleEmojiTap(_ emoji: CachedClanEmojiRecord) {
         if emoji.isForSale && emoji.src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
         onEmojiSelected?("\(emoji.id)", emoji.shortname)
@@ -414,110 +462,62 @@ final class EmojisPanel: UIView {
 }
 
 
-extension EmojisPanel: UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching {
+extension EmojisPanel: UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout {
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        if collectionView.tag == 1 { return categoryStripCategories.count }
-        return flatItems.count
+        guard collectionView.tag == 1 else {
+            dbg("unexpected UIKit dataSource numberOfItems tag=\(collectionView.tag) (emoji grid must use Texture)")
+            return 0
+        }
+        return categoryStripCategories.count
     }
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-
-        if collectionView.tag == 1 {
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: EmojiCategoryStripCell.reuseId, for: indexPath) as! EmojiCategoryStripCell
-            let key = categoryStripCategories[indexPath.item]
-            let t = UIColor.theme
-            let stripUnselected: UIColor
-            switch themePlacement {
-            case .composerInline:
-                stripUnselected = t.primary.withAlphaComponent(0.5)
-            case .secondaryBottomSheet:
-                stripUnselected = t.tertiary
-            }
-            cell.configure(
-                categoryKey: key,
-                title: displayTitle(for: key),
-                isSelected: key == selectedStripCategory,
-                symbol: Self.stripSymbol(for: key),
-                unselectedBackground: stripUnselected,
-                logoURLString: categoryStripLogos[key]
-            )
-            return cell
+        guard collectionView.tag == 1 else {
+            dbg("unexpected UIKit cellForItem tag=\(collectionView.tag)")
+            return UICollectionViewCell()
         }
-
-        let item = flatItems[indexPath.item]
-        switch item {
-        case .header(let key, let title, let collapsed):
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: EmojiSectionHeaderCell.reuseId, for: indexPath) as! EmojiSectionHeaderCell
-            cell.configure(key: key, title: title, collapsed: collapsed) { [weak self] headerKey in
-                self?.toggleSectionHeaderByKey(headerKey)
-            }
-            return cell
-        case .emoji(let emoji):
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: EmojiCell.reuseId, for: indexPath) as! EmojiCell
-            cell.configure(emoji: emoji, panel: self)
-            return cell
-        case .emptyPad:
-            return collectionView.dequeueReusableCell(withReuseIdentifier: "pad", for: indexPath)
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: EmojiCategoryStripCell.reuseId, for: indexPath) as! EmojiCategoryStripCell
+        let key = categoryStripCategories[indexPath.item]
+        let t = UIColor.theme
+        let stripUnselected: UIColor
+        switch themePlacement {
+        case .composerInline:
+            stripUnselected = t.primary.withAlphaComponent(0.5)
+        case .secondaryBottomSheet:
+            stripUnselected = t.tertiary
         }
+        cell.configure(
+            categoryKey: key,
+            title: displayTitle(for: key),
+            isSelected: key == selectedStripCategory,
+            symbol: Self.stripSymbol(for: key),
+            unselectedBackground: stripUnselected,
+            logoURLString: categoryStripLogos[key]
+        )
+        return cell
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        if collectionView.tag == 1 {
-            let key = categoryStripCategories[indexPath.item]
-            selectCategoryFromStrip(key)
-            return
-        }
-        if case .emoji(let emoji) = flatItems[indexPath.item] {
-            handleEmojiTap(emoji)
-        }
+        guard collectionView.tag == 1 else { return }
+        let key = categoryStripCategories[indexPath.item]
+        selectCategoryFromStrip(key)
     }
 
-
-    func collectionView(_ collectionView: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
-        guard collectionView.tag == 2 else { return }
-        for ip in indexPaths {
-            guard ip.item < flatItems.count, case .emoji(let emoji) = flatItems[ip.item] else { continue }
-            guard let url = Self.emojiImageURL(for: emoji) else { continue }
-            let key = url.absoluteString
-            if ImageCache.shared.image(forKey: key) != nil { continue }
-            ReactionEmojiImageLoader.load(from: url) { _ in }
-        }
-    }
-
-    private func toggleSectionHeaderByKey(_ key: String) {
-        if collapsedCategories.contains(key) {
-            collapsedCategories.remove(key)
-        } else {
-            collapsedCategories.insert(key)
-        }
-        rebuildFlatItems()
-        emojiGrid.reloadData()
-    }
-}
-
-
-extension EmojisPanel: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-
         if collectionView.tag == 1 {
             return CGSize(width: 36, height: 36)
         }
-
-        guard indexPath.item < flatItems.count else { return .zero }
-        let item = flatItems[indexPath.item]
-        switch item {
-        case .header:
-
-            let w = collectionView.bounds.width - 16
-            return CGSize(width: w, height: 36)
-        case .emoji:
-            let cellW = emojiCellWidth()
-            return CGSize(width: cellW, height: 44)
-        case .emptyPad:
-            let cellW = emojiCellWidth()
-            return CGSize(width: cellW, height: 44)
+        if collectionView.tag == 2 {
+            let gridW = collectionView.bounds.width
+            let sz = emojiGridFlowLayoutItemSize(at: indexPath, gridLayoutWidth: gridW)
+            if indexPath.item < 2 {
+                dbg("UIKit sizeForItem tag=2 idx=\(indexPath.item) gridW=\(gridW) -> \(sz)")
+            }
+            return sz
         }
+        dbg("UIKit sizeForItem unknown tag=\(collectionView.tag)")
+        return CGSize(width: 1, height: 1)
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, insetForSectionAt section: Int) -> UIEdgeInsets {
@@ -539,10 +539,65 @@ extension EmojisPanel: UICollectionViewDelegateFlowLayout {
 }
 
 
-extension EmojisPanel {
+extension EmojisPanel: ASCollectionDataSource, ASCollectionDelegate, ASCollectionDelegateFlowLayout {
+
+    func collectionNode(_ collectionNode: ASCollectionNode, numberOfItemsInSection section: Int) -> Int {
+        flatItems.count
+    }
+
+    func collectionNode(_ collectionNode: ASCollectionNode, nodeBlockForItemAt indexPath: IndexPath) -> ASCellNodeBlock {
+        guard indexPath.item < flatItems.count else { return { ASCellNode() } }
+        let item = flatItems[indexPath.item]
+        if indexPath.item < 3 {
+            dbg("ASDK nodeBlock idx=\(indexPath.item) item=\(item)")
+        }
+        return {
+            switch item {
+            case .header(_, let title, let collapsed):
+                return EmojiHeaderCellNode(title: title, collapsed: collapsed)
+            case .emoji(let emoji):
+                return EmojiCellNode(emoji: emoji)
+            case .emptyPad:
+                return EmojiPadCellNode()
+            }
+        }
+    }
+
+    func collectionNode(_ collectionNode: ASCollectionNode, didSelectItemAt indexPath: IndexPath) {
+        guard indexPath.item < flatItems.count else { return }
+        switch flatItems[indexPath.item] {
+        case .emoji(let emoji):
+            handleEmojiTap(emoji)
+        case .header(let key, _, _):
+            toggleSectionHeaderByKey(key)
+        case .emptyPad:
+            break
+        }
+    }
+
+    func collectionNode(_ collectionNode: ASCollectionNode, constrainedSizeForItemAt indexPath: IndexPath) -> ASSizeRange {
+        guard indexPath.item < flatItems.count else { return ASSizeRangeZero }
+        let gridW = emojiGridNode.bounds.width > 0 ? emojiGridNode.bounds.width : emojiGridNode.view.bounds.width
+        let size = emojiGridFlowLayoutItemSize(at: indexPath, gridLayoutWidth: gridW)
+        if indexPath.item < 2 {
+            dbg("ASDK constrainedSize idx=\(indexPath.item) gridW=\(gridW) -> \(size)")
+        }
+        return ASSizeRange(min: size, max: size)
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView.tag == 2 else { return }
         onInnerScroll?(scrollView.contentOffset.y, scrollView.isDragging || scrollView.isDecelerating)
+    }
+
+    fileprivate func toggleSectionHeaderByKey(_ key: String) {
+        if collapsedCategories.contains(key) {
+            collapsedCategories.remove(key)
+        } else {
+            collapsedCategories.insert(key)
+        }
+        rebuildFlatItems()
+        emojiGridNode.reloadData()
     }
 }
 
@@ -572,99 +627,140 @@ extension EmojisPanel {
 }
 
 
-private final class EmojiSectionHeaderCell: UICollectionViewCell {
-    static let reuseId = "EmojiSectionHeaderCell"
+private final class EmojiHeaderCellNode: ASCellNode {
+    private let titleNode = ASTextNode2()
+    private let chevronNode = ASImageNode()
 
-    private let chevronView = UIImageView()
-    private let titleLabel = UILabel()
-    private var onToggle: ((String) -> Void)?
-    private var categoryKey = ""
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.backgroundColor = .clear
-
-        chevronView.translatesAutoresizingMaskIntoConstraints = false
-        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        chevronView.contentMode = .scaleAspectFit
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 14, weight: .bold)
-        titleLabel.textColor = UIColor.theme.textStrong
-
-        contentView.addSubview(titleLabel)
-        contentView.addSubview(chevronView)
-
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 4),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevronView.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 6),
-            chevronView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevronView.widthAnchor.constraint(equalToConstant: 14),
-            chevronView.heightAnchor.constraint(equalToConstant: 14),
-        ])
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-        contentView.addGestureRecognizer(tap)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(key: String, title: String, collapsed: Bool, onToggle: @escaping (String) -> Void) {
-        categoryKey = key
-        self.onToggle = onToggle
-        titleLabel.text = title
+    init(title: String, collapsed: Bool) {
+        super.init()
+        automaticallyManagesSubnodes = true
         let t = UIColor.theme
-        titleLabel.textColor = t.textStrong
-        chevronView.tintColor = t.textStrong
+        titleNode.attributedText = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14, weight: .bold),
+                .foregroundColor: t.textStrong,
+            ]
+        )
         let chevronName = collapsed ? "chevron.right" : "chevron.down"
-        chevronView.image = UIImage(systemName: chevronName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        chevronNode.image = UIImage(systemName: chevronName, withConfiguration: cfg)?
+            .withRenderingMode(.alwaysTemplate)
+        chevronNode.contentMode = .scaleAspectFit
+        chevronNode.tintColor = t.textStrong
+        chevronNode.style.preferredSize = CGSize(width: 14, height: 14)
     }
 
-    @objc private func tapped() { onToggle?(categoryKey) }
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let stack = ASStackLayoutSpec.horizontal()
+        stack.spacing = 6
+        stack.alignItems = .center
+        stack.children = [titleNode, chevronNode]
+        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 4), child: stack)
+    }
 }
 
 
-private final class EmojiCell: UICollectionViewCell {
-    static let reuseId = "EmojiCell"
+private final class AnimatedImageNode: ASDisplayNode {
+    private var pendingImage: UIImage?
 
-    private let emojiImageView: UIImageView = {
-        let iv = UIImageView()
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.contentMode = .scaleAspectFit
-        return iv
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        contentView.addSubview(emojiImageView)
-        NSLayoutConstraint.activate([
-            emojiImageView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            emojiImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            emojiImageView.widthAnchor.constraint(equalToConstant: 32),
-            emojiImageView.heightAnchor.constraint(equalToConstant: 32),
-        ])
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(emoji: CachedClanEmojiRecord, panel: EmojisPanel) {
-        emojiImageView.image = nil
-        if emoji.isForSale && emoji.src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            contentView.alpha = 0.45
-        } else {
-            contentView.alpha = 1
+    override init() {
+        super.init()
+        setViewBlock {
+            let iv = UIImageView()
+            iv.contentMode = .scaleAspectFit
+            iv.isUserInteractionEnabled = false
+            return iv
         }
-        panel.loadEmojiImage(for: emoji, into: emojiImageView)
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        emojiImageView.image = nil
-        contentView.alpha = 1
+    var image: UIImage? {
+        get { (view as? UIImageView)?.image }
+        set {
+            if isNodeLoaded, let iv = view as? UIImageView {
+                iv.image = newValue
+                pendingImage = nil
+            } else {
+                pendingImage = newValue
+            }
+        }
     }
 
+    override func didLoad() {
+        super.didLoad()
+        if let p = pendingImage, let iv = view as? UIImageView {
+            iv.image = p
+            pendingImage = nil
+        }
+    }
+}
 
+
+private final class EmojiCellNode: ASCellNode {
+    private let imageNode = AnimatedImageNode()
+    private let emoji: CachedClanEmojiRecord
+    private var imageTask: URLSessionDataTask?
+    private let isPlaceholder: Bool
+
+    init(emoji: CachedClanEmojiRecord) {
+        self.emoji = emoji
+        self.isPlaceholder = emoji.isForSale && emoji.src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        super.init()
+        automaticallyManagesSubnodes = true
+        imageNode.style.preferredSize = CGSize(width: 32, height: 32)
+        if isPlaceholder { alpha = 0.45 }
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: imageNode)
+    }
+
+    override func didEnterPreloadState() {
+        super.didEnterPreloadState()
+        loadImage()
+    }
+
+    override func didExitPreloadState() {
+        super.didExitPreloadState()
+        imageTask?.cancel()
+        imageTask = nil
+    }
+
+    private func loadImage() {
+        guard imageNode.image == nil, let url = EmojisPanel.emojiImageURL(for: emoji) else {
+            dbg("EmojiCellNode loadImage skip id=\(emoji.id) urlNil=\(EmojisPanel.emojiImageURL(for: emoji) == nil)")
+            return
+        }
+        let key = url.absoluteString
+        if let mem = ImageCache.shared.memoryImage(forKey: key) {
+            imageNode.image = mem
+            return
+        }
+        if !NetworkMonitor.shared.isConnected {
+            return
+        }
+        imageTask?.cancel()
+        imageTask = ReactionEmojiImageLoader.load(from: url) { [weak self] img in
+            guard let self else { return }
+            if let img {
+                self.imageNode.image = img
+            } else if NetworkMonitor.shared.isConnected {
+                dbg("EmojiCellNode load failed id=\(self.emoji.id) url=\(url.absoluteString)")
+            }
+        }
+    }
+}
+
+
+private final class EmojiPadCellNode: ASCellNode {
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = true
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        ASLayoutSpec()
+    }
 }
 
 

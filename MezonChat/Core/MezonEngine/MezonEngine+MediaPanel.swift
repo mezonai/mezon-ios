@@ -1,4 +1,44 @@
 import Foundation
+import UIKit
+
+private enum MediaPanelEmojiImagePrefetch {
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 4
+        config.timeoutIntervalForRequest = 20
+        return URLSession(configuration: config)
+    }()
+
+    private static let semaphore = DispatchSemaphore(value: 4)
+
+    static func start(for emojis: [CachedClanEmojiRecord]) {
+        let imgproxySide = 32
+        let urls: [URL] = emojis.compactMap { emoji in
+            let trimmedSrc = emoji.src.trimmingCharacters(in: .whitespacesAndNewlines)
+            if emoji.isForSale && trimmedSrc.isEmpty { return nil }
+            return MezonConfig.emojiResourceURL(emojiId: "\(emoji.id)", imgproxyFitSide: imgproxySide)
+        }
+        guard !urls.isEmpty else { return }
+
+        DispatchQueue.global(qos: .utility).async {
+            for url in urls {
+                let key = url.absoluteString
+                if ImageCache.shared.hasDiskCache(forKey: key) { continue }
+                if !NetworkMonitor.shared.isConnected { return }
+
+                Self.semaphore.wait()
+                let task = Self.session.dataTask(with: url) { data, _, _ in
+                    defer { Self.semaphore.signal() }
+                    guard let data,
+                          let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+                    else { return }
+                    ImageCache.shared.setImage(image, data: data, forKey: key)
+                }
+                task.resume()
+            }
+        }
+    }
+}
 
 extension MezonEngine {
 
@@ -12,6 +52,10 @@ extension MezonEngine {
                 do {
                     let res = try await network.getListEmojisByUserId(token: token)
                     let rows = res.emojiList.map { $0.toCachedRecord() }
+                    if rows.isEmpty {
+                        let existing = postbox.getSetting(key: MediaPanelPostboxKeys.emojiListByUser, type: MediaPanelEmojiListCache.self)
+                        if let existing, !existing.emojis.isEmpty { return }
+                    }
                     let cache = MediaPanelEmojiListCache(fetchedAt: now, emojis: rows)
                     postbox.setSetting(key: MediaPanelPostboxKeys.emojiListByUser, value: cache)
                     DispatchQueue.main.async {
@@ -21,6 +65,7 @@ extension MezonEngine {
                             userInfo: nil
                         )
                     }
+                    MediaPanelEmojiImagePrefetch.start(for: rows)
                 } catch {
                 }
             }
@@ -28,8 +73,19 @@ extension MezonEngine {
                 do {
                     let res = try await network.getListStickersByUserId(token: token)
                     let rows = res.stickers.map { $0.toCachedRecord() }
+                    if rows.isEmpty {
+                        let existing = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self)
+                        if let existing, !existing.stickers.isEmpty { return }
+                    }
                     let cache = MediaPanelStickerListCache(fetchedAt: now, stickers: rows)
                     postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("MezonStickerListDidUpdate"),
+                            object: nil,
+                            userInfo: nil
+                        )
+                    }
                 } catch {
                 }
             }

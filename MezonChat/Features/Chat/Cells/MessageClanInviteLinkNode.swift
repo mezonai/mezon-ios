@@ -5,7 +5,9 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
     private let containerNode = ASDisplayNode()
     private let loadingNode = ASDisplayNode()
-    private let avatarNode = ASNetworkImageNode()
+    private let avatarContainerNode = ASDisplayNode()
+    private let avatarImageNode = ASNetworkImageNode()
+    private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
     private let memberDotNode = ASDisplayNode()
     private let memberNode = ASTextNode2()
@@ -18,12 +20,23 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
     private var loadFailed = false
 
     private static let horizontalInset: CGFloat = 12
-    private static let verticalInset: CGFloat = 12
+    private static let verticalInset: CGFloat = 10
     private static let avatarSide: CGFloat = 48
     private static let memberDotSize: CGFloat = 8
-    private static let buttonHeight: CGFloat = 44
+    private static let buttonHeight: CGFloat = 36
+    private static let maxCardWidth: CGFloat = 264
+    private static let primaryButtonColor = UIColor(hex: 0x5e65de)
 
-    static let preferredHeight: CGFloat = 200
+    static let preferredHeight: CGFloat = 186
+
+    private static func clanLogoURL(_ raw: String) -> URL? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        if t.hasPrefix("//"), let u = URL(string: "https:\(t)") { return u }
+        if let u = URL(string: t), u.scheme != nil { return u }
+        if !t.contains("://"), let u = URL(string: "https://\(t)") { return u }
+        return URLComponents(string: t)?.url
+    }
 
     init(inviteCode: String, interaction: ChatInteraction) {
         self.inviteCode = inviteCode
@@ -45,17 +58,25 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
             return v
         }
 
-        avatarNode.cornerRadius = 10
-        avatarNode.clipsToBounds = true
-        avatarNode.backgroundColor = t.bgInfor
+        avatarContainerNode.cornerRadius = 10
+        avatarContainerNode.clipsToBounds = true
+        avatarContainerNode.borderWidth = 1
+        avatarContainerNode.borderColor = t.border.withAlphaComponent(0.35).cgColor
+
+        avatarImageNode.cornerRadius = 10
+        avatarImageNode.clipsToBounds = true
+        avatarImageNode.contentMode = .scaleAspectFill
+        avatarImageNode.backgroundColor = .clear
+
+        avatarPlaceholderNode.maximumNumberOfLines = 1
 
         nameNode.maximumNumberOfLines = 1
         memberNode.maximumNumberOfLines = 1
 
-        memberDotNode.backgroundColor = UIColor.mezonSuccess
+        memberDotNode.backgroundColor = UIColor(hex: 0x34C759)
         memberDotNode.cornerRadius = Self.memberDotSize / 2
 
-        actionButton.cornerRadius = 22
+        actionButton.cornerRadius = Self.buttonHeight / 2
         actionButton.addTarget(self, action: #selector(actionTapped), forControlEvents: .touchUpInside)
 
         errorNode.maximumNumberOfLines = 3
@@ -63,7 +84,9 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
         addSubnode(containerNode)
         containerNode.addSubnode(loadingNode)
-        containerNode.addSubnode(avatarNode)
+        containerNode.addSubnode(avatarContainerNode)
+        avatarContainerNode.addSubnode(avatarImageNode)
+        avatarContainerNode.addSubnode(avatarPlaceholderNode)
         containerNode.addSubnode(nameNode)
         containerNode.addSubnode(memberDotNode)
         containerNode.addSubnode(memberNode)
@@ -103,7 +126,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
     private func applyLoadingUI() {
         loadingNode.isHidden = false
-        avatarNode.isHidden = true
+        avatarContainerNode.isHidden = true
         nameNode.isHidden = true
         memberDotNode.isHidden = true
         memberNode.isHidden = true
@@ -113,7 +136,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
     private func applyLoadedUI(_ info: ClanInviteInfo) {
         loadingNode.isHidden = true
-        avatarNode.isHidden = false
+        avatarContainerNode.isHidden = false
         nameNode.isHidden = false
         memberDotNode.isHidden = false
         memberNode.isHidden = false
@@ -121,13 +144,29 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
         actionButton.isHidden = false
 
         let t = UIColor.theme
-        if let logo = info.clan_logo, !logo.isEmpty {
-            avatarNode.url = URL(string: ImgproxyURL.create(from: logo, width: 96, height: 96))
+        let clanName = (info.clan_name?.isEmpty == false) ? (info.clan_name ?? "") : "Clan"
+        let initialSource = clanName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initial = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
+        avatarPlaceholderNode.attributedText = NSAttributedString(
+            string: initial,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 18.sf, weight: .semibold),
+                .foregroundColor: UIColor.white,
+            ]
+        )
+        if let logo = info.clan_logo?.trimmingCharacters(in: .whitespacesAndNewlines), !logo.isEmpty,
+           let url = Self.clanLogoURL(logo) {
+            avatarImageNode.url = url
+            avatarImageNode.isHidden = false
+            avatarPlaceholderNode.isHidden = true
+            avatarContainerNode.backgroundColor = .clear
         } else {
-            avatarNode.url = nil
+            avatarImageNode.url = nil
+            avatarImageNode.isHidden = true
+            avatarPlaceholderNode.isHidden = false
+            avatarContainerNode.backgroundColor = .colorAvatarDefault
         }
 
-        let clanName = (info.clan_name?.isEmpty == false) ? (info.clan_name ?? "") : "Clan"
         nameNode.attributedText = NSAttributedString(string: clanName, attributes: [
             .font: UIFont.systemFont(ofSize: 16.sf, weight: .bold),
             .foregroundColor: t.textStrong,
@@ -142,10 +181,10 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
         let isJoined = info.user_joined == true
         let title = isJoined ? L(L10n.QRScanner.goToClan) : L(L10n.QRScanner.joinClan)
-        actionButton.backgroundColor = UIColor.mezonSuccess
+        actionButton.backgroundColor = Self.primaryButtonColor
         actionButton.setTitle(
             title,
-            with: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
+            with: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
             with: .white,
             for: .normal
         )
@@ -154,7 +193,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
     private func applyFailedUI() {
         loadingNode.isHidden = true
-        avatarNode.isHidden = true
+        avatarContainerNode.isHidden = true
         nameNode.isHidden = true
         memberDotNode.isHidden = true
         memberNode.isHidden = true
@@ -169,10 +208,10 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
                 .foregroundColor: t.textDisabled,
             ]
         )
-        actionButton.backgroundColor = UIColor.mezonSuccess
+        actionButton.backgroundColor = Self.primaryButtonColor
         actionButton.setTitle(
             L(L10n.Common.refresh),
-            with: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
+            with: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
             with: .white,
             for: .normal
         )
@@ -183,20 +222,21 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
         super.layout()
         let w = bounds.width
         let h = bounds.height
-        containerNode.frame = bounds
+        let cardW = min(Self.maxCardWidth, max(w, 1))
+        containerNode.frame = CGRect(x: 0, y: 0, width: cardW, height: h)
         let inset = Self.horizontalInset
-        let innerW = max(w - inset * 2, 1)
+        let innerW = max(cardW - inset * 2, 1)
         let btnH = Self.buttonHeight
 
         if !loadingNode.isHidden && loadedInfo == nil && !loadFailed {
             let spinS: CGFloat = 32
-            loadingNode.frame = CGRect(x: (w - spinS) / 2, y: (h - spinS) / 2, width: spinS, height: spinS)
+            loadingNode.frame = CGRect(x: (cardW - spinS) / 2, y: (h - spinS) / 2, width: spinS, height: spinS)
             return
         }
 
         if loadFailed {
             let errH = errorNode.measure(CGSize(width: innerW, height: .greatestFiniteMagnitude)).height
-            let topY = inset + 8
+            let topY = inset + 6
             errorNode.frame = CGRect(x: inset, y: topY, width: innerW, height: errH)
             actionButton.frame = CGRect(x: inset, y: h - inset - btnH, width: innerW, height: btnH)
             return
@@ -205,7 +245,15 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
         guard loadedInfo != nil else { return }
 
         var y = inset
-        avatarNode.frame = CGRect(x: inset, y: y, width: Self.avatarSide, height: Self.avatarSide)
+        avatarContainerNode.frame = CGRect(x: inset, y: y, width: Self.avatarSide, height: Self.avatarSide)
+        avatarImageNode.frame = CGRect(x: 0, y: 0, width: Self.avatarSide, height: Self.avatarSide)
+        let phSize = avatarPlaceholderNode.measure(CGSize(width: Self.avatarSide, height: Self.avatarSide))
+        avatarPlaceholderNode.frame = CGRect(
+            x: (Self.avatarSide - phSize.width) / 2,
+            y: (Self.avatarSide - phSize.height) / 2,
+            width: phSize.width,
+            height: phSize.height
+        )
         y += Self.avatarSide + 8
 
         let nameH = nameNode.measure(CGSize(width: innerW, height: 30)).height

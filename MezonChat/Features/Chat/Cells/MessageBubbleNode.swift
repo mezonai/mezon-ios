@@ -285,6 +285,9 @@ final class MessageBubbleNode: ASDisplayNode {
         if hasEmbeds {
             let en = MessageEmbedNode()
             en.configure(embeds: parsed.embeds)
+            en.onEmbedImageTapped = { [weak self] url in
+                self?.handleEmbedImageTap(url: url)
+            }
             embedNode = en
             addSubnode(en)
         }
@@ -629,10 +632,20 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
+        let isMultiple = media.count > 1
         let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
-            GalleryItemInfo(
+            let placeholderURL: String? = att.isVideo
+                ? nil
+                : ImgproxyURL.attachmentURL(
+                    from: att.url,
+                    width: 400,
+                    height: 400,
+                    resizeType: isMultiple ? "fill" : "fit"
+                )
+            return GalleryItemInfo(
                 url: att.url,
                 image: nil,
+                placeholderURL: placeholderURL,
                 senderName: display.senderDisplayName,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
@@ -640,6 +653,29 @@ final class MessageBubbleNode: ASDisplayNode {
             )
         }
         let gallery = GalleryController(items: galleryItems, initialIndex: index)
+        if let vc = findViewController() {
+            vc.present(gallery, animated: true)
+        }
+    }
+
+    private func handleEmbedImageTap(url: String) {
+        let placeholderURL = ImgproxyURL.attachmentURL(
+            from: url,
+            width: EmbedItemNode.embedImageProxyDimension,
+            height: EmbedItemNode.embedImageProxyDimension
+        )
+        let galleryItems: [GalleryItemInfo] = [
+            GalleryItemInfo(
+                url: url,
+                image: nil,
+                placeholderURL: placeholderURL,
+                senderName: display.senderDisplayName,
+                senderAvatarURL: display.avatarURL,
+                timestamp: display.message.createdAt,
+                isVideo: false
+            ),
+        ]
+        let gallery = GalleryController(items: galleryItems, initialIndex: 0)
         if let vc = findViewController() {
             vc.present(gallery, animated: true)
         }

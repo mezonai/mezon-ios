@@ -44,14 +44,22 @@ extension MezonEngine {
         private func fetchClanUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listClanUsers(clanId: clanId, token: token)
-                
+
+                if response.clanUsers.isEmpty {
+                    let cachedNonEmpty = !postbox.read({ tx in tx.getClanMembers(clanId: clanId) }).isEmpty
+                        || (postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId))?.isEmpty == false)
+                    if cachedNonEmpty {
+                        return
+                    }
+                }
+
                 let members = response.clanUsers.map { ClanMemberRecord(from: $0) }
-                
+
                 postbox.write { tx in
                     for clanUser in response.clanUsers {
                         tx.updateProfile(ProfileRecord(from: clanUser))
                     }
-                    
+
                     tx.updateClanMembers(members, clanId: clanId)
                 }
                 if let data = try? response.serializedData() {

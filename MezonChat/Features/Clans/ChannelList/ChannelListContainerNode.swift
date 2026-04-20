@@ -116,7 +116,9 @@ final class ChannelListContainerNode: ASDisplayNode {
 
                 if !newState.isLoading,
                    let selectedId = newState.selectedChannelId,
-                   selectedId != prevState.selectedChannelId {
+                   selectedId != prevState.selectedChannelId,
+                   let catIdx = self.firstCategoryIndexContainingListChannel(selectedId),
+                   self.state.categories[catIdx].id != ChannelCategory.favoritesCategoryId {
                     self.scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
                 }
                 self.refreshNewUnreadButton()
@@ -447,20 +449,32 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.commit()
     }
 
-    private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
-        let sectionOffset = hasChannelAppsSection ? 1 : 0
+    private func firstCategoryIndexContainingListChannel(_ channelId: Int64) -> Int? {
         for s in 0..<state.categories.count {
             let rows = rowsForSection(s)
-            if let r = rows.firstIndex(where: { row in
+            if rows.contains(where: { row in
                 switch row {
                 case .voiceMembersCollapsed, .voiceMemberExpanded: return false
                 default: return row.channelDesc.channelID == channelId
                 }
             }) {
-                return IndexPath(row: r, section: s + sectionOffset)
+                return s
             }
         }
         return nil
+    }
+
+    private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
+        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        guard let s = firstCategoryIndexContainingListChannel(channelId) else { return nil }
+        let rows = rowsForSection(s)
+        guard let r = rows.firstIndex(where: { row in
+            switch row {
+            case .voiceMembersCollapsed, .voiceMemberExpanded: return false
+            default: return row.channelDesc.channelID == channelId
+            }
+        }) else { return nil }
+        return IndexPath(row: r, section: s + sectionOffset)
     }
 
     private func rowHasNumericUnreadBadge(_ row: ChannelListRow) -> Bool {

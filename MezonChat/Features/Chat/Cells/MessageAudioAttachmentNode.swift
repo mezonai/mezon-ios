@@ -7,6 +7,7 @@ final class MessageAudioAttachmentNode: ASDisplayNode {
     private var attachments: [ParsedAttachment] = []
     private var messageId: String = ""
     private var playerViews: [MessageAudioPlayerView] = []
+    private var pendingConfigureKey: String?
 
     static let rowHeight: CGFloat = 48
     private static let rowSpacing: CGFloat = 6
@@ -15,9 +16,13 @@ final class MessageAudioAttachmentNode: ASDisplayNode {
     override init() {
         super.init()
         automaticallyManagesSubnodes = false
+        isOpaque = false
     }
 
     func configure(audio: [ParsedAttachment], messageId: String) {
+        let key = "\(messageId)#\(audio.count)#\(audio.first?.url ?? "")"
+        if pendingConfigureKey == key { return }
+        pendingConfigureKey = key
         attachments = audio
         self.messageId = messageId
         if isNodeLoaded {
@@ -53,8 +58,9 @@ final class MessageAudioAttachmentNode: ASDisplayNode {
     override func layout() {
         super.layout()
         var y: CGFloat = 0
+        let w = bounds.width
         for v in playerViews {
-            v.frame = CGRect(x: 0, y: y, width: bounds.width, height: Self.rowHeight)
+            v.frame = CGRect(x: 0, y: y, width: w, height: Self.rowHeight)
             y += Self.rowHeight + Self.rowSpacing
         }
     }
@@ -66,7 +72,7 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
     private let playbackId: String
 
     private let bubble = UIView()
-    private let playButton = UIButton(type: .system)
+    private let playIconView = UIImageView()
     private let waveContainer = UIView()
     private var barViews: [UIView] = []
     private let barHeights: [CGFloat]
@@ -81,7 +87,25 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
     private var lastProgressFraction: CGFloat = 0
 
     private static let barCount = 10
+    private static let barWidth: CGFloat = 3
+    private static let barSpacing: CGFloat = 2
+    private static let buttonSize: CGFloat = 36
+    private static let timeLabelMinWidth: CGFloat = 50
+    private static let waveHeight: CGFloat = 24
+
     private static let probedDurationCache = NSCache<NSString, NSNumber>()
+    private static let durationProbeQueue = DispatchQueue(
+        label: "mezon.audio.duration.probe",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
+    private static let playSymbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+    private static let playIcon: UIImage? = UIImage(systemName: "play.fill", withConfiguration: playSymbolConfig)?
+        .withRenderingMode(.alwaysTemplate)
+    private static let pauseIcon: UIImage? = UIImage(systemName: "pause.fill", withConfiguration: playSymbolConfig)?
+        .withRenderingMode(.alwaysTemplate)
+
     private var themeObserver: NSObjectProtocol?
 
     init(attachment: ParsedAttachment, playbackId: String) {
@@ -114,34 +138,31 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
     }
 
     private func setup() {
-        bubble.translatesAutoresizingMaskIntoConstraints = false
         bubble.layer.cornerRadius = 22
-        bubble.clipsToBounds = true
+        bubble.layer.cornerCurve = .continuous
+        bubble.isUserInteractionEnabled = false
         addSubview(bubble)
 
-        playButton.translatesAutoresizingMaskIntoConstraints = false
-        playButton.layer.cornerRadius = 18
-        playButton.clipsToBounds = true
-        let playCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        playButton.setImage(UIImage(systemName: "play.fill", withConfiguration: playCfg), for: .normal)
-        playButton.isUserInteractionEnabled = false
-        bubble.addSubview(playButton)
+        playIconView.image = Self.playIcon
+        playIconView.contentMode = .center
+        playIconView.layer.cornerRadius = Self.buttonSize / 2
+        playIconView.layer.cornerCurve = .continuous
+        playIconView.clipsToBounds = true
+        playIconView.isUserInteractionEnabled = false
+        bubble.addSubview(playIconView)
 
-        waveContainer.translatesAutoresizingMaskIntoConstraints = false
-        waveContainer.clipsToBounds = true
+        waveContainer.isUserInteractionEnabled = false
         bubble.addSubview(waveContainer)
 
-        timeLabel.translatesAutoresizingMaskIntoConstraints = false
         timeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         timeLabel.textAlignment = .right
+        timeLabel.isUserInteractionEnabled = false
         bubble.addSubview(timeLabel)
 
-        let barW: CGFloat = 3
+        let barW = Self.barWidth
         for _ in barHeights {
             let b = UIView()
-            b.backgroundColor = .clear
             b.layer.cornerRadius = barW / 2
-            b.clipsToBounds = true
             waveContainer.addSubview(b)
             barViews.append(b)
         }
@@ -149,30 +170,10 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
         let bubbleTap = UITapGestureRecognizer(target: self, action: #selector(bubbleTapped))
         bubbleTap.cancelsTouchesInView = true
         bubble.addGestureRecognizer(bubbleTap)
+        bubble.isUserInteractionEnabled = true
         bubble.isAccessibilityElement = true
         bubble.accessibilityTraits = .button
         bubble.accessibilityLabel = L(L10n.ChannelMessages.voiceMessageA11y)
-
-        NSLayoutConstraint.activate([
-            bubble.leadingAnchor.constraint(equalTo: leadingAnchor),
-            bubble.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bubble.topAnchor.constraint(equalTo: topAnchor),
-            bubble.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            playButton.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 8),
-            playButton.centerYAnchor.constraint(equalTo: bubble.centerYAnchor),
-            playButton.widthAnchor.constraint(equalToConstant: 36),
-            playButton.heightAnchor.constraint(equalToConstant: 36),
-
-            timeLabel.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -12),
-            timeLabel.centerYAnchor.constraint(equalTo: bubble.centerYAnchor),
-            timeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
-
-            waveContainer.leadingAnchor.constraint(equalTo: playButton.trailingAnchor, constant: 10),
-            waveContainer.trailingAnchor.constraint(equalTo: timeLabel.leadingAnchor, constant: -10),
-            waveContainer.centerYAnchor.constraint(equalTo: bubble.centerYAnchor),
-            waveContainer.heightAnchor.constraint(equalToConstant: 24),
-        ])
 
         refreshTimeLabel()
         applyTheme()
@@ -191,19 +192,21 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
             refreshTimeLabel()
             return
         }
-        guard let url = ChatAudioPlaybackCoordinator.resolvePlaybackURL(from: attachment.url) else { return }
-        let asset = AVURLAsset(url: url)
-        asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
-            guard let self else { return }
-            var err: NSError?
-            guard asset.statusOfValue(forKey: "duration", error: &err) == .loaded else { return }
-            let sec = CMTimeGetSeconds(asset.duration)
-            guard sec.isFinite, sec > 0 else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.resolvedAssetDuration = sec
+        let urlStr = attachment.url
+        Self.durationProbeQueue.async { [weak self] in
+            guard let url = ChatAudioPlaybackCoordinator.resolvePlaybackURL(from: urlStr) else { return }
+            let asset = AVURLAsset(url: url)
+            asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
+                var err: NSError?
+                guard asset.statusOfValue(forKey: "duration", error: &err) == .loaded else { return }
+                let sec = CMTimeGetSeconds(asset.duration)
+                guard sec.isFinite, sec > 0 else { return }
                 Self.probedDurationCache.setObject(NSNumber(value: sec), forKey: key)
-                self.refreshTimeLabel()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.resolvedAssetDuration = sec
+                    self.refreshTimeLabel()
+                }
             }
         }
     }
@@ -215,20 +218,49 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        let b = bounds
+        guard b.width > 0, b.height > 0 else { return }
+
+        bubble.frame = b
+
+        let buttonSize = Self.buttonSize
+        let buttonY = (b.height - buttonSize) / 2
+        playIconView.frame = CGRect(x: 8, y: buttonY, width: buttonSize, height: buttonSize)
+
+        let timeWidth = Self.timeLabelMinWidth
+        timeLabel.frame = CGRect(
+            x: b.width - 12 - timeWidth,
+            y: 0,
+            width: timeWidth,
+            height: b.height
+        )
+
+        let waveX = playIconView.frame.maxX + 10
+        let waveMaxX = timeLabel.frame.minX - 10
+        let waveW = max(0, waveMaxX - waveX)
+        let waveH = Self.waveHeight
+        waveContainer.frame = CGRect(
+            x: waveX,
+            y: (b.height - waveH) / 2,
+            width: waveW,
+            height: waveH
+        )
+
         layoutWaveBars()
     }
 
     private func layoutWaveBars() {
-        let spacing: CGFloat = 2
-        let barW: CGFloat = 3
+        let spacing = Self.barSpacing
+        let barW = Self.barWidth
         let w = waveContainer.bounds.width
         let hC = waveContainer.bounds.height
         guard w > 1, hC > 1, !barViews.isEmpty else { return }
         let totalW = CGFloat(barViews.count) * barW + CGFloat(max(0, barViews.count - 1)) * spacing
         var x = max(0, (w - totalW) / 2)
+        let usableHeight = hC - 4
         for (i, b) in barViews.enumerated() {
             let norm = i < barHeights.count ? barHeights[i] : 0.5
-            let barH = max(4, min(hC - 2, (hC - 4) * norm))
+            let barH = max(4, min(hC - 2, usableHeight * norm))
             b.frame = CGRect(x: x, y: hC - barH, width: barW, height: barH)
             x += barW + spacing
         }
@@ -238,10 +270,10 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
         let t = UIColor.theme
         bubble.backgroundColor = t.secondaryWeight
         timeLabel.textColor = t.textStrong
-        playButton.backgroundColor = t.bgViolet
-        playButton.tintColor = .white
+        playIconView.backgroundColor = t.bgViolet
+        playIconView.tintColor = .white
         let barColor = t.textDisabled.withAlphaComponent(0.55)
-        barViews.forEach { $0.backgroundColor = barColor }
+        for b in barViews { b.backgroundColor = barColor }
     }
 
     @objc private func bubbleTapped() {
@@ -267,7 +299,10 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.lastProgressFraction = fraction
-            self.isPlayingUI = playing
+            if self.isPlayingUI != playing {
+                self.isPlayingUI = playing
+                self.syncPlayIcon()
+            }
             if duration > 0 {
                 self.lockedDisplayTotalSeconds = max(self.lockedDisplayTotalSeconds, Int(ceil(duration)))
             }
@@ -275,15 +310,12 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
                 self.didCaptureDurationFromPlayer = true
                 self.fallbackTotalFromPlayer = duration
             }
-            self.syncPlayIcon()
             self.refreshTimeLabel()
         }
     }
 
     private func syncPlayIcon() {
-        let cfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        let name = isPlayingUI ? "pause.fill" : "play.fill"
-        playButton.setImage(UIImage(systemName: name, withConfiguration: cfg), for: .normal)
+        playIconView.image = isPlayingUI ? Self.pauseIcon : Self.playIcon
     }
 
     private func refreshTimeLabel() {

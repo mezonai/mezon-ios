@@ -31,7 +31,15 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     var toggleOverlayVisibility: (() -> Void)?
 
-    init(url: URL, posterURL: String) {
+    convenience init(url: URL, posterURL: String) {
+        let asset = AVURLAsset(url: url, options: [
+            AVURLAssetPreferPreciseDurationAndTimingKey: false
+        ])
+        let item = AVPlayerItem(asset: asset, automaticallyLoadedAssetKeys: ["playable", "tracks"])
+        self.init(playerItem: item, posterURL: posterURL)
+    }
+
+    init(playerItem: AVPlayerItem, posterURL: String) {
 
         self.playerNode = ASDisplayNode { () -> CALayer in
             let layer = AVPlayerLayer()
@@ -108,7 +116,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         updatePlayPauseIcons(isPlaying: false)
 
 
-        setupPlayer(url: url)
+        setupPlayer(playerItem: playerItem)
 
 
         posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit))
@@ -137,9 +145,13 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private var statusObserver: NSKeyValueObservation?
 
-    private func setupPlayer(url: URL) {
-        let playerItem = AVPlayerItem(url: url)
+    private func setupPlayer(playerItem: AVPlayerItem) {
+        playerItem.preferredForwardBufferDuration = 2
+        if #available(iOS 14.5, *) {
+            playerItem.startsOnFirstEligibleVariant = true
+        }
         let avPlayer = AVPlayer(playerItem: playerItem)
+        avPlayer.automaticallyWaitsToMinimizeStalling = false
         self.player = avPlayer
 
         if let layer = playerNode.layer as? AVPlayerLayer {

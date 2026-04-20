@@ -12,6 +12,8 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     func configure(info: GalleryItemInfo) {
         guard let url = URL(string: info.url) else { return }
+        playerNode?.removeFromSupernode()
+        playerNode = nil
         let node = MezonVideoPlayerNode(url: url, posterURL: info.url)
         node.toggleOverlayVisibility = { [weak self] in
             self?.toggleControlsVisibility()

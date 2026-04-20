@@ -354,6 +354,14 @@ final class MezonRootController: NavigationController {
             guard let self, let token = await self.context.getToken() else { return }
             do {
                 let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
+                let hadCache = (self.context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))?.isEmpty == false)
+                if channels.isEmpty && hadCache {
+                    if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId,
+                       let selectChannelId {
+                        homeVC.channelListVC.selectWithoutNavigation(channelId: selectChannelId)
+                    }
+                    return
+                }
                 self.context.account.postbox.setPreferenceData(
                     key: PreferencesKeys.channelList(clanId: clanId),
                     value: self.encodeChannelList(channels)
