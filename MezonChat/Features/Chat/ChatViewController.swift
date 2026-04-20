@@ -140,12 +140,18 @@ struct ChatMessageDisplay: Identifiable {
     let isForward: Bool
     let showForwardHeader: Bool
     let messageCode: Int32
+    let clanInviteLinkCode: String?
     var isFailed: Bool { sendingState == .failed }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
     var isLocation: Bool { locationData != nil }
+
+    var isAnonymousSender: Bool {
+        senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare("Anonymous") == .orderedSame
+    }
 
     var isSystemMessage: Bool {
         let code = MezonConstants.MessageCode(rawValue: messageCode)
@@ -475,6 +481,57 @@ final class ChatViewController: ViewController {
             },
             onSwipeReply: { [weak self] display in
                 self?.sendInputViewController.setReply(display)
+            },
+            loadClanInviteInfo: { [weak self] code, completion in
+                guard let self else {
+                    completion(nil)
+                    return
+                }
+                let token = self.context.session?.token ?? ""
+                guard !token.isEmpty else {
+                    completion(nil)
+                    return
+                }
+                Task {
+                    do {
+                        let info = try await self.context.engine.clanData.getInviteInfo(code: code, token: token)
+                        await MainActor.run { completion(info) }
+                    } catch {
+                        await MainActor.run { completion(nil) }
+                    }
+                }
+            },
+            onClanInvitePrimaryAction: { [weak self] code, info in
+                guard let self else { return }
+                let token = self.context.session?.token ?? ""
+                guard !token.isEmpty else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    return
+                }
+                if info.user_joined == true, let cid = info.clan_id, !cid.isEmpty {
+                    NotificationCenter.default.post(
+                        name: .mezonQRSelectClan,
+                        object: nil,
+                        userInfo: ["clanId": cid]
+                    )
+                    return
+                }
+                Task {
+                    do {
+                        let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .mezonQRSelectClan,
+                                object: nil,
+                                userInfo: ["clanId": "\(response.clanID)"]
+                            )
+                        }
+                    } catch {
+                        await MainActor.run {
+                            Toast.error(error.localizedDescription)
+                        }
+                    }
+                }
             },
             onMessagesReloaded: nil
         )
@@ -1267,12 +1324,18 @@ final class ChatViewController: ViewController {
         )
     }
 
+    private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
+        let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)"
+    }
+
     func stateSignal() -> Signal<ChatState, NoError> {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
             var lastIds = self.messages.map { $0.id }
             var lastSendingStates = self.messages.map { $0.sendingState }
             var lastReactions = self.messages.map { $0.reactions }
+            var lastMessageTokens = self.messages.map { Self.messageUpdateToken($0) }
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
             var lastLoadingNewer = self.isLoadingNewer
@@ -1294,9 +1357,11 @@ final class ChatViewController: ViewController {
                     let newIds = newState.messages.map { $0.id }
                     let newSendingStates = newState.messages.map { $0.sendingState }
                     let newReactions = newState.messages.map { $0.reactions }
+                    let newMessageTokens = newState.messages.map { Self.messageUpdateToken($0) }
                 let changed = newIds != lastIds
                         || newSendingStates != lastSendingStates
                         || newReactions != lastReactions
+                        || newMessageTokens != lastMessageTokens
                         || newState.isLoading != lastLoading
                         || newState.isLoadingMore != lastLoadingMore
                         || newState.isLoadingNewer != lastLoadingNewer
@@ -1309,6 +1374,7 @@ final class ChatViewController: ViewController {
                     lastIds = newIds
                     lastSendingStates = newSendingStates
                     lastReactions = newReactions
+                    lastMessageTokens = newMessageTokens
                     lastLoading = newState.isLoading
                     lastLoadingMore = newState.isLoadingMore
                     lastLoadingNewer = newState.isLoadingNewer
@@ -1406,12 +1472,14 @@ final class ChatViewController: ViewController {
                 from: record.content, code: record.code,
                 avatarURL: record.senderAvatarURL, senderName: record.senderDisplayName, isMe: isMe
             )
+            let clanInviteLinkCode = ClanInviteLinkParser.firstInviteCode(in: content)
             return ChatMessageDisplay(
                 message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
-                isForward: isForward, showForwardHeader: false, messageCode: record.code
+                isForward: isForward, showForwardHeader: false, messageCode: record.code,
+                clanInviteLinkCode: clanInviteLinkCode
             )
         }
         return Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
@@ -1548,7 +1616,8 @@ final class ChatViewController: ViewController {
                 attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
                 topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
-                isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode
+                isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode,
+                clanInviteLinkCode: d.clanInviteLinkCode
             )
         }
     }
@@ -2859,11 +2928,10 @@ final class ChatViewController: ViewController {
         case .quickMenu:
             break
         case .editMessage:
-            break
+            sendInputViewController.setEditingMessage(display)
+            sendInputViewController.view.becomeFirstResponder()
         case .report:
-            break // TODO: implement report
-        case .editMessage:
-            break // TODO: implement edit
+            break
         }
     }
 

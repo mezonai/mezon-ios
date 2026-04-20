@@ -89,6 +89,9 @@ extension MessageRecord {
             return nil
         }()
         let channelId = api.topicID != 0 ? "topic-\(api.topicID)" : "\(api.channelID)"
+        let editedAt: Date? = api.updateTimeSeconds > api.createTimeSeconds
+            ? Date(timeIntervalSince1970: TimeInterval(api.updateTimeSeconds))
+            : nil
         self.init(
             id:                "\(api.messageID)",
             channelId:         channelId,
@@ -96,6 +99,7 @@ extension MessageRecord {
             senderId:          "\(api.senderID)",
             content:           contentData,
             createdAt:         createdAt,
+            editedAt:          editedAt,
             code:              api.code,
             senderDisplayName: displayName,
             senderAvatarURL:   avatarURL,
@@ -104,6 +108,32 @@ extension MessageRecord {
             reactionsJSON:     api.reactions,
             referencesData:    api.references,
             mentionsJSON:      api.mentions
+        )
+    }
+
+    static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?) -> MessageRecord {
+        let fresh = MessageRecord(from: api)
+        guard let prev = previous, prev.id == fresh.id else { return fresh }
+        let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+        return MessageRecord(
+            id: fresh.id,
+            channelId: fresh.channelId,
+            clanId: fresh.clanId,
+            senderId: fresh.senderId,
+            content: fresh.content,
+            createdAt: fresh.createdAt,
+            editedAt: fresh.editedAt,
+            isDeleted: fresh.isDeleted,
+            code: fresh.code,
+            senderDisplayName: prev.senderDisplayName,
+            senderAvatarURL: prev.senderAvatarURL ?? fresh.senderAvatarURL,
+            sendingState: fresh.sendingState,
+            attachmentsJSON: fresh.attachmentsJSON,
+            reactionsJSON: fresh.reactionsJSON,
+            referencesData: fresh.referencesData,
+            mentionsJSON: fresh.mentionsJSON
         )
     }
 

@@ -1,6 +1,7 @@
 import UIKit
 import AVFoundation
 import AVKit
+import MediaPlayer
 import AsyncDisplayKit
 import LiveKit
 
@@ -167,6 +168,95 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
             try session.overrideOutputAudioPort(.none)
         }
     } catch {
+    }
+}
+
+private final class VoiceHeaderSystemAudioRouteControl: UIView {
+    private let stateIconView = UIImageView()
+    private let volumeView = MPVolumeView()
+    private let hitProxy = UIButton(type: .custom)
+    private weak var routePickerButton: UIButton?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        stateIconView.translatesAutoresizingMaskIntoConstraints = false
+        stateIconView.contentMode = .scaleAspectFit
+        stateIconView.isUserInteractionEnabled = false
+
+        volumeView.showsVolumeSlider = false
+        volumeView.showsRouteButton = true
+        volumeView.backgroundColor = .clear
+        volumeView.isUserInteractionEnabled = false
+        volumeView.translatesAutoresizingMaskIntoConstraints = false
+
+        hitProxy.translatesAutoresizingMaskIntoConstraints = false
+        hitProxy.backgroundColor = .clear
+        hitProxy.accessibilityLabel = NSLocalizedString("voiceChannel.audioRouteTitle", tableName: nil, bundle: .main, value: "Audio output", comment: "")
+        hitProxy.addTarget(self, action: #selector(hitProxyTapped), for: .touchUpInside)
+
+        addSubview(stateIconView)
+        addSubview(volumeView)
+        addSubview(hitProxy)
+        NSLayoutConstraint.activate([
+            stateIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stateIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stateIconView.widthAnchor.constraint(equalToConstant: 22),
+            stateIconView.heightAnchor.constraint(equalToConstant: 22),
+            volumeView.topAnchor.constraint(equalTo: topAnchor),
+            volumeView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            volumeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            volumeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hitProxy.topAnchor.constraint(equalTo: topAnchor),
+            hitProxy.bottomAnchor.constraint(equalTo: bottomAnchor),
+            hitProxy.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hitProxy.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        isAccessibilityElement = false
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        DispatchQueue.main.async { [weak self] in
+            self?.stripSystemRouteButtonChrome()
+        }
+    }
+
+    private func stripSystemRouteButtonChrome() {
+        for sub in volumeView.subviews {
+            if let b = sub as? UIButton {
+                routePickerButton = b
+                b.isUserInteractionEnabled = false
+                b.alpha = 0
+                b.setImage(nil, for: .normal)
+                b.setImage(nil, for: .highlighted)
+                b.setImage(nil, for: .selected)
+                b.setBackgroundImage(nil, for: .normal)
+            }
+        }
+    }
+
+    @objc private func hitProxyTapped() {
+        routePickerButton?.sendActions(for: .touchUpInside)
+    }
+
+    func applyHeaderChrome(background: UIColor, border: UIColor) {
+        backgroundColor = background
+        layer.cornerRadius = 20
+        layer.borderWidth = 1
+        layer.borderColor = border.cgColor
+    }
+
+    func applyTint(_ color: UIColor) {
+        volumeView.tintColor = .clear
+        stateIconView.tintColor = color
+    }
+
+    func setRouteStateSymbol(systemName: String, pointSize: CGFloat, weight: UIImage.SymbolWeight) {
+        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+        stateIconView.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
     }
 }
 
@@ -1065,7 +1155,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private let collapseButton = UIButton(type: .custom)
     private let channelTitleLabel = UILabel()
     private let cameraSwitchButton = UIButton(type: .custom)
-    private let speakerButton = UIButton(type: .custom)
+    private let audioRouteControl = VoiceHeaderSystemAudioRouteControl()
     private let moreButton = UIButton(type: .custom)
     private var voiceMoreToolsHost: UIView?
     private weak var voiceReactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
@@ -1149,18 +1239,15 @@ final class VoiceChannelRoomViewController: ViewController {
         cameraSwitchButton.tintColor = UIColor.theme.white
         cameraSwitchButton.isHidden = true
         cameraSwitchButton.addTarget(self, action: #selector(switchCameraTapped), for: .touchUpInside)
-        styleHeaderCircleButton(speakerButton, systemImage: "speaker.wave.2.fill", pointSize: 16)
-        speakerButton.tintColor = UIColor.theme.white
-        speakerButton.addTarget(self, action: #selector(speakerTapped), for: .touchUpInside)
-        let speakerLongPress = UILongPressGestureRecognizer(target: self, action: #selector(speakerLongPressed(_:)))
-        speakerLongPress.minimumPressDuration = 0.45
-        speakerButton.addGestureRecognizer(speakerLongPress)
+        audioRouteControl.translatesAutoresizingMaskIntoConstraints = false
+        audioRouteControl.applyHeaderChrome(background: UIColor.theme.secondary, border: UIColor.theme.border)
+        audioRouteControl.applyTint(UIColor.theme.white)
         styleHeaderCircleButton(moreButton, systemImage: "ellipsis", pointSize: 18)
         moreButton.tintColor = UIColor.theme.white
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
 
         headerRight.addArrangedSubview(cameraSwitchButton)
-        headerRight.addArrangedSubview(speakerButton)
+        headerRight.addArrangedSubview(audioRouteControl)
         headerRight.addArrangedSubview(moreButton)
 
         headerBar.addSubview(headerLeft)
@@ -1254,8 +1341,8 @@ final class VoiceChannelRoomViewController: ViewController {
             collapseButton.heightAnchor.constraint(equalToConstant: 40),
             cameraSwitchButton.widthAnchor.constraint(equalToConstant: 40),
             cameraSwitchButton.heightAnchor.constraint(equalToConstant: 40),
-            speakerButton.widthAnchor.constraint(equalToConstant: 40),
-            speakerButton.heightAnchor.constraint(equalToConstant: 40),
+            audioRouteControl.widthAnchor.constraint(equalToConstant: 40),
+            audioRouteControl.heightAnchor.constraint(equalToConstant: 40),
             moreButton.widthAnchor.constraint(equalToConstant: 40),
             moreButton.heightAnchor.constraint(equalToConstant: 40),
 
@@ -1331,27 +1418,9 @@ final class VoiceChannelRoomViewController: ViewController {
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
-        ) { [weak self] notification in
+        ) { [weak self] _ in
             guard let self else { return }
-            if let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
-                .flatMap({ AVAudioSession.RouteChangeReason(rawValue: $0) }) {
-                switch reason {
-                case .newDeviceAvailable:
-                    if Self.audioRouteHasBluetooth(AVAudioSession.sharedInstance()) {
-                        self.currentAudioOutput = .bluetooth
-                        self.applyAudioRoute()
-                        return
-                    }
-                case .oldDeviceUnavailable:
-                    if self.currentAudioOutput == .bluetooth {
-                        self.currentAudioOutput = .earpiece
-                        self.applyAudioRoute()
-                        return
-                    }
-                default:
-                    break
-                }
-            }
+            self.syncCurrentAudioOutputFromSession()
             self.refreshSpeakerRouteUI()
         }
     }
@@ -2081,6 +2150,7 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private var isMinimizingToPiP = false
     private var isScreenShareExpandedPresented = false
+    private var screenShareExpandedSourceParticipantKey: String?
 
     private var isScreenShareDetailCoveringVoiceRoom: Bool {
         if isScreenShareExpandedPresented { return true }
@@ -2092,6 +2162,26 @@ final class VoiceChannelRoomViewController: ViewController {
 
     fileprivate func screenShareExpandedDidDismiss() {
         isScreenShareExpandedPresented = false
+    }
+
+    fileprivate func noteScreenShareExpandedSessionEnded() {
+        screenShareExpandedSourceParticipantKey = nil
+    }
+
+    private func participant(forSourceParticipantKey key: String, room: Room) -> Participant? {
+        if participantRowKey(room.localParticipant) == key { return room.localParticipant }
+        for r in room.remoteParticipants.values {
+            if participantRowKey(r) == key { return r }
+        }
+        return nil
+    }
+
+    private func dismissScreenShareExpandedIfSourceShareEnded() {
+        guard let key = screenShareExpandedSourceParticipantKey else { return }
+        guard let bridge = liveKitBridge, let room = bridge.room else { return }
+        let stillSharing = participant(forSourceParticipantKey: key, room: room)?.firstScreenShareVideoTrack != nil
+        guard !stillSharing else { return }
+        tearDownScreenSharePresentationAndPiP()
     }
 
     private func voiceRoomShouldTransferToPiPWhenDisappearing() -> Bool {
@@ -2203,8 +2293,8 @@ final class VoiceChannelRoomViewController: ViewController {
         collapseButton.layer.borderColor = UIColor.theme.border.cgColor
         cameraSwitchButton.backgroundColor = UIColor.theme.secondary
         cameraSwitchButton.layer.borderColor = UIColor.theme.border.cgColor
-        speakerButton.backgroundColor = UIColor.theme.secondary
-        speakerButton.layer.borderColor = UIColor.theme.border.cgColor
+        audioRouteControl.applyHeaderChrome(background: UIColor.theme.secondary, border: UIColor.theme.border)
+        audioRouteControl.applyTint(UIColor.theme.white)
         moreButton.backgroundColor = UIColor.theme.secondary
         moreButton.layer.borderColor = UIColor.theme.border.cgColor
         bottomPill.backgroundColor = UIColor.theme.secondary
@@ -2570,6 +2660,7 @@ final class VoiceChannelRoomViewController: ViewController {
             applyParticipantGridOrdering(orderedKeys: descriptors.map(\.rowKey))
             updateCallPiPContent(room: room)
         }
+        dismissScreenShareExpandedIfSourceShareEnded()
     }
 
     private func refreshParticipantRowsFromLiveKit() {
@@ -2621,6 +2712,7 @@ final class VoiceChannelRoomViewController: ViewController {
         }
         applyParticipantGridOrdering(orderedKeys: orderedKeys)
         updateCallPiPContent(room: room)
+        dismissScreenShareExpandedIfSourceShareEnded()
     }
 
     private func updateCallPiPContent(room: Room) {
@@ -2790,14 +2882,49 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private var currentAudioOutput: AudioOutputMode = .earpiece
 
-    private func detectInitialAudioRoute() {
+    private func ensureVoiceChannelAudioSessionCategory() {
         let session = AVAudioSession.sharedInstance()
-        if Self.audioRouteHasBluetooth(session) {
-            currentAudioOutput = .bluetooth
-        } else {
-            currentAudioOutput = .earpiece
+        do {
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+            try session.setActive(true)
+        } catch {
         }
-        applyAudioRoute()
+    }
+
+    private func syncCurrentAudioOutputFromSession() {
+        let session = AVAudioSession.sharedInstance()
+        guard let port = session.currentRoute.outputs.first?.portType else {
+            currentAudioOutput = .earpiece
+            AudioManager.shared.isSpeakerOutputPreferred = false
+            return
+        }
+        switch port {
+        case .builtInSpeaker:
+            currentAudioOutput = .speaker
+            AudioManager.shared.isSpeakerOutputPreferred = true
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+            currentAudioOutput = .bluetooth
+            AudioManager.shared.isSpeakerOutputPreferred = false
+        case .headphones, .headsetMic:
+            currentAudioOutput = .earpiece
+            AudioManager.shared.isSpeakerOutputPreferred = false
+        case .builtInReceiver:
+            currentAudioOutput = .earpiece
+            AudioManager.shared.isSpeakerOutputPreferred = false
+        default:
+            if Self.audioRouteHasBluetooth(session) {
+                currentAudioOutput = .bluetooth
+            } else {
+                currentAudioOutput = .earpiece
+            }
+            AudioManager.shared.isSpeakerOutputPreferred = false
+        }
+    }
+
+    private func detectInitialAudioRoute() {
+        ensureVoiceChannelAudioSessionCategory()
+        syncCurrentAudioOutputFromSession()
+        refreshSpeakerRouteUI()
     }
 
     private func applyAudioRoute() {
@@ -2806,22 +2933,34 @@ final class VoiceChannelRoomViewController: ViewController {
         case .earpiece: applyVoiceChannelPreservedAudioRouteToSession(.earpiece)
         case .bluetooth: applyVoiceChannelPreservedAudioRouteToSession(.bluetooth)
         }
+        syncCurrentAudioOutputFromSession()
         refreshSpeakerRouteUI()
     }
 
     private func refreshSpeakerRouteUI() {
+        let t = UIColor.theme.white
+        audioRouteControl.applyTint(t)
         let session = AVAudioSession.sharedInstance()
-        let bluetooth = Self.audioRouteHasBluetooth(session)
-        let symbol: String
-        if bluetooth && currentAudioOutput != .speaker {
-            symbol = "headphones"
-        } else if currentAudioOutput == .speaker {
-            symbol = "speaker.wave.2.fill"
-        } else {
-            symbol = "iphone.radiowaves.left.and.right"
+        let systemName: String
+        if let port = session.currentRoute.outputs.first?.portType {
+            switch port {
+            case .headphones, .headsetMic:
+                systemName = "headphones"
+                audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 16, weight: .medium)
+                return
+            default:
+                break
+            }
         }
-        let img = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
-        speakerButton.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
+        let bluetooth = Self.audioRouteHasBluetooth(session)
+        if bluetooth && currentAudioOutput != .speaker {
+            systemName = "headphones"
+        } else if currentAudioOutput == .speaker {
+            systemName = "speaker.wave.2.fill"
+        } else {
+            systemName = "iphone.radiowaves.left.and.right"
+        }
+        audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 16, weight: .medium)
     }
 
     private static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {
@@ -2842,52 +2981,6 @@ final class VoiceChannelRoomViewController: ViewController {
             }
         }
         return false
-    }
-
-    @objc private func speakerTapped() {
-        switch currentAudioOutput {
-        case .speaker:
-            currentAudioOutput = Self.audioRouteHasBluetooth(AVAudioSession.sharedInstance()) ? .bluetooth : .earpiece
-        case .earpiece, .bluetooth:
-            currentAudioOutput = .speaker
-        }
-        applyAudioRoute()
-    }
-
-    @objc private func speakerLongPressed(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        let title = NSLocalizedString("voiceChannel.audioRouteTitle", tableName: nil, bundle: .main, value: "Audio output", comment: "")
-        let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(
-            title: NSLocalizedString("voiceChannel.audioOutputSpeaker", tableName: nil, bundle: .main, value: "Speaker", comment: ""),
-            style: .default
-        ) { [weak self] _ in
-            self?.currentAudioOutput = .speaker
-            self?.applyAudioRoute()
-        })
-        sheet.addAction(UIAlertAction(
-            title: NSLocalizedString("voiceChannel.audioOutputEarpiece", tableName: nil, bundle: .main, value: "Earpiece", comment: ""),
-            style: .default
-        ) { [weak self] _ in
-            self?.currentAudioOutput = .earpiece
-            self?.applyAudioRoute()
-        })
-        if Self.audioRouteHasBluetooth(AVAudioSession.sharedInstance()) {
-            let btTitle = NSLocalizedString("voiceChannel.audioOutputBluetooth", tableName: nil, bundle: .main, value: "Bluetooth (connected)", comment: "")
-            sheet.addAction(UIAlertAction(title: btTitle, style: .default) { [weak self] _ in
-                self?.currentAudioOutput = .bluetooth
-                self?.applyAudioRoute()
-            })
-        }
-        sheet.addAction(UIAlertAction(
-            title: NSLocalizedString("voiceChannel.cancel", tableName: nil, bundle: .main, value: "Cancel", comment: ""),
-            style: .cancel
-        ))
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = speakerButton
-            pop.sourceRect = speakerButton.bounds
-        }
-        present(sheet, animated: true)
     }
 
     @objc private func cameraBarTapped() {
@@ -3113,9 +3206,10 @@ final class VoiceChannelRoomViewController: ViewController {
     private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, participant: Participant, displayName: String) {
         if rowKey.hasSuffix("|screen") {
             row.onMainTileLongPress = nil
+            let sourceKey = participantRowKey(participant)
             row.onExpandScreenShare = { [weak self] in
                 guard let self, let track = participant.firstScreenShareVideoTrack else { return }
-                self.presentScreenShareExpanded(track: track, displayName: displayName)
+                self.presentScreenShareExpanded(track: track, displayName: displayName, sourceParticipantKey: sourceKey)
             }
             return
         }
@@ -3269,9 +3363,10 @@ final class VoiceChannelRoomViewController: ViewController {
         present(ac, animated: true)
     }
 
-    private func presentScreenShareExpanded(track: VideoTrack, displayName: String) {
+    private func presentScreenShareExpanded(track: VideoTrack, displayName: String, sourceParticipantKey: String) {
         tearDownScreenSharePresentationAndPiP()
         guard #available(iOS 15.0, *) else { return }
+        screenShareExpandedSourceParticipantKey = sourceParticipantKey
         unlockOrientationForScreenShareDetail()
         let vc = ScreenShareExpandedViewController(track: track, displayName: displayName)
         vc.pipHost = self
@@ -3302,6 +3397,7 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 
     private func tearDownScreenSharePresentationAndPiP() {
+        noteScreenShareExpandedSessionEnded()
         if #available(iOS 15.0, *) {
             if let expanded = presentedViewController as? ScreenShareExpandedViewController {
                 isScreenShareExpandedPresented = false
@@ -3394,15 +3490,14 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
     private let scrollView = UIScrollView()
     private let videoContainer = UIView()
 
-    private let minimizeButton = UIButton(type: .system)
-    private var controlsVisible = true
+    private let dismissDetailButton = UIButton(type: .system)
 
     private var scrollTopConstraint: NSLayoutConstraint!
     private var scrollLeadingConstraint: NSLayoutConstraint!
     private var scrollTrailingConstraint: NSLayoutConstraint!
     private var scrollBottomConstraint: NSLayoutConstraint!
-    private var minimizeTopConstraint: NSLayoutConstraint!
-    private var minimizeTrailingConstraint: NSLayoutConstraint!
+    private var dismissDetailTopConstraint: NSLayoutConstraint!
+    private var dismissDetailTrailingConstraint: NSLayoutConstraint!
 
     init(track: VideoTrack, displayName: String) {
         self.shareTrack = track
@@ -3460,32 +3555,28 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
             videoView.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor),
         ])
 
-        let minimizeCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        minimizeButton.translatesAutoresizingMaskIntoConstraints = false
-        minimizeButton.setImage(UIImage(systemName: "arrow.down.right.and.arrow.up.left", withConfiguration: minimizeCfg), for: .normal)
-        minimizeButton.tintColor = .white
-        minimizeButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-        minimizeButton.layer.cornerRadius = 20
-        minimizeButton.addTarget(self, action: #selector(closeScreenShareTapped), for: .touchUpInside)
-        view.addSubview(minimizeButton)
+        let dismissCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        dismissDetailButton.translatesAutoresizingMaskIntoConstraints = false
+        dismissDetailButton.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: dismissCfg), for: .normal)
+        dismissDetailButton.tintColor = .white
+        dismissDetailButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        dismissDetailButton.layer.cornerRadius = 22
+        dismissDetailButton.accessibilityLabel = NSLocalizedString("voiceChannel.closeScreenShare", tableName: nil, bundle: .main, value: "Close screen share", comment: "")
+        dismissDetailButton.addTarget(self, action: #selector(closeScreenShareTapped), for: .touchUpInside)
+        view.addSubview(dismissDetailButton)
 
-        minimizeTopConstraint = minimizeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
-        minimizeTrailingConstraint = minimizeButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12)
+        dismissDetailTopConstraint = dismissDetailButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
+        dismissDetailTrailingConstraint = dismissDetailButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12)
         NSLayoutConstraint.activate([
-            minimizeTopConstraint,
-            minimizeTrailingConstraint,
-            minimizeButton.widthAnchor.constraint(equalToConstant: 40),
-            minimizeButton.heightAnchor.constraint(equalToConstant: 40),
+            dismissDetailTopConstraint,
+            dismissDetailTrailingConstraint,
+            dismissDetailButton.widthAnchor.constraint(equalToConstant: 44),
+            dismissDetailButton.heightAnchor.constraint(equalToConstant: 44),
         ])
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(toggleControls))
-        tap.numberOfTapsRequired = 1
-        scrollView.addGestureRecognizer(tap)
 
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
-        tap.require(toFail: doubleTap)
 
         videoView.track = shareTrack
         applyScreenShareLayoutForCurrentBounds()
@@ -3499,13 +3590,14 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
         scrollLeadingConstraint.constant = margin
         scrollTrailingConstraint.constant = -margin
         scrollBottomConstraint.constant = -margin
-        minimizeTopConstraint.constant = 12 + margin
-        minimizeTrailingConstraint.constant = -(12 + margin)
+        dismissDetailTopConstraint.constant = 12 + margin
+        dismissDetailTrailingConstraint.constant = -(12 + margin)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applyScreenShareLayoutForCurrentBounds()
+        view.bringSubviewToFront(dismissDetailButton)
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
@@ -3526,6 +3618,9 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        if isBeingDismissed, !didAutoDismissForPiP {
+            pipHost?.noteScreenShareExpandedSessionEnded()
+        }
         if isBeingDismissed || isMovingFromParent {
             pipHost?.screenShareExpandedDidDismiss()
         }
@@ -3547,13 +3642,6 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? {
         videoContainer
-    }
-
-    @objc private func toggleControls() {
-        controlsVisible.toggle()
-        UIView.animate(withDuration: 0.25) {
-            self.minimizeButton.alpha = self.controlsVisible ? 1 : 0
-        }
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
@@ -3608,6 +3696,7 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
         pipController?.delegate = nil
         pipController = nil
         pipHost?.releaseScreenSharePiPHost(self)
+        pipHost?.noteScreenShareExpandedSessionEnded()
     }
 }
 

@@ -193,8 +193,17 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             if let existing = existingBubble, isSameLogicalMessage, !attachmentsChanged {
                 if existing.display.sendingState == item.display.sendingState,
                    existing.display.id == item.display.id {
-                    existing.updateReactions(newDisplay: item.display)
-                    bubble = existing
+                    let editedA = existing.display.message.editedAt?.timeIntervalSince1970
+                    let editedB = item.display.message.editedAt?.timeIntervalSince1970
+                    let bodyUnchanged = existing.display.parsedContent.text == item.display.parsedContent.text
+                        && editedA == editedB
+                    if bodyUnchanged {
+                        existing.updateReactions(newDisplay: item.display)
+                        bubble = existing
+                    } else {
+                        existing.updateDisplay(item.display)
+                        bubble = existing
+                    }
                 } else {
                     existing.updateDisplay(item.display)
                     bubble = existing

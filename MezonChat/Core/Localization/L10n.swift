@@ -133,6 +133,7 @@ enum L10n {
         static let startTalking = "qrScanner.startTalking"
         static let inviteToJoinClan = "qrScanner.inviteToJoinClan"
         static let joinClan = "qrScanner.joinClan"
+        static let goToClan = "qrScanner.goToClan"
         static let noThanks = "qrScanner.noThanks"
         static let userProfile = "qrScanner.userProfile"
         static let message = "qrScanner.message"
@@ -352,6 +353,7 @@ enum L10n {
         static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
         static let yourLocation          = "channelMessages.yourLocation"
         static let locationOf            = "channelMessages.locationOf"
+        static let clanInviteLoadFailed  = "channelMessages.clanInviteLoadFailed"
     }
 
     enum DirectMessage {
@@ -369,6 +371,8 @@ enum L10n {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
         static let editMessage      = "messageAction.editMessage"
+        static let editingMessage   = "messageAction.editingMessage"
+        static let editedSuffix     = "messageAction.editedSuffix"
         static let deleteMessage    = "messageAction.deleteMessage"
         static let pinMessage       = "messageAction.pinMessage"
         static let forward          = "messageAction.forward"
@@ -657,6 +661,7 @@ extension L10n {
         "channelMessages.voiceMessageA11y": "Voice message. Tap to play or pause.",
         "channelMessages.yourLocation": "Your location",
         "channelMessages.locationOf": "%@'s location",
+        "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -669,6 +674,8 @@ extension L10n {
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
         "messageAction.editMessage": "Edit Message",
+        "messageAction.editingMessage": "Editing message",
+        "messageAction.editedSuffix": "(edited)",
         "messageAction.deleteMessage": "Delete Message",
         "messageAction.pinMessage": "Pin Message",
         "messageAction.forward": "Forward",
@@ -742,6 +749,7 @@ extension L10n {
         "qrScanner.startTalking": "Start Talking",
         "qrScanner.inviteToJoinClan": "INVITE TO JOIN A CLAN",
         "qrScanner.joinClan": "Join",
+        "qrScanner.goToClan": "Go to Clan",
         "qrScanner.noThanks": "No, Thanks",
         "qrScanner.message": "Message",
         "qrScanner.userProfile": "USER PROFILE",
@@ -1013,6 +1021,7 @@ extension L10n {
         "channelMessages.voiceMessageA11y": "Tin nhắn thoại. Chạm để phát hoặc tạm dừng.",
         "channelMessages.yourLocation": "Vị trí của bạn",
         "channelMessages.locationOf": "Vị trí của %@",
+        "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
@@ -1025,6 +1034,8 @@ extension L10n {
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
         "messageAction.editMessage": "Chỉnh sửa tin nhắn",
+        "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",
+        "messageAction.editedSuffix": "(đã chỉnh sửa)",
         "messageAction.deleteMessage": "Xóa tin nhắn",
         "messageAction.pinMessage": "Ghim tin nhắn",
         "messageAction.forward": "Chuyển tiếp",
@@ -1105,6 +1116,7 @@ extension L10n {
         "qrScanner.startTalking": "Bắt đầu trò chuyện",
         "qrScanner.inviteToJoinClan": "LỜI MỜI THAM GIA CLAN",
         "qrScanner.joinClan": "Tham gia",
+        "qrScanner.goToClan": "Vào clan",
         "qrScanner.noThanks": "Không, cảm ơn",
         "qrScanner.message": "Nhắn tin",
         "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",

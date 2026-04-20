@@ -18,24 +18,10 @@ enum ReactionEmojiImageLoader {
             DispatchQueue.main.async { completion(cached) }
             return nil
         }
-        let task = URLSession.shared.dataTask(with: url) { data, response, error in
-            #if DEBUG
-            let status = (response as? HTTPURLResponse)?.statusCode
-            if error != nil || status.map({ $0 != 200 }) == true || data == nil {
-                print(
-                    "[EmojiURL] fetch emojiId url=\(url.absoluteString) http=\(String(describing: status)) bytes=\(data?.count ?? 0) error=\(String(describing: error))"
-                )
-            }
-            #endif
+        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
             guard let data,
                   let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
             else {
-                #if DEBUG
-                if let data, !data.isEmpty {
-                    let snippet = String(data: data.prefix(120), encoding: .utf8) ?? "<binary>"
-                    print("[EmojiURL] decode failed url=\(url.absoluteString) len=\(data.count) snippet=\(snippet)")
-                }
-                #endif
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
