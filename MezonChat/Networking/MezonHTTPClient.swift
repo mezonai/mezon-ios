@@ -483,6 +483,41 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateChannelMessage(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        messageId: Int64,
+        content: String,
+        mentions: [Mezon_Api_MessageMention] = [],
+        attachments: [Mezon_Api_MessageAttachment] = [],
+        hideEditted: Bool = false,
+        topicId: Int64 = 0,
+        isUpdateMsgTopic: Bool = false,
+        token: String
+    ) async throws -> Mezon_Realtime_ChannelMessageAck {
+        var req = Mezon_Realtime_ChannelMessageUpdate()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.messageID = messageId
+        req.content = content
+        req.mentions = mentions
+        req.attachments = attachments
+        req.mode = mode
+        req.isPublic = isPublic
+        req.hideEditted = hideEditted
+        req.topicID = topicId
+        req.isUpdateMsgTopic = isUpdateMsgTopic
+
+        let ack: Mezon_Realtime_ChannelMessageAck = try await postProto(
+            path: "/mezon.api.Mezon/UpdateChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+        return ack
+    }
+
     func listChannelMessages(
         clanId: Int64,
         channelId: Int64,

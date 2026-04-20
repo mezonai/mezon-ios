@@ -38,6 +38,81 @@ final class MessageTable: Table {
         addColumnIfNeeded("messages", column: "code", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
+    private func readMessageRow(_ stmt: OpaquePointer) -> MessageRecord? {
+        guard let idPtr  = sqlite3_column_text(stmt, 0),
+              let chPtr  = sqlite3_column_text(stmt, 1),
+              let snPtr  = sqlite3_column_text(stmt, 3),
+              let blobPtr = sqlite3_column_blob(stmt, 4) else { return nil }
+
+        let id        = String(cString: idPtr)
+        let chId      = String(cString: chPtr)
+        let clanId    = sqlite3_column_type(stmt, 2) != SQLITE_NULL
+            ? String(cString: sqlite3_column_text(stmt, 2)) : nil
+        let senderId  = String(cString: snPtr)
+        let content   = Data(bytes: blobPtr, count: Int(sqlite3_column_bytes(stmt, 4)))
+        let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
+        let editedAt: Date? = sqlite3_column_type(stmt, 6) != SQLITE_NULL
+            ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6)) : nil
+        let isDeleted = sqlite3_column_int(stmt, 7) != 0
+        let displayName = sqlite3_column_text(stmt, 8).map { String(cString: $0) } ?? ""
+        let avatarURL   = sqlite3_column_type(stmt, 9) != SQLITE_NULL
+            ? sqlite3_column_text(stmt, 9).map { String(cString: $0) } : nil
+        let stateRaw  = sqlite3_column_int(stmt, 10)
+        let sendingState = SendingState(rawValue: stateRaw) ?? .sent
+
+        let attachmentsJSON: Data
+        if sqlite3_column_type(stmt, 11) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 11) {
+            attachmentsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 11)))
+        } else { attachmentsJSON = Data() }
+
+        let reactionsJSON: Data
+        if sqlite3_column_type(stmt, 12) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 12) {
+            reactionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 12)))
+        } else { reactionsJSON = Data() }
+
+        let referencesData: Data
+        if sqlite3_column_type(stmt, 13) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 13) {
+            referencesData = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 13)))
+        } else { referencesData = Data() }
+
+        let mentionsJSON: Data
+        if sqlite3_column_type(stmt, 14) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 14) {
+            mentionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 14)))
+        } else { mentionsJSON = Data() }
+
+        let code = sqlite3_column_int(stmt, 15)
+
+        return MessageRecord(
+            id: id, channelId: chId, clanId: clanId, senderId: senderId,
+            content: content, createdAt: createdAt, editedAt: editedAt,
+            isDeleted: isDeleted, code: code,
+            senderDisplayName: displayName,
+            senderAvatarURL: avatarURL, sendingState: sendingState,
+            attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON,
+            referencesData: referencesData, mentionsJSON: mentionsJSON
+        )
+    }
+
+    func getMessageById(_ messageId: String) -> MessageRecord? {
+        for (_, msgs) in cache {
+            if let m = msgs.first(where: { $0.id == messageId && !$0.isDeleted }) {
+                return m
+            }
+        }
+        let rows = db.query(
+            """
+            SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
+                   is_deleted, sender_display_name, sender_avatar_url, sending_state,
+                   attachments_json, reactions_json, references_data, mentions_json, code
+            FROM messages
+            WHERE id = ? AND is_deleted = 0
+            LIMIT 1
+            """,
+            { s in sqlite3_bind_text(s, 1, messageId, -1, nil) }
+        ) { stmt in self.readMessageRow(stmt) }
+        return rows.compactMap { $0 }.first
+    }
+
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
         if let cached = cache[channelId] { return cached }
 
@@ -55,60 +130,7 @@ final class MessageTable: Table {
                 sqlite3_bind_text(s, 1, channelId, -1, nil)
                 sqlite3_bind_int(s, 2, Int32(limit))
             }
-        ) { stmt -> MessageRecord? in
-            guard let idPtr  = sqlite3_column_text(stmt, 0),
-                  let chPtr  = sqlite3_column_text(stmt, 1),
-                  let snPtr  = sqlite3_column_text(stmt, 3),
-                  let blobPtr = sqlite3_column_blob(stmt, 4) else { return nil }
-
-            let id        = String(cString: idPtr)
-            let chId      = String(cString: chPtr)
-            let clanId    = sqlite3_column_type(stmt, 2) != SQLITE_NULL
-                ? String(cString: sqlite3_column_text(stmt, 2)) : nil
-            let senderId  = String(cString: snPtr)
-            let content   = Data(bytes: blobPtr, count: Int(sqlite3_column_bytes(stmt, 4)))
-            let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(stmt, 5))
-            let editedAt: Date? = sqlite3_column_type(stmt, 6) != SQLITE_NULL
-                ? Date(timeIntervalSince1970: sqlite3_column_double(stmt, 6)) : nil
-            let isDeleted = sqlite3_column_int(stmt, 7) != 0
-            let displayName = sqlite3_column_text(stmt, 8).map { String(cString: $0) } ?? ""
-            let avatarURL   = sqlite3_column_type(stmt, 9) != SQLITE_NULL
-                ? sqlite3_column_text(stmt, 9).map { String(cString: $0) } : nil
-            let stateRaw  = sqlite3_column_int(stmt, 10)
-            let sendingState = SendingState(rawValue: stateRaw) ?? .sent
-
-            let attachmentsJSON: Data
-            if sqlite3_column_type(stmt, 11) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 11) {
-                attachmentsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 11)))
-            } else { attachmentsJSON = Data() }
-
-            let reactionsJSON: Data
-            if sqlite3_column_type(stmt, 12) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 12) {
-                reactionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 12)))
-            } else { reactionsJSON = Data() }
-
-            let referencesData: Data
-            if sqlite3_column_type(stmt, 13) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 13) {
-                referencesData = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 13)))
-            } else { referencesData = Data() }
-
-            let mentionsJSON: Data
-            if sqlite3_column_type(stmt, 14) != SQLITE_NULL, let ptr = sqlite3_column_blob(stmt, 14) {
-                mentionsJSON = Data(bytes: ptr, count: Int(sqlite3_column_bytes(stmt, 14)))
-            } else { mentionsJSON = Data() }
-
-            let code = sqlite3_column_int(stmt, 15)
-
-            return MessageRecord(
-                id: id, channelId: chId, clanId: clanId, senderId: senderId,
-                content: content, createdAt: createdAt, editedAt: editedAt,
-                isDeleted: isDeleted, code: code,
-                senderDisplayName: displayName,
-                senderAvatarURL: avatarURL, sendingState: sendingState,
-                attachmentsJSON: attachmentsJSON, reactionsJSON: reactionsJSON,
-                referencesData: referencesData, mentionsJSON: mentionsJSON
-            )
-        }
+        ) { stmt in self.readMessageRow(stmt) }
 
         let result = rows.compactMap { $0 }
         cache[channelId] = result

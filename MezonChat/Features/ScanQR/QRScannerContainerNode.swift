@@ -168,7 +168,7 @@ final class QRScannerContainerNode: ASDisplayNode {
 
     private func updateScannerMask(size: CGSize, scanRect: CGRect) {
         let path = UIBezierPath(rect: CGRect(origin: .zero, size: size))
-        let innerPath = UIBezierPath(roundedRect: scanRect, cornerRadius: 24)
+        let innerPath = UIBezierPath(rect: scanRect)
         path.append(innerPath)
         path.usesEvenOddFillRule = true
 
@@ -197,8 +197,8 @@ final class QRScannerContainerNode: ASDisplayNode {
         cornerLayer.path = cornersPath.cgPath
         cornerLayer.strokeColor = UIColor.white.cgColor
         cornerLayer.lineWidth = 4
-        cornerLayer.lineCap = .round
-        cornerLayer.lineJoin = .round
+        cornerLayer.lineCap = .square
+        cornerLayer.lineJoin = .miter
         cornerLayer.fillColor = UIColor.clear.cgColor
     }
     

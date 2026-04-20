@@ -607,11 +607,13 @@ final class AccountContextImpl: AccountContext {
                 account.postbox.write { tx in tx.deleteMessage(id: "\(apiMessage.messageID)") }
                 return
             }
-            if apiMessage.code == 1 {
-                account.postbox.write { tx in tx.addMessages([MessageRecord(from: apiMessage)]) }
-                return
+            let mid = "\(apiMessage.messageID)"
+            let merged = account.postbox.read { tx in
+                MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid))
             }
-            account.postbox.write { tx in tx.addMessages([MessageRecord(from: apiMessage)]) }
+            account.postbox.write { tx in tx.addMessages([merged]) }
+            guard apiMessage.code != 1 else { return }
+
             let messageCopy = apiMessage
             Task { @MainActor [weak self] in
                 guard let self else { return }
