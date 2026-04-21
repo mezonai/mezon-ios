@@ -91,27 +91,26 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         self.scrollNode.view.maximumZoomScale = 1.0
         self.scrollNode.view.zoomScale = 1.0
 
-        self.scrollNode.view.contentSize = contentSize
         contentNode.transform = CATransform3DIdentity
         contentNode.frame = CGRect(origin: .zero, size: contentSize)
+        self.scrollNode.view.contentSize = contentSize
 
+        self.updateZoomScales()
+        self.scrollNode.view.zoomScale = self.scrollNode.view.minimumZoomScale
         self.centerScrollViewContents()
         self.ignoreZoom = false
-
-        self.scrollNode.view.zoomScale = self.scrollNode.view.minimumZoomScale
     }
 
-    private func centerScrollViewContents() {
-        guard let (contentSize, contentNode) = self.zoomableContent else { return }
+    private func updateZoomScales() {
+        guard let (contentSize, _) = self.zoomableContent else { return }
         let boundsSize = self.scrollNode.view.bounds.size
         guard contentSize.width > 0, contentSize.height > 0, boundsSize.width > 0, boundsSize.height > 0 else { return }
 
         let scaleWidth = boundsSize.width / contentSize.width
         let scaleHeight = boundsSize.height / contentSize.height
         let minScale = min(scaleWidth, scaleHeight)
-        var maxScale = max(scaleWidth, scaleHeight)
-        maxScale = max(maxScale, minScale * 3.0)
-        if abs(maxScale - minScale) < 0.01 { maxScale = minScale }
+        var maxScale = max(minScale * 4.0, 1.0)
+        if maxScale < minScale { maxScale = minScale }
 
         if !self.scrollNode.view.minimumZoomScale.isEqual(to: minScale) {
             self.scrollNode.view.minimumZoomScale = minScale
@@ -119,13 +118,19 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         if !self.scrollNode.view.maximumZoomScale.isEqual(to: maxScale) {
             self.scrollNode.view.maximumZoomScale = maxScale
         }
+    }
 
-        var contentFrame = contentNode.view.frame
-        contentFrame.origin.x = boundsSize.width > contentFrame.width ? (boundsSize.width - contentFrame.width) / 2 : 0
-        contentFrame.origin.y = boundsSize.height >= contentFrame.height ? (boundsSize.height - contentFrame.height) / 2 : 0
+    private func centerScrollViewContents() {
+        guard self.zoomableContent != nil else { return }
+        let boundsSize = self.scrollNode.view.bounds.size
+        let contentSize = self.scrollNode.view.contentSize
+        guard boundsSize.width > 0, boundsSize.height > 0 else { return }
 
-        if !self.ignoreZoom {
-            contentNode.view.frame = contentFrame
+        let horizontalInset = max(0, (boundsSize.width - contentSize.width) / 2)
+        let verticalInset = max(0, (boundsSize.height - contentSize.height) / 2)
+        let newInsets = UIEdgeInsets(top: verticalInset, left: horizontalInset, bottom: verticalInset, right: horizontalInset)
+        if self.scrollNode.view.contentInset != newInsets {
+            self.scrollNode.view.contentInset = newInsets
         }
     }
 
@@ -138,6 +143,6 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         if !self.ignoreZoom {
             self.centerScrollViewContents()
         }
-        self.scrollNode.view.isScrollEnabled = !scrollView.zoomScale.isEqual(to: scrollView.minimumZoomScale)
+        self.scrollNode.view.isScrollEnabled = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
     }
 }

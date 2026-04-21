@@ -43,6 +43,11 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         }
     }
 
+    private func publicationLooksLikeRemoteScreenShareVideo(_ publication: RemoteTrackPublication) -> Bool {
+        publication.source == .screenShareVideo
+            || (publication.kind == .video && publication.name == Track.screenShareVideoName)
+    }
+
     func disconnect() async {
         guard !didEndSession else { return }
         didEndSession = true
@@ -138,6 +143,18 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         notifyStateUpdated()
     }
 
+    func room(
+        _ room: Room,
+        participant: RemoteParticipant,
+        trackPublication: RemoteTrackPublication,
+        didUpdateStreamState streamState: StreamState
+    ) {
+        notifyParticipantsChanged()
+        if publicationLooksLikeRemoteScreenShareVideo(trackPublication) {
+            notifyStateUpdated()
+        }
+    }
+
     func room(_ room: Room, participant: LocalParticipant, didPublishTrack publication: LocalTrackPublication) {
         if publication.track is LocalVideoTrack {
             syncFrontCameraVideoProcessor()
@@ -155,6 +172,9 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
 
     func room(_ room: Room, participant: RemoteParticipant, didUnpublishTrack publication: RemoteTrackPublication) {
         notifyParticipantsChanged()
+        if publicationLooksLikeRemoteScreenShareVideo(publication) {
+            notifyStateUpdated()
+        }
     }
 
     func room(_ room: Room, participant: RemoteParticipant, didSubscribeTrack publication: RemoteTrackPublication) {
@@ -163,6 +183,9 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
 
     func room(_ room: Room, participant: RemoteParticipant, didUnsubscribeTrack publication: RemoteTrackPublication) {
         notifyParticipantsChanged()
+        if publicationLooksLikeRemoteScreenShareVideo(publication) {
+            notifyStateUpdated()
+        }
     }
 }
 

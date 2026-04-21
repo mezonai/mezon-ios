@@ -718,6 +718,28 @@ final class MezonHTTPClient {
         )
     }
 
+    func addAgentToVoiceChannel(channelId: Int64, roomName: String, token: String) async throws {
+        var req = Mezon_Api_UpdateAIAgentRequest()
+        req.channelID = channelId
+        req.roomName = roomName
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/AddAgentToChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func disconnectAgentFromVoiceChannel(channelId: Int64, roomName: String, token: String) async throws {
+        var req = Mezon_Api_UpdateAIAgentRequest()
+        req.channelID = channelId
+        req.roomName = roomName
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/DisconnectAgent",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId

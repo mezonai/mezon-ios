@@ -5,6 +5,9 @@ import MediaPlayer
 import AsyncDisplayKit
 import LiveKit
 
+private let kVoiceKomuAgentDefaultAvatarURL =
+    "https://imgproxy.mezon.ai/K0YUZRIosDOcz5lY6qrgC6UIXmQgWzLjZv7VJ1RAA8c/rs:fit:100:100:1/mb:2097152/plain/https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png@webp"
+
 private enum VoiceParticipantTileKind {
     case mainVideo
     case screenShare
@@ -691,7 +694,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         avatarView.isHidden = false
 
         let key = participant.identity?.stringValue ?? ""
-        let url = resolveAvatarURL(key)
+        let url = resolveAvatarURL(key, participant: participant)
         let name = resolveDisplayName(participant)
 
         if url != lastAvatarURL {
@@ -730,7 +733,10 @@ final class VoiceChannelPiPOverlay: NSObject {
         return voiceChannelResolveDisplayName(context: ctx, clanId: ch.clanID, participant: participant)
     }
 
-    private func resolveAvatarURL(_ key: String) -> String? {
+    private func resolveAvatarURL(_ key: String, participant: Participant) -> String? {
+        if participant.kind == .agent {
+            return kVoiceKomuAgentDefaultAvatarURL
+        }
         guard let ctx = context, let ch = channel else { return nil }
         return voiceChannelResolveAvatarURL(context: ctx, clanId: ch.clanID, identityKey: key)
     }
@@ -1156,6 +1162,10 @@ final class VoiceChannelRoomViewController: ViewController {
     private let channelTitleLabel = UILabel()
     private let cameraSwitchButton = UIButton(type: .custom)
     private let audioRouteControl = VoiceHeaderSystemAudioRouteControl()
+    private let agentToggleButton = UIButton(type: .custom)
+    private let agentToggleSpinner = UIActivityIndicatorView(style: .medium)
+    private var voiceAgentEnabled = false
+    private var isAgentToggleLoading = false
     private let moreButton = UIButton(type: .custom)
     private var voiceMoreToolsHost: UIView?
     private weak var voiceReactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
@@ -1246,6 +1256,21 @@ final class VoiceChannelRoomViewController: ViewController {
         moreButton.tintColor = UIColor.theme.white
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
 
+        styleVoiceAgentHeaderButton(agentToggleButton)
+        agentToggleButton.tintColor = UIColor.theme.white
+        agentToggleButton.addTarget(self, action: #selector(agentToggleTapped), for: .touchUpInside)
+        agentToggleSpinner.hidesWhenStopped = true
+        agentToggleSpinner.translatesAutoresizingMaskIntoConstraints = false
+        agentToggleSpinner.color = .white
+        agentToggleButton.addSubview(agentToggleSpinner)
+        NSLayoutConstraint.activate([
+            agentToggleSpinner.centerXAnchor.constraint(equalTo: agentToggleButton.centerXAnchor),
+            agentToggleSpinner.centerYAnchor.constraint(equalTo: agentToggleButton.centerYAnchor),
+        ])
+        agentToggleButton.isHidden = !voiceChannelCanManageVoice()
+        refreshVoiceAgentButtonAppearance()
+
+        headerRight.addArrangedSubview(agentToggleButton)
         headerRight.addArrangedSubview(cameraSwitchButton)
         headerRight.addArrangedSubview(audioRouteControl)
         headerRight.addArrangedSubview(moreButton)
@@ -1341,6 +1366,8 @@ final class VoiceChannelRoomViewController: ViewController {
             collapseButton.heightAnchor.constraint(equalToConstant: 40),
             cameraSwitchButton.widthAnchor.constraint(equalToConstant: 40),
             cameraSwitchButton.heightAnchor.constraint(equalToConstant: 40),
+            agentToggleButton.widthAnchor.constraint(equalToConstant: 40),
+            agentToggleButton.heightAnchor.constraint(equalToConstant: 40),
             audioRouteControl.widthAnchor.constraint(equalToConstant: 40),
             audioRouteControl.heightAnchor.constraint(equalToConstant: 40),
             moreButton.widthAnchor.constraint(equalToConstant: 40),
@@ -1436,6 +1463,19 @@ final class VoiceChannelRoomViewController: ViewController {
         button.imageView?.contentMode = .scaleAspectFit
     }
 
+    private func styleVoiceAgentHeaderButton(_ button: UIButton) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.backgroundColor = UIColor.theme.secondary
+        button.layer.cornerRadius = 20
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.theme.border.cgColor
+        if let img = UIImage(named: "VoiceAgentControl") {
+            button.setImage(img.withRenderingMode(.alwaysTemplate), for: .normal)
+        }
+        button.imageView?.contentMode = .scaleAspectFit
+        button.imageEdgeInsets = UIEdgeInsets(top: 9, left: 9, bottom: 9, right: 9)
+    }
+
     private func makeControlBarIconButton(systemName: String, action: Selector? = nil) -> UIButton {
         let b = UIButton(type: .custom)
         b.translatesAutoresizingMaskIntoConstraints = false
@@ -1498,10 +1538,34 @@ final class VoiceChannelRoomViewController: ViewController {
         voiceReactionDisposable?.dispose()
         voiceReactionDisposable = MezonSocket.shared.events().start(next: { [weak self] event in
             guard let self, !self.isMinimizingToPiP else { return }
-            guard case .voiceReaction(let msg) = event else { return }
-            guard msg.channelID == self.channel.channelID else { return }
-            self.voiceReactionOverlay.handle(message: msg, context: self.context, clanId: self.channel.clanID)
+            switch event {
+            case .voiceReaction(let msg):
+                guard msg.channelID == self.channel.channelID else { return }
+                self.voiceReactionOverlay.handle(message: msg, context: self.context, clanId: self.channel.clanID)
+            case .aiAgentEnabled(let ev):
+                guard ev.channelID == self.channel.channelID else { return }
+                if ev.clanID != 0, ev.clanID != self.channel.clanID { return }
+                if !ev.roomName.isEmpty, ev.roomName != "\(self.channel.channelID)" { return }
+                self.applyVoiceAgentEnabledFromServer(ev.enabled)
+            default:
+                break
+            }
         })
+        prewarmVoiceReactionEmojiCache()
+    }
+
+    private func prewarmVoiceReactionEmojiCache() {
+        let emojiIds: [String] = {
+            guard let cache = context.engine.data.cachedEmojiList(clanId: 0) else { return [] }
+            var ids: [String] = []
+            ids.reserveCapacity(cache.emojis.count)
+            for e in cache.emojis where e.id != 0 {
+                ids.append(String(e.id))
+            }
+            return ids
+        }()
+        guard !emojiIds.isEmpty else { return }
+        voiceReactionOverlay.prewarmEmojiCache(emojiIds: emojiIds)
     }
 
     private func unbindVoiceReactionSocketForPiP() {
@@ -2151,6 +2215,8 @@ final class VoiceChannelRoomViewController: ViewController {
     private var isMinimizingToPiP = false
     private var isScreenShareExpandedPresented = false
     private var screenShareExpandedSourceParticipantKey: String?
+    private weak var screenShareExpandedSourceTrack: VideoTrack?
+    private var screenShareExpandedPresentedAt: Date?
 
     private var isScreenShareDetailCoveringVoiceRoom: Bool {
         if isScreenShareExpandedPresented { return true }
@@ -2166,6 +2232,8 @@ final class VoiceChannelRoomViewController: ViewController {
 
     fileprivate func noteScreenShareExpandedSessionEnded() {
         screenShareExpandedSourceParticipantKey = nil
+        screenShareExpandedSourceTrack = nil
+        screenShareExpandedPresentedAt = nil
     }
 
     private func participant(forSourceParticipantKey key: String, room: Room) -> Participant? {
@@ -2176,12 +2244,53 @@ final class VoiceChannelRoomViewController: ViewController {
         return nil
     }
 
-    private func dismissScreenShareExpandedIfSourceShareEnded() {
+    private func resolveScreenShareVideoPublication(_ p: Participant) -> TrackPublication? {
+        if let pub = p.firstScreenSharePublication { return pub }
+        return p.videoTracks.first(where: { $0.name == Track.screenShareVideoName })
+    }
+
+    private func participantHasLiveScreenShareVideoAttached(_ p: Participant) -> Bool {
+        p.trackPublications.values.contains { pub in
+            guard pub.kind == .video, pub.track != nil else { return false }
+            if pub.source == .screenShareVideo { return true }
+            return pub.name == Track.screenShareVideoName
+        }
+    }
+
+    fileprivate func dismissScreenShareExpandedIfSourceShareEnded() {
         guard let key = screenShareExpandedSourceParticipantKey else { return }
         guard let bridge = liveKitBridge, let room = bridge.room else { return }
-        let stillSharing = participant(forSourceParticipantKey: key, room: room)?.firstScreenShareVideoTrack != nil
-        guard !stillSharing else { return }
-        tearDownScreenSharePresentationAndPiP()
+        guard let p = participant(forSourceParticipantKey: key, room: room) else {
+            tearDownScreenSharePresentationAndPiP()
+            return
+        }
+        let pastAttachGrace = screenShareExpandedPresentedAt.map { Date().timeIntervalSince($0) >= 2.0 } ?? true
+        if pastAttachGrace, !participantHasLiveScreenShareVideoAttached(p) {
+            tearDownScreenSharePresentationAndPiP()
+            return
+        }
+        if !p.isScreenShareEnabled() {
+            tearDownScreenSharePresentationAndPiP()
+            return
+        }
+        if let pub = resolveScreenShareVideoPublication(p), pub.streamState == .paused {
+            tearDownScreenSharePresentationAndPiP()
+            return
+        }
+        if let rpub = resolveScreenShareVideoPublication(p) as? RemoteTrackPublication,
+           rpub.subscriptionState == .unsubscribed {
+            tearDownScreenSharePresentationAndPiP()
+            return
+        }
+        let current: VideoTrack? = p.firstScreenShareVideoTrack
+            ?? (resolveScreenShareVideoPublication(p).flatMap { $0.track as? VideoTrack })
+        if pastAttachGrace, current == nil {
+            tearDownScreenSharePresentationAndPiP()
+            return
+        }
+        if let shown = screenShareExpandedSourceTrack, let current, current !== shown {
+            tearDownScreenSharePresentationAndPiP()
+        }
     }
 
     private func voiceRoomShouldTransferToPiPWhenDisappearing() -> Bool {
@@ -2297,6 +2406,9 @@ final class VoiceChannelRoomViewController: ViewController {
         audioRouteControl.applyTint(UIColor.theme.white)
         moreButton.backgroundColor = UIColor.theme.secondary
         moreButton.layer.borderColor = UIColor.theme.border.cgColor
+        if !agentToggleButton.isHidden {
+            refreshVoiceAgentButtonAppearance()
+        }
         bottomPill.backgroundColor = UIColor.theme.secondary
         connectingLabel.textColor = UIColor.theme.textStrong
         participantRows.values.forEach { $0.applyTheme() }
@@ -2647,7 +2759,7 @@ final class VoiceChannelRoomViewController: ViewController {
                 displayName: display,
                 micOn: p.isMicrophoneEnabled(),
                 speaking: speaking,
-                avatarURL: resolveAvatarURL(identityKey: baseKey),
+                avatarURL: resolveAvatarURL(identityKey: baseKey, participant: p),
                 videoTrack: videoTrack,
                 mirrorVideo: mirrorVideo
             )
@@ -2661,6 +2773,7 @@ final class VoiceChannelRoomViewController: ViewController {
             updateCallPiPContent(room: room)
         }
         dismissScreenShareExpandedIfSourceShareEnded()
+        syncVoiceAgentToggleFromRoomState()
     }
 
     private func refreshParticipantRowsFromLiveKit() {
@@ -2678,7 +2791,7 @@ final class VoiceChannelRoomViewController: ViewController {
             let isLocal = p is LocalParticipant
             let baseKey = participantRowKey(p)
             let display = resolveDisplayName(participant: p)
-            let avatarURL = resolveAvatarURL(identityKey: baseKey)
+            let avatarURL = resolveAvatarURL(identityKey: baseKey, participant: p)
             let videoTrack: VideoTrack?
             let mirrorVideo: Bool
             let speaking: Bool
@@ -2713,6 +2826,7 @@ final class VoiceChannelRoomViewController: ViewController {
         applyParticipantGridOrdering(orderedKeys: orderedKeys)
         updateCallPiPContent(room: room)
         dismissScreenShareExpandedIfSourceShareEnded()
+        syncVoiceAgentToggleFromRoomState()
     }
 
     private func updateCallPiPContent(room: Room) {
@@ -2870,8 +2984,22 @@ final class VoiceChannelRoomViewController: ViewController {
         voiceChannelResolveDisplayName(context: context, clanId: channel.clanID, participant: participant)
     }
 
-    private func resolveAvatarURL(identityKey: String) -> String? {
-        voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: identityKey)
+    private func resolveAvatarURL(identityKey: String, participant: Participant) -> String? {
+        if participant.kind == .agent {
+            return kVoiceKomuAgentDefaultAvatarURL
+        }
+        return voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: identityKey)
+    }
+
+    private func syncVoiceAgentToggleFromRoomState() {
+        guard !isAgentToggleLoading, !agentToggleButton.isHidden else { return }
+        guard let room = liveKitBridge?.room else { return }
+        let all: [Participant] = [room.localParticipant] + Array(room.remoteParticipants.values)
+        let hasAgent = all.contains { $0.kind == .agent }
+        if hasAgent, !voiceAgentEnabled {
+            voiceAgentEnabled = true
+            refreshVoiceAgentButtonAppearance()
+        }
     }
 
     private enum AudioOutputMode {
@@ -3196,6 +3324,72 @@ final class VoiceChannelRoomViewController: ViewController {
         return manageChannelPerm.level <= maxLevel
     }
 
+    private func applyVoiceAgentEnabledFromServer(_ enabled: Bool) {
+        voiceAgentEnabled = enabled
+        refreshVoiceAgentButtonAppearance()
+    }
+
+    private func refreshVoiceAgentButtonAppearance() {
+        if isAgentToggleLoading {
+            agentToggleSpinner.startAnimating()
+            agentToggleButton.setImage(nil, for: .normal)
+        } else {
+            agentToggleSpinner.stopAnimating()
+            if let img = UIImage(named: "VoiceAgentControl") {
+                agentToggleButton.setImage(img.withRenderingMode(.alwaysTemplate), for: .normal)
+            }
+        }
+        agentToggleButton.isEnabled = !isAgentToggleLoading
+        if voiceAgentEnabled {
+            agentToggleButton.backgroundColor = UIColor.theme.bgViolet
+            agentToggleButton.layer.borderColor = UIColor.theme.borderHighlight.cgColor
+            agentToggleButton.layer.borderWidth = 1.5
+        } else {
+            agentToggleButton.backgroundColor = UIColor.theme.secondary
+            agentToggleButton.layer.borderColor = UIColor.theme.border.cgColor
+            agentToggleButton.layer.borderWidth = 1
+        }
+        agentToggleButton.tintColor = .white
+    }
+
+    @objc private func agentToggleTapped() {
+        guard !isAgentToggleLoading, voiceChannelCanManageVoice(), !agentToggleButton.isHidden else { return }
+        let wasEnabled = voiceAgentEnabled
+        isAgentToggleLoading = true
+        voiceAgentEnabled.toggle()
+        refreshVoiceAgentButtonAppearance()
+        let ch = channel
+        let roomName = "\(ch.channelID)"
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.isAgentToggleLoading = false
+                self.refreshVoiceAgentButtonAppearance()
+            }
+            guard let token = await self.context.getToken() else {
+                self.voiceAgentEnabled = wasEnabled
+                self.refreshVoiceAgentButtonAppearance()
+                self.presentVoiceAlert(
+                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
+                    message: NSLocalizedString("voiceChannel.agentNoSession", tableName: nil, bundle: .main, value: "Could not verify your session.", comment: ""))
+                return
+            }
+            do {
+                if wasEnabled {
+                    try await self.context.account.network.disconnectAgentFromVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+                } else {
+                    try await self.context.account.network.addAgentToVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+                }
+            } catch {
+                self.voiceAgentEnabled = wasEnabled
+                self.refreshVoiceAgentButtonAppearance()
+                self.presentVoiceAlert(
+                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
+                    message: error.localizedDescription)
+            }
+        }
+    }
+
     private func voiceParticipantIsSelf(identityKey: String, clanUser: Mezon_Api_ClanUserList.ClanUser?) -> Bool {
         if let myId = context.currentUser?.id, myId == identityKey { return true }
         if let u = clanUser?.user.username, !u.isEmpty,
@@ -3366,7 +3560,9 @@ final class VoiceChannelRoomViewController: ViewController {
     private func presentScreenShareExpanded(track: VideoTrack, displayName: String, sourceParticipantKey: String) {
         tearDownScreenSharePresentationAndPiP()
         guard #available(iOS 15.0, *) else { return }
+        screenShareExpandedPresentedAt = Date()
         screenShareExpandedSourceParticipantKey = sourceParticipantKey
+        screenShareExpandedSourceTrack = track
         unlockOrientationForScreenShareDetail()
         let vc = ScreenShareExpandedViewController(track: track, displayName: displayName)
         vc.pipHost = self
@@ -3396,13 +3592,73 @@ final class VoiceChannelRoomViewController: ViewController {
         UIViewController.attemptRotationToDeviceOrientation()
     }
 
+    @available(iOS 15.0, *)
+    private func findScreenShareExpandedPresenter() -> (presenter: UIViewController, expanded: ScreenShareExpandedViewController)? {
+        var cur: UIViewController? = self
+        while let c = cur {
+            if let exp = c.presentedViewController as? ScreenShareExpandedViewController {
+                return (c, exp)
+            }
+            cur = c.presentedViewController
+        }
+        return nil
+    }
+
+    @available(iOS 15.0, *)
+    private func searchScreenShareExpanded(in vc: UIViewController) -> ScreenShareExpandedViewController? {
+        if let e = vc as? ScreenShareExpandedViewController {
+            return e
+        }
+        if let p = vc.presentedViewController, let found = searchScreenShareExpanded(in: p) {
+            return found
+        }
+        if let nav = vc as? UINavigationController, let top = nav.visibleViewController ?? nav.topViewController {
+            if let found = searchScreenShareExpanded(in: top) {
+                return found
+            }
+        }
+        if let tab = vc as? UITabBarController, let sel = tab.selectedViewController {
+            if let found = searchScreenShareExpanded(in: sel) {
+                return found
+            }
+        }
+        for child in vc.children {
+            if let found = searchScreenShareExpanded(in: child) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    @available(iOS 15.0, *)
+    private func findScreenShareExpandedViewControllerInKeyWindowHierarchy() -> ScreenShareExpandedViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in scenes {
+            for window in scene.windows where !window.isHidden {
+                guard let root = window.rootViewController else { continue }
+                if let found = searchScreenShareExpanded(in: root) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
+
     private func tearDownScreenSharePresentationAndPiP() {
         noteScreenShareExpandedSessionEnded()
         if #available(iOS 15.0, *) {
-            if let expanded = presentedViewController as? ScreenShareExpandedViewController {
+            if let (presenter, expanded) = findScreenShareExpandedPresenter() {
+                isScreenShareExpandedPresented = false
+                expanded.tearDownForVoiceRoomLeaving()
+                presenter.dismiss(animated: false)
+            } else if let expanded = presentedViewController as? ScreenShareExpandedViewController {
                 isScreenShareExpandedPresented = false
                 expanded.tearDownForVoiceRoomLeaving()
                 dismiss(animated: false)
+            } else if let expanded = findScreenShareExpandedViewControllerInKeyWindowHierarchy() {
+                isScreenShareExpandedPresented = false
+                expanded.tearDownForVoiceRoomLeaving()
+                expanded.dismiss(animated: false)
             }
             if let retained = screenSharePiPHostRetain as? ScreenShareExpandedViewController {
                 retained.tearDownForVoiceRoomLeaving()
@@ -3486,6 +3742,7 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
     private let videoView = VideoView()
     private var pipController: AVPictureInPictureController?
     private var didAutoDismissForPiP = false
+    private var screenShareFocusPollTimer: Foundation.Timer?
 
     private let scrollView = UIScrollView()
     private let videoContainer = UIView()
@@ -3508,6 +3765,10 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private func voiceRoomHostForDismiss() -> VoiceChannelRoomViewController? {
+        pipHost ?? presentingViewController as? VoiceChannelRoomViewController
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -3614,10 +3875,18 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
         if #available(iOS 16.0, *) {
             setNeedsUpdateOfSupportedInterfaceOrientations()
         }
+        screenShareFocusPollTimer?.invalidate()
+        let timer = Foundation.Timer(timeInterval: 0.65, repeats: true) { [weak self] (_: Foundation.Timer) in
+            self?.voiceRoomHostForDismiss()?.dismissScreenShareExpandedIfSourceShareEnded()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        screenShareFocusPollTimer = timer
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        screenShareFocusPollTimer?.invalidate()
+        screenShareFocusPollTimer = nil
         if isBeingDismissed, !didAutoDismissForPiP {
             pipHost?.noteScreenShareExpandedSessionEnded()
         }
@@ -3660,12 +3929,15 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
     }
 
     deinit {
+        screenShareFocusPollTimer?.invalidate()
         videoView.track = nil
         pipController?.delegate = nil
         pipController = nil
     }
 
     fileprivate func tearDownForVoiceRoomLeaving() {
+        screenShareFocusPollTimer?.invalidate()
+        screenShareFocusPollTimer = nil
         pipController?.stopPictureInPicture()
         videoView.track = nil
         pipController?.delegate = nil
@@ -3673,6 +3945,8 @@ private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCa
     }
 
     @objc private func closeScreenShareTapped() {
+        screenShareFocusPollTimer?.invalidate()
+        screenShareFocusPollTimer = nil
         pipController?.stopPictureInPicture()
         pipHost?.releaseScreenSharePiPHost(self)
         dismiss(animated: true)

@@ -22,12 +22,13 @@ final class AttachmentPreviewView: UIView {
         layout.scrollDirection = .horizontal
         layout.minimumInteritemSpacing = 14.sw
         layout.minimumLineSpacing = 14.sw
-        layout.sectionInset = UIEdgeInsets(top: 9.sh, left: 8.sw, bottom: 9.sh, right: 20.sw)
+        layout.sectionInset = UIEdgeInsets(top: 9.sh, left: 14.sw, bottom: 9.sh, right: 20.sw)
         let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
         cv.translatesAutoresizingMaskIntoConstraints = false
         cv.backgroundColor = .clear
         cv.showsHorizontalScrollIndicator = false
         cv.alwaysBounceHorizontal = true
+        cv.delaysContentTouches = false
         return cv
     }()
 
@@ -45,6 +46,11 @@ final class AttachmentPreviewView: UIView {
             collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        disablesInteractiveTransitionGestureRecognizer = true
+        collectionView.disablesInteractiveTransitionGestureRecognizer = true
+        disablesInteractiveTransitionGestureRecognizerNow = { true }
+        collectionView.disablesInteractiveTransitionGestureRecognizerNow = { true }
     }
 
     required init?(coder: NSCoder) { fatalError() }
