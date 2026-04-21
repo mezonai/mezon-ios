@@ -5,9 +5,13 @@ struct ClanListInteraction {
     let onSelectClan: (Mezon_Api_ClanDesc) -> Void
     let onSelectDM: (Mezon_Api_ChannelDescription) -> Void
     let onLogoTapped: () -> Void
+    let onJoinClanTapped: () -> Void
+    let onCreateClanTapped: () -> Void
 }
 
 final class ClanListContainerNode: ASDisplayNode {
+
+    private static let trailingClanActionCount = 2
 
     static let iconSize: CGFloat = 42.swh
     static let logoImageWidth: CGFloat = 42.swh
@@ -72,6 +76,7 @@ final class ClanListContainerNode: ASDisplayNode {
 
                 let hasClanSection = self.collectionView.numberOfSections > 1
                 let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
+                let newClanSectionCount = newState.clans.count + Self.trailingClanActionCount
 
                 let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
                 let newClanBadges = newState.clans.map { $0.badgeCount }
@@ -79,7 +84,7 @@ final class ClanListContainerNode: ASDisplayNode {
                 let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
                 let dmStripIdentityChanged = prevDmFingerprint != newDmFingerprint
 
-                if newState.clans.count != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged {
+                if newClanSectionCount != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged {
                     self.collectionView.reloadData()
                 } else if dmStripIdentityChanged {
                     if self.collectionView.numberOfSections > 0 {
@@ -116,6 +121,8 @@ final class ClanListContainerNode: ASDisplayNode {
         collectionView.showsVerticalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.register(ClanCell.self, forCellWithReuseIdentifier: ClanCell.reuseID)
+        collectionView.register(ClanJoinActionCell.self, forCellWithReuseIdentifier: ClanJoinActionCell.reuseID)
+        collectionView.register(ClanCreateActionCell.self, forCellWithReuseIdentifier: ClanCreateActionCell.reuseID)
         collectionView.register(UnreadDMBadgeCell.self, forCellWithReuseIdentifier: UnreadDMBadgeCell.reuseID)
         collectionView.register(UICollectionReusableView.self, forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter, withReuseIdentifier: "separator")
         collectionView.dataSource = self
@@ -206,7 +213,7 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         switch section {
         case 0: return state.unreadDMs.count
-        case 1: return state.clans.count
+        case 1: return state.clans.count + Self.trailingClanActionCount
         default: return 0
         }
     }
@@ -218,8 +225,15 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
             cell.configure(with: dm)
             return cell
         }
+        let clanIndex = indexPath.item
+        guard clanIndex < state.clans.count else {
+            if clanIndex == state.clans.count {
+                return collectionView.dequeueReusableCell(withReuseIdentifier: ClanJoinActionCell.reuseID, for: indexPath) as! ClanJoinActionCell
+            }
+            return collectionView.dequeueReusableCell(withReuseIdentifier: ClanCreateActionCell.reuseID, for: indexPath) as! ClanCreateActionCell
+        }
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanCell.reuseID, for: indexPath) as! ClanCell
-        let clan = state.clans[indexPath.item]
+        let clan = state.clans[clanIndex]
         cell.configure(with: clan, isSelected: clan.clanID == state.selectedClanId)
         return cell
     }
@@ -228,7 +242,14 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         if indexPath.section == 0 {
             interaction.onSelectDM(state.unreadDMs[indexPath.item])
         } else {
-            interaction.onSelectClan(state.clans[indexPath.item])
+            let i = indexPath.item
+            guard i < state.clans.count else {
+                collectionView.deselectItem(at: indexPath, animated: true)
+                if i == state.clans.count { interaction.onJoinClanTapped() }
+                else { interaction.onCreateClanTapped() }
+                return
+            }
+            interaction.onSelectClan(state.clans[i])
         }
     }
 
@@ -440,6 +461,103 @@ private final class ClanCell: UICollectionViewCell {
         ]
         let hash = abs(name.hashValue)
         return colors[hash % colors.count]
+    }
+}
+
+private final class ClanJoinActionCell: UICollectionViewCell {
+
+    static let reuseID = "ClanJoinActionCell"
+
+    private let outer: UIView = {
+        let v = UIView()
+        v.layer.cornerRadius = 8.swh
+        v.layer.borderWidth = 0
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
+    private let iconView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.clipsToBounds = true
+        iv.image = UIImage(named: "ClanSetting/JoinClanIcon")?.withRenderingMode(.alwaysOriginal)
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        let sz = ClanListContainerNode.iconSize
+        contentView.addSubview(outer)
+        outer.addSubview(iconView)
+        NSLayoutConstraint.activate([
+            outer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            outer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            outer.widthAnchor.constraint(equalToConstant: sz),
+            outer.heightAnchor.constraint(equalToConstant: sz),
+            iconView.topAnchor.constraint(equalTo: outer.topAnchor),
+            iconView.leadingAnchor.constraint(equalTo: outer.leadingAnchor),
+            iconView.trailingAnchor.constraint(equalTo: outer.trailingAnchor),
+            iconView.bottomAnchor.constraint(equalTo: outer.bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let t = UIColor.theme
+        outer.backgroundColor = t.primary.withAlphaComponent(0.2)
+    }
+}
+
+private final class ClanCreateActionCell: UICollectionViewCell {
+
+    static let reuseID = "ClanCreateActionCell"
+
+    private let outer: UIView = {
+        let v = UIView()
+        v.layer.cornerRadius = 8.swh
+        v.layer.borderWidth = 0
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
+    private let iconView: UIImageView = {
+        let iv = UIImageView()
+        let cfg = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
+        iv.image = UIImage(systemName: "plus", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        iv.contentMode = .scaleAspectFit
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        let sz = ClanListContainerNode.iconSize
+        contentView.addSubview(outer)
+        outer.addSubview(iconView)
+        NSLayoutConstraint.activate([
+            outer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            outer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            outer.widthAnchor.constraint(equalToConstant: sz),
+            outer.heightAnchor.constraint(equalToConstant: sz),
+            iconView.centerXAnchor.constraint(equalTo: outer.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: outer.centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let t = UIColor.theme
+        iconView.tintColor = t.iconPrimary
+        outer.backgroundColor = t.iconPrimary.withAlphaComponent(0.28)
     }
 }
 

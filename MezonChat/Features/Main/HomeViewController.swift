@@ -7,6 +7,9 @@ final class HomeViewController: BaseViewController {
     let clanListVC: ClanListViewController
     let channelListVC: ChannelListViewController
     private let context: AccountContext
+    private lazy var discoverEmptyOverlayVC: DiscoverClanEmptyStateViewController = {
+        DiscoverClanEmptyStateViewController(context: context)
+    }()
 
     private let clanSidebarWidth: CGFloat = Constants.Layout.clanSidebarWidth
 
@@ -23,10 +26,14 @@ final class HomeViewController: BaseViewController {
         super.viewDidLoad()
         view.backgroundColor = UIColor.theme.primary
         embedChildren()
+        embedDiscoverOverlay()
         bindClanSelection()
         bindChannelSelection()
         bindSearchTapped()
         bindLogoTap()
+        bindDismissDiscoverOnClanSelect()
+        bindClanJoinCreate()
+        bindDiscoverEmptyOverlay()
         applyInitialClanSelection()
         DispatchQueue.main.async { [weak self] in
             self?.applyInitialClanSelection()
@@ -39,6 +46,11 @@ final class HomeViewController: BaseViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: UIApplication.willEnterForegroundNotification, object: nil)
 
         bindBadgeCountUpdates()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        discoverEmptyOverlayVC.hostNavigationController = navigationController
     }
 
     @objc private func handleHomeThemeChange() {
@@ -90,9 +102,55 @@ final class HomeViewController: BaseViewController {
         ])
     }
 
+    private func embedDiscoverOverlay() {
+        let vc = discoverEmptyOverlayVC
+        vc.hostNavigationController = navigationController
+        vc.onUserJoinedClan = { [weak self] in
+            self?.clanListVC.loadClans()
+        }
+        addChild(vc)
+        view.addSubview(vc.view)
+        vc.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            vc.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            vc.view.leadingAnchor.constraint(equalTo: clanListVC.view.trailingAnchor),
+            vc.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            vc.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        vc.didMove(toParent: self)
+        vc.view.isHidden = true
+    }
+
+    private func bindDiscoverEmptyOverlay() {
+        discoverEmptyOverlayVC.view.isHidden = !clanListVC.discoverEmptyOverlayShouldShow
+        disposables.add(
+            (clanListVC.showDiscoverEmptyOverlaySignal |> deliverOnMainQueue)
+                .start(next: { [weak self] show in
+                    guard let self else { return }
+                    self.discoverEmptyOverlayVC.view.isHidden = !show
+                    if show {
+                        self.view.bringSubviewToFront(self.discoverEmptyOverlayVC.view)
+                    }
+                })
+        )
+    }
+
+    private func dismissDiscoverOverlayIfPresent() {
+        guard !discoverEmptyOverlayVC.view.isHidden else { return }
+        discoverEmptyOverlayVC.view.isHidden = true
+        view.bringSubviewToFront(channelListVC.view)
+    }
+
+    private func bindDismissDiscoverOnClanSelect() {
+        clanListVC.onClanSelected = { [weak self] in
+            self?.dismissDiscoverOverlayIfPresent()
+        }
+    }
+
     private func bindLogoTap() {
         clanListVC.onLogoTapped = { [weak self] in
             guard let self else { return }
+            self.dismissDiscoverOverlayIfPresent()
             let rootController = self.navigationController as? MezonRootController
             if let tabBar = self.parent as? TabBarController {
                 tabBar.selectedIndex = 1
@@ -101,11 +159,42 @@ final class HomeViewController: BaseViewController {
         }
     }
 
+    private func bindClanJoinCreate() {
+        clanListVC.onJoinClanTapped = { [weak self] in
+            guard let self else { return }
+            self.discoverEmptyOverlayVC.reloadDiscoverList()
+            self.discoverEmptyOverlayVC.view.isHidden = false
+            self.view.bringSubviewToFront(self.discoverEmptyOverlayVC.view)
+        }
+        clanListVC.onCreateClanTapped = { [weak self] in
+            guard let self else { return }
+            let vc = CreateClanEntryViewController(context: self.context)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
+    }
+
+    private func presentModalSheet(_ vc: UIViewController) {
+        vc.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sheet = vc.sheetPresentationController {
+                sheet.prefersGrabberVisible = true
+                sheet.preferredCornerRadius = 16
+                sheet.detents = [.medium()]
+                sheet.prefersEdgeAttachedInCompactHeight = true
+            }
+        }
+        present(vc, animated: true)
+    }
+
     private func bindClanSelection() {
         disposables.add(
             (clanListVC.selectedClanIdSignal |> deliverOnMainQueue)
                 .start(next: { [weak self] clanId in
-                    guard let clanId, let self else { return }
+                    guard let self else { return }
+                    guard let clanId, clanId != 0 else {
+                        self.channelListVC.configure(clanId: 0, clanName: "", logoURL: nil, bannerURL: nil, memberCount: 0, onlineCount: 0, isCommunity: false)
+                        return
+                    }
                     let clan = self.clanListVC.clans.first(where: { $0.clanID == clanId })
                     let users = self.context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers ?? []
                     let memberCount = users.count

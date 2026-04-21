@@ -229,8 +229,60 @@ enum L10n {
 
     enum Clan {
         static let createClan     = "clan.createClan"
+        static let joinClanTitle   = "clan.joinClanTitle"
+        static let inviteInputPlaceholder = "clan.inviteInputPlaceholder"
+        static let newClanNamePlaceholder = "clan.newClanNamePlaceholder"
+        static let joinAction        = "clan.joinAction"
+        static let inviteInvalid    = "clan.inviteInvalid"
+        static let nameRequired     = "clan.nameRequired"
+        static let createClanBannerTitle = "clan.createClanBannerTitle"
+        static let createClanLogoTitle = "clan.createClanLogoTitle"
+        static let createClanAddBanner = "clan.createClanAddBanner"
+        static let createClanAddIcon = "clan.createClanAddIcon"
+        static let createClanNameSection = "clan.createClanNameSection"
+        static let createYourClanTitle = "clan.createYourClanTitle"
+        static let createClanIntroBody = "clan.createClanIntroBody"
+        static let createMyOwnTitle = "clan.createMyOwnTitle"
+        static let startFromTemplateSection = "clan.startFromTemplateSection"
+        static let createTemplateGaming = "clan.createTemplateGaming"
+        static let createTemplateFriends = "clan.createTemplateFriends"
+        static let createTemplateStudyGroup = "clan.createTemplateStudyGroup"
+        static let createTemplateSchoolClub = "clan.createTemplateSchoolClub"
+        static let createTemplateLocalCommunity = "clan.createTemplateLocalCommunity"
+        static let createTemplateArtists = "clan.createTemplateArtists"
+        static let customizeClanTitle = "clan.customizeClanTitle"
+        static let customizeClanSubtitle = "clan.customizeClanSubtitle"
+        static let clanNameInvalidFormat = "clan.clanNameInvalidFormat"
+        static let createClanAgreementPrefix = "clan.createClanAgreementPrefix"
+        static let createClanAgreementLink = "clan.createClanAgreementLink"
+        static let uploadWordmark = "clan.uploadWordmark"
         static let members        = "clan.members"
         static let settings       = "clan.settings"
+    }
+
+    enum Discover {
+        static let communityOnMezon = "discover.communityOnMezon"
+        static let exploreCommunities = "discover.exploreCommunities"
+        static let membersLabel = "discover.membersLabel"
+        static let verified = "discover.verified"
+        static let joinClan = "discover.joinClan"
+        static let noCommunities = "discover.noCommunities"
+        static let loadFailed = "discover.loadFailed"
+    }
+
+    enum DiscoverDetail {
+        static let howChatty = "discover.detail.howChatty"
+        static let clanCreated = "discover.detail.clanCreated"
+        static let feature = "discover.detail.feature"
+        static let communityRow = "discover.detail.communityRow"
+        static let about = "discover.detail.about"
+        static let chattyBusy = "discover.detail.chattyBusy"
+        static let chattyModerate = "discover.detail.chattyModerate"
+        static let chattyQuiet = "discover.detail.chattyQuiet"
+        static let featureFallback = "discover.detail.featureFallback"
+        static let communityFallback = "discover.detail.communityFallback"
+        static let communityVerified = "discover.detail.communityVerified"
+        static let dateUnavailable = "discover.detail.dateUnavailable"
     }
 
     enum ClanAction {
@@ -576,8 +628,55 @@ extension L10n {
         "otpVerify.sendOtpError":      "Failed to receive OTP. Please try again.",
 
         "clan.createClan":  "Create Clan",
+        "clan.joinClanTitle": "Join a clan",
+        "clan.inviteInputPlaceholder": "Invite link or code",
+        "clan.newClanNamePlaceholder": "Clan name",
+        "clan.joinAction": "Join",
+        "clan.inviteInvalid": "Enter a valid invite link or code",
+        "clan.nameRequired": "Enter a clan name",
+        "clan.createClanBannerTitle": "Banner",
+        "clan.createClanLogoTitle": "Clan icon",
+        "clan.createClanAddBanner": "Add banner",
+        "clan.createClanAddIcon": "Add icon",
+        "clan.createClanNameSection": "Clan name",
+        "clan.createYourClanTitle": "Create Your Clan",
+        "clan.createClanIntroBody": "Create your own space to connect with friends. Build your clan and start chatting today.",
+        "clan.createMyOwnTitle": "Create My Own",
+        "clan.startFromTemplateSection": "START FROM A TEMPLATE",
+        "clan.createTemplateGaming": "Gaming",
+        "clan.createTemplateFriends": "Friends",
+        "clan.createTemplateStudyGroup": "Study Group",
+        "clan.createTemplateSchoolClub": "School Club",
+        "clan.createTemplateLocalCommunity": "Local Community",
+        "clan.createTemplateArtists": "Artists & Creators",
+        "clan.customizeClanTitle": "Customize Your Clan",
+        "clan.customizeClanSubtitle": "Give your new clan a personality with a name and an icon. You can always change it later.",
+        "clan.clanNameInvalidFormat": "Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).",
+        "clan.createClanAgreementPrefix": "By creating a clan, you agree to ",
+        "clan.createClanAgreementLink": "Mezon's Community Guidelines",
+        "clan.uploadWordmark": "UPLOAD",
         "clan.members":     "Members",
         "clan.settings":    "Clan Settings",
+
+        "discover.communityOnMezon": "Community on Mezon",
+        "discover.exploreCommunities": "Explore communities",
+        "discover.membersLabel": "%d members",
+        "discover.verified": "Verified",
+        "discover.joinClan": "Join Clan",
+        "discover.noCommunities": "No communities to show.",
+        "discover.loadFailed": "Could not load communities. Pull to try again.",
+        "discover.detail.howChatty": "How chatty?",
+        "discover.detail.clanCreated": "Clan created",
+        "discover.detail.feature": "Feature",
+        "discover.detail.communityRow": "Community",
+        "discover.detail.about": "About",
+        "discover.detail.chattyBusy": "Like a busy coffee shop",
+        "discover.detail.chattyModerate": "Fairly active",
+        "discover.detail.chattyQuiet": "Pretty quiet",
+        "discover.detail.featureFallback": "Try out the official features of this clan!",
+        "discover.detail.communityFallback": "Connect with members and explore channels.",
+        "discover.detail.communityVerified": "Weekly events and updates.",
+        "discover.detail.dateUnavailable": "—",
 
         "clan.action.invite":               "Invite",
         "clan.action.markAsRead":           "Mark as Read",
@@ -955,8 +1054,55 @@ extension L10n {
         "otpVerify.sendOtpError":      "Không thể gửi mã OTP. Vui lòng thử lại.",
 
         "clan.createClan":  "Tạo Clan",
+        "clan.joinClanTitle": "Tham gia clan",
+        "clan.inviteInputPlaceholder": "Liên kết hoặc mã mời",
+        "clan.newClanNamePlaceholder": "Tên clan",
+        "clan.joinAction": "Tham gia",
+        "clan.inviteInvalid": "Nhập liên kết hoặc mã mời hợp lệ",
+        "clan.nameRequired": "Nhập tên clan",
+        "clan.createClanBannerTitle": "Ảnh bìa",
+        "clan.createClanLogoTitle": "Biểu tượng clan",
+        "clan.createClanAddBanner": "Thêm ảnh bìa",
+        "clan.createClanAddIcon": "Thêm biểu tượng",
+        "clan.createClanNameSection": "Tên clan",
+        "clan.createYourClanTitle": "Tạo clan của bạn",
+        "clan.createClanIntroBody": "Tạo không gian riêng để kết nối với bạn bè. Xây dựng clan và bắt đầu trò chuyện ngay hôm nay.",
+        "clan.createMyOwnTitle": "Tự tạo",
+        "clan.startFromTemplateSection": "BẮT ĐẦU TỪ MẪU",
+        "clan.createTemplateGaming": "Gaming",
+        "clan.createTemplateFriends": "Bạn bè",
+        "clan.createTemplateStudyGroup": "Nhóm học",
+        "clan.createTemplateSchoolClub": "Câu lạc bộ",
+        "clan.createTemplateLocalCommunity": "Cộng đồng địa phương",
+        "clan.createTemplateArtists": "Nghệ sĩ & sáng tạo",
+        "clan.customizeClanTitle": "Tùy chỉnh clan",
+        "clan.customizeClanSubtitle": "Đặt tên và biểu tượng cho clan mới. Bạn có thể thay đổi sau.",
+        "clan.clanNameInvalidFormat": "Tên clan không hợp lệ (tối đa 64 ký tự, chỉ chữ, số, dấu cách, _ hoặc -).",
+        "clan.createClanAgreementPrefix": "Khi tạo clan, bạn đồng ý với ",
+        "clan.createClanAgreementLink": "Quy định cộng đồng của Mezon",
+        "clan.uploadWordmark": "TẢI LÊN",
         "clan.members":     "Thành viên",
         "clan.settings":    "Cài đặt Clan",
+
+        "discover.communityOnMezon": "Cộng đồng trên Mezon",
+        "discover.exploreCommunities": "Khám phá cộng đồng",
+        "discover.membersLabel": "%d thành viên",
+        "discover.verified": "Đã xác minh",
+        "discover.joinClan": "Tham gia Clan",
+        "discover.noCommunities": "Không có cộng đồng để hiển thị.",
+        "discover.loadFailed": "Không tải được danh sách. Kéo để thử lại.",
+        "discover.detail.howChatty": "Độ sôi nổi?",
+        "discover.detail.clanCreated": "Ngày tạo clan",
+        "discover.detail.feature": "Tính năng",
+        "discover.detail.communityRow": "Cộng đồng",
+        "discover.detail.about": "Giới thiệu",
+        "discover.detail.chattyBusy": "Như một quán cà phê đông đúc",
+        "discover.detail.chattyModerate": "Khá hoạt động",
+        "discover.detail.chattyQuiet": "Khá yên tĩnh",
+        "discover.detail.featureFallback": "Trải nghiệm các tính năng chính thức của clan!",
+        "discover.detail.communityFallback": "Kết nối với thành viên và khám phá kênh.",
+        "discover.detail.communityVerified": "Sự kiện và cập nhật hàng tuần.",
+        "discover.detail.dateUnavailable": "—",
 
         "clan.action.invite":               "Mời",
         "clan.action.markAsRead":           "Đánh dấu đã đọc",
