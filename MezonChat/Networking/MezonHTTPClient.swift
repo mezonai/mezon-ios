@@ -919,6 +919,28 @@ final class MezonHTTPClient {
         )
     }
 
+    func addFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
+        var req = Mezon_Api_AddFriendsRequest()
+        req.ids = ids
+        req.usernames = usernames
+        let _: Mezon_Api_AddFriendsResponse = try await postProto(
+            path: "/mezon.api.Mezon/AddFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
+        var req = Mezon_Api_DeleteFriendsRequest()
+        req.ids = ids
+        req.usernames = usernames
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/DeleteFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func getListEmojisByUserId(token: String) async throws -> Mezon_Api_EmojiListedResponse {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(

@@ -471,6 +471,9 @@ final class SettingsViewController: BaseViewController {
         case L(L10n.Settings.account):
             let vc = AccountSettingsViewController(context: context)
             navigationController?.pushViewController(vc, animated: true)
+        case L(L10n.Settings.friendRequests):
+            let vc = FriendRequestViewController(context: context)
+            navigationController?.pushViewController(vc, animated: true)
         case L(L10n.Settings.appearance):
             let vc = AppThemeViewController()
             navigationController?.pushViewController(vc, animated: true)

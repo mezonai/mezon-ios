@@ -1,5 +1,4 @@
 import UIKit
-import SwiftProtobuf
 
 struct DirectMessagesState {
     var directMessages: [Mezon_Api_ChannelDescription]
@@ -41,7 +40,11 @@ final class DirectMessagesViewController: ViewController {
                 let vc = ChatViewController(clanId: 0, channel: ch, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(vc, animated: true)
             },
-            onAddFriendTapped: {},
+            onAddFriendTapped: { [weak self] in
+                guard let self else { return }
+                let vc = FriendRequestViewController(context: self.context)
+                self.navigationController?.pushViewController(vc, animated: true)
+            },
             onSearchTapped: {},
             onBackTapped: { [weak self] in
                 self?.navigationController?.popViewController(animated: true)
