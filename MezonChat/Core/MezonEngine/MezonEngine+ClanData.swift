@@ -295,5 +295,46 @@ extension MezonEngine {
         func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
             try await network.joinClanWithInvite(code: code, token: token)
         }
+
+        func createClanDesc(name: String, logo: String = "", banner: String = "", token: String) async throws -> Mezon_Api_ClanDesc {
+            try await network.createClanDesc(name: name, logo: logo, banner: banner, token: token)
+        }
+
+        func applyCreationTemplateChannels(clanId: Int64, template: ClanCreationTemplate, token: String) async {
+            do {
+                let channelList = try await network.listChannelDescs(clanId: clanId, token: token)
+                var defaultCategoryId = channelList.first(where: { $0.parentID == 0 })?.categoryID
+                    ?? channelList.first?.categoryID
+                    ?? 0
+                if defaultCategoryId == 0 {
+                    let cats = try await network.listCategoryDescs(clanId: clanId, token: token)
+                    defaultCategoryId = cats.first?.categoryID ?? 0
+                }
+                guard defaultCategoryId != 0 else { return }
+
+                for block in template.postCreateCategoryPlans {
+                    var categoryId = defaultCategoryId
+                    if !block.categoryName.isEmpty {
+                        categoryId = try await network.createCategoryDesc(
+                            clanId: clanId,
+                            categoryName: block.categoryName,
+                            token: token
+                        ).categoryID
+                    }
+                    guard categoryId != 0 else { continue }
+                    for ch in block.channels {
+                        _ = try await network.createClanChannelDesc(
+                            clanId: clanId,
+                            categoryId: categoryId,
+                            channelLabel: ch.name,
+                            type: ch.channelType,
+                            channelPrivate: ch.isPrivate ? 1 : 0,
+                            token: token
+                        )
+                        try await Task.sleep(nanoseconds: 400_000_000)
+                    }
+                }
+            } catch {}
+        }
     }
 }

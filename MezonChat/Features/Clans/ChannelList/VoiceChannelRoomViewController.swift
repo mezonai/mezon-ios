@@ -1469,7 +1469,7 @@ final class VoiceChannelRoomViewController: ViewController {
         button.layer.cornerRadius = 20
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.theme.border.cgColor
-        if let img = UIImage(named: "VoiceAgentControl") {
+        if let img = UIImage(named: "Channel/VoiceAgentControl") {
             button.setImage(img.withRenderingMode(.alwaysTemplate), for: .normal)
         }
         button.imageView?.contentMode = .scaleAspectFit
@@ -3335,7 +3335,7 @@ final class VoiceChannelRoomViewController: ViewController {
             agentToggleButton.setImage(nil, for: .normal)
         } else {
             agentToggleSpinner.stopAnimating()
-            if let img = UIImage(named: "VoiceAgentControl") {
+            if let img = UIImage(named: "Channel/VoiceAgentControl") {
                 agentToggleButton.setImage(img.withRenderingMode(.alwaysTemplate), for: .normal)
             }
         }

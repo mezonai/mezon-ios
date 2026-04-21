@@ -24,6 +24,14 @@ final class ClanListViewController: ViewController {
     private let clansLoadedPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
     var clansLoadedSignal: Signal<Bool, NoError> { clansLoadedPromise.get() }
 
+    private var completedRemoteClanListFetch = false
+    private let showDiscoverEmptyOverlayPipe = ValuePipe<Bool>()
+    var showDiscoverEmptyOverlaySignal: Signal<Bool, NoError> { showDiscoverEmptyOverlayPipe.signal() }
+
+    var discoverEmptyOverlayShouldShow: Bool {
+        completedRemoteClanListFetch && !isLoading && clans.isEmpty
+    }
+
     var selectedClanIdSignal: Signal<Int64?, NoError> { selectedClanIdPipe.signal() }
     var clansSignal: Signal<[Mezon_Api_ClanDesc], NoError> { clansPipe.signal() }
 
@@ -37,6 +45,9 @@ final class ClanListViewController: ViewController {
     private var debouncedUnreadDmFetchWorkItem: DispatchWorkItem?
 
     var onLogoTapped: (() -> Void)?
+    var onClanSelected: (() -> Void)?
+    var onJoinClanTapped: (() -> Void)?
+    var onCreateClanTapped: (() -> Void)?
 
     private var clanListNode: ClanListContainerNode { displayNode as! ClanListContainerNode }
 
@@ -56,7 +67,9 @@ final class ClanListViewController: ViewController {
         let interaction = ClanListInteraction(
             onSelectClan: { [weak self] clan in self?.select(clan: clan) },
             onSelectDM: { [weak self] dm in self?.openDirectMessage(dm) },
-            onLogoTapped: { [weak self] in self?.onLogoTapped?() }
+            onLogoTapped: { [weak self] in self?.onLogoTapped?() },
+            onJoinClanTapped: { [weak self] in self?.onJoinClanTapped?() },
+            onCreateClanTapped: { [weak self] in self?.onCreateClanTapped?() }
         )
         displayNode = ClanListContainerNode(signal: stateSignal(), interaction: interaction)
     }
@@ -272,10 +285,25 @@ final class ClanListViewController: ViewController {
         NotificationCenter.default.removeObserver(self)
     }
 
-    private func setClans(_ v: [Mezon_Api_ClanDesc]) { clans = v; clansPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setClans(_ v: [Mezon_Api_ClanDesc]) {
+        clans = v
+        clansPipe.putNext(v)
+        needsReloadPipe.putNext(())
+        refreshDiscoverEmptyOverlayFlag()
+    }
     private func setSelectedClanId(_ v: Int64?) { selectedClanId = v; selectedClanIdPipe.putNext(v); needsReloadPipe.putNext(()) }
-    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setIsLoading(_ v: Bool) {
+        isLoading = v
+        isLoadingPipe.putNext(v)
+        needsReloadPipe.putNext(())
+        refreshDiscoverEmptyOverlayFlag()
+    }
     private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) { unreadDMs = v; unreadDMsPipe.putNext(v); needsReloadPipe.putNext(()) }
+
+    private func refreshDiscoverEmptyOverlayFlag() {
+        let show = completedRemoteClanListFetch && !isLoading && clans.isEmpty
+        showDiscoverEmptyOverlayPipe.putNext(show)
+    }
 
     func loadClans() {
         setIsLoading(true)
@@ -283,6 +311,7 @@ final class ClanListViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
+                self.completedRemoteClanListFetch = false
                 self.setIsLoading(false)
                 if !self.clans.isEmpty {
                     self.clansLoadedPromise.set(true)
@@ -298,8 +327,15 @@ final class ClanListViewController: ViewController {
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
                 self.context.account.postbox.write { tx in tx.updateClans(records) }
+                self.completedRemoteClanListFetch = true
                 self.setClans(sorted)
-                if let sid = self.selectedClanId, sid != 0, sorted.contains(where: { $0.clanID == sid }) {
+                if sorted.isEmpty {
+                    self.setSelectedClanId(nil)
+                    self.context.currentClanId = 0
+                    UserDefaults.standard.removeObject(forKey: Self.selectedClanIdUserDefaultsKey)
+                    self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: Data())
+                    self.persistToPostbox()
+                } else if let sid = self.selectedClanId, sid != 0, sorted.contains(where: { $0.clanID == sid }) {
                     self.setSelectedClanId(sid)
                     self.context.currentClanId = sid
                     self.persistToPostbox()
@@ -315,6 +351,7 @@ final class ClanListViewController: ViewController {
                     await self.refreshClanSidebarBadgesFromSocket()
                 }
             } catch {
+                self.completedRemoteClanListFetch = true
                 self.error = error.localizedDescription
                 if !self.clans.isEmpty {
                     self.clansLoadedPromise.set(true)
@@ -327,6 +364,7 @@ final class ClanListViewController: ViewController {
     }
 
     func select(clan: Mezon_Api_ClanDesc) {
+        onClanSelected?()
         setSelectedClanId(clan.clanID)
         context.currentClanId = clan.clanID
         context.account.socket.joinClanChat(clanId: clan.clanID)

@@ -174,6 +174,18 @@ final class MezonHTTPClient {
         )
     }
 
+    func createClanDesc(name: String, logo: String = "", banner: String = "", token: String) async throws -> Mezon_Api_ClanDesc {
+        var req = Mezon_Api_CreateClanDescRequest()
+        req.clanName = name
+        req.logo = logo
+        req.banner = banner
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateClanDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func linkInviteUser(
         clanId: Int64,
         channelId: Int64,
@@ -217,6 +229,39 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.categorydesc
+    }
+
+    func createCategoryDesc(clanId: Int64, categoryName: String, token: String) async throws -> Mezon_Api_CategoryDesc {
+        var req = Mezon_Api_CreateCategoryDescRequest()
+        req.clanID = clanId
+        req.categoryName = categoryName
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateCategoryDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func createClanChannelDesc(
+        clanId: Int64,
+        categoryId: Int64,
+        channelLabel: String,
+        type: Int32,
+        channelPrivate: Int32,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_CreateChannelDescRequest()
+        req.clanID = clanId
+        req.parentID = 0
+        req.categoryID = categoryId
+        req.type = type
+        req.channelLabel = channelLabel
+        req.channelPrivate = channelPrivate
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     func listFavoriteChannelIds(clanId: Int64, token: String) async throws -> [Int64] {
@@ -315,6 +360,60 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.clandesc
+    }
+
+    private struct ClanDiscoverJSONBody: Encodable {
+        let page_number: Int
+        let item_per_page: Int
+    }
+
+    func listClanDiscover(pageNumber: Int32, itemPerPage: Int32, bearerToken: String?) async throws -> Mezon_Api_ListClanDiscover {
+        let body = ClanDiscoverJSONBody(page_number: Int(pageNumber), item_per_page: Int(itemPerPage))
+        let encoded = try JSONEncoder().encode(body)
+        var url = authBaseURL
+        for segment in ["v2", "clan", "discover"] {
+            url = url.appendingPathComponent(segment)
+        }
+
+        func makeRequest(authorization: String) -> URLRequest {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.httpBody = encoded
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/x-protobuf", forHTTPHeaderField: "Accept")
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
+            return request
+        }
+
+        func decodeDiscoverResponse(_ data: Data) throws -> Mezon_Api_ListClanDiscover {
+            if data.isEmpty {
+                return Mezon_Api_ListClanDiscover()
+            }
+            do {
+                return try Mezon_Api_ListClanDiscover(serializedBytes: data)
+            } catch {
+                return try Mezon_Api_ListClanDiscover(jsonUTF8Data: data)
+            }
+        }
+
+        func run(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            let (data, response) = try await urlSession.data(for: request)
+            guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+            return (data, http)
+        }
+
+        var request = makeRequest(authorization: MezonConfig.basicAuthHeader)
+        var (data, http) = try await run(request)
+        if [401, 403].contains(http.statusCode), let t = bearerToken, !t.isEmpty {
+            request = makeRequest(authorization: "Bearer \(t)")
+            (data, http) = try await run(request)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+                ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+        }
+        return try decodeDiscoverResponse(data)
     }
 
     func listNotifications(clanID: Int64, category: Int32, token: String, notificationID: Int64)
