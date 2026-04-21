@@ -400,6 +400,26 @@ enum L10n {
         static let pinEmbedPreview = "channelDetail.pinEmbedPreview"
         static let noPinsYet = "channelDetail.noPinsYet"
     }
+
+    enum FriendRequest {
+        static let title              = "friendRequest.title"
+        static let received           = "friendRequest.received"
+        static let sent               = "friendRequest.sent"
+        static let emptyReceivedTitle = "friendRequest.emptyReceivedTitle"
+        static let emptyReceivedDesc  = "friendRequest.emptyReceivedDesc"
+        static let addByTitle         = "friendRequest.addByTitle"
+        static let addByQuestion      = "friendRequest.addByQuestion"
+        static let addByPlaceholder   = "friendRequest.addByPlaceholder"
+        static let addByHintFormat    = "friendRequest.addByHintFormat"
+        static let addBySending       = "friendRequest.addBySending"
+        static let addBySubmit        = "friendRequest.addBySubmit"
+        static let toastSelfAddError  = "friendRequest.toastSelfAddError"
+        static let toastBlockedError  = "friendRequest.toastBlockedError"
+        static let toastAlreadyFriend = "friendRequest.toastAlreadyFriend"
+        static let toastWaitAccept    = "friendRequest.toastWaitAccept"
+        static let toastIncomingReq   = "friendRequest.toastIncomingReq"
+        static let toastSendSuccess   = "friendRequest.toastSendSuccess"
+    }
 }
 
 extension L10n {
@@ -631,6 +651,24 @@ extension L10n {
         "directMessage.previewLink": "Link",
         "directMessage.previewLocation": "Location",
         "directMessage.previewContact": "Contact",
+
+        "friendRequest.title": "Add Friend",
+        "friendRequest.received": "Received",
+        "friendRequest.sent": "Sent",
+        "friendRequest.emptyReceivedTitle": "No friend requests",
+        "friendRequest.emptyReceivedDesc": "Here you will see all the friend requests that people send to you.",
+        "friendRequest.addByTitle": "Add by username or phone number",
+        "friendRequest.addByQuestion": "Who would you like to add as a friend?",
+        "friendRequest.addByPlaceholder": "Enter username or phone number",
+        "friendRequest.addByHintFormat": "By the way, your username is %@",
+        "friendRequest.addBySending": "Sending...",
+        "friendRequest.addBySubmit": "Send Friend Request",
+        "friendRequest.toastSelfAddError": "Hmm, that didn't work. Double-check that the username is correct",
+        "friendRequest.toastBlockedError": "You have blocked this user. Please unblock them before sending a friend request.",
+        "friendRequest.toastAlreadyFriend": "You're already friends with that user!",
+        "friendRequest.toastWaitAccept": "You have already sent a friend request to this user!",
+        "friendRequest.toastIncomingReq": "This user already sent you a friend request",
+        "friendRequest.toastSendSuccess": "Friend request sent successfully!",
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
@@ -972,6 +1010,24 @@ extension L10n {
         "directMessage.previewLink": "Liên kết",
         "directMessage.previewLocation": "Vị trí",
         "directMessage.previewContact": "Danh bạ",
+
+        "friendRequest.title": "Thêm bạn bè",
+        "friendRequest.received": "Đã nhận",
+        "friendRequest.sent": "Đã gửi",
+        "friendRequest.emptyReceivedTitle": "Không có yêu cầu kết bạn đến",
+        "friendRequest.emptyReceivedDesc": "Tại đây bạn sẽ thấy tất cả các yêu cầu kết bạn mà mọi người gửi cho bạn.",
+        "friendRequest.addByTitle": "Thêm bằng tên người dùng hoặc số điện thoại",
+        "friendRequest.addByQuestion": "Bạn muốn thêm ai làm bạn bè?",
+        "friendRequest.addByPlaceholder": "Nhập tên người dùng hoặc số điện thoại",
+        "friendRequest.addByHintFormat": "À nhân tiện, tên người dùng của bạn là %@",
+        "friendRequest.addBySending": "Đang gửi...",
+        "friendRequest.addBySubmit": "Gửi yêu cầu kết bạn",
+        "friendRequest.toastSelfAddError": "Hmm, có lỗi xảy ra. Vui lòng kiểm tra lại tên người dùng có đúng không",
+        "friendRequest.toastBlockedError": "Bạn đã chặn người dùng này. Vui lòng bỏ chặn để gửi lời mời kết bạn.",
+        "friendRequest.toastAlreadyFriend": "Bạn đã là bạn bè với người dùng này!",
+        "friendRequest.toastWaitAccept": "Bạn đã gửi yêu cầu kết bạn tới người dùng này rồi!",
+        "friendRequest.toastIncomingReq": "Người này đã gửi yêu cầu kết bạn cho bạn",
+        "friendRequest.toastSendSuccess": "Yêu cầu kết bạn đã được gửi thành công!",
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",

@@ -23,6 +23,7 @@
 		06E08FAB0BE3D1D1CE7C9C75 /* MezonEngine+Clans.swift in Sources */ = {isa = PBXBuildFile; fileRef = C583E5CC2C46939378029875 /* MezonEngine+Clans.swift */; };
 		0780769ECE7D3D5B5CF70114 /* TopicDiscussion.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCED9B4C351564D9F6BDB39A /* TopicDiscussion.swift */; };
 		08AD64395C942F11A2916C55 /* DirectMessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4085DC7BDBF7832C3E4EBD25 /* DirectMessagesViewController.swift */; };
+		F1A2B3C4D5E6F708192A3B4C /* AddFriendByUsernameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A2B3C4D5E6F708192A3B4D /* AddFriendByUsernameViewController.swift */; };
 		08E4125FAA7161BED48C0A10 /* MezonEngine+Auth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9ED533CBA411E18DAA1A47 /* MezonEngine+Auth.swift */; };
 		099ACD37F9AFFB0E11547385 /* ChannelSettingsContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 723A3601949B959F1F8CA29D /* ChannelSettingsContainerNode.swift */; };
 		0A9CFAA02EBC2F67DE33AF27 /* SSignal+Combine.m in Sources */ = {isa = PBXBuildFile; fileRef = DBA6177A5E7B33894B16A4DF /* SSignal+Combine.m */; };
@@ -277,6 +278,8 @@
 		98935EC729EA98AB9E9EEE28 /* HStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1E84383C2F71247332C087 /* HStack.swift */; };
 		990BFCA15E9F12829DEC8E07 /* LongPressGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B976DE08100A81B1BFE8600C /* LongPressGesture.swift */; };
 		99F467D84EA6215DE8B2C624 /* CallManagers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97726FD3233DB31DD6AC5385 /* CallManagers.swift */; };
+		9A8D83162F91EBED004639DD /* FriendRequestContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8D83152F91EBED004639DD /* FriendRequestContainerNode.swift */; };
+		9A8D83182F91EBF9004639DD /* FriendRequestViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8D83172F91EBF9004639DD /* FriendRequestViewController.swift */; };
 		9AB07E0FF22814CBCE67E56C /* SVariable.m in Sources */ = {isa = PBXBuildFile; fileRef = 09EF700E3C59BDE6081FE041 /* SVariable.m */; };
 		9ACC1ED3DFE7C2C6747F08CB /* ChannelBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55993173346619928A1FF1F /* ChannelBannerView.swift */; };
 		9B5F3EFD9FA6AD1F3C2F6593 /* SSignal+Dispatch.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DEBA3F0D9F47882DE72C90F /* SSignal+Dispatch.m */; };
@@ -601,6 +604,7 @@
 		4003598D0AD0F1E26DC319A1 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
 		401F8DB37B67A9E25CE09D9C /* ZoomableContentGalleryItemNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableContentGalleryItemNode.swift; sourceTree = "<group>"; };
 		4085DC7BDBF7832C3E4EBD25 /* DirectMessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectMessagesViewController.swift; sourceTree = "<group>"; };
+		F1A2B3C4D5E6F708192A3B4D /* AddFriendByUsernameViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddFriendByUsernameViewController.swift; sourceTree = "<group>"; };
 		413B85E4B568A0625D55186D /* GestureRecognizerDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GestureRecognizerDelegate.swift; sourceTree = "<group>"; };
 		41909A5F8533B5A17F2AB1AA /* ChannelListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListViewController.swift; sourceTree = "<group>"; };
 		425D0EC0748BDD63BAB5B38D /* ComposerContentPayloadBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerContentPayloadBuilder.swift; sourceTree = "<group>"; };
@@ -779,6 +783,8 @@
 		99B0FE9FAE989D2B98228285 /* NavigationBarTitleTransitionNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarTitleTransitionNode.swift; sourceTree = "<group>"; };
 		99F32910E622ECD62BA3448A /* TopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListView.swift; sourceTree = "<group>"; };
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
+		9A8D83152F91EBED004639DD /* FriendRequestContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequestContainerNode.swift; sourceTree = "<group>"; };
+		9A8D83172F91EBF9004639DD /* FriendRequestViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequestViewController.swift; sourceTree = "<group>"; };
 		9A95963C16177D92D4F4F3A2 /* ReactionEmojiImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionEmojiImageLoader.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
@@ -1944,6 +1950,9 @@
 		C0FD1E8BFC48749FCD96F0F2 /* DirectMessages */ = {
 			isa = PBXGroup;
 			children = (
+				F1A2B3C4D5E6F708192A3B4D /* AddFriendByUsernameViewController.swift */,
+				9A8D83172F91EBF9004639DD /* FriendRequestViewController.swift */,
+				9A8D83152F91EBED004639DD /* FriendRequestContainerNode.swift */,
 				2CAE873940BA07736BE01F46 /* DirectMessagesContainerNode.swift */,
 				4085DC7BDBF7832C3E4EBD25 /* DirectMessagesViewController.swift */,
 				A3BF7CE196F5D0037D7AAEB6 /* DmListItemCell.swift */,
@@ -2497,11 +2506,14 @@
 				C44933D3FEE10C52F4F2F8B4 /* Condition.swift in Sources */,
 				C8EFE7C608C95748B1468D40 /* Constants.swift in Sources */,
 				E074C4C27ECDA927FD04F68B /* ContainableController.swift in Sources */,
+				9A8D83162F91EBED004639DD /* FriendRequestContainerNode.swift in Sources */,
 				D6C3708656A095CB8E959F6F /* ContainedViewLayoutTransition.swift in Sources */,
 				8F3E84956E6BA63861187D22 /* ContainerViewLayout.swift in Sources */,
 				B9BA46481583E350506F9301 /* ContextContentContainerNode.swift in Sources */,
 				23F3696CB8BDF4151B3F2473 /* ContextContentSourceNode.swift in Sources */,
 				1B2D06DE893CDDF7FCBEE72F /* ContextControllerSourceNode.swift in Sources */,
+				9A8D83182F91EBF9004639DD /* FriendRequestViewController.swift in Sources */,
+				F1A2B3C4D5E6F708192A3B4C /* AddFriendByUsernameViewController.swift in Sources */,
 				9EB9EC03E925D92CF7497F26 /* ContextGesture.swift in Sources */,
 				240F53CD74374B9510F4F955 /* ContextMenuAction.swift in Sources */,
 				CFBF15E96C691B4F533E8710 /* ContextMenuContainerNode.swift in Sources */,
