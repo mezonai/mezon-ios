@@ -42,7 +42,6 @@ final class SharingViewController: UIViewController {
         let b = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         b.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
-        b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
     }()
@@ -51,7 +50,6 @@ final class SharingViewController: UIViewController {
         let l = UILabel()
         l.text = ""
         l.font = .systemFont(ofSize: 20, weight: .bold)
-        l.textColor = .white
         l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
@@ -60,7 +58,6 @@ final class SharingViewController: UIViewController {
     private let searchContainer: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = UIColor.white.withAlphaComponent(0.08)
         v.layer.cornerRadius = 20
         return v
     }()
@@ -68,7 +65,6 @@ final class SharingViewController: UIViewController {
     private let searchIconView: UIImageView = {
         let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.tintColor = UIColor.white.withAlphaComponent(0.5)
         iv.contentMode = .scaleAspectFit
         return iv
     }()
@@ -77,14 +73,9 @@ final class SharingViewController: UIViewController {
         let tf = UITextField()
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
-        tf.textColor = .white
-        tf.attributedPlaceholder = NSAttributedString(
-            string: "",
-            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
-        )
+        tf.attributedPlaceholder = NSAttributedString(string: "")
         tf.returnKeyType = .search
         tf.autocorrectionType = .no
-        tf.tintColor = .white
         return tf
     }()
 
@@ -92,8 +83,6 @@ final class SharingViewController: UIViewController {
         let b = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
         b.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
-        b.tintColor = UIColor.white.withAlphaComponent(0.6)
-        b.backgroundColor = UIColor.white.withAlphaComponent(0.15)
         b.layer.cornerRadius = 12
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isHidden = true
@@ -115,7 +104,6 @@ final class SharingViewController: UIViewController {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
         l.font = .systemFont(ofSize: 11, weight: .semibold)
-        l.textColor = .white
         l.textAlignment = .center
         l.isHidden = true
         return l
@@ -125,7 +113,6 @@ final class SharingViewController: UIViewController {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
         l.font = .systemFont(ofSize: 15, weight: .medium)
-        l.textColor = .white
         l.lineBreakMode = .byTruncatingTail
         l.isHidden = true
         return l
@@ -135,7 +122,6 @@ final class SharingViewController: UIViewController {
         let b = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         b.setImage(UIImage(systemName: "slider.horizontal.3", withConfiguration: config), for: .normal)
-        b.tintColor = UIColor.white.withAlphaComponent(0.6)
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
     }()
@@ -152,7 +138,6 @@ final class SharingViewController: UIViewController {
         l.translatesAutoresizingMaskIntoConstraints = false
         l.text = ""
         l.font = .systemFont(ofSize: 13, weight: .semibold)
-        l.textColor = .white
         return l
     }()
 
@@ -171,7 +156,6 @@ final class SharingViewController: UIViewController {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
         l.font = .systemFont(ofSize: 14, weight: .regular)
-        l.textColor = UIColor.white.withAlphaComponent(0.45)
         l.textAlignment = .center
         l.numberOfLines = 0
         l.isHidden = true
@@ -218,7 +202,6 @@ final class SharingViewController: UIViewController {
         let tf = UITextField()
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
-        tf.tintColor = .white
         return tf
     }()
 
@@ -227,7 +210,6 @@ final class SharingViewController: UIViewController {
         b.translatesAutoresizingMaskIntoConstraints = false
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)
         b.setImage(UIImage(systemName: "arrow.up", withConfiguration: config), for: .normal)
-        b.tintColor = .white
         b.layer.cornerRadius = 20
         b.isEnabled = false
         b.alpha = 1.0
@@ -246,7 +228,6 @@ final class SharingViewController: UIViewController {
     private let activityIndicator: UIActivityIndicatorView = {
         let ai = UIActivityIndicatorView(style: .medium)
         ai.translatesAutoresizingMaskIntoConstraints = false
-        ai.color = .white
         ai.hidesWhenStopped = true
         return ai
     }()
@@ -256,7 +237,6 @@ final class SharingViewController: UIViewController {
         l.translatesAutoresizingMaskIntoConstraints = false
         l.text = "Sending..."
         l.font = .systemFont(ofSize: 13, weight: .medium)
-        l.textColor = .white
         l.textAlignment = .center
         return l
     }()
@@ -285,6 +265,13 @@ final class SharingViewController: UIViewController {
         loadChannels()
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    @objc private func handleThemeChange() {
+        applyTheme()
+        tableView.reloadData()
     }
 
     @objc private func handleLanguageChange() {
@@ -297,14 +284,22 @@ final class SharingViewController: UIViewController {
         suggestionsTitle.text = L(L10n.Sharing.suggestionsSection).uppercased()
         emptySuggestionsLabel.text = L(L10n.Sharing.emptySuggestions)
         loadingLabel.text = L(L10n.Sharing.sending)
-        textField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.Sharing.commentPlaceholder),
-            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
-        )
+        refreshLocalizedPlaceholderColors()
         refreshSearchPlaceholder()
     }
 
-    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+    private func placeholderForegroundColor() -> UIColor {
+        UIColor.theme.textDisabled.withAlphaComponent(0.85)
+    }
+
+    private func refreshLocalizedPlaceholderColors() {
+        textField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.Sharing.commentPlaceholder),
+            attributes: [.foregroundColor: placeholderForegroundColor()]
+        )
+    }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { ThemeManager.shared.preferredStatusBarStyle }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -561,7 +556,7 @@ final class SharingViewController: UIViewController {
         }
         searchTextField.attributedPlaceholder = NSAttributedString(
             string: s,
-            attributes: [.foregroundColor: UIColor.white.withAlphaComponent(0.35)]
+            attributes: [.foregroundColor: placeholderForegroundColor()]
         )
     }
 
@@ -622,14 +617,16 @@ final class SharingViewController: UIViewController {
         host.addSubview(blocker)
 
         let panel = UIView()
-        panel.backgroundColor = t.primary
+        panel.backgroundColor = t.secondary
         panel.layer.cornerRadius = 10
         panel.layer.masksToBounds = true
+        panel.layer.borderWidth = 1
+        panel.layer.borderColor = t.borderDim.cgColor
 
         let titleLabel = UILabel()
         titleLabel.text = L(L10n.Sharing.filterTitle)
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        titleLabel.textColor = .white
+        titleLabel.textColor = t.textStrong
 
         let titleLine = UIView()
         titleLine.backgroundColor = t.borderDim
@@ -658,10 +655,10 @@ final class SharingViewController: UIViewController {
             let iconWeight: UIImage.SymbolWeight = isRowSelected ? .semibold : .medium
             let sym = UIImage(systemName: spec.1, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: iconWeight))
             row.setImage(sym, for: .normal)
-            row.tintColor = .white
+            row.tintColor = t.iconSecondary
             let titleFont = UIFont.systemFont(ofSize: 14, weight: isRowSelected ? .semibold : .regular)
             row.setAttributedTitle(
-                NSAttributedString(string: spec.2, attributes: [.font: titleFont, .foregroundColor: UIColor.white]),
+                NSAttributedString(string: spec.2, attributes: [.font: titleFont, .foregroundColor: t.textStrong]),
                 for: .normal
             )
             row.contentHorizontalAlignment = .left
@@ -669,10 +666,10 @@ final class SharingViewController: UIViewController {
             row.contentEdgeInsets = UIEdgeInsets(top: 0, left: padX, bottom: 0, right: trailingPad)
             row.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 10)
             row.titleEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 0)
-            row.backgroundColor = isRowSelected ? t.borderDim : .clear
+            row.backgroundColor = isRowSelected ? t.tertiary : .clear
             if isRowSelected {
                 let check = UIImageView(image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
-                check.tintColor = .white
+                check.tintColor = t.iconPrimary
                 check.frame = CGRect(x: targetWidth - padX - 17, y: (rowH - 16) / 2, width: 16, height: 16)
                 check.isUserInteractionEnabled = false
                 row.addSubview(check)
@@ -814,7 +811,7 @@ final class SharingViewController: UIViewController {
                 iv.translatesAutoresizingMaskIntoConstraints = false
                 iv.contentMode = .scaleAspectFill
                 iv.clipsToBounds = true
-                iv.backgroundColor = UIColor.white.withAlphaComponent(0.1)
+                iv.backgroundColor = UIColor.theme.tertiary
                 wrapper.addSubview(iv)
                 NSLayoutConstraint.activate([
                     iv.topAnchor.constraint(equalTo: wrapper.topAnchor),
@@ -833,7 +830,7 @@ final class SharingViewController: UIViewController {
                 iv.translatesAutoresizingMaskIntoConstraints = false
                 iv.contentMode = .scaleAspectFill
                 iv.clipsToBounds = true
-                iv.backgroundColor = UIColor.white.withAlphaComponent(0.1)
+                iv.backgroundColor = UIColor.theme.tertiary
                 wrapper.addSubview(iv)
                 NSLayoutConstraint.activate([
                     iv.topAnchor.constraint(equalTo: wrapper.topAnchor),
@@ -873,10 +870,10 @@ final class SharingViewController: UIViewController {
                 ])
 
             case .file:
-                wrapper.backgroundColor = UIColor.white.withAlphaComponent(0.1)
+                wrapper.backgroundColor = UIColor.theme.tertiary
                 let fileIcon = UIImageView(image: UIImage(systemName: "doc.fill"))
                 fileIcon.translatesAutoresizingMaskIntoConstraints = false
-                fileIcon.tintColor = .systemBlue
+                fileIcon.tintColor = UIColor.theme.textLink
                 fileIcon.contentMode = .scaleAspectFit
                 wrapper.addSubview(fileIcon)
                 NSLayoutConstraint.activate([
@@ -888,7 +885,7 @@ final class SharingViewController: UIViewController {
                 let nameLabel = UILabel()
                 nameLabel.translatesAutoresizingMaskIntoConstraints = false
                 nameLabel.font = .systemFont(ofSize: 8)
-                nameLabel.textColor = UIColor.white.withAlphaComponent(0.5)
+                nameLabel.textColor = UIColor.theme.textDisabled
                 nameLabel.textAlignment = .center
                 nameLabel.lineBreakMode = .byTruncatingMiddle
                 if let url = SharingManager.shared.localFileURL(from: file.path) {
@@ -960,19 +957,40 @@ final class SharingViewController: UIViewController {
         headerView.backgroundColor = t.primary
         suggestionsCard.backgroundColor = t.secondary
         tableView.backgroundColor = t.secondary
+        tableView.separatorStyle = .none
         bottomArea.backgroundColor = t.secondary
 
-        inputPill.backgroundColor = t.primary
-        textField.textColor = .white
+        closeButton.tintColor = t.iconSecondary
+        titleLabel.textColor = t.textStrong
 
-        sendButton.backgroundColor = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0)
+        searchContainer.backgroundColor = t.charcoal
+        searchIconView.tintColor = t.iconSecondary
+        searchTextField.textColor = t.textStrong
+        searchTextField.tintColor = t.textLink
+        searchClearButton.tintColor = t.iconSecondary
+        searchClearButton.backgroundColor = t.tertiary
 
-        suggestionsTitle.textColor = .white
+        selectedAvatarView.backgroundColor = t.tertiary
+        selectedInitialLabel.textColor = t.textStrong
+        selectedNameLabel.textColor = t.textStrong
+
+        suggestionsTitle.textColor = t.textDisabled
+        emptySuggestionsLabel.textColor = t.textDisabled
+        loadingLabel.textColor = t.textStrong
+        activityIndicator.color = t.iconSecondary
+
+        inputPill.backgroundColor = t.charcoal
+        textField.textColor = t.textStrong
+        textField.tintColor = t.textLink
 
         filterButton.backgroundColor = t.secondary
         filterButton.layer.cornerRadius = 18
         filterButton.clipsToBounds = true
+        refreshLocalizedPlaceholderColors()
+        refreshSearchPlaceholder()
         refreshFilterButtonAppearance()
+        setNeedsStatusBarAppearanceUpdate()
+        updateSendButton()
     }
 
     private func refreshFilterButtonAppearance() {
@@ -981,11 +999,11 @@ final class SharingViewController: UIViewController {
         switch suggestionFilter {
         case .all:
             filterButton.layer.borderWidth = 0
-            filterButton.tintColor = t.text.withAlphaComponent(0.85)
+            filterButton.tintColor = t.iconSecondary
         case .users, .channels:
             filterButton.layer.borderWidth = 2
-            filterButton.layer.borderColor = UIColor.white.withAlphaComponent(0.55).cgColor
-            filterButton.tintColor = .white
+            filterButton.layer.borderColor = t.iconPrimary.cgColor
+            filterButton.tintColor = t.iconPrimary
         }
     }
 
@@ -1071,7 +1089,8 @@ final class SharingViewController: UIViewController {
 
         let isDM = channel.type == MezonConstants.ChannelType.dm.rawValue
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
-        selectedAvatarView.tintColor = .white
+        let st = UIColor.theme
+        selectedAvatarView.tintColor = st.iconSecondary
 
         if isDM, let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
             selectedInitialLabel.isHidden = true
@@ -1100,7 +1119,7 @@ final class SharingViewController: UIViewController {
             selectedAvatarView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
             selectedAvatarView.contentMode = .scaleAspectFit
             selectedInitialLabel.isHidden = true
-            selectedAvatarView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+            selectedAvatarView.backgroundColor = st.tertiary
         }
     }
 
@@ -1282,6 +1301,7 @@ final class SharingViewController: UIViewController {
     }
 
     private func updateSendButton() {
+        let t = UIColor.theme
         let hasContent = hasShareableContent()
         let enabled = selectedChannel != nil && hasContent && !isUploading
         sendButton.isEnabled = enabled
@@ -1291,8 +1311,8 @@ final class SharingViewController: UIViewController {
             sendButton.backgroundColor = sendBlue
             sendButton.tintColor = .white
         } else {
-            sendButton.backgroundColor = UIColor.white.withAlphaComponent(0.12)
-            sendButton.tintColor = UIColor.white.withAlphaComponent(0.35)
+            sendButton.backgroundColor = t.borderDim
+            sendButton.tintColor = t.textDisabled
         }
     }
 

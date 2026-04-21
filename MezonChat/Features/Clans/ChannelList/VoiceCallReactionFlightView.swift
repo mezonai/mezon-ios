@@ -170,10 +170,32 @@ final class VoiceCallReactionFlightView: UIView {
         host.bounds = CGRect(x: 0, y: 0, width: hostW, height: hostH)
         host.center = start
 
-        ReactionEmojiImageLoader.load(emojiId: emojiId, imgproxyFitSide: 72) { [weak imageView] img in
-            imageView?.image = img
+        let proxiedURL = MezonConfig.emojiResourceURL(emojiId: emojiId, imgproxyFitSide: 32)
+        let cachedImage: UIImage? = {
+            guard let url = proxiedURL else { return nil }
+            return ImageCache.shared.memoryImage(forKey: url.absoluteString)
+        }()
+        if let cachedImage {
+            imageView.image = cachedImage
+            startReactionFlight(host: host, endX: endX, endY: endY)
+        } else {
+            let gate = ReactionFlightStartGate()
+            let beginFlight: () -> Void = { [weak self] in
+                guard !gate.started else { return }
+                gate.started = true
+                self?.startReactionFlight(host: host, endX: endX, endY: endY)
+            }
+            ReactionEmojiImageLoader.load(emojiId: emojiId, imgproxyFitSide: 32) { [weak imageView] img in
+                imageView?.image = img
+                beginFlight()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                beginFlight()
+            }
         }
+    }
 
+    private func startReactionFlight(host: UIView, endX: CGFloat, endY: CGFloat) {
         UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseOut]) {
             host.alpha = 1
             host.transform = CGAffineTransform(scaleX: 1.15, y: 1.15)
@@ -189,6 +211,16 @@ final class VoiceCallReactionFlightView: UIView {
         } completion: { [weak self] _ in
             host.removeFromSuperview()
             self?.reactionSlots = max(0, (self?.reactionSlots ?? 1) - 1)
+        }
+    }
+
+    func prewarmEmojiCache(emojiIds: [String]) {
+        let capped = Array(emojiIds.prefix(120))
+        for id in capped {
+            guard !id.isEmpty,
+                  let url = MezonConfig.emojiResourceURL(emojiId: id, imgproxyFitSide: 32) else { continue }
+            if ImageCache.shared.memoryImage(forKey: url.absoluteString) != nil { continue }
+            ReactionEmojiImageLoader.load(emojiId: id, imgproxyFitSide: 32) { _ in }
         }
     }
 
@@ -223,6 +255,11 @@ private extension String {
     func ifEmpty(_ alt: () -> String) -> String {
         isEmpty ? alt() : self
     }
+}
+
+@MainActor
+private final class ReactionFlightStartGate {
+    var started = false
 }
 
 @MainActor

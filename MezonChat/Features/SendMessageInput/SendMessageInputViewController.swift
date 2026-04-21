@@ -20,6 +20,42 @@ private struct ComposerHashtag {
     var range: NSRange
 }
 
+private struct ComposerMentionSnapshot: Codable {
+    var userId: Int64
+    var roleId: Int64
+    var rolename: String
+    var displayName: String
+    var location: Int
+    var length: Int
+}
+
+private struct ComposerHashtagSnapshot: Codable {
+    var channelId: Int64
+    var clanId: Int64
+    var parentId: Int64
+    var channelLabel: String
+    var channelType: Int32
+    var channelPrivate: Int32
+    var ageRestricted: Int32
+    var location: Int
+    var length: Int
+}
+
+private struct FileDraftSnapshot: Codable {
+    var path: String
+    var filename: String
+    var filetype: String
+    var filesize: Int
+}
+
+private struct ComposerDraftSnapshot: Codable {
+    var attributedArchive: Data?
+    var mentions: [ComposerMentionSnapshot]
+    var hashtags: [ComposerHashtagSnapshot]
+    var emojiIdByColon: [String: String]
+    var fileDrafts: [FileDraftSnapshot]
+}
+
 final class SendMessageInputViewController: UIViewController {
 
     private static let mentionHereUserId: Int64 = 1_775_731_111_020_111_321
@@ -38,12 +74,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private let context: AccountContext
-    internal var channel: Mezon_Api_ChannelDescription {
-        didSet {
-            guard channel.channelID != oldValue.channelID else { return }
-            rebindMentionForCurrentChannel()
-        }
-    }
+    internal var channel: Mezon_Api_ChannelDescription
     private let clanId: Int64
     var topicId: Int64 = 0
     private var disposables = DisposableSet()
@@ -69,8 +100,13 @@ final class SendMessageInputViewController: UIViewController {
     private static let replyBannerHeight: CGFloat = 40
 
     private static var channelAttachmentCache: [String: [UIImage]] = [:]
+    private static var channelTextDraftCache: [String: ComposerDraftSnapshot] = [:]
 
-    private var cacheKey: String { "\(clanId)-\(channel.channelID)" }
+    private var cacheKey: String { "\(clanId)-\(channel.channelID)-\(topicId)" }
+
+    private func draftStorageKey(for ch: Mezon_Api_ChannelDescription, topicId tid: Int64) -> String {
+        "\(clanId)-\(ch.channelID)-\(tid)"
+    }
 
     private(set) var pickedImages: [UIImage] = []
     private var pickedFileURLs: [Int: URL] = [:]
@@ -352,7 +388,7 @@ final class SendMessageInputViewController: UIViewController {
         setupBindings()
         setupThemeObserver()
         applyTheme()
-        restoreFromCache()
+        restoreComposerDraftAndAttachmentsForCurrentKey()
         loadClanMembers()
         bindMentionDataUpdates()
         reloadEmojiSuggestionList()
@@ -456,13 +492,220 @@ final class SendMessageInputViewController: UIViewController {
         loadClanMembers()
     }
 
+    func syncStoredDraftIdentity(channel newChannel: Mezon_Api_ChannelDescription, topicId newTopicId: Int64) {
+        guard newChannel.channelID != channel.channelID || newTopicId != topicId else { return }
+        if viewIfLoaded?.window != nil {
+            stashCurrentComposerDraftIfNeeded()
+        }
+        channel = newChannel
+        topicId = newTopicId
+        rebindMentionForCurrentChannel()
+        if viewIfLoaded?.window != nil {
+            restoreComposerDraftAndAttachmentsForCurrentKey()
+        }
+    }
+
+    private func stashCurrentComposerDraftIfNeeded() {
+        let key = draftStorageKey(for: channel, topicId: topicId)
+        if let snap = buildComposerDraftSnapshot() {
+            Self.channelTextDraftCache[key] = snap
+            while Self.channelTextDraftCache.count > 45 {
+                if let k = Self.channelTextDraftCache.keys.first {
+                    Self.channelTextDraftCache.removeValue(forKey: k)
+                } else { break }
+            }
+        } else {
+            Self.channelTextDraftCache.removeValue(forKey: key)
+        }
+    }
+
+    private func hasMeaningfulDraftContent() -> Bool {
+        let trimmed = buildPlainTextFromAttributed().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return true }
+        if !pickedImages.isEmpty || !pickedFiles.isEmpty { return true }
+        return false
+    }
+
+    private func buildComposerDraftSnapshot() -> ComposerDraftSnapshot? {
+        guard hasMeaningfulDraftContent() else { return nil }
+        let attr = textView.attributedText ?? NSAttributedString()
+        let data = try? NSKeyedArchiver.archivedData(withRootObject: attr, requiringSecureCoding: false)
+        let mentions = activeMentions.map {
+            ComposerMentionSnapshot(
+                userId: $0.userId, roleId: $0.roleId, rolename: $0.rolename, displayName: $0.displayName,
+                location: $0.range.location, length: $0.range.length)
+        }
+        let hashtags = activeHashtags.map {
+            ComposerHashtagSnapshot(
+                channelId: $0.channelId, clanId: $0.clanId, parentId: $0.parentId, channelLabel: $0.channelLabel,
+                channelType: $0.channelType, channelPrivate: $0.channelPrivate, ageRestricted: $0.ageRestricted,
+                location: $0.range.location, length: $0.range.length)
+        }
+        let files = pickedFiles.map {
+            FileDraftSnapshot(path: $0.url.path, filename: $0.filename, filetype: $0.filetype, filesize: $0.filesize)
+        }
+        return ComposerDraftSnapshot(
+            attributedArchive: data, mentions: mentions, hashtags: hashtags, emojiIdByColon: emojiIdByColonToken, fileDrafts: files)
+    }
+
+    private func applyCurrentThemeToRestoredComposer(_ archived: NSAttributedString) -> NSAttributedString {
+        let m = NSMutableAttributedString(attributedString: archived)
+        let full = NSRange(location: 0, length: m.length)
+        let t = UIColor.theme
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+        let highlightAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.boldSystemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        ]
+        m.addAttributes(normalAttrs, range: full)
+        archived.enumerateAttribute(.link, in: full) { value, range, _ in
+            guard let value else { return }
+            m.addAttribute(.link, value: value, range: range)
+        }
+        for cm in activeMentions where NSMaxRange(cm.range) <= m.length {
+            m.addAttributes(highlightAttrs, range: cm.range)
+        }
+        for ht in activeHashtags where NSMaxRange(ht.range) <= m.length {
+            m.addAttributes(highlightAttrs, range: ht.range)
+        }
+        let plain = m.string as NSString
+        for token in emojiIdByColonToken.keys where !token.isEmpty {
+            let nsToken = token as NSString
+            let tokenLen = nsToken.length
+            guard tokenLen > 0 else { continue }
+            var searchStart = 0
+            while searchStart <= plain.length - tokenLen {
+                let searchRange = NSRange(location: searchStart, length: plain.length - searchStart)
+                let found = plain.range(of: token, options: [], range: searchRange)
+                if found.location == NSNotFound { break }
+                if NSMaxRange(found) <= m.length {
+                    m.addAttributes(highlightAttrs, range: found)
+                }
+                searchStart = NSMaxRange(found)
+            }
+        }
+        return m
+    }
+
+    private func applyComposerDraftSnapshot(_ snap: ComposerDraftSnapshot) {
+        replyDisplay = nil
+        editingDisplay = nil
+        updateReplyBannerVisibility()
+        pickedImages.removeAll()
+        pickedFileURLs.removeAll()
+        pickedFiles.removeAll()
+        attachmentPreviewView.removeAll()
+
+        activeMentions = snap.mentions.map {
+            ComposerMention(
+                userId: $0.userId,
+                roleId: $0.roleId,
+                rolename: $0.rolename,
+                displayName: $0.displayName,
+                range: NSRange(location: $0.location, length: $0.length))
+        }
+        activeHashtags = snap.hashtags.map {
+            ComposerHashtag(
+                channelId: $0.channelId,
+                clanId: $0.clanId,
+                parentId: $0.parentId,
+                channelLabel: $0.channelLabel,
+                channelType: $0.channelType,
+                channelPrivate: $0.channelPrivate,
+                ageRestricted: $0.ageRestricted,
+                range: NSRange(location: $0.location, length: $0.length))
+        }
+        emojiIdByColonToken = snap.emojiIdByColon
+
+        if let data = snap.attributedArchive {
+            let unarchived: NSAttributedString? =
+                (try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSAttributedString.self, from: data))
+                ?? ((try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSMutableAttributedString.self, from: data)) as NSAttributedString?)
+            if let u = unarchived {
+                textView.attributedText = applyCurrentThemeToRestoredComposer(u)
+            } else {
+                textView.attributedText = nil
+            }
+        } else {
+            textView.attributedText = nil
+        }
+        text = textView.text ?? ""
+        textView.typingAttributes = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor.theme.textStrong
+        ]
+        placeholderLabel.isHidden = !text.isEmpty
+        textView.isScrollEnabled = false
+        updateTextViewHeight()
+        textPipe.putNext(text)
+
+        for f in snap.fileDrafts {
+            let url = URL(fileURLWithPath: f.path)
+            guard FileManager.default.fileExists(atPath: f.path) else { continue }
+            let info = PickedFileInfo(url: url, filename: f.filename, filesize: f.filesize, filetype: f.filetype)
+            pickedFiles.append(info)
+            attachmentPreviewView.addFile(info)
+        }
+        hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
+        syncAttachControlsWithTypedText()
+        updateSendVoiceToggle()
+    }
+
+    private func resetComposerVisualDraftState() {
+        replyDisplay = nil
+        editingDisplay = nil
+        updateReplyBannerVisibility()
+        activeMentions.removeAll()
+        activeHashtags.removeAll()
+        emojiIdByColonToken.removeAll()
+        textView.attributedText = nil
+        text = ""
+        textView.typingAttributes = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor.theme.textStrong
+        ]
+        placeholderLabel.isHidden = false
+        textView.isScrollEnabled = false
+        clearPickedImages()
+        hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
+        textPipe.putNext("")
+        resetTextViewHeight()
+        syncAttachControlsWithTypedText()
+        updateSendVoiceToggle()
+    }
+
+    private func restoreComposerDraftAndAttachmentsForCurrentKey() {
+        let key = draftStorageKey(for: channel, topicId: topicId)
+        if let snap = Self.channelTextDraftCache[key] {
+            applyComposerDraftSnapshot(snap)
+        } else {
+            resetComposerVisualDraftState()
+            restoreFromCache()
+            updatePreviewVisibility()
+            reloadEmojiSuggestionList()
+            onHeightChanged?(totalHeight)
+            return
+        }
+        restoreFromCache()
+        updatePreviewVisibility()
+        reloadEmojiSuggestionList()
+        onHeightChanged?(totalHeight)
+    }
+
     func send() {
         let plainText = buildPlainTextFromAttributed()
         let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
         if let edit = editingDisplay, let mid = Int64(edit.message.id) {
-            guard !trimmed.isEmpty, !hasAttachments else { return }
-            sendChannelMessage(text: trimmed, images: [], clanId: clanId, channel: channel, editingMessageId: mid)
+            guard !trimmed.isEmpty || hasAttachments else { return }
+            sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel, editingMessageId: mid)
             return
         }
         guard !trimmed.isEmpty || hasAttachments else { return }
@@ -2547,8 +2790,17 @@ final class SendMessageInputViewController: UIViewController {
         inputBarView.backgroundColor = t.secondary
         topSeparator.backgroundColor = t.border
         textView.backgroundColor = t.tertiary
+        let preservedAttributed = textView.attributedText
         textView.textColor = t.textStrong
         textView.font = .systemFont(ofSize: 15.sf)
+        textView.typingAttributes = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+        if let preserved = preservedAttributed, preserved.length > 0,
+           !activeMentions.isEmpty || !activeHashtags.isEmpty || !emojiIdByColonToken.isEmpty {
+            textView.attributedText = applyCurrentThemeToRestoredComposer(preserved)
+        }
         placeholderLabel.font = .systemFont(ofSize: 15.sf)
         placeholderLabel.textColor = t.textDisabled
         attachButton.backgroundColor = t.tertiary
@@ -2596,7 +2848,13 @@ final class SendMessageInputViewController: UIViewController {
         reloadHashtagChannelCandidates()
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        stashCurrentComposerDraftIfNeeded()
+    }
+
     deinit {
+        stashCurrentComposerDraftIfNeeded()
         voiceAudioRecorder?.stop()
         voiceRecordingOverlay.tearDown()
         if let u = voiceRecordingFileURL {
@@ -3053,6 +3311,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func applyOptimisticSendComposerReset() {
+        Self.channelTextDraftCache.removeValue(forKey: draftStorageKey(for: channel, topicId: topicId))
         editingDisplay = nil
         text = ""
         activeMentions.removeAll()
@@ -3081,9 +3340,9 @@ final class SendMessageInputViewController: UIViewController {
         let localId = "pending-\(UUID().uuidString)"
         let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
 
-        let imagesToUpload = isEdit ? [] : images
-        let fileURLsToUpload = isEdit ? [:] : pickedFileURLs
-        let filesToUpload = isEdit ? [] : pickedFiles
+        let imagesToUpload = images
+        let fileURLsToUpload = pickedFileURLs
+        let filesToUpload = pickedFiles
         if !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
@@ -3122,18 +3381,66 @@ final class SendMessageInputViewController: UIViewController {
         }
         let outgoingContentData = (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
 
+        let mentionsPayload: Data = {
+            guard !mentionList.isEmpty else { return Data() }
+            var list = Mezon_Api_MessageMentionList()
+            list.mentions = mentionList
+            return (try? list.serializedData()) ?? Data()
+        }()
+
+        let editPendingCacheKey: String? = {
+            guard isEdit, !sendAsAnonymous else { return nil }
+            guard !imagesToUpload.isEmpty || !filesToUpload.isEmpty else { return nil }
+            return "\(editingMessageId)"
+        }()
+
+        if let key = editPendingCacheKey {
+            if !imagesToUpload.isEmpty {
+                ParsedAttachment.pendingImageCache[key] = imagesToUpload
+            }
+            if !filesToUpload.isEmpty {
+                ParsedAttachment.pendingDocumentPlaceholders[key] = filesToUpload.map { file in
+                    ParsedAttachment(
+                        url: "",
+                        filename: file.filename,
+                        filetype: file.filetype,
+                        width: nil,
+                        height: nil,
+                        durationSeconds: nil,
+                        localImage: nil,
+                        isUploading: true
+                    )
+                }
+            }
+            self.context.account.postbox.write { tx in
+                guard let old = tx.getMessageById(key) else { return }
+                let updated = MessageRecord(
+                    id: old.id,
+                    channelId: old.channelId,
+                    clanId: old.clanId,
+                    senderId: old.senderId,
+                    content: outgoingContentData,
+                    createdAt: old.createdAt,
+                    editedAt: old.editedAt,
+                    isDeleted: old.isDeleted,
+                    code: old.code,
+                    senderDisplayName: old.senderDisplayName,
+                    senderAvatarURL: old.senderAvatarURL,
+                    sendingState: .pending,
+                    attachmentsJSON: old.attachmentsJSON,
+                    reactionsJSON: old.reactionsJSON,
+                    referencesData: old.referencesData,
+                    mentionsJSON: mentionsPayload
+                )
+                tx.addMessages([updated])
+            }
+        }
+
         if !isEdit, !sendAsAnonymous, let sender = context.currentUser {
             let referencesData: Data = {
                 guard let ref = replyRef else { return Data() }
                 var list = Mezon_Api_MessageRefList()
                 list.refs = [ref]
-                return (try? list.serializedData()) ?? Data()
-            }()
-
-            let mentionsData: Data = {
-                guard !mentionList.isEmpty else { return Data() }
-                var list = Mezon_Api_MessageMentionList()
-                list.mentions = mentionList
                 return (try? list.serializedData()) ?? Data()
             }()
 
@@ -3152,7 +3459,7 @@ final class SendMessageInputViewController: UIViewController {
                 displayName: resolved.name,
                 avatarURL: resolved.avatar,
                 referencesData: referencesData,
-                mentionsData: mentionsData,
+                mentionsData: mentionsPayload,
                 contentData: outgoingContentData
             )
             self.context.account.postbox.write { tx in
@@ -3160,9 +3467,7 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        if !isEdit {
-            applyOptimisticSendComposerReset()
-        }
+        applyOptimisticSendComposerReset()
 
         let contentStr: String = {
             guard let s = String(data: outgoingContentData, encoding: .utf8), !s.isEmpty else { return "{}" }
@@ -3194,6 +3499,11 @@ final class SendMessageInputViewController: UIViewController {
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                     ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                 }
+                if let key = editPendingCacheKey {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
+                    ParsedAttachment.pendingImageCache.removeValue(forKey: key)
+                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: key)
+                }
                 self.onError?("No session")
                 return
             }
@@ -3222,12 +3532,6 @@ final class SendMessageInputViewController: UIViewController {
                         isUpdateMsgTopic: false,
                         token: token
                     )
-                    let mentionsData: Data = {
-                        guard !mentionList.isEmpty else { return Data() }
-                        var list = Mezon_Api_MessageMentionList()
-                        list.mentions = mentionList
-                        return (try? list.serializedData()) ?? Data()
-                    }()
                     let editedAt: Date = {
                         if ack.updateTimeSeconds > 0 {
                             return Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
@@ -3239,6 +3543,12 @@ final class SendMessageInputViewController: UIViewController {
                         guard let old = tx.getMessageById(lookup) else {
                             return
                         }
+                        let newAttachmentsJSON: Data = {
+                            guard !uploadedAttachments.isEmpty else { return old.attachmentsJSON }
+                            var list = Mezon_Api_MessageAttachmentList()
+                            list.attachments = uploadedAttachments
+                            return (try? list.serializedData()) ?? old.attachmentsJSON
+                        }()
                         let updated = MessageRecord(
                             id: old.id,
                             channelId: old.channelId,
@@ -3251,13 +3561,17 @@ final class SendMessageInputViewController: UIViewController {
                             code: old.code,
                             senderDisplayName: old.senderDisplayName,
                             senderAvatarURL: old.senderAvatarURL,
-                            sendingState: old.sendingState,
-                            attachmentsJSON: old.attachmentsJSON,
+                            sendingState: .sent,
+                            attachmentsJSON: newAttachmentsJSON,
                             reactionsJSON: old.reactionsJSON,
                             referencesData: old.referencesData,
-                            mentionsJSON: mentionsData
+                            mentionsJSON: mentionsPayload
                         )
                         tx.addMessages([updated])
+                    }
+                    if let key = editPendingCacheKey {
+                        ParsedAttachment.pendingImageCache.removeValue(forKey: key)
+                        ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: key)
                     }
                 } else {
                     _ = try await self.context.account.network.sendChannelMessage(
@@ -3288,14 +3602,16 @@ final class SendMessageInputViewController: UIViewController {
                         }
                     }
                 }
-                if isEdit {
-                    self.applyOptimisticSendComposerReset()
-                }
             } catch {
                 if !isEdit, !sendAsAnonymous {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                     ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                }
+                if let key = editPendingCacheKey {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
+                    ParsedAttachment.pendingImageCache.removeValue(forKey: key)
+                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: key)
                 }
                 self.onError?(error.localizedDescription)
             }

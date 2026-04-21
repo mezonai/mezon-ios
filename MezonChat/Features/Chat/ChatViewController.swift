@@ -1002,7 +1002,7 @@ final class ChatViewController: ViewController {
     }
 
     private func syncChannelToComposer() {
-        sendInputViewController.channel = channel
+        sendInputViewController.syncStoredDraftIdentity(channel: channel, topicId: topicId)
     }
 
     static func removeDeliveredNotifications(forChannelId channelId: Int64) {
@@ -1090,13 +1090,21 @@ final class ChatViewController: ViewController {
         )
     }
 
+    private func hasCachedMessagesInPostbox() -> Bool {
+        let channelIdStr = storageChannelId
+        return context.account.postbox.read { tx in
+            !tx.getMessages(channelId: channelIdStr).isEmpty
+        }
+    }
+
     func fetchMessages(token: String? = nil) {
         let hadCachedMessages = !messages.isEmpty
+        let hadCachedInPostbox = hasCachedMessagesInPostbox()
         if !NetworkMonitor.shared.isConnected {
             setIsLoading(false)
             return
         }
-        if !hadCachedMessages {
+        if !hadCachedMessages && !hadCachedInPostbox {
             setIsLoading(true)
         }
         setErrorMessage(nil)
@@ -1113,7 +1121,7 @@ final class ChatViewController: ViewController {
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }
-                if records.isEmpty && hadCachedMessages {
+                if records.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
                     return
                 }
                 self.context.account.postbox.write { tx in
@@ -1199,6 +1207,7 @@ final class ChatViewController: ViewController {
         setHasMoreNewer(false)
 
         let hadCachedMessages = !messages.isEmpty
+        let hadCachedInPostbox = hasCachedMessagesInPostbox()
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
                 self.pendingScrollToBottom = false
@@ -1210,7 +1219,7 @@ final class ChatViewController: ViewController {
                     messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token
                 )
                 self.setHasMoreOlder(response.messages.count >= 30)
-                if response.messages.isEmpty && hadCachedMessages {
+                if response.messages.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
                     return
                 }
                 self.context.account.postbox.write { tx in
@@ -1429,7 +1438,7 @@ final class ChatViewController: ViewController {
             return Set(roleList.roles.map { $0.id })
         }()
 
-        let currentPendingIds = Set(validRecords.compactMap { $0.id.hasPrefix("pending-") ? $0.id : nil })
+        let currentPendingIds = Set(validRecords.filter { $0.sendingState == .pending }.map(\.id))
         for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
             ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
         }
@@ -1444,8 +1453,8 @@ final class ChatViewController: ViewController {
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if record.id.hasPrefix("pending-") {
-                let stillUploading = record.sendingState == .pending
+            if record.sendingState == .pending {
+                let stillUploading = true
                 let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
                 let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
                 if !localImages.isEmpty || !localDocs.isEmpty {

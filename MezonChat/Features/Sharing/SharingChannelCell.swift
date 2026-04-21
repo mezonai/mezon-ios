@@ -165,6 +165,10 @@ final class SharingChannelCell: UITableViewCell {
     }
 
     func configure(item: SharingSuggestionItem, channel: Mezon_Api_ChannelDescription?, isSelected: Bool) {
+        let theme = UIColor.theme
+        nameLabel.textColor = theme.textStrong
+        clanNameLabel.textColor = theme.textDisabled
+
         let ch = channel
         let isDM = item.type == MezonConstants.ChannelType.dm.rawValue
         let isGroup = item.type == MezonConstants.ChannelType.group.rawValue
@@ -222,7 +226,7 @@ final class SharingChannelCell: UITableViewCell {
             avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
             channelIconView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
-            channelIconView.tintColor = .white
+            channelIconView.tintColor = theme.iconSecondary
             let groupAv = ch?.channelAvatar ?? item.channelAvatar
             if !groupAv.isEmpty, !groupAv.contains("avatar-group.png") {
                 channelIconView.isHidden = true
@@ -247,8 +251,8 @@ final class SharingChannelCell: UITableViewCell {
                 )
             }
             channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
-            channelIconView.tintColor = UIColor.theme.channelNormal
-            avatarView.backgroundColor = UIColor.white.withAlphaComponent(0.12)
+            channelIconView.tintColor = theme.channelNormal
+            avatarView.backgroundColor = theme.tertiary
         }
 
         checkmarkView.isHidden = !isSelected

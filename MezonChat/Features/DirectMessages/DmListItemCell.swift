@@ -281,14 +281,19 @@ final class DmListItemCell: UITableViewCell {
         } else if msg.content.isEmpty {
             preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
         } else {
-            preview = msg.content
+            preview = Self.normalizeJsonEscapedSlashes(in: msg.content)
         }
 
         let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             return (Self.previewWhenNoMessageBody(isGroup: isGroup), time)
         }
-        return (preview, time)
+        let body = Self.normalizeJsonEscapedSlashes(in: preview)
+        return (body.count >= 20 ? body + "..." : body, time)
+    }
+
+    private static func normalizeJsonEscapedSlashes(in text: String) -> String {
+        text.replacingOccurrences(of: "\\/", with: "/")
     }
 
     private static func previewWhenNoMessageBody(isGroup: Bool) -> String {
@@ -300,7 +305,15 @@ final class DmListItemCell: UITableViewCell {
 
 
     private static func messageContentPayload(from raw: String) -> [String: Any]? {
-        guard !raw.isEmpty, let data = raw.data(using: .utf8) else { return nil }
+        guard !raw.isEmpty else { return nil }
+        if let p = messageContentPayloadParsing(raw) { return p }
+        let slashesFixed = raw.replacingOccurrences(of: "\\/", with: "/")
+        if slashesFixed != raw { return messageContentPayloadParsing(slashesFixed) }
+        return nil
+    }
+
+    private static func messageContentPayloadParsing(_ raw: String) -> [String: Any]? {
+        guard let data = raw.data(using: .utf8) else { return nil }
         guard let any = try? JSONSerialization.jsonObject(with: data) else { return nil }
 
         if let dict = any as? [String: Any] {
@@ -352,9 +365,12 @@ final class DmListItemCell: UITableViewCell {
 
     private static func messageTextT(from content: [String: Any]) -> String {
         guard let v = content["t"] else { return "" }
-        if let s = v as? String { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if let n = v as? NSNumber { return n.stringValue }
-        return String(describing: v).trimmingCharacters(in: .whitespacesAndNewlines)
+        let raw: String = {
+            if let s = v as? String { return s.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if let n = v as? NSNumber { return n.stringValue }
+            return String(describing: v).trimmingCharacters(in: .whitespacesAndNewlines)
+        }()
+        return raw.replacingOccurrences(of: "\\/", with: "/")
     }
 
     private static func dmPreviewBody(from content: [String: Any]) -> String {
