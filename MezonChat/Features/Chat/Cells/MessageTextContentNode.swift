@@ -33,7 +33,11 @@ final class MessageTextContentNode: ASDisplayNode {
         view.addGestureRecognizer(tap)
     }
 
-    func configure(parsedContent: ParsedContent, buzzStyled: Bool = false) {
+    func configure(
+        parsedContent: ParsedContent,
+        buzzStyled: Bool = false,
+        hashtagChannelAccess: ((String, String?) -> Bool)? = nil
+    ) {
         currentParsedContent = parsedContent
         self.buzzStyled = buzzStyled
 
@@ -47,8 +51,10 @@ final class MessageTextContentNode: ASDisplayNode {
             return false
         }
         let containsChannelHashtag = parsedContent.tokens.contains {
-            if case .hashtag = $0.kind { return true }
-            return false
+            switch $0.kind {
+            case .hashtag, .mezonChannelLink: return true
+            default: return false
+            }
         }
         hasEmoji = containsEmoji || containsChannelHashtag
 
@@ -61,7 +67,8 @@ final class MessageTextContentNode: ASDisplayNode {
 
         if hasCodeBlock {
             useSegments = true
-            let segments = RichTextBuilder.buildSegments(from: parsedContent, buzzStyled: buzzStyled)
+            let segments = RichTextBuilder.buildSegments(
+                from: parsedContent, buzzStyled: buzzStyled, hashtagChannelAccess: hashtagChannelAccess)
             for segment in segments {
                 switch segment {
                 case .text(let attrText):
@@ -96,7 +103,8 @@ final class MessageTextContentNode: ASDisplayNode {
         useSegments = false
 
 
-        let attrText = RichTextBuilder.build(from: parsedContent, buzzStyled: buzzStyled)
+        let attrText = RichTextBuilder.build(
+            from: parsedContent, buzzStyled: buzzStyled, hashtagChannelAccess: hashtagChannelAccess)
         currentAttrText = attrText
 
         if containsEmoji || containsChannelHashtag {

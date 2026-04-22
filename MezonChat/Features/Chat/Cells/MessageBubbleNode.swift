@@ -233,7 +233,11 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if hasContent {
             let tcn = MessageTextContentNode()
-            tcn.configure(parsedContent: parsed, buzzStyled: display.isBuzzMessage)
+            tcn.configure(
+                parsedContent: parsed,
+                buzzStyled: display.isBuzzMessage,
+                hashtagChannelAccess: interaction.hashtagChannelIsAccessible
+            )
             tcn.onMentionTapped = { interaction.onMentionTapped($0) }
             tcn.onHashtagTapped = { interaction.onHashtagTapped($0) }
             tcn.onLinkTapped = { url in
@@ -367,6 +371,22 @@ final class MessageBubbleNode: ASDisplayNode {
         let inviteChanged = oldDisplay.clanInviteLinkCode != newDisplay.clanInviteLinkCode
         let avatarChanged = oldDisplay.avatarURL != newDisplay.avatarURL
         let editedChanged = Self.shouldShowEditedLabel(for: oldDisplay) != Self.shouldShowEditedLabel(for: newDisplay)
+        let mentionHighlightChanged = oldDisplay.hasIncludeMention != newDisplay.hasIncludeMention
+        if mentionHighlightChanged {
+            if newDisplay.hasIncludeMention {
+                mentionHighlightNode.backgroundColor = UIColor(red: 201.0/255, green: 157.0/255, blue: 7.0/255, alpha: 0.1)
+                mentionHighlightNode.isUserInteractionEnabled = false
+                mentionBorderNode.backgroundColor = UIColor(red: 240.0/255, green: 177.0/255, blue: 50.0/255, alpha: 1.0)
+                if mentionBorderNode.supernode !== mentionHighlightNode {
+                    mentionHighlightNode.addSubnode(mentionBorderNode)
+                }
+                if mentionHighlightNode.supernode == nil {
+                    insertSubnode(mentionHighlightNode, at: 0)
+                }
+            } else {
+                mentionHighlightNode.removeFromSupernode()
+            }
+        }
         let callLogIdentityChanged: Bool = {
             switch (oldDisplay.callLog, newDisplay.callLog) {
             case (nil, nil): return false
@@ -422,8 +442,39 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(n)
         }
 
-        if textChanged, let tcn = textContentNode {
-            tcn.configure(parsedContent: newDisplay.parsedContent, buzzStyled: newDisplay.isBuzzMessage)
+        if Self.shouldShowTextContent(for: newDisplay) {
+            if let tcn = textContentNode {
+                if textChanged || mentionHighlightChanged {
+                    tcn.configure(
+                        parsedContent: newDisplay.parsedContent,
+                        buzzStyled: newDisplay.isBuzzMessage,
+                        hashtagChannelAccess: interaction.hashtagChannelIsAccessible
+                    )
+                }
+            } else {
+                let tcn = MessageTextContentNode()
+                tcn.configure(
+                    parsedContent: newDisplay.parsedContent,
+                    buzzStyled: newDisplay.isBuzzMessage,
+                    hashtagChannelAccess: interaction.hashtagChannelIsAccessible
+                )
+                tcn.onMentionTapped = { self.interaction.onMentionTapped($0) }
+                tcn.onHashtagTapped = { self.interaction.onHashtagTapped($0) }
+                tcn.onLinkTapped = { url in
+                    let scheme = url.scheme?.lowercased() ?? ""
+                    guard scheme == "https" || scheme == "http" else { return }
+                    UIApplication.shared.open(url)
+                }
+                textContentNode = tcn
+                if let c = clanInviteLinkNode { insertSubnode(tcn, belowSubnode: c) }
+                else if let m = mediaContentNode { insertSubnode(tcn, belowSubnode: m) }
+                else { addSubnode(tcn) }
+            }
+        } else {
+            if let tcn = textContentNode {
+                tcn.removeFromSupernode()
+                textContentNode = nil
+            }
         }
         if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
             cln.configure(callLog: callLog, isMe: newDisplay.isMe, senderName: newDisplay.senderDisplayName, contentText: newDisplay.parsedContent.text)
@@ -468,8 +519,10 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
+            || mentionHighlightChanged
             || (oldFailed != newDisplay.isFailed)
             || inviteChanged || (oldWantInvite != newWantInvite)
+            || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
         if needsRelayout {
             let _ = measureSize(width: cachedTotalSize.width)
             setNeedsLayout()
@@ -477,6 +530,13 @@ final class MessageBubbleNode: ASDisplayNode {
         if !isCombine && avatarChanged {
             loadAvatar()
         }
+    }
+
+    private static func shouldShowTextContent(for display: ChatMessageDisplay) -> Bool {
+        if display.isCallLog { return false }
+        if display.isLocation { return false }
+        if display.checkOneLinkImage { return false }
+        return !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func timeText(for display: ChatMessageDisplay) -> String {
@@ -632,7 +692,6 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
-        let isMultiple = media.count > 1
         let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
             let placeholderURL: String? = att.isVideo
                 ? nil
@@ -640,7 +699,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     from: att.url,
                     width: 400,
                     height: 400,
-                    resizeType: isMultiple ? "fill" : "fit"
+                    resizeType: "fit"
                 )
             return GalleryItemInfo(
                 url: att.url,

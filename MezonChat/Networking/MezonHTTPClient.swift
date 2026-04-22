@@ -704,6 +704,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func addChannelUsers(channelId: Int64, userIds: [Int64], token: String) async throws {
+        var req = Mezon_Api_AddChannelUsersRequest()
+        req.channelID = channelId
+        req.userIds = userIds
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/AddChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func isBanned(channelId: Int64, token: String) async throws -> Mezon_Api_IsBannedResponse {
         var req = Mezon_Api_IsBannedRequest()
         req.channelID = channelId

@@ -289,7 +289,6 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     private let headerView = UIView()
     private let titleLabel = UILabel()
-    private let addFriendButton = UIButton(type: .system)
     private let tabScrollView = UIScrollView()
     private let tabStackView = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
@@ -397,52 +396,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
         titleLabel.textColor = .mezonTextPrimary
 
-
-        if #available(iOS 15.0, *) {
-            var cfg = UIButton.Configuration.plain()
-            cfg.cornerStyle = .capsule
-            cfg.background.strokeColor = .mezonBorder
-            cfg.background.strokeWidth = 1.5
-            cfg.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-            if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
-                let iconSize = CGSize(width: 20, height: 20)
-                let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
-                let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
-                let origin = CGPoint(
-                    x: (iconSize.width - drawSize.width) / 2,
-                    y: (iconSize.height - drawSize.height) / 2)
-                let renderer = UIGraphicsImageRenderer(size: iconSize)
-                let resized = renderer.image { _ in
-                    raw.draw(in: CGRect(origin: origin, size: drawSize))
-                }
-                cfg.image = resized.withRenderingMode(.alwaysTemplate)
-            }
-            cfg.baseForegroundColor = .mezonTextPrimary
-            addFriendButton.configuration = cfg
-        } else {
-            if let raw = UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysOriginal) {
-                let iconSize = CGSize(width: 20, height: 20)
-                let ratio = min(iconSize.width / raw.size.width, iconSize.height / raw.size.height)
-                let drawSize = CGSize(width: raw.size.width * ratio, height: raw.size.height * ratio)
-                let origin = CGPoint(
-                    x: (iconSize.width - drawSize.width) / 2,
-                    y: (iconSize.height - drawSize.height) / 2)
-                let renderer = UIGraphicsImageRenderer(size: iconSize)
-                let resized = renderer.image { _ in
-                    raw.draw(in: CGRect(origin: origin, size: drawSize))
-                }
-                addFriendButton.setImage(resized.withRenderingMode(.alwaysTemplate), for: .normal)
-            }
-            addFriendButton.tintColor = .mezonTextPrimary
-            addFriendButton.layer.cornerRadius = 16
-            addFriendButton.layer.borderWidth = 1.5
-            addFriendButton.layer.borderColor = UIColor.mezonBorder.cgColor
-            addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
-        }
-        addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
-        addFriendButton.accessibilityIdentifier = "notif_add_friend"
-
-
         tabScrollView.showsHorizontalScrollIndicator = false
         tabScrollView.showsVerticalScrollIndicator = false
 
@@ -483,7 +436,6 @@ final class NotificationsContainerNode: ASDisplayNode {
 
         view.addSubview(headerView)
         headerView.addSubview(titleLabel)
-        headerView.addSubview(addFriendButton)
         view.addSubview(tabScrollView)
         view.addSubview(tableView)
         view.addSubview(emptyStateStack)
@@ -527,7 +479,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
 
         let sideInset: CGFloat = 16
-        let btnSize: CGFloat = 32
         let headerH: CGFloat = 44
         let tabH: CGFloat = 40
         let tabScrollY = safeTop + headerH + 4
@@ -539,13 +490,7 @@ final class NotificationsContainerNode: ASDisplayNode {
             view: titleLabel,
             frame: CGRect(
                 x: sideInset, y: 0,
-                width: layout.size.width - sideInset * 2 - btnSize - 8, height: headerH))
-        transition.updateFrame(
-            view: addFriendButton,
-            frame: CGRect(
-                x: layout.size.width - sideInset - btnSize,
-                y: (headerH - btnSize) / 2,
-                width: btnSize, height: btnSize))
+                width: layout.size.width - sideInset * 2, height: headerH))
         transition.updateFrame(
             view: tabScrollView,
             frame: CGRect(
@@ -689,10 +634,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         interaction.onTabSelected(tabs[index].tag)
     }
 
-    @objc private func addFriendTapped() {
-
-    }
-
     func applyTheme() {
         let t = UIColor.theme
         gradientLayer.colors = [
@@ -707,15 +648,6 @@ final class NotificationsContainerNode: ASDisplayNode {
         tabScrollView.backgroundColor = .clear
 
         titleLabel.textColor = t.textStrong
-        if #available(iOS 15.0, *) {
-            var addCfg = addFriendButton.configuration
-            addCfg?.baseForegroundColor = t.textStrong
-            addCfg?.background.strokeColor = t.border
-            addFriendButton.configuration = addCfg
-        } else {
-            addFriendButton.tintColor = t.textStrong
-            addFriendButton.layer.borderColor = t.border.cgColor
-        }
 
         emptyTitleLabel.textColor = t.textStrong
         emptyDescLabel.textColor = t.textDisabled

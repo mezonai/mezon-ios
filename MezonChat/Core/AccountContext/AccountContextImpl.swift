@@ -662,7 +662,8 @@ final class AccountContextImpl: AccountContext {
                     "channelId": e.channelID, "clanId": e.clanID,
                     "channelUnreadCount": e.badgeCount,
                     "messageId": String(e.messageID),
-                    "timestampSeconds": e.timestampSeconds
+                    "timestampSeconds": e.timestampSeconds,
+                    "mode": e.mode,
                 ] as [String: Any]
             )
 

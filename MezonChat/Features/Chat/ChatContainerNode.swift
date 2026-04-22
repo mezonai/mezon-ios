@@ -35,6 +35,7 @@ struct ChatInteraction {
     let onJumpToPresent: () -> Void
     let onMentionTapped: (String) -> Void
     let onHashtagTapped: (ChannelHashtagTapInfo) -> Void
+    let hashtagChannelIsAccessible: (String, String?) -> Bool
     let onMessageLongPressed: (ChatMessageDisplay) -> Void
     let onReplyTapped: (String) -> Void
     let onTopicTapped: (TopicData) -> Void
@@ -55,7 +56,6 @@ final class ChatContainerNode: ASDisplayNode {
     private let headerNode = ChatHeaderNode()
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingOlderNode = ASDisplayNode()
-    private let loadingNewerNode = ASDisplayNode()
     private let jumpToPresentNode = ASButtonNode()
 
 
@@ -74,6 +74,7 @@ final class ChatContainerNode: ASDisplayNode {
     var pendingJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
+    private var lastKnownDistanceFromBottom: CGFloat = 0
 
     init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction, isDM: Bool = false) {
         listView = ListView()
@@ -89,14 +90,6 @@ final class ChatContainerNode: ASDisplayNode {
         }
         loadingOlderNode.isHidden = true
 
-        loadingNewerNode.setViewBlock {
-            let indicator = UIActivityIndicatorView(style: .medium)
-            indicator.hidesWhenStopped = true
-            indicator.color = t.textDisabled
-            return indicator
-        }
-        loadingNewerNode.isHidden = true
-
         super.init()
         headerNode.onBackTapped = { interaction.onBackTapped() }
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
@@ -106,7 +99,6 @@ final class ChatContainerNode: ASDisplayNode {
         addSubnode(listView)
         addSubnode(skeletonNode)
         addSubnode(loadingOlderNode)
-        addSubnode(loadingNewerNode)
         addSubnode(jumpToPresentNode)
 
         listView.rotated = true
@@ -117,9 +109,10 @@ final class ChatContainerNode: ASDisplayNode {
             guard let self else { return }
             switch offset {
             case let .known(value):
+                self.lastKnownDistanceFromBottom = value
                 let atBottom = value < 100
                 self.interaction.onScrolledToBottom(atBottom)
-                self.setJumpButtonVisible(value >= 100)
+                self.refreshJumpButtonVisibility()
             case .none, .unknown:
                 break
             }
@@ -149,6 +142,7 @@ final class ChatContainerNode: ASDisplayNode {
                 self.state = newState
                 self.updateHeader(state: newState)
                 self.updateLoadingState(newState)
+                self.refreshJumpButtonVisibility()
 
 
                 let isEmpty = newState.messages.isEmpty
@@ -200,6 +194,12 @@ final class ChatContainerNode: ASDisplayNode {
         setJumpButtonVisible(false)
     }
 
+    private func refreshJumpButtonVisibility() {
+        let isFarFromBottom = lastKnownDistanceFromBottom >= 100
+        let hasNewerToLoad = state.hasMoreNewer
+        setJumpButtonVisible(isFarFromBottom || hasNewerToLoad)
+    }
+
     private func setJumpButtonVisible(_ visible: Bool) {
         guard jumpToPresentNode.isHidden == visible else { return }
         if visible {
@@ -240,12 +240,6 @@ final class ChatContainerNode: ASDisplayNode {
         loadingOlderNode.isHidden = !showOlderLoading
         if let indicator = loadingOlderNode.view as? UIActivityIndicatorView {
             showOlderLoading ? indicator.startAnimating() : indicator.stopAnimating()
-        }
-
-        let showNewerLoading = state.isLoadingNewer && state.hasMoreNewer
-        loadingNewerNode.isHidden = !showNewerLoading
-        if let indicator = loadingNewerNode.view as? UIActivityIndicatorView {
-            showNewerLoading ? indicator.startAnimating() : indicator.stopAnimating()
         }
     }
 
@@ -306,6 +300,12 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     static let unreadLineId = "__unread_line__"
+    static let bottomLoaderId = "__bottom_loader__"
+
+    private static func shouldShowBottomMessageLoader(_ state: ChatState) -> Bool {
+        guard !state.messages.isEmpty else { return false }
+        return state.isLoadingMessageContext
+    }
 
     private func buildIds(from state: ChatState) -> [String] {
         let messages = state.messages
@@ -320,6 +320,9 @@ final class ChatContainerNode: ASDisplayNode {
                messages.count > 2 {
                 ids.append(Self.unreadLineId)
             }
+        }
+        if Self.shouldShowBottomMessageLoader(state) {
+            ids.insert(Self.bottomLoaderId, at: 0)
         }
         return ids
     }
@@ -349,6 +352,9 @@ final class ChatContainerNode: ASDisplayNode {
                 items.append(ChatNewMessageLineItem())
             }
         }
+        if Self.shouldShowBottomMessageLoader(state) {
+            items.insert(ChatBottomLoaderItem(), at: 0)
+        }
         return items
     }
 
@@ -368,12 +374,16 @@ final class ChatContainerNode: ASDisplayNode {
 
         committedMessageIds = Array(newIds)
 
+        let scrollToLoader: ListViewScrollToItem? = Self.shouldShowBottomMessageLoader(state)
+            ? ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
+            : nil
+
         listView.transaction(
             deleteIndices: deleteItems,
             insertIndicesAndItems: insertItems,
             updateIndicesAndItems: [],
             options: [.Synchronous, .LowLatency],
-            scrollToItem: nil,
+            scrollToItem: scrollToLoader,
             updateOpaqueState: nil,
             completion: { _ in }
         )
@@ -450,8 +460,12 @@ final class ChatContainerNode: ASDisplayNode {
         insertItems.sort { $0.index < $1.index }
 
         let isAtBottom: Bool = {
-            if case let .known(value) = self.listView.visibleContentOffset() { return value < 10 }
-            return false
+            switch self.listView.visibleContentOffset() {
+            case let .known(value):
+                return value < 10
+            case .none, .unknown:
+                return true
+            }
         }()
 
         isLoadMoreGuardActive = true
@@ -460,6 +474,10 @@ final class ChatContainerNode: ASDisplayNode {
 
         let isLoadMoreResult = old.isLoadingMore || old.isLoadingNewer
             || new.isLoadingMore || new.isLoadingNewer
+            || old.isLoadingMessageContext || new.isLoadingMessageContext
+
+        let onlyAddedBottomLoader = removedIds.isEmpty && addedIds.count == 1 && addedIds.contains(Self.bottomLoaderId)
+        let onlyRemovedBottomLoader = addedIds.isEmpty && removedIds.count == 1 && removedIds.contains(Self.bottomLoaderId)
 
         let newestMessageIsMe: Bool = {
             guard hasNewAtBottom else { return false }
@@ -467,16 +485,24 @@ final class ChatContainerNode: ASDisplayNode {
         }()
 
         var scrollToItem: ListViewScrollToItem?
-        if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
+        if onlyAddedBottomLoader && (isAtBottom || newestMessageIsMe) {
+            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
+        } else if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
+        }
+
+        var transactionOptions: ListViewDeleteAndInsertOptions = [.Synchronous, .LowLatency]
+        if onlyAddedBottomLoader || onlyRemovedBottomLoader {
+            transactionOptions.insert(.AnimateInsertion)
+            transactionOptions.insert(.AnimateAlpha)
         }
 
         listView.transaction(
             deleteIndices: deleteItems,
             insertIndicesAndItems: insertItems,
             updateIndicesAndItems: [],
-            options: [.Synchronous, .LowLatency],
+            options: transactionOptions,
             scrollToItem: scrollToItem,
             stationaryItemRange: scrollToItem == nil ? (0, Int.max) : nil,
             updateOpaqueState: nil,
@@ -490,7 +516,10 @@ final class ChatContainerNode: ASDisplayNode {
 
     private static func listFingerprint(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)"
+        let att = m.attachments
+            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
+            .joined(separator: ";")
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
@@ -586,12 +615,6 @@ final class ChatContainerNode: ASDisplayNode {
         transition.updateFrame(node: loadingOlderNode, frame: CGRect(
             x: (fullWidth - liS) / 2,
             y: headerFrame.maxY + 12,
-            width: liS,
-            height: liS
-        ))
-        transition.updateFrame(node: loadingNewerNode, frame: CGRect(
-            x: (fullWidth - liS) / 2,
-            y: tvFrame.maxY - liS - 12,
             width: liS,
             height: liS
         ))

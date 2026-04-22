@@ -22,6 +22,9 @@ final class GalleryController: UIViewController {
     private var isHeaderVisible = false
     private var panStartCenter: CGPoint = .zero
 
+    private let placeholderImageView = UIImageView()
+    private var didPerformDeferredSetup = false
+
     init(items: [GalleryItemInfo], initialIndex: Int) {
         self.items = items
         self.initialIndex = max(0, min(initialIndex, items.count - 1))
@@ -42,13 +45,42 @@ final class GalleryController: UIViewController {
 
         view.backgroundColor = .black
 
+        placeholderImageView.contentMode = .scaleAspectFit
+        placeholderImageView.backgroundColor = .black
+        placeholderImageView.translatesAutoresizingMaskIntoConstraints = false
+        let initialItem = items[initialIndex]
+        if let placeholderURL = initialItem.placeholderURL,
+           !placeholderURL.isEmpty,
+           let cached = ImageCache.shared.memoryImage(forKey: placeholderURL) {
+            placeholderImageView.image = cached
+        } else {
+            placeholderImageView.image = initialItem.image
+        }
+        view.addSubview(placeholderImageView)
+        NSLayoutConstraint.activate([
+            placeholderImageView.topAnchor.constraint(equalTo: view.topAnchor),
+            placeholderImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            placeholderImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            placeholderImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        performDeferredSetupIfNeeded()
+    }
+
+    private func performDeferredSetupIfNeeded() {
+        guard !didPerformDeferredSetup else { return }
+        didPerformDeferredSetup = true
+
         backgroundNode.backgroundColor = .black
         backgroundNode.frame = view.bounds
         backgroundNode.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(backgroundNode.view)
+        view.insertSubview(backgroundNode.view, belowSubview: placeholderImageView)
 
         containerNode.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(containerNode.view)
+        view.insertSubview(containerNode.view, belowSubview: placeholderImageView)
         NSLayoutConstraint.activate([
             containerNode.view.topAnchor.constraint(equalTo: view.topAnchor),
             containerNode.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -90,10 +122,20 @@ final class GalleryController: UIViewController {
         view.addGestureRecognizer(pan)
 
         updateHeader(for: initialIndex)
+
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        pagingNode.frame = containerNode.bounds
+        pagingNode.updateLayout(size: containerNode.bounds.size, navigationBarHeight: 0)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.placeholderImageView.removeFromSuperview()
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        guard didPerformDeferredSetup else { return }
         pagingNode.frame = containerNode.bounds
         pagingNode.updateLayout(size: containerNode.bounds.size, navigationBarHeight: 0)
     }
@@ -183,12 +225,22 @@ final class GalleryController: UIViewController {
             dateLabel.text = nil
         }
 
-        if let avatarURLStr = item.senderAvatarURL, let url = URL(string: avatarURLStr) {
-            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                if let data, let img = UIImage(data: data) {
-                    DispatchQueue.main.async { self?.avatarImageView.image = img }
+        if let avatarURLStr = item.senderAvatarURL, !avatarURLStr.isEmpty {
+            let proxyURL = ImgproxyURL.attachmentURL(
+                from: avatarURLStr,
+                width: 100,
+                height: 100,
+                resizeType: "fill"
+            )
+            if let cached = ImageCache.shared.memoryImage(forKey: proxyURL) {
+                avatarImageView.image = cached
+            } else {
+                avatarImageView.image = nil
+                ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
+                    guard let self, let image else { return }
+                    self.avatarImageView.image = image
                 }
-            }.resume()
+            }
         } else {
             avatarImageView.image = nil
         }

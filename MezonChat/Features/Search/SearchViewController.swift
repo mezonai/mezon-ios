@@ -86,6 +86,8 @@ final class SearchViewController: ViewController {
     private let needsChannelMemberFilter: Bool
     private var isChannelScoped: Bool { scopedChannelId != nil }
 
+    private var memberAvatarPrefetchWorkItem: DispatchWorkItem?
+
     init(clanId: Int64, context: AccountContext, channels: [Mezon_Api_ChannelDescription] = [], channelId: Int64? = nil, channelLabel: String? = nil, channelType: Int32 = 1, needsChannelMemberFilter: Bool = false) {
         self.clanId = clanId
         self.context = context
@@ -188,12 +190,17 @@ final class SearchViewController: ViewController {
         filteredChannels = allChannels.filter { $0.parentID == 0 }
         updateTabCounts()
         searchNode.tableNode.reloadData()
+        schedulePrefetchMemberAvatars(filteredMembers)
 
         if needsChannelMemberFilter {
             fetchChannelMembersAndUsers()
         } else if allMembers.isEmpty || (!isChannelScoped && allChannels.isEmpty) {
             fetchFromAPI()
         }
+    }
+
+    deinit {
+        memberAvatarPrefetchWorkItem?.cancel()
     }
 
     private func fetchFromAPI() {
@@ -327,6 +334,24 @@ final class SearchViewController: ViewController {
 
         updateTabCounts()
         searchNode.tableNode.reloadData()
+        schedulePrefetchMemberAvatars(filteredMembers)
+    }
+
+    private func schedulePrefetchMemberAvatars(_ users: [Mezon_Api_User]) {
+        memberAvatarPrefetchWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.prefetchMemberAvatarURLs(users)
+        }
+        memberAvatarPrefetchWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    private func prefetchMemberAvatarURLs(_ users: [Mezon_Api_User]) {
+        for user in users.prefix(56) where !user.avatarURL.isEmpty {
+            let s = ImgproxyURL.create(from: user.avatarURL, width: 120, height: 120)
+            guard let url = URL(string: s) else { continue }
+            URLSession.shared.dataTask(with: url).resume()
+        }
     }
 
     private func scoreMember(_ user: Mezon_Api_User, query: String) -> Int {
@@ -696,6 +721,7 @@ final class SearchViewController: ViewController {
                 let vc = VoiceChannelRoomViewController(
                     context: context, channel: channel,
                     parentChannelName: parentChannelName(for: channel),
+                    voiceChannelCrossClanExitAlignClanId: pip.crossClanVoiceExitAlignClanId,
                     existingPiPOverlay: pip)
                 nav.pushViewController(vc, animated: true)
                 return
@@ -1055,7 +1081,7 @@ final class SearchInputNode: ASDisplayNode {
         label.layer.cornerRadius = 10
         label.clipsToBounds = true
         let textSize = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 20))
-        badgeWidth = textSize.width + 16
+        badgeWidth = textSize.width + 32
         badgeLabel = label
         if isNodeLoaded { view.addSubview(label) }
         setNeedsLayout()
@@ -1290,7 +1316,9 @@ final class SearchEmptyCellNode: ASCellNode {
 }
 
 final class MemberSearchCellNode: ASCellNode {
-    private let avatarNode = TransformImageNode()
+    private let avatarBackplate = ASDisplayNode()
+    private let avatarPlaceholderNode = ASTextNode2()
+    private let avatarNode = ASNetworkImageNode()
     private let statusDotNode = ASDisplayNode()
     private let nameNode = ASTextNode2()
     private let usernameNode = ASTextNode2()
@@ -1318,36 +1346,6 @@ final class MemberSearchCellNode: ASCellNode {
         cardNode.clipsToBounds = true
         addSubnode(cardNode)
 
-        avatarNode.cornerRadius = Self.avatarSize / 2
-        avatarNode.clipsToBounds = true
-        avatarNode.backgroundColor = t.tertiary
-        avatarNode.contentAnimations = [.firstUpdate]
-        if !user.avatarURL.isEmpty {
-            let raw = user.avatarURL
-            let proxy = ImgproxyURL.create(from: raw, width: 100, height: 100)
-            let hasMem = ImageCache.shared.memoryImage(forKey: proxy) != nil
-                || ImageCache.shared.memoryImage(forKey: raw) != nil
-            avatarNode.setSignal(
-                remoteAttachmentImageSignal(proxyURL: proxy, originalURL: raw, resizeMode: .fill),
-                attemptSynchronously: hasMem
-            )
-            let avatarSz = Self.avatarSize
-            let args = TransformImageArguments(
-                corners: ImageCorners(radius: avatarSz / 2),
-                imageSize: CGSize(width: avatarSz, height: avatarSz),
-                boundingSize: CGSize(width: avatarSz, height: avatarSz),
-                intrinsicInsets: .zero
-            )
-            avatarNode.asyncLayout()(args)()
-        }
-
-        statusDotNode.backgroundColor = user.online
-            ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1)
-            : UIColor.gray
-        statusDotNode.cornerRadius = 6.sf
-        statusDotNode.borderWidth = 2.sf
-        statusDotNode.borderColor = t.secondary.cgColor
-
         let displayName: String
         if let nick = clanNick, !nick.isEmpty {
             displayName = nick
@@ -1356,6 +1354,26 @@ final class MemberSearchCellNode: ASCellNode {
         } else {
             displayName = user.username
         }
+
+        avatarBackplate.cornerRadius = Self.avatarSize / 2
+        avatarBackplate.clipsToBounds = true
+        avatarBackplate.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
+
+        avatarPlaceholderNode.maximumNumberOfLines = 1
+
+        avatarNode.cornerRadius = Self.avatarSize / 2
+        avatarNode.clipsToBounds = true
+        avatarNode.backgroundColor = .clear
+        avatarNode.contentMode = .scaleAspectFill
+        avatarNode.shouldRenderProgressImages = false
+
+        statusDotNode.backgroundColor = user.online
+            ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1)
+            : UIColor.gray
+        statusDotNode.cornerRadius = 6.sf
+        statusDotNode.borderWidth = 2.sf
+        statusDotNode.borderColor = t.secondary.cgColor
+
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
         nameNode.attributedText = NSAttributedString(
@@ -1372,6 +1390,35 @@ final class MemberSearchCellNode: ASCellNode {
             )
         }
 
+        let initialSource = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialChar = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
+        let side = Self.avatarSize
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        para.minimumLineHeight = side
+        para.maximumLineHeight = side
+        avatarPlaceholderNode.attributedText = NSAttributedString(
+            string: initialChar,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
+                .foregroundColor: UIColor.mezonTextPrimary,
+                .paragraphStyle: para,
+            ]
+        )
+
+        let raw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !raw.isEmpty,
+            let url = URL(string: ImgproxyURL.create(from: raw, width: 120, height: 120))
+        {
+            avatarNode.url = url
+            avatarNode.isHidden = false
+        } else {
+            avatarNode.url = nil
+            avatarNode.isHidden = true
+        }
+
+        addSubnode(avatarBackplate)
+        addSubnode(avatarPlaceholderNode)
         addSubnode(avatarNode)
         addSubnode(statusDotNode)
         addSubnode(nameNode)
@@ -1393,7 +1440,10 @@ final class MemberSearchCellNode: ASCellNode {
 
         let contentX = m + p
         let avatarY = (bounds.height - avatarSz) / 2
-        avatarNode.frame = CGRect(x: contentX, y: avatarY, width: avatarSz, height: avatarSz)
+        let avatarFrame = CGRect(x: contentX, y: avatarY, width: avatarSz, height: avatarSz)
+        avatarBackplate.frame = avatarFrame
+        avatarPlaceholderNode.frame = avatarFrame
+        avatarNode.frame = avatarFrame
 
         statusDotNode.frame = CGRect(
             x: contentX + avatarSz - 12.sf,
