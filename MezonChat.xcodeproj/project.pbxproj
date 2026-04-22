@@ -281,6 +281,8 @@
 		99F467D84EA6215DE8B2C624 /* CallManagers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97726FD3233DB31DD6AC5385 /* CallManagers.swift */; };
 		9A8D83162F91EBED004639DD /* FriendRequestContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8D83152F91EBED004639DD /* FriendRequestContainerNode.swift */; };
 		9A8D83182F91EBF9004639DD /* FriendRequestViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A8D83172F91EBF9004639DD /* FriendRequestViewController.swift */; };
+		9A430ECB2F977814003E83C3 /* UpdateEmailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A430ECA2F977814003E83C3 /* UpdateEmailViewController.swift */; };
+		9A430ECD2F97781D003E83C3 /* VerifyEmailOTPViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A430ECC2F97781D003E83C3 /* VerifyEmailOTPViewController.swift */; };
 		9AB07E0FF22814CBCE67E56C /* SVariable.m in Sources */ = {isa = PBXBuildFile; fileRef = 09EF700E3C59BDE6081FE041 /* SVariable.m */; };
 		9ACC1ED3DFE7C2C6747F08CB /* ChannelBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55993173346619928A1FF1F /* ChannelBannerView.swift */; };
 		9B5F3EFD9FA6AD1F3C2F6593 /* SSignal+Dispatch.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DEBA3F0D9F47882DE72C90F /* SSignal+Dispatch.m */; };
@@ -787,6 +789,8 @@
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
 		9A8D83152F91EBED004639DD /* FriendRequestContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequestContainerNode.swift; sourceTree = "<group>"; };
 		9A8D83172F91EBF9004639DD /* FriendRequestViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendRequestViewController.swift; sourceTree = "<group>"; };
+		9A430ECA2F977814003E83C3 /* UpdateEmailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateEmailViewController.swift; sourceTree = "<group>"; };
+		9A430ECC2F97781D003E83C3 /* VerifyEmailOTPViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyEmailOTPViewController.swift; sourceTree = "<group>"; };
 		9A95963C16177D92D4F4F3A2 /* ReactionEmojiImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionEmojiImageLoader.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
@@ -1021,6 +1025,8 @@
 		04015AFAC4C0E26572D6AB77 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				9A430ECC2F97781D003E83C3 /* VerifyEmailOTPViewController.swift */,
+				9A430ECA2F977814003E83C3 /* UpdateEmailViewController.swift */,
 				E223C3A86A605970EEA7163D /* AccountSettingsViewController.swift */,
 				FD94BB519169EBB90AFFA4AF /* AppThemeViewController.swift */,
 				ACE3F1520028CFB731221677 /* LanguageSettingsViewController.swift */,
@@ -2626,6 +2632,7 @@
 				69C67AE9F6081F83E06CFF55 /* MessageReactionDetailSheetController.swift in Sources */,
 				2A80AD66D74340B6359639A5 /* MessageReactionsNode.swift in Sources */,
 				64B955B252F2CD6327897228 /* MessageRecord.swift in Sources */,
+				9A430ECB2F977814003E83C3 /* UpdateEmailViewController.swift in Sources */,
 				6C30595FB0BC5B4EBE51D7F5 /* MessageReplyNode.swift in Sources */,
 				41F2FC4CF9E5C373A033874A /* MessageSkeletonNode.swift in Sources */,
 				0681740A9D3BA298C7038821 /* MessageSystemNode.swift in Sources */,
@@ -2805,6 +2812,7 @@
 				F8076390CBA943D24CDB6515 /* Subscriber.swift in Sources */,
 				41855D500456AAA11465DB59 /* SubstringSearch.swift in Sources */,
 				0365C8B4AF462C6D2B26434F /* SwitchNode.swift in Sources */,
+				9A430ECD2F97781D003E83C3 /* VerifyEmailOTPViewController.swift in Sources */,
 				490A7C34CA44AA088C336A35 /* TabBarController.swift in Sources */,
 				4B184A6D33AE232840D998C5 /* TabBarControllerImpl.swift in Sources */,
 				0B83CAD169D270D2B71D78B7 /* TabBarControllerNode.swift in Sources */,

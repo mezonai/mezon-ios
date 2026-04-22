@@ -41,6 +41,7 @@ final class AccountSettingsViewController: BaseViewController {
     private enum RowTapAction {
         case none
         case userProfile
+        case linkEmail
     }
 
     init(context: AccountContext) {
@@ -134,7 +135,7 @@ final class AccountSettingsViewController: BaseViewController {
         let infoRows: [(title: String, detail: String?, warn: Bool, destructive: Bool, tap: RowTapAction)] = [
             (L(L10n.AccountSetting.username), accountRowDetailText(user?.username), false, false, .userProfile),
             (L(L10n.AccountSetting.displayName), accountRowDetailText(user?.displayName), false, false, .userProfile),
-            (L(L10n.Login.email), hasEmail ? AccountSettingMask.maskEmail(email) : L(L10n.Common.linkEmail), !hasEmail, false, .none),
+            (L(L10n.Login.email), hasEmail ? AccountSettingMask.maskEmail(email) : L(L10n.Common.linkEmail), !hasEmail, false, .linkEmail),
             (L(L10n.AccountSetting.phoneSectionTitle), hasPhone ? AccountSettingMask.maskPhone(phone) : L(L10n.Common.linkPhoneNumber), !hasPhone, false, .none),
         ]
 
@@ -306,6 +307,10 @@ final class AccountSettingsViewController: BaseViewController {
             break
         case .userProfile:
             let vc = ProfileSettingViewController(context: context, initialTab: .userProfile)
+            navigationController?.pushViewController(vc, animated: true)
+        case .linkEmail:
+            let currentEmail = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let vc = UpdateEmailViewController(context: context, currentEmail: currentEmail)
             navigationController?.pushViewController(vc, animated: true)
         }
     }
