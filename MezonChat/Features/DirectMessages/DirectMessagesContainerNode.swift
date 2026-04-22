@@ -14,6 +14,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let headerView = UIView()
     private let titleLabel = UILabel()
     private let addFriendButton = UIButton(type: .system)
+    private let badgeLabel = UILabel()
     private let searchButton = UIButton(type: .system)
     private let tableView: UITableView
 
@@ -43,8 +44,20 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
                 self.state = newState
+                
+                if newState.incomingFriendRequestCount > 0 {
+                    self.badgeLabel.text = "\(newState.incomingFriendRequestCount)"
+                    self.badgeLabel.isHidden = false
+                    self.view.setNeedsLayout() // ensure it layouts if intrinsic content size changes
+                } else {
+                    self.badgeLabel.isHidden = true
+                }
+                
                 if self.tableView.frame.width > 0 {
                     self.tableView.reloadData()
+                    if !self.badgeLabel.isHidden {
+                        self.applyLayout(transition: .immediate)
+                    }
                 } else {
                     self.needsReloadOnLayout = true
                 }
@@ -72,6 +85,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         refreshControl.tintColor = .mezonTextPrimary
         refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
         tableView.refreshControl = refreshControl
+        
+        badgeLabel.backgroundColor = UIColor(red: 236/255.0, green: 56/255.0, blue: 50/255.0, alpha: 1.0)
+        badgeLabel.textColor = .white
+        badgeLabel.font = .systemFont(ofSize: 11.sf, weight: .semibold)
+        badgeLabel.textAlignment = .center
+        badgeLabel.layer.cornerRadius = 10.sh
+        badgeLabel.clipsToBounds = true
+        badgeLabel.isHidden = true
 
         titleLabel.text = L(L10n.Tab.messages)
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
@@ -119,6 +140,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         view.addSubview(headerView)
         view.addSubview(addFriendButton)
+        view.addSubview(badgeLabel)
         view.addSubview(searchButton)
         view.addSubview(tableView)
 
@@ -154,8 +176,19 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         let actionH: CGFloat = 32.sh
         let searchSize: CGFloat = 32.swh
         let addW = size.width - sideInset * 2 - searchSize - 10.sw
-        transition.updateFrame(view: addFriendButton, frame: CGRect(x: sideInset, y: actionY, width: addW, height: actionH))
+        let addFriendFrame = CGRect(x: sideInset, y: actionY, width: addW, height: actionH)
+        transition.updateFrame(view: addFriendButton, frame: addFriendFrame)
         transition.updateFrame(view: searchButton, frame: CGRect(x: size.width - sideInset - searchSize, y: actionY, width: searchSize, height: searchSize))
+
+        if !badgeLabel.isHidden {
+            self.badgeLabel.sizeToFit()
+            let badgeSize = self.badgeLabel.bounds.size
+            let bw = max(20.sh, badgeSize.width + 10.sw)
+            let bh: CGFloat = 20.sh
+            let bx = addFriendFrame.maxX - bw - 10.sw
+            let by = addFriendFrame.midY - bh / 2
+            transition.updateFrame(view: badgeLabel, frame: CGRect(x: bx, y: by, width: bw, height: bh))
+        }
 
         let tvTop = actionY + actionH + 8.sh
         let tvHeight = size.height - tvTop - bottomInset

@@ -93,8 +93,17 @@ final class MezonRootController: NavigationController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSharedContent(_:)), name: .mezonDidReceiveSharedContent, object: nil)
 
+        bootstrapGlobalFriendState()
         processPendingNavigation()
         checkPendingSharedContentOnLaunch()
+    }
+
+    private func bootstrapGlobalFriendState() {
+        context.engine.friendsData.start(tokenProvider: { [weak self] in
+            guard let self else { return nil }
+            return await self.context.getToken()
+        })
+        directMessagesController?.prefetchInitialDataOnAppLaunch()
     }
 
     private func processPendingNavigation() {

@@ -5,8 +5,9 @@ struct DirectMessagesState {
     var isEmpty: Bool
     var isLoading: Bool
     var errorMessage: String?
+    var incomingFriendRequestCount: Int
 
-    static let empty = DirectMessagesState(directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil)
+    static let empty = DirectMessagesState(directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil, incomingFriendRequestCount: 0)
 }
 
 final class DirectMessagesViewController: ViewController {
@@ -23,6 +24,7 @@ final class DirectMessagesViewController: ViewController {
     private(set) var isEmpty: Bool = true
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
+    private(set) var incomingFriendRequestCount: Int = 0
 
     private var directMessagesNode: DirectMessagesContainerNode { displayNode as! DirectMessagesContainerNode }
 
@@ -68,6 +70,7 @@ final class DirectMessagesViewController: ViewController {
             )
         }
         fetchDirectMessages()
+        syncIncomingFriendRequestCount()
     }
 
     override func viewDidLoad() {
@@ -77,7 +80,15 @@ final class DirectMessagesViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+        
+        friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] _ in
+                self?.syncIncomingFriendRequestCount()
+            })
+        syncIncomingFriendRequestCount()
     }
+    
+    private var friendsUpdatedDisposable: Disposable?
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
         let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
@@ -87,6 +98,7 @@ final class DirectMessagesViewController: ViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        friendsUpdatedDisposable?.dispose()
     }
 
     @objc private func handleDirectMessagesThemeChange() {
@@ -266,6 +278,30 @@ final class DirectMessagesViewController: ViewController {
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
 
+    private func setIncomingFriendRequestCount(_ v: Int) {
+        let changed = incomingFriendRequestCount != v
+        incomingFriendRequestCount = v
+        if changed {
+            needsReloadPipe.putNext(())
+        }
+    }
+
+    private var prefetchFriendListTask: Task<Void, Never>?
+
+    func prefetchInitialDataOnAppLaunch() {
+        prefetchFriendListTask?.cancel()
+        prefetchFriendListTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.context.waitForSessionReady()
+            guard let token = await self.context.getToken() else { return }
+            await self.context.engine.friendsData.refreshFromNetwork(token: token)
+        }
+    }
+    
+    private func syncIncomingFriendRequestCount() {
+        setIncomingFriendRequestCount(context.engine.friendsData.incomingFriendRequestCount())
+    }
+
     private static func sortDmChannels(_ channels: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
         channels.sorted { ch1, ch2 in
             let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
@@ -361,7 +397,7 @@ final class DirectMessagesViewController: ViewController {
     }
 
     var currentState: DirectMessagesState {
-        DirectMessagesState(directMessages: directMessages, isEmpty: isEmpty, isLoading: isLoading, errorMessage: errorMessage)
+        DirectMessagesState(directMessages: directMessages, isEmpty: isEmpty, isLoading: isLoading, errorMessage: errorMessage, incomingFriendRequestCount: incomingFriendRequestCount)
     }
 
     func stateSignal() -> Signal<DirectMessagesState, NoError> {
