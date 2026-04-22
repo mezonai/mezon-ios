@@ -11,7 +11,7 @@ final class MessageAudioAttachmentNode: ASDisplayNode {
 
     static let rowHeight: CGFloat = 48
     private static let rowSpacing: CGFloat = 6
-    static let maxChipWidth: CGFloat = 140
+    static let maxChipWidth: CGFloat = 150
 
     override init() {
         super.init()
@@ -86,7 +86,7 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
     private var lockedDisplayTotalSeconds: Int = 0
     private var lastProgressFraction: CGFloat = 0
 
-    private static let barCount = 10
+    private static let barCount = 22
     private static let barWidth: CGFloat = 3
     private static let barSpacing: CGFloat = 2
     private static let buttonSize: CGFloat = 36
@@ -152,6 +152,7 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
         bubble.addSubview(playIconView)
 
         waveContainer.isUserInteractionEnabled = false
+        waveContainer.clipsToBounds = true
         bubble.addSubview(waveContainer)
 
         timeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
@@ -250,12 +251,20 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
     }
 
     private func layoutWaveBars() {
-        let spacing = Self.barSpacing
         let barW = Self.barWidth
         let w = waveContainer.bounds.width
         let hC = waveContainer.bounds.height
         guard w > 1, hC > 1, !barViews.isEmpty else { return }
-        let totalW = CGFloat(barViews.count) * barW + CGFloat(max(0, barViews.count - 1)) * spacing
+        let n = barViews.count
+        var spacing = Self.barSpacing
+        if n > 1 {
+            let minGap: CGFloat = 1
+            let needed = CGFloat(n) * barW + CGFloat(n - 1) * minGap
+            if w >= needed {
+                spacing = max(minGap, (w - CGFloat(n) * barW) / CGFloat(n - 1))
+            }
+        }
+        let totalW = CGFloat(n) * barW + CGFloat(max(0, n - 1)) * spacing
         var x = max(0, (w - totalW) / 2)
         let usableHeight = hC - 4
         for (i, b) in barViews.enumerated() {

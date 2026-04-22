@@ -288,6 +288,19 @@ extension MezonEngine {
             return try? Mezon_Api_ChannelDescList(serializedBytes: data)
         }
 
+        func resolvedListChannelUsersType(channelId: Int64) -> Int32 {
+            if let meta = postbox.read({ tx in tx.getChannelMeta(channelId: channelId) }),
+               meta.type != 0 {
+                return meta.type
+            }
+            if let list = getAllChannelsByUser()?.channeldesc,
+               let d = list.first(where: { $0.channelID == channelId }),
+               d.type != 0 {
+                return d.type
+            }
+            return MezonConstants.ChannelType.channel.rawValue
+        }
+
         func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
             try await network.getInviteInfo(code: code, token: token)
         }

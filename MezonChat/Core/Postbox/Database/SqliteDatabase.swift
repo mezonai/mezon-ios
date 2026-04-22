@@ -27,6 +27,7 @@ final class SqliteDatabase {
             }
         }
 
+        rawExecute("PRAGMA cipher_log_level = NONE")
         rawExecute("PRAGMA journal_mode=WAL")
         rawExecute("PRAGMA synchronous=NORMAL")
         rawExecute("PRAGMA foreign_keys=ON")

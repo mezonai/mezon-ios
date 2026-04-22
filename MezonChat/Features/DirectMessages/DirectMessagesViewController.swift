@@ -45,7 +45,11 @@ final class DirectMessagesViewController: ViewController {
                 let vc = FriendRequestViewController(context: self.context)
                 self.navigationController?.pushViewController(vc, animated: true)
             },
-            onSearchTapped: {},
+            onSearchTapped: { [weak self] in
+                guard let self else { return }
+                let vc = SearchViewController(clanId: self.resolvedClanIdForSearch(), context: self.context)
+                self.navigationController?.pushViewController(vc, animated: true)
+            },
             onBackTapped: { [weak self] in
                 self?.navigationController?.popViewController(animated: true)
             },
@@ -217,13 +221,26 @@ final class DirectMessagesViewController: ViewController {
         )
     }
 
-    @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
-        guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+    private static func int32UserInfo(_ value: Any?) -> Int32? {
+        if let v = value as? Int32 { return v }
+        if let v = value as? Int { return Int32(v) }
+        if let v = value as? NSNumber { return v.int32Value }
+        if let v = value as? String { return Int32(v) }
+        return nil
+    }
 
-        let mode = notification.userInfo?["mode"] as? Int32 ?? 0
-        let isDMOrGroup = mode == MezonConstants.ChannelStreamMode.dm.rawValue
-            || mode == MezonConstants.ChannelStreamMode.group.rawValue
-        guard isDMOrGroup else { return }
+    @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
+        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
+
+        let modeOpt = Self.int32UserInfo(notification.userInfo?["mode"])
+        let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? 0
+        let modeMatchesDmOrGroup = modeOpt.map {
+            $0 == MezonConstants.ChannelStreamMode.dm.rawValue
+                || $0 == MezonConstants.ChannelStreamMode.group.rawValue
+        } ?? false
+        let inDmList = directMessages.contains(where: { $0.channelID == channelId })
+        let clanless = clanId == 0
+        guard inDmList || (clanless && (modeMatchesDmOrGroup || modeOpt == nil)) else { return }
 
         let now = notification.userInfo?["timestampSeconds"] as? UInt32 ?? UInt32(Date().timeIntervalSince1970)
         var updated = false
@@ -242,6 +259,20 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private var lastLayout: ContainerViewLayout?
+
+    private static let cachedSelectedClanUserDefaultsKey = "mezon_selectedClanId"
+
+    private func resolvedClanIdForSearch() -> Int64 {
+        let cur = context.currentClanId
+        if cur != 0 { return cur }
+        let ud = UserDefaults.standard.integer(forKey: Self.cachedSelectedClanUserDefaultsKey)
+        if ud != 0 { return Int64(ud) }
+        if let selData = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
+            let id = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            if id != 0 { return id }
+        }
+        return 0
+    }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)

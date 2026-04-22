@@ -59,14 +59,17 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
     private var gridHeightConstraint: NSLayoutConstraint?
 
     static func defaultActionItems(anonymousOn: Bool, includeAnonymous: Bool) -> [AdvancedFunctionItem] {
-        var items: [AdvancedFunctionItem] = [
-            AdvancedFunctionItem(id: "location", label: "Location", systemIcon: "location.fill",
-                                 backgroundColor: UIColor(red: 0.91, green: 0.60, blue: 0.58, alpha: 1)),
+        var items: [AdvancedFunctionItem] = []
+        if !anonymousOn {
+            items.append(AdvancedFunctionItem(id: "location", label: "Location", systemIcon: "location.fill",
+                                              backgroundColor: UIColor(red: 0.91, green: 0.60, blue: 0.58, alpha: 1)))
+        }
+        items.append(contentsOf: [
             AdvancedFunctionItem(id: "pickFiles", label: "Files", systemIcon: "doc.fill",
                                  backgroundColor: UIColor(red: 0.15, green: 0.27, blue: 0.88, alpha: 1)),
             AdvancedFunctionItem(id: "buzz", label: "Buzz", systemIcon: "megaphone.fill",
                                  backgroundColor: UIColor(red: 0.83, green: 0.40, blue: 0.48, alpha: 1)),
-        ]
+        ])
         if includeAnonymous {
             let anonLabel = anonymousOn ? "Anonymous\nOn" : "Anonymous"
             items.append(AdvancedFunctionItem(id: "anonymous", label: anonLabel, systemIcon: "Chat/AnonymousIcon",

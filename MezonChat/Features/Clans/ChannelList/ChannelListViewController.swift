@@ -1043,6 +1043,7 @@ final class ChannelListViewController: ViewController {
                 let vc = VoiceChannelRoomViewController(
                     context: context, channel: channel,
                     parentChannelName: parentChannelName(for: channel),
+                    voiceChannelCrossClanExitAlignClanId: pip.crossClanVoiceExitAlignClanId,
                     existingPiPOverlay: pip)
                 nav.pushViewController(vc, animated: true)
                 return

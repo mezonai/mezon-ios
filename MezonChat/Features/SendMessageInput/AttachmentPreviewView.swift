@@ -7,6 +7,13 @@ struct PickedFileInfo {
     let filetype: String
 }
 
+struct RemoteAttachmentPreview {
+    let url: String
+    let filename: String
+    let filetype: String
+    let isVideo: Bool
+}
+
 final class AttachmentPreviewView: UIView {
 
     var onRemove: ((Int) -> Void)?
@@ -14,6 +21,8 @@ final class AttachmentPreviewView: UIView {
     private(set) var images: [UIImage] = []
     private(set) var videoIndices: Set<Int> = []
     private(set) var fileItems: [PickedFileInfo] = []
+    private(set) var remoteImages: [RemoteAttachmentPreview] = []
+    private(set) var remoteFiles: [RemoteAttachmentPreview] = []
 
     static let previewHeight: CGFloat = 110
 
@@ -108,15 +117,38 @@ final class AttachmentPreviewView: UIView {
         images.removeAll()
         videoIndices.removeAll()
         fileItems.removeAll()
+        remoteImages.removeAll()
+        remoteFiles.removeAll()
         collectionView.reloadData()
     }
 
+    func setRemoteAttachments(images: [RemoteAttachmentPreview], files: [RemoteAttachmentPreview]) {
+        self.remoteImages = images
+        self.remoteFiles = files
+        collectionView.reloadData()
+    }
+
+    func removeRemoteImage(at index: Int) {
+        guard index >= 0, index < remoteImages.count else { return }
+        remoteImages.remove(at: index)
+        collectionView.reloadData()
+    }
+
+    func removeRemoteFile(at index: Int) {
+        guard index >= 0, index < remoteFiles.count else { return }
+        remoteFiles.remove(at: index)
+        collectionView.reloadData()
+    }
+
+    var totalImageCount: Int { remoteImages.count + images.count }
+    var totalFileCount: Int { remoteFiles.count + fileItems.count }
+
     var hasAnyAttachment: Bool {
-        !images.isEmpty || !fileItems.isEmpty
+        totalImageCount > 0 || totalFileCount > 0
     }
 
     var preferredPreviewHeight: CGFloat {
-        Self.preferredHeight(imageCount: images.count, fileCount: fileItems.count)
+        Self.preferredHeight(imageCount: totalImageCount, fileCount: totalFileCount)
     }
 
     static func preferredHeight(imageCount: Int, fileCount: Int) -> CGFloat {
@@ -142,7 +174,7 @@ final class AttachmentPreviewView: UIView {
 extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
 
     private var totalItemCount: Int {
-        images.count + fileItems.count
+        totalImageCount + totalFileCount
     }
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
@@ -151,27 +183,52 @@ extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = indexPath.item
-        if item < images.count {
+        let remoteImageCount = remoteImages.count
+        let localImageCount = images.count
+        let remoteFileCount = remoteFiles.count
+
+        if item < remoteImageCount {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentThumbCell.reuseId, for: indexPath) as! AttachmentThumbCell
-            let isVideo = videoIndices.contains(item)
-            cell.configure(image: images[item], isVideo: isVideo)
-            cell.onClose = { [weak self] in
-                self?.onRemove?(item)
-            }
-            return cell
-        } else {
-            let fileIndex = item - images.count
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentFileCell.reuseId, for: indexPath) as! AttachmentFileCell
-            cell.configure(file: fileItems[fileIndex])
+            let remote = remoteImages[item]
+            cell.configure(remoteURL: remote.url, isVideo: remote.isVideo)
             cell.onClose = { [weak self] in
                 self?.onRemove?(item)
             }
             return cell
         }
+
+        let afterRemoteImage = item - remoteImageCount
+        if afterRemoteImage < localImageCount {
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentThumbCell.reuseId, for: indexPath) as! AttachmentThumbCell
+            let isVideo = videoIndices.contains(afterRemoteImage)
+            cell.configure(image: images[afterRemoteImage], isVideo: isVideo)
+            cell.onClose = { [weak self] in
+                self?.onRemove?(item)
+            }
+            return cell
+        }
+
+        let afterImages = afterRemoteImage - localImageCount
+        if afterImages < remoteFileCount {
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentFileCell.reuseId, for: indexPath) as! AttachmentFileCell
+            cell.configure(remoteFile: remoteFiles[afterImages])
+            cell.onClose = { [weak self] in
+                self?.onRemove?(item)
+            }
+            return cell
+        }
+
+        let fileIndex = afterImages - remoteFileCount
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentFileCell.reuseId, for: indexPath) as! AttachmentFileCell
+        cell.configure(file: fileItems[fileIndex])
+        cell.onClose = { [weak self] in
+            self?.onRemove?(item)
+        }
+        return cell
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        if indexPath.item < images.count {
+        if indexPath.item < totalImageCount {
             return CGSize(width: 70.sw, height: AttachmentPreviewView.imageItemRowHeight)
         } else {
             return CGSize(width: 220.sw, height: AttachmentPreviewView.fileItemRowHeight)
@@ -185,6 +242,8 @@ private final class AttachmentThumbCell: UICollectionViewCell {
     static let reuseId = "AttachmentThumbCell"
 
     var onClose: (() -> Void)?
+
+    private var currentRemoteURL: String?
 
     private let thumbImageView: UIImageView = {
         let iv = UIImageView()
@@ -265,9 +324,37 @@ private final class AttachmentThumbCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        currentRemoteURL = nil
+        thumbImageView.image = nil
+        playOverlay.isHidden = true
+    }
+
     func configure(image: UIImage, isVideo: Bool = false) {
+        currentRemoteURL = nil
         thumbImageView.image = image
         playOverlay.isHidden = !isVideo
+    }
+
+    func configure(remoteURL: String, isVideo: Bool) {
+        let proxyURL = ImgproxyURL.attachmentURL(
+            from: remoteURL,
+            width: 200,
+            height: 200,
+            resizeType: "fill"
+        )
+        currentRemoteURL = proxyURL
+        playOverlay.isHidden = !isVideo
+        if let cached = ImageCache.shared.image(forKey: proxyURL) {
+            thumbImageView.image = cached
+            return
+        }
+        thumbImageView.image = nil
+        ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
+            guard let self, self.currentRemoteURL == proxyURL else { return }
+            self.thumbImageView.image = image
+        }
     }
 }
 
@@ -376,6 +463,16 @@ private final class AttachmentFileCell: UICollectionViewCell {
         nameLabel.text = file.filename
         nameLabel.textColor = UIColor.theme.text
         sizeLabel.text = Self.formattedSize(file.filesize)
+        sizeLabel.textColor = UIColor.theme.textDisabled
+        containerView.backgroundColor = UIColor.theme.secondaryLight
+    }
+
+    func configure(remoteFile: RemoteAttachmentPreview) {
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        iconImageView.image = UIImage(systemName: Self.iconName(for: remoteFile.filename), withConfiguration: iconConfig)
+        nameLabel.text = remoteFile.filename.isEmpty ? remoteFile.url : remoteFile.filename
+        nameLabel.textColor = UIColor.theme.text
+        sizeLabel.text = ""
         sizeLabel.textColor = UIColor.theme.textDisabled
         containerView.backgroundColor = UIColor.theme.secondaryLight
     }

@@ -181,7 +181,7 @@ final class MessageActionSheetController: ViewController {
         actions.append(.reply)
 
         let hasText = !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if isOwnMessage, Self.canEditMessage(display: display, hasText: hasText) {
+        if isOwnMessage, Self.canEditMessage(display: display) {
             actions.append(.editMessage)
         }
 
@@ -209,13 +209,13 @@ final class MessageActionSheetController: ViewController {
         return actions
     }
 
-    private static func canEditMessage(display: ChatMessageDisplay, hasText: Bool) -> Bool {
-        guard hasText else { return false }
+    private static func canEditMessage(display: ChatMessageDisplay) -> Bool {
+        let t = display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty || !display.attachments.isEmpty else { return false }
         if display.isFailed { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
         if display.message.isDeleted { return false }
-        if !display.attachments.isEmpty { return false }
         if display.isLocation { return false }
         if display.isTopic { return false }
         if display.isBuzzMessage { return false }

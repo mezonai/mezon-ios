@@ -174,7 +174,20 @@ final class MezonRootController: NavigationController {
 
     private func navigateToDM(channelIdStr: String, title: String?) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
-        if isChatAlreadyVisible(channelId: channelIdInt) { return }
+        rootTabController?.selectedIndex = 1
+
+        if let existingChat = viewControllers.compactMap({ $0 as? ChatViewController }).first(where: {
+            $0.clanId == 0 && $0.channel.channelID == channelIdInt
+        }) {
+            popToViewController(existingChat, animated: true)
+            existingChat.handleBroughtForwardFromNotificationDeepLink()
+            Task { @MainActor [weak self] in
+                guard let self, let token = await self.context.getToken() else { return }
+                _ = try? await self.context.account.network.listDirectMessageChannels(token: token)
+                self.directMessagesController?.fetchDirectMessages()
+            }
+            return
+        }
 
         popToTabBarController()
 
@@ -187,7 +200,7 @@ final class MezonRootController: NavigationController {
             }
             var minimal = Mezon_Api_ChannelDescription()
             minimal.channelID = channelIdInt
-            minimal.type = MezonConstants.ChannelType.group.rawValue
+            minimal.type = MezonConstants.ChannelType.dm.rawValue
             return minimal
         }()
 

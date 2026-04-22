@@ -56,10 +56,11 @@ struct ParsedContent {
     }
 }
 
-enum ContentTokenKind {
+enum ContentTokenKind: Equatable {
     case emoji(emojiId: String)
     case mention(userId: String?, roleId: String?, username: String?)
     case hashtag(channelId: String?, clanId: String?, channelLabel: String?, channelType: Int32?, channelPrivate: Int32?, ageRestricted: Int32?)
+    case mezonChannelLink(isVoiceLinkMarkdown: Bool, channelId: String, clanId: String)
     case inlineCode
     case codeBlock
     case bold
@@ -113,7 +114,7 @@ enum MessageContentParser {
         }
 
         if let mk = json["mk"] as? [[String: Any]] {
-            tokens.append(contentsOf: parseMarkdowns(mk))
+            tokens.append(contentsOf: parseMarkdowns(mk, text: text))
         }
 
         tokens.sort { $0.start < $1.start }
@@ -188,29 +189,93 @@ enum MessageContentParser {
         }
     }
 
-    private static func parseMarkdowns(_ items: [[String: Any]]) -> [ContentToken] {
+    private static func parseMarkdowns(_ items: [[String: Any]], text: String) -> [ContentToken] {
         items.compactMap { item in
             guard let s = intValue(item["s"]),
-                  let e = intValue(item["e"]) else { return nil }
+                  let e = intValue(item["e"]),
+                  s >= 0, e <= text.utf16.count, s < e else { return nil }
             let type = item["type"] as? String ?? ""
-            let kind: ContentTokenKind
+            let slice = text.mezon_utf16Substring(from: s, to: e)
+            let mkChannelId = normalizedMkId(item["channelId"]) ?? normalizedMkId(item["channelid"])
+            let mkClanId = normalizedMkId(item["clanId"]) ?? ""
+
             switch type {
-            case "c":           kind = .inlineCode
-            case "s":           kind = .strikethrough
-            case "t", "pre":    kind = .codeBlock
-            case "b":           kind = .bold
-            case "lk", "lk_yt", "lk_fb", "lk_tt", "vk", "lk_ogp":
-                                kind = .link
-            default:            kind = .bold
+            case "c":
+                return ContentToken(start: s, end: e, kind: .inlineCode)
+            case "s":
+                return ContentToken(start: s, end: e, kind: .strikethrough)
+            case "t", "pre":
+                return ContentToken(start: s, end: e, kind: .codeBlock)
+            case "b":
+                return ContentToken(start: s, end: e, kind: .bold)
+            case "lk_yt", "lk_fb", "lk_tt":
+                return ContentToken(start: s, end: e, kind: .link)
+            case "vk":
+                if isMezonChatChannelPageURL(slice),
+                   let pair = resolveMezonChannelIds(slice: slice, mkChannelId: mkChannelId, mkClanId: mkClanId) {
+                    return ContentToken(
+                        start: s, end: e,
+                        kind: .mezonChannelLink(isVoiceLinkMarkdown: true, channelId: pair.channelId, clanId: pair.clanId))
+                }
+                return ContentToken(start: s, end: e, kind: .link)
+            case "lk", "lk_ogp":
+                if isMezonChatChannelPageURL(slice),
+                   let pair = resolveMezonChannelIds(slice: slice, mkChannelId: mkChannelId, mkClanId: mkClanId) {
+                    return ContentToken(
+                        start: s, end: e,
+                        kind: .mezonChannelLink(isVoiceLinkMarkdown: false, channelId: pair.channelId, clanId: pair.clanId))
+                }
+                return ContentToken(start: s, end: e, kind: .link)
+            default:
+                return ContentToken(start: s, end: e, kind: .bold)
             }
-            return ContentToken(start: s, end: e, kind: kind)
         }
+    }
+
+    private static func isMezonChatChannelPageURL(_ slice: String) -> Bool {
+        let lower = slice.lowercased()
+        guard lower.contains("/chat/clans/"), lower.contains("/channels/") else { return false }
+        guard !lower.contains("/canvas/") else { return false }
+        return true
+    }
+
+    private static func resolveMezonChannelIds(slice: String, mkChannelId: String?, mkClanId: String) -> (channelId: String, clanId: String)? {
+        if let c = mkChannelId, !c.isEmpty {
+            return (c, mkClanId)
+        }
+        return extractClanAndChannelIdsFromMezonChatURL(slice)
+    }
+
+    private static func extractClanAndChannelIdsFromMezonChatURL(_ url: String) -> (channelId: String, clanId: String)? {
+        guard let clanRe = try? NSRegularExpression(pattern: #"/clans/(\d+)/"#, options: []),
+              let chanRe = try? NSRegularExpression(pattern: #"/channels/(\d+)"#, options: []) else { return nil }
+        let ns = url as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        guard let cm = clanRe.firstMatch(in: url, options: [], range: full),
+              cm.numberOfRanges >= 2,
+              let chm = chanRe.firstMatch(in: url, options: [], range: full),
+              chm.numberOfRanges >= 2 else { return nil }
+        let clan = ns.substring(with: cm.range(at: 1))
+        let chan = ns.substring(with: chm.range(at: 1))
+        guard !clan.isEmpty, !chan.isEmpty else { return nil }
+        return (chan, clan)
     }
 
     private static func intValue(_ v: Any?) -> Int? {
         if let i = v as? Int { return i }
         if let d = v as? Double { return Int(d) }
         if let s = v as? String { return Int(s) }
+        return nil
+    }
+
+    private static func normalizedMkId(_ v: Any?) -> String? {
+        if let s = v as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, t != "0" else { return nil }
+            return t
+        }
+        if let i = v as? Int, i != 0 { return "\(i)" }
+        if let d = v as? Double, d != 0 { return String(Int(d)) }
         return nil
     }
 

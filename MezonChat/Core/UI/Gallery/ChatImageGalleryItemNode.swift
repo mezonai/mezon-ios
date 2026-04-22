@@ -4,12 +4,20 @@ import AsyncDisplayKit
 
 final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
 
-    private let imageNode = TransformImageNode()
+    private let imageNode: ASDisplayNode
     private let spinnerNode: ASDisplayNode
+    private var imageView: UIImageView { return imageNode.view as! UIImageView }
     private var imageSize: CGSize = .zero
     private var hasFullResolutionImage = false
 
     override init() {
+        self.imageNode = ASDisplayNode(viewBlock: {
+            let v = UIImageView()
+            v.contentMode = .scaleAspectFit
+            v.isUserInteractionEnabled = true
+            v.backgroundColor = .clear
+            return v
+        })
         self.spinnerNode = ASDisplayNode(viewBlock: {
             let spinner = UIActivityIndicatorView(style: .large)
             spinner.color = .white
@@ -17,71 +25,52 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
             return spinner
         })
         super.init()
-        self.imageNode.contentAnimations = [.firstUpdate]
         self.addSubnode(spinnerNode)
     }
 
     func configure(info: GalleryItemInfo) {
+        spinnerNode.isHidden = false
+
         if let existingImage = info.image {
-            hasFullResolutionImage = true
             self.setImage(existingImage)
-            return
         }
 
-        var hasPlaceholder = false
-        if let placeholderURL = info.placeholderURL,
-           !placeholderURL.isEmpty,
-           let cachedPlaceholder = ImageCache.shared.cachedImage(forURL: placeholderURL) {
-            self.setImage(cachedPlaceholder)
-            hasPlaceholder = true
+        if let placeholderURL = info.placeholderURL, !placeholderURL.isEmpty {
+            if let cachedPlaceholder = ImageCache.shared.memoryImage(forKey: placeholderURL) {
+                self.setImage(cachedPlaceholder)
+            } else {
+                ImageCache.shared.loadImage(urlString: placeholderURL) { [weak self] image in
+                    guard let self, let image else { return }
+                    guard !self.hasFullResolutionImage else { return }
+                    self.setImage(image)
+                }
+            }
         }
 
         if let url = URL(string: info.url), !info.url.isEmpty {
-            loadRemoteImage(url: url, keepSpinnerHidden: hasPlaceholder)
+            loadRemoteImage(url: url)
         }
     }
 
     private func setImage(_ image: UIImage) {
         self.imageSize = image.size
-        self.spinnerNode.isHidden = true
-
-        let makeLayout = self.imageNode.asyncLayout()
-        let args = TransformImageArguments(
-            corners: ImageCorners(),
-            imageSize: image.size,
-            boundingSize: image.size,
-            intrinsicInsets: .zero
-        )
-        let apply = makeLayout(args)
-        apply()
-
-        self.imageNode.setSignal(.single({ arguments -> DrawingContext? in
-            let context = DrawingContext(size: arguments.drawingSize, clear: true)
-            context?.withContext { ctx in
-                UIGraphicsPushContext(ctx)
-                image.draw(in: CGRect(origin: .zero, size: arguments.drawingSize))
-                UIGraphicsPopContext()
-            }
-            return context
-        }))
-
+        self.imageView.image = image
         self.zoomableContent = (image.size, self.imageNode)
     }
 
-    private func loadRemoteImage(url: URL, keepSpinnerHidden: Bool = false) {
+    private func loadRemoteImage(url: URL) {
         let urlString = url.absoluteString
-        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+        if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
             hasFullResolutionImage = true
+            spinnerNode.isHidden = true
             setImage(cached)
             return
-        }
-        if keepSpinnerHidden {
-            spinnerNode.isHidden = true
         }
         ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
             guard let self, let image else { return }
             guard !self.hasFullResolutionImage else { return }
             self.hasFullResolutionImage = true
+            self.spinnerNode.isHidden = true
             self.setImage(image)
         }
     }
@@ -97,6 +86,6 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
     }
 
     var currentImage: UIImage? {
-        return imageNode.image
+        return imageView.image
     }
 }

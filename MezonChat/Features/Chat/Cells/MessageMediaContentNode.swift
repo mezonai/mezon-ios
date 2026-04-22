@@ -426,6 +426,11 @@ final class MessageMediaContentNode: ASDisplayNode {
         onImageTapped?(view.tag)
     }
 
+    func currentImage(at index: Int) -> UIImage? {
+        guard index >= 0, index < imageNodes.count else { return nil }
+        return imageNodes[index].image
+    }
+
     private func makeUploadingOverlay() -> ASDisplayNode {
         let overlay = ASDisplayNode()
         overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)

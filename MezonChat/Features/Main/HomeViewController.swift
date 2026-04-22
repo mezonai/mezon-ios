@@ -44,6 +44,7 @@ final class HomeViewController: BaseViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAlignHomeAfterCrossClanVoice(_:)), name: .mezonAlignHomeAfterCrossClanVoice, object: nil)
 
         bindBadgeCountUpdates()
     }
@@ -55,6 +56,67 @@ final class HomeViewController: BaseViewController {
 
     @objc private func handleHomeThemeChange() {
         view.backgroundColor = UIColor.theme.primary
+    }
+
+    private static func int64FromAlignUserInfo(_ value: Any?) -> Int64? {
+        if let n = value as? Int64 { return n }
+        if let n = value as? Int { return Int64(n) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
+    func focusClansTabAndSelectVoiceChannelOnly(_ channelId: Int64) {
+        if let tab = parent as? TabBarController {
+            tab.selectedIndex = 0
+        }
+        guard channelId != 0 else { return }
+        channelListVC.selectWithoutNavigation(channelId: channelId)
+    }
+
+    func alignHomeForCrossClanVoice(clanId: Int64, voiceChannelId: Int64) {
+        guard clanId != 0 else { return }
+        if let tab = parent as? TabBarController {
+            tab.selectedIndex = 0
+        }
+        if let clan = clanListVC.clans.first(where: { $0.clanID == clanId }) {
+            clanListVC.select(clan: clan)
+            if voiceChannelId != 0 {
+                channelListVC.selectWithoutNavigation(channelId: voiceChannelId)
+            }
+            return
+        }
+        context.currentClanId = clanId
+        clanListVC.loadClans()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<50 {
+                if self.context.account.socket.isConnected { break }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if self.context.account.socket.isConnected {
+                self.context.account.socket.joinClanChat(clanId: clanId)
+            }
+            guard let token = await self.context.getToken() else { return }
+            self.context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
+            self.channelListVC.configure(
+                clanId: clanId,
+                clanName: "",
+                logoURL: nil,
+                bannerURL: nil,
+                memberCount: 0,
+                onlineCount: 0,
+                isCommunity: false
+            )
+            if voiceChannelId != 0 {
+                self.channelListVC.selectWithoutNavigation(channelId: voiceChannelId)
+            }
+        }
+    }
+
+    @objc private func handleAlignHomeAfterCrossClanVoice(_ notification: Notification) {
+        guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
+        let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
+        alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
     }
 
     private func applyInitialClanSelection() {

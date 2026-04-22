@@ -338,6 +338,7 @@ extension Notification.Name {
     static let mezonQRNavigateToDM = Notification.Name("MezonQRNavigateToDM")
     static let mezonDidReceiveSharedContent = Notification.Name("MezonDidReceiveSharedContent")
     static let mezonVoicePresenceChanged = Notification.Name("MezonVoicePresenceChanged")
+    static let mezonAlignHomeAfterCrossClanVoice = Notification.Name("MezonAlignHomeAfterCrossClanVoice")
 }
 
 extension AppDelegate: MessagingDelegate {
