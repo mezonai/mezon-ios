@@ -318,9 +318,14 @@ extension GalleryController: UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        if let pan = g as? UIPanGestureRecognizer {
-            let v = pan.velocity(in: view)
-            return abs(v.y) > abs(v.x)
+        guard let pan = g as? UIPanGestureRecognizer else { return true }
+        let v = pan.velocity(in: view)
+        guard abs(v.y) > abs(v.x) else { return false }
+        if let zoomable = pagingNode.currentItemNode() as? ZoomableContentGalleryItemNode {
+            let sv = zoomable.scrollNode.view
+            if sv.zoomScale > sv.minimumZoomScale + 0.01 {
+                return false
+            }
         }
         return true
     }

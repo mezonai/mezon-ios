@@ -34,6 +34,14 @@ final class ProfileContainerNode: ASDisplayNode {
         v.clipsToBounds = true
         return v
     }()
+    private let avatarPlaceholderLabel: UILabel = {
+        let l = UILabel()
+        l.textAlignment = .center
+        l.clipsToBounds = true
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.5
+        return l
+    }()
     private let avatarImageView = UIImageView()
     private let statusBadgeImageView: UIImageView = {
         let iv = UIImageView()
@@ -180,6 +188,21 @@ final class ProfileContainerNode: ASDisplayNode {
                 plus.draw(in: iconRect)
             }
         }.withRenderingMode(.alwaysOriginal)
+    }
+
+    private static func profileAvatarInitials(displayName: String?, username: String?) -> String {
+        let d = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let u = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let base = !d.isEmpty ? d : u
+        if base.isEmpty { return "?" }
+        let parts = base.split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { !$0.isEmpty }
+        if parts.count >= 2 {
+            let a = parts[0].first.map { String($0) } ?? ""
+            let b = parts[1].first.map { String($0) } ?? ""
+            return (a + b).uppercased()
+        }
+        let s = parts.first ?? base
+        return String(s.prefix(2)).uppercased()
     }
 
     private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {
@@ -342,8 +365,13 @@ final class ProfileContainerNode: ASDisplayNode {
 
         if avatarImageView.image == nil {
             headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+            avatarContainerView.backgroundColor = .colorAvatarDefault
+            avatarPlaceholderLabel.isHidden = false
+        } else {
+            avatarPlaceholderLabel.isHidden = true
         }
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+        avatarPlaceholderLabel.textColor = .white
 
         configureAddStatusButton(user: context.currentUser)
     }
@@ -357,6 +385,10 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarContainerView.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
         fixedHeaderView.addSubview(avatarContainerView)
 
+        avatarPlaceholderLabel.font = .systemFont(ofSize: avatarSize * 0.36, weight: .semibold)
+        avatarPlaceholderLabel.textColor = .white
+        avatarContainerView.addSubview(avatarPlaceholderLabel)
+        avatarImageView.backgroundColor = .clear
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
         avatarContainerView.addSubview(avatarImageView)
@@ -561,6 +593,16 @@ final class ProfileContainerNode: ASDisplayNode {
         copyCard.addGestureRecognizer(tap)
     }
 
+    private func applyProfileAvatarPlaceholder() {
+        let u = context.currentUser
+        avatarPlaceholderLabel.text = Self.profileAvatarInitials(displayName: u?.displayName, username: u?.username)
+        avatarImageView.image = nil
+        avatarPlaceholderLabel.isHidden = false
+        avatarContainerView.backgroundColor = .colorAvatarDefault
+        headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+    }
+
     private func styleCard(_ card: UIView) {
         card.backgroundColor = .mezonPrimary
         card.layer.cornerRadius = 20.swh
@@ -572,30 +614,50 @@ final class ProfileContainerNode: ASDisplayNode {
     func updateContent() {
         let user = context.currentUser
 
-        if let url = user?.avatarURL {
+        let initials = Self.profileAvatarInitials(displayName: user?.displayName, username: user?.username)
+        avatarPlaceholderLabel.text = initials
+
+        if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
             if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
                 avatarImageView.image = cached
-                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonBackground
+                avatarPlaceholderLabel.isHidden = true
+                avatarContainerView.backgroundColor = .clear
+                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonSecondaryBackground
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
             } else {
+                avatarImageView.image = nil
+                avatarPlaceholderLabel.isHidden = false
+                avatarContainerView.backgroundColor = .colorAvatarDefault
+                headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+                statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 Task {
-                    if let data = try? await URLSession.shared.data(from: url).0,
-                       let img = UIImage.decodeImage(from: data) {
+                    do {
+                        let (data, response) = try await URLSession.shared.data(from: url)
+                        if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
+                            await MainActor.run { self.applyProfileAvatarPlaceholder() }
+                            return
+                        }
+                        guard let img = UIImage.decodeImage(from: data) else {
+                            await MainActor.run { self.applyProfileAvatarPlaceholder() }
+                            return
+                        }
                         ImageCache.shared.setImage(img, data: data, forKey: urlString)
                         let color = img.dominantColor()
                         await MainActor.run {
                             self.avatarImageView.image = img
-                            self.headerBackgroundView.backgroundColor = color ?? .mezonBackground
+                            self.avatarPlaceholderLabel.isHidden = true
+                            self.avatarContainerView.backgroundColor = .clear
+                            self.headerBackgroundView.backgroundColor = color ?? .mezonSecondaryBackground
                             self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                         }
+                    } catch {
+                        await MainActor.run { self.applyProfileAvatarPlaceholder() }
                     }
                 }
             }
         } else {
-            avatarImageView.image = nil
-            headerBackgroundView.backgroundColor = .mezonSecondaryBackground
-            statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+            applyProfileAvatarPlaceholder()
         }
 
         statusBadgeImageView.isHidden = false
@@ -878,6 +940,7 @@ final class ProfileContainerNode: ASDisplayNode {
         headerBackgroundView.frame = CGRect(x: 0, y: 0, width: width, height: headerBackgroundHeight)
 
         avatarContainerView.frame = CGRect(x: side, y: y, width: avatarSize, height: avatarSize)
+        avatarPlaceholderLabel.frame = avatarContainerView.bounds
         avatarImageView.frame = avatarContainerView.bounds
 
         let st = context.currentUser?.status ?? .offline

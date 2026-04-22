@@ -32,6 +32,9 @@ enum ImgproxyURL {
         resizeType: String = "fit"
     ) -> String {
         guard !sourceURL.isEmpty else { return sourceURL }
+        if sourceURL.contains("imgproxy.mezon") {
+            return sourceURL
+        }
 
         let ext = (sourceURL as NSString).pathExtension.lowercased()
         if skipExtensions.contains(ext) {

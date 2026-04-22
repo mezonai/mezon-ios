@@ -40,6 +40,7 @@ enum SocketEvent {
     case voiceLeaved(Mezon_Realtime_VoiceLeavedEvent)
     case voiceEnded(Mezon_Realtime_VoiceEndedEvent)
     case voiceReaction(Mezon_Realtime_VoiceReactionSend)
+    case aiAgentEnabled(Mezon_Realtime_AIAgentEnabledEvent)
     case streamingJoined(Mezon_Realtime_StreamingJoinedEvent)
     case streamingLeaved(Mezon_Realtime_StreamingLeavedEvent)
     case webRTC(Mezon_Realtime_WebrtcSignalingFwd)
@@ -367,6 +368,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.voiceEnded(m))
         case .voiceReactionSend(let m):
             eventPipe.putNext(.voiceReaction(m))
+        case .aiagentEnabledEvent(let m):
+            eventPipe.putNext(.aiAgentEnabled(m))
         case .streamingJoinedEvent(let m):
             eventPipe.putNext(.streamingJoined(m))
         case .streamingLeavedEvent(let m):
