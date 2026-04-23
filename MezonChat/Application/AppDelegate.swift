@@ -144,6 +144,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         DispatchQueue.main.async {
             ThemeManager.shared.applyStatusBarStyle()
         }
+        AppUpdateGate.scheduleVersionCheckIfNeeded(mainWindow: mainWindow)
     }
 
     private func requestNotificationPermission() {

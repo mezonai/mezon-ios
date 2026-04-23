@@ -39,6 +39,12 @@ final class Toast {
             ToastManager.shared.present(type: .notification, title: title, message: message, duration: 4, onTap: onTap)
         }
     }
+
+    static func comingSoonLine(_ line: String, duration: TimeInterval = defaultDuration) {
+        DispatchQueue.main.async {
+            ToastManager.shared.presentComingSoonPill(message: line, duration: duration)
+        }
+    }
 }
 
 private final class ToastManager {
@@ -110,6 +116,43 @@ private final class ToastManager {
         }
     }
 
+    func presentComingSoonPill(message: String, duration: TimeInterval) {
+        dismissWorkItem?.cancel()
+        toastContainer?.removeFromSuperview()
+        toastContainer = nil
+        guard let hostView = Self.findContainerView() else { return }
+        let pill = ComingSoonPillView(message: message)
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.layer.zPosition = 10000
+        container.addSubview(pill)
+        hostView.addSubview(container)
+        let safe = hostView.safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(greaterThanOrEqualTo: hostView.leadingAnchor, constant: 20.sw),
+            container.trailingAnchor.constraint(lessThanOrEqualTo: hostView.trailingAnchor, constant: -20.sw),
+            container.centerXAnchor.constraint(equalTo: hostView.centerXAnchor),
+            container.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -20.sh),
+            container.widthAnchor.constraint(lessThanOrEqualTo: hostView.widthAnchor, constant: -40.sw),
+            pill.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            pill.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            pill.topAnchor.constraint(equalTo: container.topAnchor),
+            pill.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        toastContainer = container
+        pill.alpha = 0
+        pill.transform = CGAffineTransform(translationX: 0, y: 16)
+        UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
+            pill.alpha = 1
+            pill.transform = .identity
+        }
+        let work = DispatchWorkItem { [weak self] in
+            self?.dismiss()
+        }
+        dismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
+    }
 
     private static func findContainerView() -> UIView? {
         let scenes = UIApplication.shared.connectedScenes
@@ -258,6 +301,30 @@ private final class ToastView: UIView {
         onTap?()
         onClose?()
     }
+}
+
+private final class ComingSoonPillView: UIView {
+    init(message: String) {
+        super.init(frame: .zero)
+        backgroundColor = UIColor(white: 0.2, alpha: 0.92)
+        layer.cornerRadius = 24.swh
+        layer.masksToBounds = true
+        let label = UILabel()
+        label.text = message
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18.sw),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18.sw),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 12.sh),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12.sh)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
 }
 
 private func hex(_ value: String) -> UIColor {

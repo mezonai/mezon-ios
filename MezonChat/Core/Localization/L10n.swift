@@ -14,6 +14,34 @@ enum L10n {
         static let editProfile       = "profile.editProfile"
         static let balance           = "profile.balance"
         static let transferFunds     = "profile.transferFunds"
+        static let transferSend        = "profile.transferSend"
+        static let transferAmount     = "profile.transferAmount"
+        static let sendTokenHeading      = "profile.sendTokenHeading"
+        static let sendTokenSendToken    = "profile.sendTokenSendToken"
+        static let sendTokenDebitAccount = "profile.sendTokenDebitAccount"
+        static let sendTokenSendTo       = "profile.sendTokenSendTo"
+        static let sendTokenSendToAddress = "profile.sendTokenSendToAddress"
+        static let sendTokenToken        = "profile.sendTokenToken"
+        static let sendTokenNote         = "profile.sendTokenNote"
+        static let sendTokenDefaultNote  = "profile.sendTokenDefaultNote"
+        static let sendTokenSelectAccount = "profile.sendTokenSelectAccount"
+        static let sendTokenCopyAddressSuccess = "profile.sendTokenCopyAddressSuccess"
+        static let sendTokenConfirmTitle = "profile.sendTokenConfirmTitle"
+        static let sendTokenConfirmMessage = "profile.sendTokenConfirmMessage"
+        static let sendTokenConfirmAction  = "profile.sendTokenConfirmAction"
+        static let sendTokenSuccessTitle = "profile.sendTokenSuccessTitle"
+        static let sendTokenComplete     = "profile.sendTokenComplete"
+        static let sendTokenSendNew      = "profile.sendTokenSendNew"
+        static let sendTokenReceiver     = "profile.sendTokenReceiver"
+        static let sendTokenDate         = "profile.sendTokenDate"
+        static let sendTokenErrAmountZero = "profile.sendTokenErrAmountZero"
+        static let sendTokenErrExceedWallet = "profile.sendTokenErrExceedWallet"
+        static let sendTokenErrSelectUser = "profile.sendTokenErrSelectUser"
+        static let sendTokenErrSendFailed = "profile.sendTokenErrSendFailed"
+        static let sendTokenErrSessionExpired = "profile.sendTokenErrSessionExpired"
+        static let sendTokenErrLoginAgain = "profile.sendTokenErrLoginAgain"
+        static let sendTokenLogLinePrefix = "profile.sendTokenLogLinePrefix"
+        static let mezonTransfer       = "profile.mezonTransfer"
         static let historyTransaction = "profile.historyTransaction"
         static let aboutMe           = "profile.aboutMe"
         static let mezonMemberSince   = "profile.mezonMemberSince"
@@ -74,6 +102,7 @@ enum L10n {
         static let share          = "common.share"
         static let download       = "common.download"
         static let forward        = "common.forward"
+        static let comingSoon     = "common.comingSoon"
         static let forwarded      = "common.forwarded"
         static let saveChanges    = "common.saveChanges"
         static let enable         = "common.enable"
@@ -85,6 +114,7 @@ enum L10n {
         static let language       = "common.language"
         static let linkEmail      = "common.linkEmail"
         static let linkPhoneNumber = "common.linkPhoneNumber"
+        static let detail         = "common.detail"
     }
 
     enum AccountSetting {
@@ -96,6 +126,13 @@ enum L10n {
         static let blockedUsers       = "accountSetting.blockedUsers"
         static let setPassword        = "accountSetting.setPassword"
         static let phoneSectionTitle  = "accountSetting.phoneNumberSetting.title"
+    }
+
+    enum UpdateGate {
+        static let outOfDateVersion  = "updateGate.outOfDateVersion"
+        static let updateExperience  = "updateGate.updateExperience"
+        static let updateNow         = "updateGate.updateNow"
+        static let versionInfo       = "updateGate.versionInfo"
     }
 
     enum Settings {
@@ -406,6 +443,8 @@ enum L10n {
         static let yourLocation          = "channelMessages.yourLocation"
         static let locationOf            = "channelMessages.locationOf"
         static let clanInviteLoadFailed  = "channelMessages.clanInviteLoadFailed"
+        static let pollUnsupported        = "channelMessages.pollUnsupported"
+        static let pollComingSoon         = "channelMessages.pollComingSoon"
     }
 
     enum DirectMessage {
@@ -419,6 +458,24 @@ enum L10n {
         static let previewContact = "directMessage.previewContact"
     }
 
+    enum ReportMessage {
+        static let title = "reportMessage.title"
+        static let subtitle = "reportMessage.subtitle"
+        static let selectedMessage = "reportMessage.selectedMessage"
+        static let spam = "reportMessage.spam"
+        static let harassment = "reportMessage.harassment"
+        static let violentContent = "reportMessage.violentContent"
+        static let privateInfo = "reportMessage.private"
+        static let summaryTitle = "reportMessage.reportSummary"
+        static let reviewBeforeSubmit = "reportMessage.reviewYourReportBeforeSubmitting"
+        static let categoryLabel = "reportMessage.reportCategory"
+        static let submitDescription = "reportMessage.submitDescription"
+        static let submitReport = "reportMessage.submitReport"
+        static let cancel = "reportMessage.cancel"
+        static let submitted = "reportMessage.reportSubmitted"
+        static let failed = "reportMessage.failed"
+    }
+
     enum MessageAction {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
@@ -429,7 +486,8 @@ enum L10n {
         static let pinMessage       = "messageAction.pinMessage"
         static let forward          = "messageAction.forward"
         static let copied           = "messageAction.copied"
-        static let giveACoffee      = "messageAction.giveACoffee"
+        static let giveACoffee        = "messageAction.giveACoffee"
+        static let giveCoffeeSuccess  = "messageAction.giveCoffeeSuccess"
         static let forwardMessage   = "messageAction.forwardMessage"
         static let createThread     = "messageAction.createThread"
         static let markUnread       = "messageAction.markUnread"
@@ -524,6 +582,7 @@ extension L10n {
         "common.share":         "Share",
         "common.download":      "Download",
         "common.forward":       "Forward",
+        "common.comingSoon":     "Coming soon",
         "common.forwarded":     "Forwarded",
         "common.saveChanges":   "Save Changes",
         "common.enable":        "Enable",
@@ -535,6 +594,12 @@ extension L10n {
         "common.language":      "Language",
         "common.linkEmail":     "Add email",
         "common.linkPhoneNumber": "Add phone number",
+        "common.detail":        "Detail",
+
+        "updateGate.outOfDateVersion": "New Version Ready",
+        "updateGate.updateExperience": "A quick update is needed to continue using our latest family features.",
+        "updateGate.updateNow": "Update now",
+        "updateGate.versionInfo": "VERSION",
 
         "accountSetting.accountInformation": "Account Information",
         "accountSetting.users": "Users",
@@ -781,6 +846,8 @@ extension L10n {
         "channelMessages.yourLocation": "Your location",
         "channelMessages.locationOf": "%@'s location",
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
+        "channelMessages.pollUnsupported": "Polls aren’t supported in the app yet.",
+        "channelMessages.pollComingSoon": "Coming soon.",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -818,6 +885,7 @@ extension L10n {
         "messageAction.forward": "Forward",
         "messageAction.copied": "Copied to clipboard",
         "messageAction.giveACoffee": "Give A Coffee",
+        "messageAction.giveCoffeeSuccess": "Coffee sent",
         "messageAction.forwardMessage": "Forward Message",
         "messageAction.createThread": "Create Thread",
         "messageAction.markUnread": "Mark Unread",
@@ -831,10 +899,54 @@ extension L10n {
         "messageAction.yes": "Yes",
         "messageAction.no": "No",
 
+        "reportMessage.title": "Report message",
+        "reportMessage.subtitle": "Tell us what went wrong. Your report is anonymous.",
+        "reportMessage.selectedMessage": "Why are you reporting this message?",
+        "reportMessage.spam": "Spam",
+        "reportMessage.harassment": "Harassment or abuse",
+        "reportMessage.violentContent": "Harmful misinformation or glorifying violence",
+        "reportMessage.private": "Sharing private or identifying information",
+        "reportMessage.reportSummary": "Report summary",
+        "reportMessage.reviewYourReportBeforeSubmitting": "Review your report before submitting.",
+        "reportMessage.reportCategory": "Report category",
+        "reportMessage.submitDescription": "If we find this message violates our guidelines, we may remove it and take action on the account.",
+        "reportMessage.submitReport": "Submit report",
+        "reportMessage.cancel": "Cancel",
+        "reportMessage.reportSubmitted": "Report submitted",
+        "reportMessage.failed": "Could not submit report. Please try again.",
+
         "profile.addStatus": "Add Status",
         "profile.editProfile": "Edit Profile",
         "profile.balance": "Balance",
         "profile.transferFunds": "Transfer Funds",
+        "profile.transferSend": "Send",
+        "profile.transferAmount": "Amount",
+        "profile.sendTokenHeading": "Transfer Funds",
+        "profile.sendTokenSendToken": "Transfer Funds",
+        "profile.sendTokenDebitAccount": "Debit Account",
+        "profile.sendTokenSendTo": "Transfer to",
+        "profile.sendTokenSendToAddress": "Transfer to address",
+        "profile.sendTokenToken": "Amount",
+        "profile.sendTokenNote": "Note",
+        "profile.sendTokenDefaultNote": "Transfer funds",
+        "profile.sendTokenSelectAccount": "Select an account",
+        "profile.sendTokenCopyAddressSuccess": "Address copied",
+        "profile.sendTokenConfirmTitle": "Confirm transfer",
+        "profile.sendTokenConfirmMessage": "Transfer %1$@ %2$@ to %3$@?",
+        "profile.sendTokenConfirmAction": "Transfer",
+        "profile.sendTokenSuccessTitle": "Funds Transferred",
+        "profile.sendTokenComplete": "Done",
+        "profile.sendTokenSendNew": "New transfer",
+        "profile.sendTokenReceiver": "Receiver",
+        "profile.sendTokenDate": "Date",
+        "profile.sendTokenErrAmountZero": "Amount must be greater than 0",
+        "profile.sendTokenErrExceedWallet": "Amount exceeds your wallet balance",
+        "profile.sendTokenErrSelectUser": "Please select a recipient",
+        "profile.sendTokenErrSendFailed": "Transfer failed. Please try again.",
+        "profile.sendTokenErrSessionExpired": "Your session has expired",
+        "profile.sendTokenErrLoginAgain": "Please log in again to continue.",
+        "profile.sendTokenLogLinePrefix": "Funds Transferred",
+        "profile.mezonTransfer":      "Mezon transfer",
         "profile.historyTransaction": "History Transaction",
         "profile.aboutMe": "About Me",
         "profile.mezonMemberSince": "Mezon Member Since",
@@ -950,6 +1062,7 @@ extension L10n {
         "common.share":         "Chia sẻ",
         "common.download":      "Tải xuống",
         "common.forward":       "Chuyển tiếp",
+        "common.comingSoon":   "Sắp ra mắt",
         "common.forwarded":     "Đã chuyển tiếp",
         "common.saveChanges":   "Lưu thay đổi",
         "common.enable":        "Bật",
@@ -961,6 +1074,12 @@ extension L10n {
         "common.language":      "Ngôn ngữ",
         "common.linkEmail":     "Thêm email",
         "common.linkPhoneNumber": "Thêm số điện thoại",
+        "common.detail":        "Chi tiết",
+
+        "updateGate.outOfDateVersion": "Phiên Bản Mới Đã Sẵn Sàng",
+        "updateGate.updateExperience": "Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.",
+        "updateGate.updateNow": "Cập nhật ngay",
+        "updateGate.versionInfo": "PHIÊN BẢN",
 
         "accountSetting.accountInformation": "Thông tin tài khoản",
         "accountSetting.users": "Người dùng",
@@ -1206,6 +1325,8 @@ extension L10n {
         "channelMessages.yourLocation": "Vị trí của bạn",
         "channelMessages.locationOf": "Vị trí của %@",
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
+        "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
+        "channelMessages.pollComingSoon": "Sắp có.",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
@@ -1243,6 +1364,7 @@ extension L10n {
         "messageAction.forward": "Chuyển tiếp",
         "messageAction.copied": "Đã sao chép",
         "messageAction.giveACoffee": "Tặng cà phê",
+        "messageAction.giveCoffeeSuccess": "Đã tặng cà phê",
         "messageAction.forwardMessage": "Chuyển tiếp tin nhắn",
         "messageAction.createThread": "Tạo chủ đề",
         "messageAction.markUnread": "Đánh dấu chưa đọc",
@@ -1256,10 +1378,54 @@ extension L10n {
         "messageAction.yes": "Đồng ý",
         "messageAction.no": "Không",
 
+        "reportMessage.title": "Báo cáo tin nhắn",
+        "reportMessage.subtitle": "Cho chúng tôi biết vấn đề. Báo cáo của bạn được ẩn danh.",
+        "reportMessage.selectedMessage": "Tại sao bạn báo cáo tin nhắn này?",
+        "reportMessage.spam": "Spam",
+        "reportMessage.harassment": "Quấy rối hoặc lạm dụng",
+        "reportMessage.violentContent": "Thông tin sai lệch có hại hoặc ca ngợi bạo lực",
+        "reportMessage.private": "Chia sẻ thông tin riêng tư hoặc định danh",
+        "reportMessage.reportSummary": "Tóm tắt báo cáo",
+        "reportMessage.reviewYourReportBeforeSubmitting": "Xem lại báo cáo trước khi gửi.",
+        "reportMessage.reportCategory": "Danh mục báo cáo",
+        "reportMessage.submitDescription": "Nếu tin nhắn vi phạm quy định, chúng tôi có thể gỡ và xử lý tài khoản.",
+        "reportMessage.submitReport": "Gửi báo cáo",
+        "reportMessage.cancel": "Hủy",
+        "reportMessage.reportSubmitted": "Đã gửi báo cáo",
+        "reportMessage.failed": "Không gửi được báo cáo. Vui lòng thử lại.",
+
         "profile.addStatus": "Thêm trạng thái",
         "profile.editProfile": "Chỉnh sửa hồ sơ",
         "profile.balance": "Số dư",
-        "profile.transferFunds": "Chuyển tiền",
+        "profile.transferFunds": "Chuyển khoản",
+        "profile.transferSend": "Gửi",
+        "profile.transferAmount": "Số tiền",
+        "profile.sendTokenHeading": "Chuyển khoản",
+        "profile.sendTokenSendToken": "Chuyển khoản",
+        "profile.sendTokenDebitAccount": "Tài khoản nguồn",
+        "profile.sendTokenSendTo": "Chuyển khoản đến",
+        "profile.sendTokenSendToAddress": "Chuyển khoản đến địa chỉ",
+        "profile.sendTokenToken": "Số lượng",
+        "profile.sendTokenNote": "Ghi chú",
+        "profile.sendTokenDefaultNote": "Chuyển khoản",
+        "profile.sendTokenSelectAccount": "Chọn người dùng để chuyển khoản",
+        "profile.sendTokenCopyAddressSuccess": "Đã sao chép địa chỉ",
+        "profile.sendTokenConfirmTitle": "Xác nhận chuyển khoản",
+        "profile.sendTokenConfirmMessage": "Chuyển khoản %1$@ %2$@ đến %3$@?",
+        "profile.sendTokenConfirmAction": "Chuyển",
+        "profile.sendTokenSuccessTitle": "Gửi thành công",
+        "profile.sendTokenComplete": "Hoàn thành",
+        "profile.sendTokenSendNew": "Tạo giao dịch mới",
+        "profile.sendTokenReceiver": "Người nhận",
+        "profile.sendTokenDate": "Thời gian",
+        "profile.sendTokenErrAmountZero": "Số tiền giao dịch phải lớn hơn 0",
+        "profile.sendTokenErrExceedWallet": "Tài khoản không đủ tiền",
+        "profile.sendTokenErrSelectUser": "Bạn phải chọn một người dùng để nhận",
+        "profile.sendTokenErrSendFailed": "Đã xảy ra lỗi, vui lòng thử lại",
+        "profile.sendTokenErrSessionExpired": "Phiên đăng nhập đã hết hạn",
+        "profile.sendTokenErrLoginAgain": "Vui lòng đăng nhập lại để tiếp tục",
+        "profile.sendTokenLogLinePrefix": "Biến động số dư:",
+        "profile.mezonTransfer":      "Chuyển khoản Mezon",
         "profile.historyTransaction": "Lịch sử giao dịch",
         "profile.aboutMe": "Về tôi",
         "profile.mezonMemberSince": "Thành viên Mezon từ",
@@ -1309,7 +1475,7 @@ extension L10n {
         "qrScanner.invalidQR": "Mã QR không hợp lệ",
         "qrScanner.loginConfirm": "Bạn có muốn đăng nhập với %@?",
         "qrScanner.joinGroup": "Tham gia nhóm",
-        "qrScanner.transferTo": "Chuyển tiền cho %@",
+        "qrScanner.transferTo": "Chuyển khoản cho %@",
         "qrScanner.processing": "Đang xử lý...",
         "qrScanner.logInOnNewDevice": "Đăng nhập trên thiết bị mới?",
         "qrScanner.neverScanLoginQR": "Không bao giờ quét mã QR đăng nhập từ người dùng khác.",
@@ -1324,7 +1490,7 @@ extension L10n {
         "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",
         "qrScanner.myQRCode": "Mã QR của tôi",
         "qrScanner.qrProfile": "Mã QR Hồ sơ",
-        "qrScanner.qrTransfer": "Mã QR Chuyển tiền",
+        "qrScanner.qrTransfer": "Mã QR chuyển khoản",
         "qrScanner.poweredBy": "Được cung cấp bởi Mezon",
         "qrScanner.shareWithOthers": "Chia sẻ với mọi người",
         "qrScanner.scanProfileHelp": "Quét mã QR này để trò chuyện với tôi hoặc xem hồ sơ của tôi",

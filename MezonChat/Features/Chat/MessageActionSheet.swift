@@ -94,6 +94,7 @@ final class MessageActionSheetController: ViewController {
 
     private let display: ChatMessageDisplay
     private let isOwnMessage: Bool
+    private let canShowDeleteMessage: Bool
     private let onAction: (MessageAction) -> Void
     var onDismiss: (() -> Void)?
     var onEmojiReaction: ((String, String) -> Void)?
@@ -103,9 +104,10 @@ final class MessageActionSheetController: ViewController {
         return displayNode as! MessageActionSheetNode
     }
 
-    init(display: ChatMessageDisplay, isOwnMessage: Bool, onAction: @escaping (MessageAction) -> Void) {
+    init(display: ChatMessageDisplay, isOwnMessage: Bool, canShowDeleteMessage: Bool, onAction: @escaping (MessageAction) -> Void) {
         self.display = display
         self.isOwnMessage = isOwnMessage
+        self.canShowDeleteMessage = canShowDeleteMessage
         self.onAction = onAction
 
         super.init(navigationBarPresentationData: nil)
@@ -117,7 +119,7 @@ final class MessageActionSheetController: ViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        let actions = Self.availableActions(display: display, isOwnMessage: isOwnMessage)
+        let actions = Self.availableActions(display: display, isOwnMessage: isOwnMessage, canShowDeleteMessage: canShowDeleteMessage)
         let quickReactions = Self.includeQuickReactions(for: display)
         self.displayNode = MessageActionSheetNode(
             messageActions: actions,
@@ -167,7 +169,14 @@ final class MessageActionSheetController: ViewController {
     }
 
 
-    private static func availableActions(display: ChatMessageDisplay, isOwnMessage: Bool) -> [MessageAction] {
+    private static func shouldIncludeReport(isOwnMessage: Bool, messageId: String) -> Bool {
+        guard !isOwnMessage else { return false }
+        let id = messageId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, !id.hasPrefix("pending-"), Int64(id) != nil else { return false }
+        return true
+    }
+
+    private static func availableActions(display: ChatMessageDisplay, isOwnMessage: Bool, canShowDeleteMessage: Bool) -> [MessageAction] {
         if display.isFailed {
             return [.resend, .deleteMessage]
         }
@@ -198,12 +207,11 @@ final class MessageActionSheetController: ViewController {
         actions.append(.markMessage)
         actions.append(.quickMenu)
 
-        if isOwnMessage {
-            actions.append(.deleteMessage)
-        }
-
-        if !isOwnMessage {
+        if Self.shouldIncludeReport(isOwnMessage: isOwnMessage, messageId: display.message.id) {
             actions.append(.report)
+        }
+        if canShowDeleteMessage {
+            actions.append(.deleteMessage)
         }
 
         return actions
@@ -220,6 +228,7 @@ final class MessageActionSheetController: ViewController {
         if display.isTopic { return false }
         if display.isBuzzMessage { return false }
         if display.isForward { return false }
+        if display.isPollMessage { return false }
         if display.message.id.hasPrefix("pending-") { return false }
         return true
     }
@@ -228,17 +237,19 @@ final class MessageActionSheetController: ViewController {
         if display.isFailed { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
+        if display.isPollMessage { return false }
         if display.message.isDeleted { return false }
         return true
     }
 }
 
-private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegate, UIScrollViewDelegate {
+private final class MessageActionSheetNode: ASDisplayNode {
 
     private let dimmingNode: ASDisplayNode
     private let containerNode: ASDisplayNode
     private let handleNode: ASDisplayNode
     private let scrollView = UIScrollView()
+    private let dragToDismissView = UIView()
 
     private let messageActions: [MessageAction]
     private let includeQuickReactions: Bool
@@ -261,6 +272,7 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let groupCorner: CGFloat = 10
     private let handleH: CGFloat = 25
     private let iconSize: CGFloat = 24
+    private let maxContentHeightFraction: CGFloat = 0.58
 
     private static let emojiData: [(id: String, shortname: String)] = [
         ("7227274405304181951", ":100:"),
@@ -301,6 +313,7 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         self.handleNode.backgroundColor = t.textDisabled
         self.handleNode.cornerRadius = 2.5
+        self.handleNode.isUserInteractionEnabled = false
 
         self.addSubnode(dimmingNode)
         self.addSubnode(containerNode)
@@ -315,15 +328,16 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         containerNode.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
 
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.delegate = self
-        scrollView.delaysContentTouches = false
+        scrollView.canCancelContentTouches = true
+        scrollView.delaysContentTouches = true
+        scrollView.bounces = true
         containerNode.view.addSubview(scrollView)
 
+        dragToDismissView.backgroundColor = .clear
+        containerNode.view.addSubview(dragToDismissView)
         panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        panGesture.delegate = self
-        containerNode.view.addGestureRecognizer(panGesture)
-        scrollView.panGestureRecognizer.require(toFail: panGesture)
+        panGesture.cancelsTouchesInView = false
+        dragToDismissView.addGestureRecognizer(panGesture)
     }
 
     @objc private func dimTapped() {
@@ -363,16 +377,6 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         }
     }
 
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === panGesture else { return true }
-        let vel = panGesture.velocity(in: view)
-        return scrollView.contentOffset.y <= 0 && vel.y > 0
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        return false
-    }
-
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         self.validLayout = layout
         let bounds = CGRect(origin: .zero, size: layout.size)
@@ -393,7 +397,7 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         if !warning.isEmpty { totalContentH += CGFloat(warning.count) * rowH + groupSpacing }
         totalContentH += 10
 
-        let maxScrollH = layout.size.height * 0.7 - handleH - safeBottom
+        let maxScrollH = max(120, layout.size.height * maxContentHeightFraction - handleH - safeBottom)
         let scrollH = min(totalContentH, maxScrollH)
         containerHeight = handleH + scrollH + safeBottom + 8
 
@@ -401,9 +405,17 @@ private final class MessageActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: containerY, width: screenW, height: containerHeight))
         transition.updateFrame(node: handleNode, frame: CGRect(x: (screenW - 36) / 2, y: 8, width: 36, height: 5))
 
+        dragToDismissView.frame = CGRect(x: 0, y: 0, width: screenW, height: handleH)
+        containerNode.view.bringSubviewToFront(dragToDismissView)
+
         scrollView.frame = CGRect(x: 0, y: handleH, width: screenW, height: scrollH)
         scrollView.contentSize = CGSize(width: screenW, height: totalContentH)
         scrollView.alwaysBounceVertical = totalContentH > scrollH
+        scrollView.isScrollEnabled = true
+        scrollView.showsVerticalScrollIndicator = totalContentH > scrollH + 1
+        if #available(iOS 11.0, *) {
+            scrollView.contentInsetAdjustmentBehavior = .never
+        }
 
         if !didBuildContent {
             didBuildContent = true

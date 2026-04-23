@@ -1103,7 +1103,7 @@ private enum VoiceCallSystemPiPFactory {
             contentViewController: contentVC
         )
         let pip = AVPictureInPictureController(contentSource: source)
-        pip.canStartPictureInPictureAutomaticallyFromInline = false
+        pip.canStartPictureInPictureAutomaticallyFromInline = true
         return (sourceView, contentVC, pip)
     }
 }
@@ -1343,7 +1343,7 @@ final class VoiceChannelRoomViewController: ViewController {
 
         bottomPill.translatesAutoresizingMaskIntoConstraints = false
         bottomPill.backgroundColor = UIColor.theme.secondary
-        bottomPill.layer.cornerRadius = 40
+        bottomPill.clipsToBounds = true
 
         bottomControlsStack.axis = .horizontal
         bottomControlsStack.spacing = 10
@@ -2147,6 +2147,7 @@ final class VoiceChannelRoomViewController: ViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         syncParticipantTileGridLayout()
+        bottomPill.layer.cornerRadius = bottomPill.bounds.height / 2
     }
 
     private func gridWidthForParticipantLayout() -> CGFloat {

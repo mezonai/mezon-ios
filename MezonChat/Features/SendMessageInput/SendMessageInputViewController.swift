@@ -1763,12 +1763,16 @@ final class SendMessageInputViewController: UIViewController {
 
         guard sendButton.isHidden == shouldShowSend else { return }
 
+        sendButton.layer.removeAllAnimations()
+        voiceButton.layer.removeAllAnimations()
+
         if shouldShowSend {
             sendButton.isHidden = false
             UIView.animate(withDuration: 0.15) {
                 self.sendButton.alpha = 1
                 self.voiceButton.alpha = 0
-            } completion: { _ in
+            } completion: { finished in
+                guard finished else { return }
                 self.voiceButton.isHidden = true
             }
         } else {
@@ -1776,7 +1780,8 @@ final class SendMessageInputViewController: UIViewController {
             UIView.animate(withDuration: 0.15) {
                 self.sendButton.alpha = 0
                 self.voiceButton.alpha = 1
-            } completion: { _ in
+            } completion: { finished in
+                guard finished else { return }
                 self.sendButton.isHidden = true
             }
         }

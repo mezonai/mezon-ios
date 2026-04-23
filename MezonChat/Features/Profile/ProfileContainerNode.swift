@@ -13,6 +13,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     var onBackTapped: (() -> Void)?
     var onSettingsTapped: (() -> Void)?
+    var onTransferFundsTapped: (() -> Void)?
     var onEditProfileTapped: (() -> Void)?
     var onAvatarTapped: (() -> Void)?
     var onDisplayNameTapped: (() -> Void)?
@@ -161,6 +162,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private var friendAvatarFetchTask: Task<Void, Never>?
     private var walletFetchTask: Task<Void, Never>?
     private var walletDetail: WalletDetail?
+    private var currentAvatarLoadKey: String?
 
     private let copyCard = UIView()
     private let copyRow = ProfileIconRow()
@@ -502,6 +504,10 @@ final class ProfileContainerNode: ASDisplayNode {
             editProfileButton.heightAnchor.constraint(equalToConstant: 44.sh),
             editProfileButton.bottomAnchor.constraint(equalTo: balanceCard.bottomAnchor, constant: -16.sh),
         ])
+
+        transferRow.isUserInteractionEnabled = true
+        let transferTap = UITapGestureRecognizer(target: self, action: #selector(transferFundsTapped))
+        transferRow.addGestureRecognizer(transferTap)
     }
 
     private func setupAboutMeCard() {
@@ -618,8 +624,9 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarPlaceholderLabel.text = initials
 
         if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
-            if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
+            let proxiedURLString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
+            currentAvatarLoadKey = proxiedURLString
+            if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) {
                 avatarImageView.image = cached
                 avatarPlaceholderLabel.isHidden = true
                 avatarContainerView.backgroundColor = .clear
@@ -631,32 +638,22 @@ final class ProfileContainerNode: ASDisplayNode {
                 avatarContainerView.backgroundColor = .colorAvatarDefault
                 headerBackgroundView.backgroundColor = .mezonSecondaryBackground
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
-                Task {
-                    do {
-                        let (data, response) = try await URLSession.shared.data(from: url)
-                        if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
-                            await MainActor.run { self.applyProfileAvatarPlaceholder() }
-                            return
-                        }
-                        guard let img = UIImage.decodeImage(from: data) else {
-                            await MainActor.run { self.applyProfileAvatarPlaceholder() }
-                            return
-                        }
-                        ImageCache.shared.setImage(img, data: data, forKey: urlString)
-                        let color = img.dominantColor()
-                        await MainActor.run {
-                            self.avatarImageView.image = img
-                            self.avatarPlaceholderLabel.isHidden = true
-                            self.avatarContainerView.backgroundColor = .clear
-                            self.headerBackgroundView.backgroundColor = color ?? .mezonSecondaryBackground
-                            self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
-                        }
-                    } catch {
-                        await MainActor.run { self.applyProfileAvatarPlaceholder() }
+                ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
+                    guard let self else { return }
+                    guard self.currentAvatarLoadKey == proxiedURLString else { return }
+                    guard let image else {
+                        self.applyProfileAvatarPlaceholder()
+                        return
                     }
+                    self.avatarImageView.image = image
+                    self.avatarPlaceholderLabel.isHidden = true
+                    self.avatarContainerView.backgroundColor = .clear
+                    self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonSecondaryBackground
+                    self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 }
             }
         } else {
+            currentAvatarLoadKey = nil
             applyProfileAvatarPlaceholder()
         }
 
@@ -1109,6 +1106,10 @@ final class ProfileContainerNode: ASDisplayNode {
 
     @objc private func addStatusButtonTapped() {
         onAddStatusTapped?()
+    }
+
+    @objc private func transferFundsTapped() {
+        onTransferFundsTapped?()
     }
 }
 

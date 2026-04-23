@@ -27,6 +27,19 @@ final class ProfileViewController: ViewController {
             let vc = SettingsViewController(context: self.context)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onTransferFundsTapped = { [weak self] in
+            guard let self else { return }
+            let payload = TransferQRPayload(
+                receiverUserId: nil,
+                walletAddress: nil,
+                suggestedAmount: nil,
+                note: nil,
+                extraAttribute: nil,
+                receiverDisplayName: nil
+            )
+            let vc = WalletTransferViewController(context: self.context, payload: payload)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         node.onEditProfileTapped = { [weak self] in
             guard let self else { return }
             let vc = ProfileSettingViewController(context: self.context, initialTab: .userProfile)
