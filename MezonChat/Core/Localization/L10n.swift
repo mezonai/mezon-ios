@@ -126,6 +126,21 @@ enum L10n {
         static let blockedUsers       = "accountSetting.blockedUsers"
         static let setPassword        = "accountSetting.setPassword"
         static let phoneSectionTitle  = "accountSetting.phoneNumberSetting.title"
+        static let emailSectionTitle  = "accountSetting.emailSetting.title"
+    }
+
+    enum EmailSetting {
+        static let updateEmailTitle = "emailSetting.updateEmailTitle"
+        static let newEmail = "emailSetting.newEmail"
+        static let nextButton = "emailSetting.nextButton"
+        static let invalidEmail = "emailSetting.invalidEmail"
+        static let emailAlreadyLinked = "emailSetting.emailAlreadyLinked"
+        static let tooFast = "emailSetting.tooFast"
+        static let updateFailed = "emailSetting.updateFailed"
+        static let verifyEmailTitle = "emailSetting.verifyEmailTitle"
+        static let verifyDescription = "emailSetting.verifyDescription"
+        static let verifyButton = "emailSetting.verifyButton"
+        static let verifySuccess = "emailSetting.verifySuccess"
     }
 
     enum UpdateGate {
@@ -609,6 +624,19 @@ extension L10n {
         "accountSetting.blockedUsers": "Blocked Users",
         "accountSetting.setPassword": "Set Password",
         "accountSetting.phoneNumberSetting.title": "Phone",
+        "accountSetting.emailSetting.title": "Email",
+
+        "emailSetting.updateEmailTitle": "Update Email",
+        "emailSetting.newEmail": "New Email",
+        "emailSetting.nextButton": "Next",
+        "emailSetting.invalidEmail": "Invalid email address",
+        "emailSetting.emailAlreadyLinked": "This email is already linked",
+        "emailSetting.tooFast": "Please wait %ds before requesting again",
+        "emailSetting.updateFailed": "Failed to update email. Please try again.",
+        "emailSetting.verifyEmailTitle": "Verify Email",
+        "emailSetting.verifyDescription": "Enter the 6-digit code we sent to",
+        "emailSetting.verifyButton": "Verify Code",
+        "emailSetting.verifySuccess": "Email linked successfully",
 
         "settings.title":           "Settings",
         "settings.language":        "Language",
@@ -1089,6 +1117,19 @@ extension L10n {
         "accountSetting.blockedUsers": "Người dùng bị chặn",
         "accountSetting.setPassword": "Đặt mật khẩu",
         "accountSetting.phoneNumberSetting.title": "Số điện thoại",
+        "accountSetting.emailSetting.title": "Email",
+
+        "emailSetting.updateEmailTitle": "Cập nhật Email",
+        "emailSetting.newEmail": "Email mới",
+        "emailSetting.nextButton": "Tiếp tục",
+        "emailSetting.invalidEmail": "Địa chỉ email không hợp lệ",
+        "emailSetting.emailAlreadyLinked": "Email này đã được liên kết",
+        "emailSetting.tooFast": "Vui lòng đợi %ds trước khi gửi lại",
+        "emailSetting.updateFailed": "Không thể cập nhật email. Vui lòng thử lại.",
+        "emailSetting.verifyEmailTitle": "Xác thực Email",
+        "emailSetting.verifyDescription": "Nhập mã gồm 6 chữ số chúng tôi đã gửi tới",
+        "emailSetting.verifyButton": "Xác thực",
+        "emailSetting.verifySuccess": "Liên kết email thành công",
 
         "settings.title":           "Cài đặt",
         "settings.language":        "Ngôn ngữ",
