@@ -22,6 +22,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private var reactionsNode: MessageReactionsNode?
     private var locationNode: MessageLocationNode?
     private var clanInviteLinkNode: MessageClanInviteLinkNode?
+    private var sendTokenLogNode: MessageSendTokenLogNode?
+    private var pollUnsupportedNode: ASTextNode2?
     private var errorTextNode: ASTextNode2?
     private var editedNode: ASTextNode2?
 
@@ -29,6 +31,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasCallLog: Bool
+    private let hasPoll: Bool
     private let hasTopic: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
@@ -59,6 +62,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedReactionsSize: CGSize = .zero
     private var cachedLocationSize: CGSize = .zero
     private var cachedClanInviteSize: CGSize = .zero
+    private var cachedSendTokenLogSize: CGSize = .zero
+    private var cachedPollSize: CGSize = .zero
     private var cachedErrorSize: CGSize = .zero
     private var cachedEditedSize: CGSize = .zero
     private var cachedForwardHeaderSize: CGSize = .zero
@@ -79,6 +84,7 @@ final class MessageBubbleNode: ASDisplayNode {
         self.hasReply = display.replyRef != nil
         self.hasDeletedReply = display.isDeletedReply
         self.hasCallLog = display.isCallLog
+        self.hasPoll = display.isPollMessage
         self.hasTopic = display.isTopic
 
         let parsed = display.parsedContent
@@ -89,6 +95,20 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         if display.isCallLog {
+            self.hasContent = false
+            self.hasMedia = false
+            self.hasAudio = false
+            self.hasFiles = false
+            self.hasEmbeds = false
+            self.hasLocation = false
+        } else if display.isPollMessage {
+            self.hasContent = false
+            self.hasMedia = false
+            self.hasAudio = false
+            self.hasFiles = false
+            self.hasEmbeds = false
+            self.hasLocation = false
+        } else if display.isSendTokenLog {
             self.hasContent = false
             self.hasMedia = false
             self.hasAudio = false
@@ -223,6 +243,24 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(cln)
         }
 
+        if display.isPollMessage {
+            let pn = ASTextNode2()
+            pn.attributedText = Self.pollUnsupportedAttributedString()
+            pn.maximumNumberOfLines = 0
+            pollUnsupportedNode = pn
+            addSubnode(pn)
+        }
+
+        if display.isSendTokenLog {
+            let stn = MessageSendTokenLogNode()
+            stn.configure(messageContent: parsed.text)
+            stn.onTransactionTapped = { [weak self] in
+                self?.handleSendTokenLogTapped()
+            }
+            sendTokenLogNode = stn
+            addSubnode(stn)
+        }
+
         if let topic = display.topicData {
             let tn = MessageTopicNode()
             tn.configure(topicData: topic)
@@ -233,7 +271,11 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if hasContent {
             let tcn = MessageTextContentNode()
-            tcn.configure(parsedContent: parsed, buzzStyled: display.isBuzzMessage)
+            tcn.configure(
+                parsedContent: parsed,
+                buzzStyled: display.isBuzzMessage,
+                hashtagChannelAccess: interaction.hashtagChannelIsAccessible
+            )
             tcn.onMentionTapped = { interaction.onMentionTapped($0) }
             tcn.onHashtagTapped = { interaction.onHashtagTapped($0) }
             tcn.onLinkTapped = { url in
@@ -367,6 +409,22 @@ final class MessageBubbleNode: ASDisplayNode {
         let inviteChanged = oldDisplay.clanInviteLinkCode != newDisplay.clanInviteLinkCode
         let avatarChanged = oldDisplay.avatarURL != newDisplay.avatarURL
         let editedChanged = Self.shouldShowEditedLabel(for: oldDisplay) != Self.shouldShowEditedLabel(for: newDisplay)
+        let mentionHighlightChanged = oldDisplay.hasIncludeMention != newDisplay.hasIncludeMention
+        if mentionHighlightChanged {
+            if newDisplay.hasIncludeMention {
+                mentionHighlightNode.backgroundColor = UIColor(red: 201.0/255, green: 157.0/255, blue: 7.0/255, alpha: 0.1)
+                mentionHighlightNode.isUserInteractionEnabled = false
+                mentionBorderNode.backgroundColor = UIColor(red: 240.0/255, green: 177.0/255, blue: 50.0/255, alpha: 1.0)
+                if mentionBorderNode.supernode !== mentionHighlightNode {
+                    mentionHighlightNode.addSubnode(mentionBorderNode)
+                }
+                if mentionHighlightNode.supernode == nil {
+                    insertSubnode(mentionHighlightNode, at: 0)
+                }
+            } else {
+                mentionHighlightNode.removeFromSupernode()
+            }
+        }
         let callLogIdentityChanged: Bool = {
             switch (oldDisplay.callLog, newDisplay.callLog) {
             case (nil, nil): return false
@@ -422,8 +480,39 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(n)
         }
 
-        if textChanged, let tcn = textContentNode {
-            tcn.configure(parsedContent: newDisplay.parsedContent, buzzStyled: newDisplay.isBuzzMessage)
+        if Self.shouldShowTextContent(for: newDisplay) {
+            if let tcn = textContentNode {
+                if textChanged || mentionHighlightChanged {
+                    tcn.configure(
+                        parsedContent: newDisplay.parsedContent,
+                        buzzStyled: newDisplay.isBuzzMessage,
+                        hashtagChannelAccess: interaction.hashtagChannelIsAccessible
+                    )
+                }
+            } else {
+                let tcn = MessageTextContentNode()
+                tcn.configure(
+                    parsedContent: newDisplay.parsedContent,
+                    buzzStyled: newDisplay.isBuzzMessage,
+                    hashtagChannelAccess: interaction.hashtagChannelIsAccessible
+                )
+                tcn.onMentionTapped = { self.interaction.onMentionTapped($0) }
+                tcn.onHashtagTapped = { self.interaction.onHashtagTapped($0) }
+                tcn.onLinkTapped = { url in
+                    let scheme = url.scheme?.lowercased() ?? ""
+                    guard scheme == "https" || scheme == "http" else { return }
+                    UIApplication.shared.open(url)
+                }
+                textContentNode = tcn
+                if let c = clanInviteLinkNode { insertSubnode(tcn, belowSubnode: c) }
+                else if let m = mediaContentNode { insertSubnode(tcn, belowSubnode: m) }
+                else { addSubnode(tcn) }
+            }
+        } else {
+            if let tcn = textContentNode {
+                tcn.removeFromSupernode()
+                textContentNode = nil
+            }
         }
         if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
             cln.configure(callLog: callLog, isMe: newDisplay.isMe, senderName: newDisplay.senderDisplayName, contentText: newDisplay.parsedContent.text)
@@ -454,6 +543,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
+        pollUnsupportedNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
@@ -468,8 +558,10 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
+            || mentionHighlightChanged
             || (oldFailed != newDisplay.isFailed)
             || inviteChanged || (oldWantInvite != newWantInvite)
+            || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
         if needsRelayout {
             let _ = measureSize(width: cachedTotalSize.width)
             setNeedsLayout()
@@ -477,6 +569,15 @@ final class MessageBubbleNode: ASDisplayNode {
         if !isCombine && avatarChanged {
             loadAvatar()
         }
+    }
+
+    private static func shouldShowTextContent(for display: ChatMessageDisplay) -> Bool {
+        if display.isCallLog { return false }
+        if display.isLocation { return false }
+        if display.isPollMessage { return false }
+        if display.isSendTokenLog { return false }
+        if display.checkOneLinkImage { return false }
+        return !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func timeText(for display: ChatMessageDisplay) -> String {
@@ -503,6 +604,7 @@ final class MessageBubbleNode: ASDisplayNode {
         guard display.message.editedAt != nil else { return false }
         if display.message.isDeleted { return false }
         if display.isCallLog { return false }
+        if display.isPollMessage { return false }
         if display.isSystemMessage { return false }
         return true
     }
@@ -632,7 +734,6 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
-        let isMultiple = media.count > 1
         let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
             let placeholderURL: String? = att.isVideo
                 ? nil
@@ -640,7 +741,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     from: att.url,
                     width: 400,
                     height: 400,
-                    resizeType: isMultiple ? "fill" : "fit"
+                    resizeType: "fit"
                 )
             return GalleryItemInfo(
                 url: att.url,
@@ -656,6 +757,10 @@ final class MessageBubbleNode: ASDisplayNode {
         if let vc = findViewController() {
             vc.present(gallery, animated: true)
         }
+    }
+
+    private func handleSendTokenLogTapped() {
+        interaction.onSendTokenLogTapped()
     }
 
     private func handleEmbedImageTap(url: String) {
@@ -855,6 +960,20 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedCallLogSize = .zero
         }
 
+        if let pollUnsupportedNode {
+            cachedPollSize = pollUnsupportedNode.measure(CGSize(width: bodyContentWidth, height: .greatestFiniteMagnitude))
+            totalH += cachedPollSize.height + vertSpacing
+        } else {
+            cachedPollSize = .zero
+        }
+
+        if let sendTokenLogNode {
+            cachedSendTokenLogSize = sendTokenLogNode.measureSize(maxWidth: bodyContentWidth)
+            totalH += cachedSendTokenLogSize.height + vertSpacing
+        } else {
+            cachedSendTokenLogSize = .zero
+        }
+
         if let textContentNode {
             cachedTextSize = textContentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedTextSize.height + vertSpacing
@@ -1014,6 +1133,18 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedCallLogSize.height + vertSpacing
         }
 
+        if let pollUnsupportedNode {
+            pollUnsupportedNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedPollSize.height)
+            noteForwardBlock(topY: y, height: cachedPollSize.height)
+            y += cachedPollSize.height + vertSpacing
+        }
+
+        if let sendTokenLogNode {
+            sendTokenLogNode.frame = CGRect(x: contentInnerX, y: y, width: cachedSendTokenLogSize.width, height: cachedSendTokenLogSize.height)
+            noteForwardBlock(topY: y, height: cachedSendTokenLogSize.height)
+            y += cachedSendTokenLogSize.height + vertSpacing
+        }
+
         if let textContentNode {
             textContentNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedTextSize.height)
             noteForwardBlock(topY: y, height: cachedTextSize.height)
@@ -1105,6 +1236,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
+        pollUnsupportedNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
@@ -1120,7 +1252,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private static func hasClanInviteCard(for display: ChatMessageDisplay) -> Bool {
         guard let code = display.clanInviteLinkCode, !code.isEmpty else { return false }
-        return !display.isCallLog && !display.isLocation
+        return !display.isCallLog && !display.isLocation && !display.isPollMessage
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -1134,6 +1266,29 @@ final class MessageBubbleNode: ASDisplayNode {
         f.dateFormat = "dd/MM/yyyy, HH:mm"
         return f
     }()
+
+    private static func pollUnsupportedAttributedString() -> NSAttributedString {
+        let t = UIColor.theme
+        let line1 = L(L10n.ChannelMessages.pollUnsupported)
+        let line2 = L(L10n.ChannelMessages.pollComingSoon)
+        let full = line1 + "\n" + line2
+        let s = NSMutableAttributedString(string: full)
+        let fullNS = full as NSString
+        s.addAttributes([
+            .font: UIFont.systemFont(ofSize: 14.sf),
+            .foregroundColor: t.text,
+        ], range: NSRange(location: 0, length: fullNS.length))
+        let line1NS = line1 as NSString
+        let line2NS = line2 as NSString
+        let second = NSRange(location: line1NS.length + 1, length: line2NS.length)
+        if second.location + second.length <= fullNS.length {
+            s.addAttributes([
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .medium),
+                .foregroundColor: t.textDisabled,
+            ], range: second)
+        }
+        return s
+    }
 
     private static func forwardHeaderLabelAttributedString() -> NSAttributedString {
         let t = UIColor.theme
@@ -1162,6 +1317,7 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.isFailed { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
+        if display.isPollMessage { return false }
         if display.isTopic { return false }
         if display.message.isDeleted { return false }
         return true

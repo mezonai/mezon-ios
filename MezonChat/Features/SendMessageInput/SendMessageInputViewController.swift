@@ -111,6 +111,8 @@ final class SendMessageInputViewController: UIViewController {
     private(set) var pickedImages: [UIImage] = []
     private var pickedFileURLs: [Int: URL] = [:]
     private(set) var pickedFiles: [PickedFileInfo] = []
+    private var editingRemoteImageAttachments: [ParsedAttachment] = []
+    private var editingRemoteFileAttachments: [ParsedAttachment] = []
 
     private var allMentionMembers: [MentionMember] = []
     private var allMentionSuggestionItems: [MentionSuggestionItem] = []
@@ -219,6 +221,18 @@ final class SendMessageInputViewController: UIViewController {
         tv.delegate = self
         tv.returnKeyType = .default
         tv.enablesReturnKeyAutomatically = true
+        tv.alwaysBounceVertical = false
+        tv.alwaysBounceHorizontal = false
+        tv.bounces = true
+        tv.scrollsToTop = false
+        tv.showsVerticalScrollIndicator = true
+        tv.showsHorizontalScrollIndicator = false
+        tv.contentInsetAdjustmentBehavior = .never
+        tv.keyboardDismissMode = .none
+        tv.panGestureRecognizer.cancelsTouchesInView = true
+        tv.disablesInteractiveKeyboardGestureRecognizer = true
+        tv.disablesInteractiveTransitionGestureRecognizer = true
+        tv.disablesInteractiveTransitionGestureRecognizerNow = { true }
         tv.onImagesPasted = { [weak self] images in
             self?.handlePastedImages(images)
         }
@@ -337,9 +351,11 @@ final class SendMessageInputViewController: UIViewController {
 
     var totalHeight: CGFloat {
         var h = inputBarCurrentHeight
-        if !pickedImages.isEmpty || !pickedFiles.isEmpty {
+        let totalImg = pickedImages.count + editingRemoteImageAttachments.count
+        let totalFile = pickedFiles.count + editingRemoteFileAttachments.count
+        if totalImg > 0 || totalFile > 0 {
             h += AttachmentPreviewView.preferredHeight(
-                imageCount: pickedImages.count, fileCount: pickedFiles.count)
+                imageCount: totalImg, fileCount: totalFile)
         }
         if replyDisplay != nil || editingDisplay != nil {
             h += Self.replyBannerHeight
@@ -362,6 +378,8 @@ final class SendMessageInputViewController: UIViewController {
     override func loadView() {
         let v = OverflowHitTestView()
         v.backgroundColor = .clear
+        v.disablesInteractiveTransitionGestureRecognizer = true
+        v.disablesInteractiveTransitionGestureRecognizerNow = { true }
         v.overflowTargets = { [weak self] in
             guard let self else { return [] }
             var targets: [UIView] = []
@@ -632,6 +650,7 @@ final class SendMessageInputViewController: UIViewController {
         } else {
             textView.attributedText = nil
         }
+        refreshHashtagIconAttachments()
         text = textView.text ?? ""
         textView.typingAttributes = [
             .font: UIFont.systemFont(ofSize: 15.sf),
@@ -654,6 +673,7 @@ final class SendMessageInputViewController: UIViewController {
         hideHashtagSuggestions()
         syncAttachControlsWithTypedText()
         updateSendVoiceToggle()
+        refreshComposerTypingAttributesForSelection()
     }
 
     private func resetComposerVisualDraftState() {
@@ -704,7 +724,8 @@ final class SendMessageInputViewController: UIViewController {
         let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
         if let edit = editingDisplay, let mid = Int64(edit.message.id) {
-            guard !trimmed.isEmpty || hasAttachments else { return }
+            let hasKeptRemote = !editingRemoteImageAttachments.isEmpty || !editingRemoteFileAttachments.isEmpty
+            guard !trimmed.isEmpty || hasAttachments || hasKeptRemote else { return }
             sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel, editingMessageId: mid)
             return
         }
@@ -916,6 +937,7 @@ final class SendMessageInputViewController: UIViewController {
     func clearEditingMessage() {
         editingDisplay = nil
         clearText()
+        clearPickedImages()
         updateReplyBannerVisibility()
     }
 
@@ -946,13 +968,68 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private static func mapUTF16InDisplayToEditing(_ p: Int, endDeltas: [(end: Int, delta: Int)]) -> Int {
+        var t = p
+        for d in endDeltas where d.end <= t {
+            t += d.delta
+        }
+        return t
+    }
+
+    private static func mapNSRangeFromDisplayToEditing(_ r: NSRange, endDeltas: [(end: Int, delta: Int)]) -> NSRange {
+        let s0 = r.location
+        let e0 = r.location + r.length
+        let s1 = mapUTF16InDisplayToEditing(s0, endDeltas: endDeltas)
+        let e1 = mapUTF16InDisplayToEditing(e0, endDeltas: endDeltas)
+        return NSRange(location: s1, length: e1 - s1)
+    }
+
+    private static func editingComposerRestoredText(from parsed: ParsedContent) -> (String, [(end: Int, delta: Int)]) {
+        var text = parsed.text
+        var endDeltas: [(end: Int, delta: Int)] = []
+        let md = parsed.tokens.filter { t in
+            switch t.kind {
+            case .inlineCode, .codeBlock, .bold, .strikethrough: return true
+            default: return false
+            }
+        }
+        .sorted { $0.start > $1.start }
+        for token in md {
+            guard token.start >= 0, token.end <= (text as NSString).length, token.start < token.end else { continue }
+            let r = NSRange(location: token.start, length: token.end - token.start)
+            let inner = (text as NSString).substring(with: r)
+            let wrapped: String?
+            switch token.kind {
+            case .inlineCode:
+                wrapped = "`" + inner + "`"
+            case .codeBlock:
+                wrapped = "```" + inner + "```"
+            case .bold:
+                wrapped = "**" + inner + "**"
+            case .strikethrough:
+                wrapped = "~~" + inner + "~~"
+            default:
+                wrapped = nil
+            }
+            guard let w = wrapped else { continue }
+            let oldLen = r.length
+            let newLen = (w as NSString).length
+            let ms = NSMutableString(string: text)
+            ms.replaceCharacters(in: r, with: w)
+            text = ms as String
+            endDeltas.append((end: token.end, delta: newLen - oldLen))
+        }
+        return (text, endDeltas)
+    }
+
     private func populateComposerFromEditDisplay(_ display: ChatMessageDisplay) {
         let parsed = display.parsedContent
         activeMentions.removeAll()
         activeHashtags.removeAll()
         emojiIdByColonToken.removeAll()
 
-        let fullText = parsed.text
+        let (reconstructed, displayToEditDeltas) = Self.editingComposerRestoredText(from: parsed)
+        let fullText = reconstructed
         let t = UIColor.theme
         let normalAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 15.sf),
@@ -965,14 +1042,18 @@ final class SendMessageInputViewController: UIViewController {
 
         let attr = NSMutableAttributedString(string: fullText, attributes: normalAttrs)
         let sorted = parsed.tokens.sorted { $0.start < $1.start }
+        let displayText = parsed.text
+        let displayUTF16Count = displayText.utf16.count
 
         for token in sorted {
-            guard token.start >= 0, token.end <= fullText.utf16.count, token.start < token.end else { continue }
-            let r = NSRange(location: token.start, length: token.end - token.start)
+            guard token.start >= 0, token.end <= displayUTF16Count, token.start < token.end else { continue }
+            let rDisplay = NSRange(location: token.start, length: token.end - token.start)
+            let r = Self.mapNSRangeFromDisplayToEditing(rDisplay, endDeltas: displayToEditDeltas)
+            guard r.location >= 0, r.location + r.length <= (fullText as NSString).length else { continue }
             switch token.kind {
             case .mention(let userIdStr, let roleIdStr, let username):
                 attr.addAttributes(highlightAttrs, range: r)
-                let raw = fullText.mezon_utf16Substring(from: token.start, to: token.end)
+                let raw = displayText.mezon_utf16Substring(from: token.start, to: token.end)
                 let displayName: String
                 if raw.hasPrefix("@") {
                     displayName = String(raw.dropFirst())
@@ -996,7 +1077,7 @@ final class SendMessageInputViewController: UIViewController {
 
             case .hashtag(let channelIdStr, let clanIdStr, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
                 attr.addAttributes(highlightAttrs, range: r)
-                let raw = fullText.mezon_utf16Substring(from: token.start, to: token.end)
+                let raw = displayText.mezon_utf16Substring(from: token.start, to: token.end)
                 let labelFromText: String
                 if raw.hasPrefix("#") {
                     labelFromText = String(raw.dropFirst())
@@ -1029,7 +1110,7 @@ final class SendMessageInputViewController: UIViewController {
 
             case .emoji(let emojiId):
                 attr.addAttributes(highlightAttrs, range: r)
-                let raw = fullText.mezon_utf16Substring(from: token.start, to: token.end)
+                let raw = displayText.mezon_utf16Substring(from: token.start, to: token.end)
                 if raw.count >= 2, raw.first == ":", raw.last == ":" {
                     emojiIdByColonToken[Self.normalizedEmojiToken(from: raw)] = emojiId
                 } else if let idInt = Int64(emojiId), let rec = allSuggestionEmojis.first(where: { $0.id == idInt }) {
@@ -1043,6 +1124,7 @@ final class SendMessageInputViewController: UIViewController {
         }
 
         textView.attributedText = attr
+        refreshHashtagIconAttachments()
         text = fullText
         placeholderLabel.isHidden = !text.isEmpty
         textView.typingAttributes = normalAttrs
@@ -1051,6 +1133,35 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        loadEditingRemoteAttachments(from: display)
+        refreshComposerTypingAttributesForSelection()
+    }
+
+    private func loadEditingRemoteAttachments(from display: ChatMessageDisplay) {
+        let nonUploading = display.attachments.filter { !$0.isUploading && !$0.url.isEmpty }
+        let imageAttachments = nonUploading.filter { $0.isImage || $0.isVideo }
+        let fileAttachments = nonUploading.filter { !$0.isImage && !$0.isVideo }
+        editingRemoteImageAttachments = imageAttachments
+        editingRemoteFileAttachments = fileAttachments
+
+        let remoteImagePreviews = imageAttachments.map { att -> RemoteAttachmentPreview in
+            RemoteAttachmentPreview(
+                url: att.url,
+                filename: att.filename,
+                filetype: att.filetype,
+                isVideo: att.isVideo
+            )
+        }
+        let remoteFilePreviews = fileAttachments.map { att -> RemoteAttachmentPreview in
+            RemoteAttachmentPreview(
+                url: att.url,
+                filename: att.filename,
+                filetype: att.filetype,
+                isVideo: false
+            )
+        }
+        attachmentPreviewView.setRemoteAttachments(images: remoteImagePreviews, files: remoteFilePreviews)
+        updatePreviewVisibility()
     }
 
     func clearText() {
@@ -1279,6 +1390,7 @@ final class SendMessageInputViewController: UIViewController {
         updateSendVoiceToggle()
         syncAttachControlsWithTypedText()
         hideEmojiSuggestions()
+        refreshComposerTypingAttributesForSelection()
     }
 
     private func insertEmojiFromSuggestion(_ emoji: CachedClanEmojiRecord) {
@@ -1346,13 +1458,31 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func removeAttachment(at index: Int) {
-        let imageCount = pickedImages.count
-        if index < imageCount {
-            removePickedImage(at: index)
-        } else {
-            let fileIndex = index - imageCount
-            removePickedFile(at: fileIndex)
+        let remoteImageCount = editingRemoteImageAttachments.count
+        let localImageCount = pickedImages.count
+        let remoteFileCount = editingRemoteFileAttachments.count
+
+        var i = index
+        if i < remoteImageCount {
+            editingRemoteImageAttachments.remove(at: i)
+            attachmentPreviewView.removeRemoteImage(at: i)
+            updatePreviewVisibility()
+            return
         }
+        i -= remoteImageCount
+        if i < localImageCount {
+            removePickedImage(at: i)
+            return
+        }
+        i -= localImageCount
+        if i < remoteFileCount {
+            editingRemoteFileAttachments.remove(at: i)
+            attachmentPreviewView.removeRemoteFile(at: i)
+            updatePreviewVisibility()
+            return
+        }
+        i -= remoteFileCount
+        removePickedFile(at: i)
     }
 
     private func removePickedImage(at index: Int) {
@@ -1385,6 +1515,8 @@ final class SendMessageInputViewController: UIViewController {
         pickedImages.removeAll()
         pickedFileURLs.removeAll()
         pickedFiles.removeAll()
+        editingRemoteImageAttachments.removeAll()
+        editingRemoteFileAttachments.removeAll()
         attachmentPreviewView.removeAll()
         Self.channelAttachmentCache.removeValue(forKey: cacheKey)
         updatePreviewVisibility()
@@ -1626,16 +1758,21 @@ final class SendMessageInputViewController: UIViewController {
 
     private func updateSendVoiceToggle() {
         let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pickedImages.isEmpty || !pickedFiles.isEmpty
-        let shouldShowSend = hasContent
+        let isEditingHoldingMedia = (editingDisplay != nil) && (!editingRemoteImageAttachments.isEmpty || !editingRemoteFileAttachments.isEmpty)
+        let shouldShowSend = hasContent || isEditingHoldingMedia
 
         guard sendButton.isHidden == shouldShowSend else { return }
+
+        sendButton.layer.removeAllAnimations()
+        voiceButton.layer.removeAllAnimations()
 
         if shouldShowSend {
             sendButton.isHidden = false
             UIView.animate(withDuration: 0.15) {
                 self.sendButton.alpha = 1
                 self.voiceButton.alpha = 0
-            } completion: { _ in
+            } completion: { finished in
+                guard finished else { return }
                 self.voiceButton.isHidden = true
             }
         } else {
@@ -1643,7 +1780,8 @@ final class SendMessageInputViewController: UIViewController {
             UIView.animate(withDuration: 0.15) {
                 self.sendButton.alpha = 0
                 self.voiceButton.alpha = 1
-            } completion: { _ in
+            } completion: { finished in
+                guard finished else { return }
                 self.sendButton.isHidden = true
             }
         }
@@ -1783,7 +1921,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func loadDMMembers() {
-        if let records = firstNonEmptyChannelMemberRecords() {
+        if let records = mergedChannelMemberRecordsForMentions() {
             buildMentionMembers(from: records)
             rebuildMentionSuggestionItems()
             return
@@ -1792,11 +1930,19 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func loadChannelMembersForPrivate() {
-        if let records = firstNonEmptyChannelMemberRecords() {
+        let isThreadWithParent =
+            channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0
+        let threadMissingParentMembers = isThreadWithParent
+            && context.account.postbox.read { tx in
+                (tx.getChannelMeta(channelId: channel.parentID)?.members ?? []).filter { !$0.isBanned }.isEmpty
+            }
+        if !threadMissingParentMembers, let records = mergedChannelMemberRecordsForMentions() {
             buildMentionMembers(from: records)
             ensureRolesLoadedIfNeeded()
             rebuildMentionSuggestionItems()
-            return
+            if !isThreadWithParent {
+                return
+            }
         }
         fetchPrivateChannelUsersFromNetwork()
     }
@@ -1808,20 +1954,27 @@ final class SendMessageInputViewController: UIViewController {
         ensureRolesLoadedIfNeeded()
         rebuildMentionSuggestionItems()
         fetchClanMembersFromNetwork()
+        prefetchChannelMembersIntoPostboxForPublicComposer()
     }
 
-    private func firstNonEmptyChannelMemberRecords() -> [ChannelMemberRecord]? {
+    private func mergedChannelMemberRecordsForMentions() -> [ChannelMemberRecord]? {
+        var byUserId: [Int64: ChannelMemberRecord] = [:]
         for cid in mentionLookupChannelIds {
-            let m = context.account.postbox.read { tx in
+            let rows = context.account.postbox.read { tx in
                 (tx.getChannelMeta(channelId: cid)?.members ?? []).filter { !$0.isBanned }
             }
-            if !m.isEmpty { return m }
+            for r in rows where r.userId != 0 {
+                if byUserId[r.userId] == nil {
+                    byUserId[r.userId] = r
+                }
+            }
         }
-        return nil
+        if byUserId.isEmpty { return nil }
+        return Array(byUserId.values)
     }
 
     private func reloadMentionMembersFromChannelMetaOnly() {
-        guard let records = firstNonEmptyChannelMemberRecords() else { return }
+        guard let records = mergedChannelMemberRecordsForMentions() else { return }
         buildMentionMembers(from: records)
         rebuildMentionSuggestionItems()
     }
@@ -1839,7 +1992,7 @@ final class SendMessageInputViewController: UIViewController {
                 context.account.postbox.write { [channelIdForStore] tx in
                     tx.updateChannelMembers(members, channelId: channelIdForStore)
                 }
-                if let records = firstNonEmptyChannelMemberRecords() {
+                if let records = mergedChannelMemberRecordsForMentions() {
                     buildMentionMembers(from: records)
                 }
                 rebuildMentionSuggestionItems()
@@ -1857,13 +2010,20 @@ final class SendMessageInputViewController: UIViewController {
             }
             do {
                 if channel.parentID != 0 {
-                    let parentRes = try await context.account.network.listChannelUsers(
-                        clanId: clanId, channelId: channel.parentID,
-                        channelType: MezonConstants.ChannelType.channel.rawValue, token: token)
-                    let parentMembers = Self.enrichChannelUsers(parentRes.channelUsers, postbox: context.account.postbox)
                     let parentIdForStore = self.channel.parentID
-                    context.account.postbox.write { [parentIdForStore] tx in
-                        tx.updateChannelMembers(parentMembers, channelId: parentIdForStore)
+                    let parentType = context.engine.clanData.resolvedListChannelUsersType(channelId: parentIdForStore)
+                    let parentHasCached = !(context.account.postbox.read { tx in
+                        (tx.getChannelMeta(channelId: parentIdForStore)?.members ?? []).filter { !$0.isBanned }.isEmpty
+                    })
+                    let parentRes = try await context.account.network.listChannelUsers(
+                        clanId: clanId, channelId: parentIdForStore,
+                        channelType: parentType, token: token)
+                    let skipParentWrite = parentRes.channelUsers.isEmpty && parentHasCached
+                    if !skipParentWrite {
+                        let parentMembers = Self.enrichChannelUsers(parentRes.channelUsers, postbox: context.account.postbox)
+                        context.account.postbox.write { [parentIdForStore] tx in
+                            tx.updateChannelMembers(parentMembers, channelId: parentIdForStore)
+                        }
                     }
                 }
                 let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
@@ -1874,17 +2034,191 @@ final class SendMessageInputViewController: UIViewController {
                 context.account.postbox.write { [channelIdForStore] tx in
                     tx.updateChannelMembers(members, channelId: channelIdForStore)
                 }
-                if let records = firstNonEmptyChannelMemberRecords() {
+                if let records = mergedChannelMemberRecordsForMentions() {
                     buildMentionMembers(from: records)
                 }
                 ensureRolesLoadedIfNeeded()
                 rebuildMentionSuggestionItems()
+                if channel.type == MezonConstants.ChannelType.thread.rawValue,
+                   channel.parentID != 0,
+                   context.account.postbox.read({ tx in
+                       (tx.getChannelMeta(channelId: channel.parentID)?.members ?? []).filter { !$0.isBanned }.isEmpty
+                   }) {
+                    await mergeClanUsersIntoAllMentionMembers(token: token)
+                }
                 if allMentionMembers.isEmpty {
                     fetchClanMembersFromNetwork()
                 }
             } catch {
                 fetchClanMembersFromNetwork()
             }
+        }
+    }
+
+    private func prefetchChannelMembersIntoPostboxForPublicComposer() {
+        guard clanId > 0, !isPrivateOrThread else { return }
+        guard #available(iOS 13.0, *) else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let preferred = channel.type != 0
+                    ? channel.type
+                    : context.engine.clanData.resolvedListChannelUsersType(channelId: channel.channelID)
+                let res = try await context.account.network.listChannelUsers(
+                    clanId: clanId, channelId: channel.channelID, channelType: preferred, token: token)
+                guard !res.channelUsers.isEmpty else { return }
+                let records = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+                let cid = channel.channelID
+                context.account.postbox.write { tx in
+                    tx.updateChannelMembers(records, channelId: cid)
+                }
+            } catch {
+            }
+        }
+    }
+
+    private func clanUserListForMentionFallback(token: String) async throws -> Mezon_Api_ClanUserList {
+        if let c = context.engine.clanData.getClanUsers(clanId: clanId), !c.clanUsers.isEmpty {
+            return c
+        }
+        let r = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+        if let data = try? r.serializedData() {
+            context.account.postbox.setPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
+        }
+        return r
+    }
+
+    private func mergeClanUsersIntoAllMentionMembers(token: String) async {
+        guard clanId > 0 else { return }
+        do {
+            let response = try await clanUserListForMentionFallback(token: token)
+            var seen = Set(allMentionMembers.map(\.userId))
+            var extra: [MentionMember] = []
+            extra.reserveCapacity(response.clanUsers.count)
+            for cu in response.clanUsers {
+                let user = cu.user
+                guard user.id != 0, seen.insert(user.id).inserted else { continue }
+                let display = Self.layeredClanVisibleName(
+                    clanNick: cu.clanNick,
+                    displayName: user.displayName,
+                    username: user.username,
+                    userId: user.id,
+                    profile: nil,
+                    sender: nil
+                )
+                let ca = cu.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                let av: String?
+                if !ca.isEmpty {
+                    av = ca
+                } else {
+                    let ua = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                    av = ua.isEmpty ? nil : ua
+                }
+                extra.append(MentionMember(
+                    userId: user.id,
+                    displayName: display,
+                    username: user.username,
+                    avatarURL: av
+                ))
+            }
+            guard !extra.isEmpty else { return }
+            allMentionMembers.append(contentsOf: extra)
+            allMentionMembers.sort {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+            rebuildMentionSuggestionItems()
+        } catch {
+        }
+    }
+
+    private func memberUserIdsForChannel(channelId: Int64, token: String) async throws -> Set<Int64> {
+        let cached = context.account.postbox.read { tx -> Set<Int64> in
+            let rows = (tx.getChannelMeta(channelId: channelId)?.members ?? []).filter { !$0.isBanned }
+            return Set(rows.map(\.userId))
+        }
+        if !cached.isEmpty { return cached }
+        let preferred: Int32 = channelId == channel.channelID && channel.type != 0
+            ? channel.type
+            : context.engine.clanData.resolvedListChannelUsersType(channelId: channelId)
+        let res = try await context.account.network.listChannelUsers(
+            clanId: clanId, channelId: channelId, channelType: preferred, token: token)
+        guard !res.channelUsers.isEmpty else { return [] }
+        let records = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+        context.account.postbox.write { tx in
+            tx.updateChannelMembers(records, channelId: channelId)
+        }
+        return Set(records.map(\.userId))
+    }
+
+    private func roleListForMentionExpansion(token: String) async throws -> Mezon_Api_RoleList {
+        if let cached = context.engine.clanData.getClanRoles(clanId: clanId) {
+            return cached.roles
+        }
+        let response = try await context.account.network.listRoles(clanId: clanId, token: token)
+        if let data = try? response.serializedData() {
+            context.account.postbox.setPreferenceData(key: PreferencesKeys.clanRoles(clanId: clanId), value: data)
+        }
+        return response.roles
+    }
+
+    private func candidateUserIdsForThreadAdds(from mentions: [Mezon_Api_MessageMention], roleList: Mezon_Api_RoleList) -> Set<Int64> {
+        let roles = roleList.roles
+        var result = Set<Int64>()
+        for m in mentions {
+            if m.roleID != 0 {
+                guard let role = roles.first(where: { $0.id == m.roleID }) else { continue }
+                for ru in role.roleUserList.roleUsers where ru.id != 0 {
+                    result.insert(ru.id)
+                }
+            } else if m.userID != 0, m.userID != Self.mentionHereUserId {
+                result.insert(m.userID)
+            }
+        }
+        return result
+    }
+
+    private func addUsersFromParentMentionsToThreadIfNeeded(
+        mentionList: [Mezon_Api_MessageMention],
+        editTargetSenderId: Int64?,
+        token: String
+    ) async throws {
+        guard clanId != 0,
+              channel.type == MezonConstants.ChannelType.thread.rawValue,
+              channel.parentID != 0
+        else { return }
+        let parentId = channel.parentID
+        let threadId = channel.channelID
+        let threadType = channel.type != 0 ? channel.type : MezonConstants.ChannelType.thread.rawValue
+        async let parentIds = memberUserIdsForChannel(channelId: parentId, token: token)
+        async let threadIds = memberUserIdsForChannel(channelId: threadId, token: token)
+        let roleList = try await roleListForMentionExpansion(token: token)
+        var (parentSet, childSet) = try await (parentIds, threadIds)
+        if parentSet.isEmpty {
+            parentSet = try await clanUserListForMentionFallback(token: token).clanUsers.reduce(into: Set<Int64>()) { acc, cu in
+                let id = cu.user.id
+                if id != 0 { acc.insert(id) }
+            }
+        }
+        var candidates = candidateUserIdsForThreadAdds(from: mentionList, roleList: roleList)
+        if let editTargetSenderId, editTargetSenderId != 0 {
+            candidates.insert(editTargetSenderId)
+        }
+        let currentUid = Int64(context.currentUser?.id ?? "") ?? 0
+        let toAdd = Set(candidates.filter { uid in
+            uid != 0
+                && uid != Self.mentionHereUserId
+                && uid != currentUid
+                && parentSet.contains(uid)
+                && !childSet.contains(uid)
+        })
+        guard !toAdd.isEmpty else { return }
+        try await context.account.network.addChannelUsers(
+            channelId: threadId, userIds: Array(toAdd), token: token)
+        let refresh = try await context.account.network.listChannelUsers(
+            clanId: clanId, channelId: threadId, channelType: threadType, token: token)
+        let merged = Self.enrichChannelUsers(refresh.channelUsers, postbox: context.account.postbox)
+        context.account.postbox.write { tx in
+            tx.updateChannelMembers(merged, channelId: threadId)
         }
     }
 
@@ -2514,13 +2848,31 @@ final class SendMessageInputViewController: UIViewController {
             .font: UIFont.systemFont(ofSize: 15.sf),
             .foregroundColor: t.textStrong
         ]
+        let tagFont = UIFont.boldSystemFont(ofSize: 15.sf)
+        let tagTint = UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
         let tagAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.boldSystemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+            .font: tagFont,
+            .foregroundColor: tagTint
         ]
 
         let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
-        let tagAttrStr = NSMutableAttributedString(string: token, attributes: tagAttrs)
+        let tagAttrStr = NSMutableAttributedString()
+        let iconName = channel.channelListIconAssetName()
+        if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: tagTint, font: tagFont) {
+            let iconStr = NSMutableAttributedString(attachment: att)
+            var iconAttrs = tagAttrs
+            iconAttrs[Self.hashtagIconAttrKey] = true
+            iconAttrs[.kern] = Self.composerHashtagIconKernAfter
+            iconAttrs[.baselineOffset] = Self.composerHashtagIconBaselineOffset
+            iconStr.addAttributes(iconAttrs, range: NSRange(location: 0, length: iconStr.length))
+            tagAttrStr.append(iconStr)
+        } else {
+            var hashAttrs = tagAttrs
+            hashAttrs[.kern] = Self.composerHashtagIconKernAfter
+            hashAttrs[.baselineOffset] = Self.composerHashtagIconBaselineOffset
+            tagAttrStr.append(NSAttributedString(string: "#", attributes: hashAttrs))
+        }
+        tagAttrStr.append(NSAttributedString(string: label, attributes: tagAttrs))
         tagAttrStr.append(NSAttributedString(string: trailingSpace, attributes: normalAttrs))
         attrText.replaceCharacters(in: replaceRange, with: tagAttrStr)
         textView.attributedText = attrText
@@ -2690,7 +3042,60 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func buildPlainTextFromAttributed() -> String {
-        textView.text ?? ""
+        let attr = textView.attributedText ?? NSAttributedString()
+        guard attr.length > 0 else { return "" }
+        let m = NSMutableString(string: attr.string)
+        var replacements: [NSRange] = []
+        attr.enumerateAttribute(Self.hashtagIconAttrKey, in: NSRange(location: 0, length: attr.length), options: []) { value, range, _ in
+            guard value != nil, range.length >= 1, NSMaxRange(range) <= m.length else { return }
+            replacements.append(NSRange(location: range.location, length: 1))
+        }
+        for r in replacements.sorted(by: { $0.location > $1.location }) {
+            m.replaceCharacters(in: r, with: "#")
+        }
+        return m as String
+    }
+
+    private static let hashtagIconAttrKey = NSAttributedString.Key("MezonComposerHashtagIcon")
+    private static let composerHashtagIconKernAfter: CGFloat = 9
+    private static let composerHashtagIconBaselineOffset: CGFloat = 0
+
+    private func refreshHashtagIconAttachments() {
+        guard !activeHashtags.isEmpty else { return }
+        let attr = textView.attributedText ?? NSAttributedString()
+        guard attr.length > 0 else { return }
+        let m = NSMutableAttributedString(attributedString: attr)
+        let tagFont = UIFont.boldSystemFont(ofSize: 15.sf)
+        let tagTint = UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        let tagAttrs: [NSAttributedString.Key: Any] = [
+            .font: tagFont,
+            .foregroundColor: tagTint
+        ]
+        var didChange = false
+        let sorted = activeHashtags.sorted(by: { $0.range.location > $1.range.location })
+        for tag in sorted {
+            guard tag.range.length >= 1, NSMaxRange(tag.range) <= m.length else { continue }
+            let firstCharRange = NSRange(location: tag.range.location, length: 1)
+            let iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                type: tag.channelType, channelPrivate: tag.channelPrivate, ageRestricted: tag.ageRestricted)
+            guard let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: tagTint, font: tagFont) else { continue }
+            let iconStr = NSMutableAttributedString(attachment: att)
+            var iconAttrs = tagAttrs
+            iconAttrs[Self.hashtagIconAttrKey] = true
+            iconAttrs[.kern] = Self.composerHashtagIconKernAfter
+            iconAttrs[.baselineOffset] = Self.composerHashtagIconBaselineOffset
+            iconStr.addAttributes(iconAttrs, range: NSRange(location: 0, length: iconStr.length))
+            m.replaceCharacters(in: firstCharRange, with: iconStr)
+            didChange = true
+        }
+        guard didChange else { return }
+        let savedSelection = textView.selectedRange
+        textView.attributedText = m
+        let clamped = NSRange(
+            location: max(0, min(savedSelection.location, m.length)),
+            length: max(0, min(savedSelection.length, m.length - max(0, min(savedSelection.location, m.length))))
+        )
+        textView.selectedRange = clamped
     }
 
     private static let emojiListDidUpdateNotification = Notification.Name("MezonEmojiListDidUpdate")
@@ -2800,6 +3205,7 @@ final class SendMessageInputViewController: UIViewController {
         if let preserved = preservedAttributed, preserved.length > 0,
            !activeMentions.isEmpty || !activeHashtags.isEmpty || !emojiIdByColonToken.isEmpty {
             textView.attributedText = applyCurrentThemeToRestoredComposer(preserved)
+            refreshHashtagIconAttachments()
         }
         placeholderLabel.font = .systemFont(ofSize: 15.sf)
         placeholderLabel.textColor = t.textDisabled
@@ -3334,6 +3740,19 @@ final class SendMessageInputViewController: UIViewController {
         onSent?()
     }
 
+    private static func mezonApiMessageAttachments(from parsed: [ParsedAttachment]) -> [Mezon_Api_MessageAttachment] {
+        parsed.map { p in
+            var att = Mezon_Api_MessageAttachment()
+            att.url = p.url
+            att.filename = p.filename
+            att.filetype = p.filetype
+            if let w = p.width { att.width = Int32(w) }
+            if let h = p.height { att.height = Int32(h) }
+            if let d = p.durationSeconds { att.duration = Int32(d) }
+            return att
+        }
+    }
+
     private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription, editingMessageId: Int64 = 0) {
         let isEdit = editingMessageId != 0
         let sendAsAnonymous = shouldSendAsAnonymousMessage
@@ -3366,6 +3785,14 @@ final class SendMessageInputViewController: UIViewController {
         let displayText = built.displayText
         let mentionList = buildMentionList(displayPlain: displayText)
         let hashtagListForContent = buildHashtagList(displayPlain: displayText)
+        let threadEditTargetSenderId: Int64? = {
+            guard isEdit,
+                  channel.type == MezonConstants.ChannelType.thread.rawValue,
+                  channel.parentID != 0,
+                  let sid = editingDisplay?.message.senderId,
+                  let id = Int64(sid), id != 0 else { return nil }
+            return id
+        }()
 
         var contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": displayText]
         if !text.isEmpty {
@@ -3394,6 +3821,12 @@ final class SendMessageInputViewController: UIViewController {
             return "\(editingMessageId)"
         }()
 
+        let textOnlyEditPendingKey: String? = {
+            guard isEdit, !sendAsAnonymous else { return nil }
+            guard imagesToUpload.isEmpty, filesToUpload.isEmpty, fileURLsToUpload.isEmpty else { return nil }
+            return "\(editingMessageId)"
+        }()
+
         if let key = editPendingCacheKey {
             if !imagesToUpload.isEmpty {
                 ParsedAttachment.pendingImageCache[key] = imagesToUpload
@@ -3412,6 +3845,36 @@ final class SendMessageInputViewController: UIViewController {
                     )
                 }
             }
+            let keptRemoteForPending = editingRemoteImageAttachments + editingRemoteFileAttachments
+            self.context.account.postbox.write { tx in
+                guard let old = tx.getMessageById(key) else { return }
+                let newAttachmentsJSON: Data = {
+                    let proto = Self.mezonApiMessageAttachments(from: keptRemoteForPending)
+                    var list = Mezon_Api_MessageAttachmentList()
+                    list.attachments = proto
+                    return (try? list.serializedData()) ?? old.attachmentsJSON
+                }()
+                let updated = MessageRecord(
+                    id: old.id,
+                    channelId: old.channelId,
+                    clanId: old.clanId,
+                    senderId: old.senderId,
+                    content: outgoingContentData,
+                    createdAt: old.createdAt,
+                    editedAt: old.editedAt,
+                    isDeleted: old.isDeleted,
+                    code: old.code,
+                    senderDisplayName: old.senderDisplayName,
+                    senderAvatarURL: old.senderAvatarURL,
+                    sendingState: .pending,
+                    attachmentsJSON: newAttachmentsJSON,
+                    reactionsJSON: old.reactionsJSON,
+                    referencesData: old.referencesData,
+                    mentionsJSON: mentionsPayload
+                )
+                tx.addMessages([updated])
+            }
+        } else if let key = textOnlyEditPendingKey {
             self.context.account.postbox.write { tx in
                 guard let old = tx.getMessageById(key) else { return }
                 let updated = MessageRecord(
@@ -3467,6 +3930,11 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
+        let preservedEditAttachments: [ParsedAttachment] = {
+            guard isEdit else { return [] }
+            return editingRemoteImageAttachments + editingRemoteFileAttachments
+        }()
+
         applyOptimisticSendComposerReset()
 
         let contentStr: String = {
@@ -3504,10 +3972,18 @@ final class SendMessageInputViewController: UIViewController {
                     ParsedAttachment.pendingImageCache.removeValue(forKey: key)
                     ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: key)
                 }
+                if let key = textOnlyEditPendingKey {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
+                }
                 self.onError?("No session")
                 return
             }
             do {
+                try await self.addUsersFromParentMentionsToThreadIfNeeded(
+                    mentionList: mentionList,
+                    editTargetSenderId: threadEditTargetSenderId,
+                    token: token
+                )
                 var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
                 if !imagesToUpload.isEmpty {
                     uploadedAttachments = try await self.uploadAttachments(imagesToUpload, fileURLs: fileURLsToUpload, token: token)
@@ -3515,6 +3991,11 @@ final class SendMessageInputViewController: UIViewController {
                 if !filesToUpload.isEmpty {
                     let fileAttachments = try await self.uploadFileAttachments(filesToUpload, token: token)
                     uploadedAttachments.append(contentsOf: fileAttachments)
+                }
+
+                if isEdit, !preservedEditAttachments.isEmpty {
+                    let preservedProto = Self.mezonApiMessageAttachments(from: preservedEditAttachments)
+                    uploadedAttachments = preservedProto + uploadedAttachments
                 }
 
                 if isEdit {
@@ -3613,6 +4094,9 @@ final class SendMessageInputViewController: UIViewController {
                     ParsedAttachment.pendingImageCache.removeValue(forKey: key)
                     ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: key)
                 }
+                if let key = textOnlyEditPendingKey {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
+                }
                 self.onError?(error.localizedDescription)
             }
         }
@@ -3700,6 +4184,85 @@ final class SendMessageInputViewController: UIViewController {
         }
         return ref
     }
+
+    private func composerNormalTypingAttributes() -> [NSAttributedString.Key: Any] {
+        let t = UIColor.theme
+        return [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: t.textStrong
+        ]
+    }
+
+    private func composerHighlightTypingAttributes() -> [NSAttributedString.Key: Any] {
+        [
+            .font: UIFont.boldSystemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
+        ]
+    }
+
+    private func utf16RangeOfKnownEmojiTokenContainingLocation(_ loc: Int, in plain: String) -> NSRange? {
+        let ns = plain as NSString
+        guard loc >= 0, loc < ns.length else { return nil }
+        let keys = emojiIdByColonToken.keys.sorted { a, b in
+            a.utf16.count > b.utf16.count
+        }
+        for token in keys {
+            guard !token.isEmpty else { continue }
+            var s = 0
+            while s < ns.length {
+                let search = NSRange(location: s, length: ns.length - s)
+                let r = ns.range(of: token, range: search)
+                if r.location == NSNotFound { break }
+                if loc >= r.location && loc < r.location + r.length {
+                    return r
+                }
+                s = r.location + max(r.length, 1)
+            }
+        }
+        return nil
+    }
+
+    private func refreshComposerTypingAttributesForSelection() {
+        let normal = composerNormalTypingAttributes()
+        let highlight = composerHighlightTypingAttributes()
+        let sel = textView.selectedRange
+        if sel.length > 0 {
+            textView.typingAttributes = normal
+            return
+        }
+        let loc = sel.location
+        let plain = textView.text ?? ""
+        let ns = plain as NSString
+        if plain.isEmpty {
+            textView.typingAttributes = normal
+            return
+        }
+        if loc == 0 {
+            textView.typingAttributes = normal
+            return
+        }
+        if loc == ns.length {
+            textView.typingAttributes = normal
+            return
+        }
+        for m in activeMentions {
+            if loc >= m.range.location, loc < m.range.location + m.range.length {
+                textView.typingAttributes = highlight
+                return
+            }
+        }
+        for h in activeHashtags {
+            if loc >= h.range.location, loc < h.range.location + h.range.length {
+                textView.typingAttributes = highlight
+                return
+            }
+        }
+        if let er = utf16RangeOfKnownEmojiTokenContainingLocation(loc, in: plain) {
+            textView.typingAttributes = (loc == er.location) ? normal : highlight
+            return
+        }
+        textView.typingAttributes = normal
+    }
 }
 
 extension SendMessageInputViewController: UITextViewDelegate {
@@ -3710,6 +4273,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         updateInlineSuggestions()
         updateSendVoiceToggle()
         syncAttachControlsWithTypedText()
+        refreshComposerTypingAttributesForSelection()
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {
@@ -3718,6 +4282,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
 
     func textViewDidChangeSelection(_ textView: UITextView) {
         updateInlineSuggestions()
+        refreshComposerTypingAttributesForSelection()
     }
 
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
@@ -3817,6 +4382,12 @@ extension SendMessageInputViewController: UITextViewDelegate {
                 return h
             }
         }
+        if !text.isEmpty, range.length == 0 {
+            let tlen = (self.textView.text as NSString).length
+            if range.location == 0 || range.location == tlen {
+                self.textView.typingAttributes = composerNormalTypingAttributes()
+            }
+        }
         return true
     }
 
@@ -3831,7 +4402,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
     private func updateTextViewHeight() {
         let font = textView.font ?? .systemFont(ofSize: 15.sf)
         let lineHeight = font.lineHeight
-        let maxLines: CGFloat = 3
+        let maxLines: CGFloat = 6
         let verticalInsets = textView.textContainerInset.top + textView.textContainerInset.bottom
         let maxHeight = lineHeight * maxLines + verticalInsets
         let minHeight = Self.textViewMinHeight
@@ -3840,7 +4411,13 @@ extension SendMessageInputViewController: UITextViewDelegate {
         let textHeight = textView.sizeThatFits(fittingSize).height
         let newHeight = min(max(textHeight, minHeight), maxHeight)
 
-        textView.isScrollEnabled = textHeight > maxHeight
+        let shouldScroll = textHeight > maxHeight
+        if textView.isScrollEnabled != shouldScroll {
+            textView.isScrollEnabled = shouldScroll
+            if shouldScroll {
+                textView.layoutManager.ensureLayout(for: textView.textContainer)
+            }
+        }
 
         guard abs(newHeight - currentTextViewHeight) > 0.5 else { return }
         currentTextViewHeight = newHeight

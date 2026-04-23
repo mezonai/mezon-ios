@@ -22,7 +22,8 @@ extension MezonEngine {
             try await network.sessionLogout(session: session, deviceId: deviceId, platform: platform)
         }
 
-        func confirmLogin(loginId: String, token: String) async throws -> MezonSession {
+        @discardableResult
+        func confirmLogin(loginId: String, token: String) async throws -> MezonSession? {
             try await network.confirmLogin(loginId: loginId, token: token)
         }
     }

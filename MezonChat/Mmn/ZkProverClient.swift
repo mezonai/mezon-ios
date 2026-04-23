@@ -1,0 +1,57 @@
+import Foundation
+
+struct ZkProofBundle: Sendable {
+    let proof: String
+    let publicInput: String
+}
+
+struct ZkProverDataDTO: Decodable, Sendable {
+    let proof: String
+    let public_input: String
+}
+
+struct ZkProverTopDTO: Decodable, Sendable {
+    let data: ZkProverDataDTO
+}
+
+enum ZkProverError: Error {
+    case authenticationFailed
+}
+
+struct ZkProverClient: Sendable {
+    private let baseURL: URL
+    private let session: URLSession
+
+    init(baseURL: URL = MezonConfig.zkAPIURL) {
+        self.baseURL = baseURL
+        self.session = URLSession(configuration: .default)
+    }
+
+    func fetchProofs(userId: String, jwt: String, ephemeralPublicKeyBase58: String, address: String) async throws -> ZkProofBundle {
+        let u = baseURL.appendingPathComponent("prove")
+        MmnDebugLog.line("ZK POST \(u.absoluteString) userId=\(userId) address=\(address) ephPrefix=\(ephemeralPublicKeyBase58.prefix(10))… jwtLen=\(jwt.count)")
+        var request = URLRequest(url: u)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "user_id": userId,
+            "ephemeral_pk": ephemeralPublicKeyBase58,
+            "jwt": jwt,
+            "address": address,
+            "client_type": "mezon"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await session.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            MmnDebugLog.line("ZK HTTP \(http.statusCode) body=\(body)")
+            if http.statusCode == 400, body.localizedCaseInsensitiveContains("authentication") {
+                throw ZkProverError.authenticationFailed
+            }
+            throw URLError(.badServerResponse)
+        }
+        let decoded = try JSONDecoder().decode(ZkProverTopDTO.self, from: data)
+        MmnDebugLog.line("ZK ok proofLen=\(decoded.data.proof.count) publicInputLen=\(decoded.data.public_input.count)")
+        return ZkProofBundle(proof: decoded.data.proof, publicInput: decoded.data.public_input)
+    }
+}

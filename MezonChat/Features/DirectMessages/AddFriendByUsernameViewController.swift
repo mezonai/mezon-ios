@@ -192,6 +192,7 @@ final class AddFriendByUsernameViewController: ViewController {
                 self.query = ""
                 self.friendByUsername.removeAll()
                 self.needsReloadPipe.putNext(())
+                await self.context.engine.friendsData.refreshFromNetwork(token: token)
                 Toast.success(L(L10n.FriendRequest.toastSendSuccess))
             } catch {
                 Toast.error(L(L10n.FriendRequest.toastSelfAddError), title: "")
@@ -201,33 +202,11 @@ final class AddFriendByUsernameViewController: ViewController {
 
     @MainActor
     private func ensureFriendLookup(token: String) async {
-        let states: [Int32] = [
-            EStateFriend.friend.rawValue,
-            EStateFriend.otherPending.rawValue,
-            EStateFriend.myPending.rawValue,
-            EStateFriend.block.rawValue
-        ]
-        
-        var map: [String: Mezon_Api_Friend] = [:]
-        
-        await withTaskGroup(of: [Mezon_Api_Friend].self) { group in
-            for state in states {
-                group.addTask {
-                    let friendsRes = try? await self.context.account.network.listFriends(token: token, limit: 1000, state: state)
-                    return friendsRes?.friends ?? []
-                }
-            }
-            
-            for await friends in group {
-                for friend in friends {
-                    let username = friend.user.username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    if !username.isEmpty {
-                        map[username] = friend
-                    }
-                }
-            }
+        var map = context.engine.friendsData.lookupByUsername()
+        if map.isEmpty {
+            await context.engine.friendsData.refreshFromNetwork(token: token)
+            map = context.engine.friendsData.lookupByUsername()
         }
-        
         friendByUsername = map
     }
 }

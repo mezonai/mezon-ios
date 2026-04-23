@@ -1,12 +1,5 @@
 import UIKit
 
-enum EStateFriend: Int32 {
-    case friend = 0
-    case otherPending = 1
-    case myPending = 2
-    case block = 3
-}
-
 struct FriendRequestState {
     var receivedRequests: [Mezon_Api_Friend]
 
@@ -20,9 +13,7 @@ final class FriendRequestViewController: ViewController {
     private let needsReloadPipe = ValuePipe<Void>()
 
     private(set) var receivedRequests: [Mezon_Api_Friend] = []
-    private var fetchTask: Task<Void, Never>?
-    private var socketDebounceTask: Task<Void, Never>?
-    private var latestFetchRequestId: Int = 0
+    private var refreshTask: Task<Void, Never>?
     private var inFlightActionUserIds: Set<Int64> = []
 
     private var friendRequestNode: FriendRequestContainerNode { displayNode as! FriendRequestContainerNode }
@@ -69,36 +60,27 @@ final class FriendRequestViewController: ViewController {
                 transition: .immediate
             )
         }
-        fetchFriendRequests()
+        syncFromGlobalFriendState()
+        refreshFromNetwork()
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        socketDebounceTask?.cancel()
-    }
-
-    private var socketDisposable: Disposable?
+    private var friendsUpdatedDisposable: Disposable?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         
-        socketDisposable = (MezonSocket.shared.events()
-            |> deliverOnMainQueue).start(next: { [weak self] event in
-                switch event {
-                case .addFriend, .removeFriend, .blockFriend:
-                    self?.scheduleSocketRefresh()
-                default:
-                    break
-                }
+        friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] _ in
+                self?.syncFromGlobalFriendState()
             })
+        syncFromGlobalFriendState()
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        socketDisposable?.dispose()
-        fetchTask?.cancel()
-        socketDebounceTask?.cancel()
+        friendsUpdatedDisposable?.dispose()
+        refreshTask?.cancel()
     }
 
     @objc private func handleThemeChange() {
@@ -160,37 +142,16 @@ final class FriendRequestViewController: ViewController {
         }
     }
 
-    private func fetchFriendRequests() {
-        fetchTask?.cancel()
-        latestFetchRequestId += 1
-        let requestId = latestFetchRequestId
-        fetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-            do {
-                let listFriends = try await self.context.account.network.listFriends(
-                    token: token,
-                    limit: 1000,
-                    state: EStateFriend.myPending.rawValue
-                )
-                guard !Task.isCancelled, self.latestFetchRequestId == requestId else { return }
-                self.setReceivedRequests(listFriends.friends)
-            } catch is CancellationError {
-                return
-            } catch {
-                guard self.latestFetchRequestId == requestId else { return }
-                Toast.error(error.localizedDescription)
-            }
-        }
+    private func syncFromGlobalFriendState() {
+        setReceivedRequests(context.engine.friendsData.pendingIncomingFriends())
     }
 
-    private func scheduleSocketRefresh() {
-        socketDebounceTask?.cancel()
-        socketDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard let self, !Task.isCancelled else { return }
-            guard self.isViewLoaded, self.view.window != nil else { return }
-            self.fetchFriendRequests()
+    private func refreshFromNetwork() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            await self.context.engine.friendsData.refreshFromNetwork(token: token)
         }
     }
 
@@ -211,6 +172,8 @@ final class FriendRequestViewController: ViewController {
                     updatedList.remove(at: idx)
                     self.setReceivedRequests(updatedList)
                 }
+                self.context.engine.friendsData.removePendingRequest(userId: userId)
+                self.refreshFromNetwork()
             } catch {
                 Toast.error(error.localizedDescription)
             }
@@ -234,6 +197,8 @@ final class FriendRequestViewController: ViewController {
                     updatedList.remove(at: idx)
                     self.setReceivedRequests(updatedList)
                 }
+                self.context.engine.friendsData.removePendingRequest(userId: userId)
+                self.refreshFromNetwork()
             } catch {
                 Toast.error(error.localizedDescription)
             }

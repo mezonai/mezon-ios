@@ -303,6 +303,7 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     var didAnnounceMeetJoin = false
     var didAnnounceMeetLeave = false
+    private(set) var crossClanVoiceExitAlignClanId: Int64?
 
     private override init() {
         super.init()
@@ -450,8 +451,10 @@ final class VoiceChannelPiPOverlay: NSObject {
         parentChannelName: String?,
         didAnnounceMeetJoin: Bool,
         didAnnounceMeetLeave: Bool,
-        preservedAudioRoute: VoiceChannelPiPPreservedAudioRoute
+        preservedAudioRoute: VoiceChannelPiPPreservedAudioRoute,
+        crossClanVoiceExitAlignClanId: Int64? = nil
     ) {
+        self.crossClanVoiceExitAlignClanId = crossClanVoiceExitAlignClanId
         self.bridge = bridge
         self.context = context
         self.channel = channel
@@ -510,7 +513,19 @@ final class VoiceChannelPiPOverlay: NSObject {
         UIApplication.shared.isIdleTimerDisabled = true
     }
 
+    private func applyCrossClanVoiceHomeExitFromPiPIfNeeded(alignClanId: Int64?, channelId: Int64) {
+        guard let alignClanId, alignClanId != 0, channelId != 0 else { return }
+        NotificationCenter.default.post(
+            name: .mezonAlignHomeAfterCrossClanVoice,
+            object: nil,
+            userInfo: ["clanId": alignClanId, "channelId": channelId]
+        )
+        findVisibleNavigationController()?.popToRoot(animated: true)
+    }
+
     func dismiss() {
+        let savedAlign = crossClanVoiceExitAlignClanId
+        let savedChannelId = channel?.channelID ?? 0
         UIApplication.shared.isIdleTimerDisabled = false
         overlayLiveKitReconnectTask?.cancel()
         overlayLiveKitReconnectTask = nil
@@ -529,6 +544,8 @@ final class VoiceChannelPiPOverlay: NSObject {
         channel = nil
         lastAvatarURL = nil
         preservedAudioRoute = nil
+        crossClanVoiceExitAlignClanId = nil
+        applyCrossClanVoiceHomeExitFromPiPIfNeeded(alignClanId: savedAlign, channelId: savedChannelId)
         Task { await b?.disconnect() }
     }
 
@@ -623,6 +640,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         context = nil
         channel = nil
         lastAvatarURL = nil
+        crossClanVoiceExitAlignClanId = nil
         return (b, joinFlag, leaveFlag, route)
     }
 
@@ -783,6 +801,7 @@ final class VoiceChannelPiPOverlay: NSObject {
             context: ctx,
             channel: ch,
             parentChannelName: parentChannelName,
+            voiceChannelCrossClanExitAlignClanId: crossClanVoiceExitAlignClanId,
             existingPiPOverlay: self
         )
         nav.pushViewController(vc, animated: true)
@@ -819,7 +838,8 @@ final class VoiceChannelPiPOverlay: NSObject {
         guard #available(iOS 15.0, *) else {
             return
         }
-        guard systemCallPiPController == nil, let ctx = context, let ch = channel else {
+        tearDownOverlaySystemCallPiP()
+        guard let ctx = context, let ch = channel else {
             return
         }
         guard let (sourceView, contentVC, pip) = VoiceCallSystemPiPFactory.make(sourceSuperview: rootVC.view, context: ctx, clanId: ch.clanID) else {
@@ -857,7 +877,9 @@ final class VoiceChannelPiPOverlay: NSObject {
         guard let pip = systemCallPiPController else {
             return
         }
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.pipWindow != nil else { return }
+            guard pip === self.systemCallPiPController else { return }
             guard pip.isPictureInPicturePossible else {
                 return
             }
@@ -886,8 +908,11 @@ final class VoiceChannelPiPOverlay: NSObject {
             NotificationCenter.default.removeObserver(obs)
             systemCallPiPBackgroundObserver = nil
         }
-        systemCallPiPController?.stopPictureInPicture()
-        systemCallPiPController?.delegate = nil
+        let pip = systemCallPiPController
+        if pip?.isPictureInPictureActive == true {
+            pip?.stopPictureInPicture()
+        }
+        pip?.delegate = nil
         systemCallPiPController = nil
         systemCallPiPVideoView.track = nil
         systemCallPiPVideoView.removeFromSuperview()
@@ -908,6 +933,7 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     ) {
         Task { @MainActor [weak self] in
             guard let self, pictureInPictureController === self.systemCallPiPController else { return }
+            self.tearDownOverlaySystemCallPiP()
         }
     }
 
@@ -1112,6 +1138,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
     private let parentChannelName: String?
+    private let voiceChannelCrossClanExitAlignClanId: Int64?
     private let existingPiPOverlay: VoiceChannelPiPOverlay?
 
     private var liveKitBridge: VoiceChannelLiveKitBridge?
@@ -1190,10 +1217,11 @@ final class VoiceChannelRoomViewController: ViewController {
     private let bottomPill = UIView()
     private let bottomControlsStack = UIStackView()
 
-    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil) {
+    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil) {
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
+        self.voiceChannelCrossClanExitAlignClanId = alignId ?? existingPiPOverlay?.crossClanVoiceExitAlignClanId
         self.existingPiPOverlay = existingPiPOverlay
         super.init(navigationBarPresentationData: nil)
         hidesBottomBarWhenPushed = true
@@ -1203,6 +1231,24 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
+
+    private func popVoiceRoomOrAlignHomeAfterCrossClanVoice() {
+        guard let align = voiceChannelCrossClanExitAlignClanId, align != 0 else {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        let chId = channel.channelID
+        NotificationCenter.default.post(
+            name: .mezonAlignHomeAfterCrossClanVoice,
+            object: nil,
+            userInfo: ["clanId": align, "channelId": chId]
+        )
+        if let nav = navigationController as? NavigationController {
+            nav.popToRoot(animated: true)
+        } else {
+            navigationController?.popToRootViewController(animated: true)
+        }
+    }
 
     override func loadDisplayNode() {
         let node = ASDisplayNode()
@@ -1290,13 +1336,14 @@ final class VoiceChannelRoomViewController: ViewController {
         participantsGrid.axis = .vertical
         participantsGrid.spacing = 10
         participantsGrid.alignment = .fill
+        participantsGrid.distribution = .equalSpacing
 
         contentScroll.addSubview(participantArea)
         participantArea.addSubview(participantsGrid)
 
         bottomPill.translatesAutoresizingMaskIntoConstraints = false
         bottomPill.backgroundColor = UIColor.theme.secondary
-        bottomPill.layer.cornerRadius = 40
+        bottomPill.clipsToBounds = true
 
         bottomControlsStack.axis = .horizontal
         bottomControlsStack.spacing = 10
@@ -2100,6 +2147,7 @@ final class VoiceChannelRoomViewController: ViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         syncParticipantTileGridLayout()
+        bottomPill.layer.cornerRadius = bottomPill.bounds.height / 2
     }
 
     private func gridWidthForParticipantLayout() -> CGFloat {
@@ -2336,7 +2384,8 @@ final class VoiceChannelRoomViewController: ViewController {
                 parentChannelName: parentChannelName,
                 didAnnounceMeetJoin: didAnnounceMeetJoin,
                 didAnnounceMeetLeave: didAnnounceMeetLeave,
-                preservedAudioRoute: preservedRoute
+                preservedAudioRoute: preservedRoute,
+                crossClanVoiceExitAlignClanId: voiceChannelCrossClanExitAlignClanId
             )
             return true
         } else {
@@ -2447,7 +2496,7 @@ final class VoiceChannelRoomViewController: ViewController {
         bridge?.clearCallbacks()
         Task { @MainActor in
             await bridge?.disconnect()
-            self.navigationController?.popViewController(animated: true)
+            self.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
         }
     }
 
@@ -2480,7 +2529,8 @@ final class VoiceChannelRoomViewController: ViewController {
             parentChannelName: parentChannelName,
             didAnnounceMeetJoin: didAnnounceMeetJoin,
             didAnnounceMeetLeave: didAnnounceMeetLeave,
-            preservedAudioRoute: preservedRoute
+            preservedAudioRoute: preservedRoute,
+            crossClanVoiceExitAlignClanId: voiceChannelCrossClanExitAlignClanId
         )
 
         navigationController?.popViewController(animated: true)
@@ -2603,11 +2653,16 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func setConnectingOverlayVisible(_ visible: Bool) {
         connectingOverlay.isHidden = !visible
+        connectingOverlay.isUserInteractionEnabled = visible
         if visible {
             connectingSpinner.startAnimating()
             view.bringSubviewToFront(connectingOverlay)
         } else {
             connectingSpinner.stopAnimating()
+            view.bringSubviewToFront(headerBar)
+            view.bringSubviewToFront(bottomPill)
+            view.bringSubviewToFront(raiseHandBannerStack)
+            view.bringSubviewToFront(voiceReactionOverlay)
         }
     }
 
@@ -2615,9 +2670,7 @@ final class VoiceChannelRoomViewController: ViewController {
         guard #available(iOS 15.0, *) else {
             return
         }
-        guard callPiPController == nil else {
-            return
-        }
+        tearDownCallPiP()
         guard let (sourceView, contentVC, pip) = VoiceCallSystemPiPFactory.make(sourceSuperview: view, context: context, clanId: channel.clanID) else {
             return
         }
@@ -2654,7 +2707,9 @@ final class VoiceChannelRoomViewController: ViewController {
         guard let pip = callPiPController else {
             return
         }
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.view.window != nil else { return }
+            guard pip === self.callPiPController else { return }
             guard pip.isPictureInPicturePossible else {
                 return
             }
@@ -2670,8 +2725,11 @@ final class VoiceChannelRoomViewController: ViewController {
             NotificationCenter.default.removeObserver(obs)
             callPiPBackgroundObserver = nil
         }
-        callPiPController?.stopPictureInPicture()
-        callPiPController?.delegate = nil
+        let pip = callPiPController
+        if pip?.isPictureInPictureActive == true {
+            pip?.stopPictureInPicture()
+        }
+        pip?.delegate = nil
         callPiPController = nil
         callPiPVideoView.track = nil
         callPiPVideoView.removeFromSuperview()
@@ -3194,20 +3252,20 @@ final class VoiceChannelRoomViewController: ViewController {
                     title: NSLocalizedString("voiceChannel.disconnectTitle", tableName: nil, bundle: .main, value: "Voice call ended", comment: ""),
                     message: message
                 ) { [weak self] in
-                    self?.navigationController?.popViewController(animated: true)
+                    self?.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
                 }
             case .cancelled:
-                navigationController?.popViewController(animated: true)
+                popVoiceRoomOrAlignHomeAfterCrossClanVoice()
             default:
                 presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
                     message: lk.localizedDescription
                 ) { [weak self] in
-                    self?.navigationController?.popViewController(animated: true)
+                    self?.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
                 }
             }
         } else {
-            navigationController?.popViewController(animated: true)
+            popVoiceRoomOrAlignHomeAfterCrossClanVoice()
         }
     }
 
@@ -3718,6 +3776,7 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
         failedToStartPictureInPictureWithError error: Error
     ) {
         guard pictureInPictureController === callPiPController else { return }
+        tearDownCallPiP()
     }
 
     func pictureInPictureController(

@@ -139,6 +139,27 @@ struct MezonSession: Codable {
         self.idToken = idToken
         self.isRemember = isRemember
     }
+
+    func withIdToken(_ newIdToken: String?) -> MezonSession {
+        MezonSession(
+            token: token,
+            refreshToken: refreshToken,
+            expiresAt: expiresAt,
+            created: created,
+            apiURL: apiURL,
+            wsURL: wsURL,
+            userId: userId,
+            username: username,
+            idToken: newIdToken,
+            isRemember: isRemember
+        )
+    }
+
+    func mergedPreservingIdToken(from previous: MezonSession) -> MezonSession {
+        if let id = idToken, !id.isEmpty { return self }
+        if let p = previous.idToken, !p.isEmpty { return withIdToken(p) }
+        return self
+    }
 }
 
 struct OTPRequestResponse: Decodable {
@@ -152,10 +173,78 @@ struct OTPRequestResponse: Decodable {
 enum SessionStore {
     private static let service = "mezon.session.store"
     private static let sessionAccount = "mezon.session"
+    private static let idTokenBackupAccount = "mezon.session.id_token_backup"
     private static let configKey = "mezon.config"
 
+    private struct IdTokenBackupPayload: Codable {
+        let userId: String
+        let idToken: String
+    }
+
+    private static func idTokenBackupQuery() -> [CFString: Any] {
+        [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: idTokenBackupAccount,
+        ]
+    }
+
+    private static func loadIdTokenBackup() -> IdTokenBackupPayload? {
+        var q = idTokenBackupQuery()
+        q[kSecReturnData] = true
+        q[kSecMatchLimit] = kSecMatchLimitOne
+        var result: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let payload = try? JSONDecoder().decode(IdTokenBackupPayload.self, from: data)
+        else { return nil }
+        return payload
+    }
+
+    private static func persistIdTokenBackup(_ payload: IdTokenBackupPayload) {
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        SecItemDelete(idTokenBackupQuery() as CFDictionary)
+        let add: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: idTokenBackupAccount,
+            kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    private static func clearIdTokenBackup() {
+        SecItemDelete(idTokenBackupQuery() as CFDictionary)
+    }
+
+    private static func syncIdTokenBackup(for session: MezonSession) {
+        if let existing = loadIdTokenBackup(),
+           let uid = session.userId,
+           !uid.isEmpty,
+           existing.userId != uid {
+            clearIdTokenBackup()
+        }
+        if let id = session.idToken, !id.isEmpty,
+           let uid = session.userId, !uid.isEmpty {
+            persistIdTokenBackup(IdTokenBackupPayload(userId: uid, idToken: id))
+        }
+    }
+
+    static func applyIdTokenFallback(_ session: MezonSession) -> MezonSession {
+        if let id = session.idToken, !id.isEmpty { return session }
+        guard let uid = session.userId, !uid.isEmpty,
+              let backup = loadIdTokenBackup(),
+              backup.userId == uid,
+              !backup.idToken.isEmpty
+        else { return session }
+        return session.withIdToken(backup.idToken)
+    }
+
     static func save(_ session: MezonSession) {
-        guard let data = try? JSONEncoder().encode(session) else { return }
+        let sessionToStore = applyIdTokenFallback(session)
+        syncIdTokenBackup(for: sessionToStore)
+        guard let data = try? JSONEncoder().encode(sessionToStore) else { return }
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -171,7 +260,7 @@ enum SessionStore {
         ]
         SecItemAdd(addQuery as CFDictionary, nil)
 
-        if let apiURL = session.apiURL, let wsURL = session.wsURL {
+        if let apiURL = sessionToStore.apiURL, let wsURL = sessionToStore.wsURL {
             let config: [String: String] = ["api_url": apiURL, "ws_url": wsURL]
             UserDefaults.standard.set(config, forKey: configKey)
         }
@@ -189,11 +278,13 @@ enum SessionStore {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecSuccess,
            let data = result as? Data,
-           let session = try? JSONDecoder().decode(MezonSession.self, from: data) {
+           var session = try? JSONDecoder().decode(MezonSession.self, from: data) {
+            session = applyIdTokenFallback(session)
             return session
         }
         if let data = UserDefaults.standard.data(forKey: "mezon.session"),
-           let session = try? JSONDecoder().decode(MezonSession.self, from: data) {
+           var session = try? JSONDecoder().decode(MezonSession.self, from: data) {
+            session = applyIdTokenFallback(session)
             save(session)
             UserDefaults.standard.removeObject(forKey: "mezon.session")
             return session
@@ -208,6 +299,7 @@ enum SessionStore {
             kSecAttrAccount: sessionAccount,
         ]
         SecItemDelete(query as CFDictionary)
+        clearIdTokenBackup()
         UserDefaults.standard.removeObject(forKey: "mezon.session")
         UserDefaults.standard.removeObject(forKey: configKey)
     }

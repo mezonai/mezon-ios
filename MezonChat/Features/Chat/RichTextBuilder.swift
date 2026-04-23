@@ -25,6 +25,16 @@ enum RichTextSegment {
 
 enum RichTextBuilder {
 
+    private static func localizedPrivateChannelHashtagLabel() -> String {
+        NSLocalizedString(
+            "chat.hashtag.privateChannel",
+            tableName: nil,
+            bundle: .main,
+            value: "private-channel",
+            comment: ""
+        )
+    }
+
     struct Style {
         let bodyFont: UIFont
         let bodyColor: UIColor
@@ -100,7 +110,12 @@ enum RichTextBuilder {
         }
     }
 
-    static func build(from content: ParsedContent, style: Style? = nil, buzzStyled: Bool = false) -> NSAttributedString {
+    static func build(
+        from content: ParsedContent,
+        style: Style? = nil,
+        buzzStyled: Bool = false,
+        hashtagChannelAccess: ((String, String?) -> Bool)? = nil
+    ) -> NSAttributedString {
         var s = style ?? .fromTheme()
         if content.isOnlyEmoji {
             s = Style(
@@ -136,11 +151,15 @@ enum RichTextBuilder {
         if hasCodeBlock {
             return buildAttributedStringTokenWalk(
                 text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s,
-                lineHeadingLevel: nil, lineBodyFont: nil, lineMentionFont: nil
+                lineHeadingLevel: nil, lineBodyFont: nil, lineMentionFont: nil,
+                hashtagChannelAccess: hashtagChannelAccess,
+                buzzStyled: buzzStyled
             )
         }
         return buildAttributedStringWithLineWiseHeadings(
-            text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s
+            text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s,
+            hashtagChannelAccess: hashtagChannelAccess,
+            buzzStyled: buzzStyled
         )
     }
 
@@ -148,7 +167,9 @@ enum RichTextBuilder {
         text: String,
         sortedTokens: [ContentToken],
         utf16Len: Int,
-        style s: Style
+        style s: Style,
+        hashtagChannelAccess: ((String, String?) -> Bool)?,
+        buzzStyled: Bool
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
         let ns = text as NSString
@@ -173,7 +194,9 @@ enum RichTextBuilder {
                 lineBodyFont: lineBodyFont,
                 lineMentionFont: lineMentionFont,
                 segmentStartUTF16: contentStart,
-                segmentEndUTF16: lineEnd
+                segmentEndUTF16: lineEnd,
+                hashtagChannelAccess: hashtagChannelAccess,
+                buzzStyled: buzzStyled
             )
             result.append(lineAttr)
             if lineEnd < utf16Len {
@@ -220,7 +243,9 @@ enum RichTextBuilder {
         lineBodyFont: UIFont?,
         lineMentionFont: UIFont?,
         segmentStartUTF16: Int = 0,
-        segmentEndUTF16: Int? = nil
+        segmentEndUTF16: Int? = nil,
+        hashtagChannelAccess: ((String, String?) -> Bool)? = nil,
+        buzzStyled: Bool = false
     ) -> NSAttributedString {
         let endCap = segmentEndUTF16 ?? utf16Len
         let tokensInSegment = sortedTokens.filter { $0.start >= segmentStartUTF16 && $0.end <= endCap && $0.start < endCap }
@@ -274,27 +299,91 @@ enum RichTextBuilder {
                 let chType = channelType ?? MezonConstants.ChannelType.channel.rawValue
                 let chPriv = channelPrivate ?? 0
                 let chAge = ageRestricted ?? 0
-                let iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
-                    type: chType, channelPrivate: chPriv, ageRestricted: chAge
-                )
-                let namePart: String
-                if let label = channelLabel, !label.isEmpty {
-                    namePart = label.hasPrefix("#") ? String(label.dropFirst()) : label
-                } else if rawText.isEmpty {
-                    namePart = "channel"
+                let cid = channelId ?? ""
+                let gidForAccess = (clanId ?? "").isEmpty ? nil : clanId
+                let accessible = !cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? true)
+                let iconName: String
+                if accessible {
+                    iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                        type: chType, channelPrivate: chPriv, ageRestricted: chAge
+                    )
                 } else {
-                    namePart = rawText.hasPrefix("#") ? String(rawText.dropFirst()) : rawText
+                    iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                        type: MezonConstants.ChannelType.channel.rawValue, channelPrivate: 1, ageRestricted: 0
+                    )
+                }
+                let namePart: String
+                if accessible {
+                    if let label = channelLabel, !label.isEmpty {
+                        namePart = label.hasPrefix("#") ? String(label.dropFirst()) : label
+                    } else if rawText.isEmpty {
+                        namePart = "channel"
+                    } else {
+                        namePart = rawText.hasPrefix("#") ? String(rawText.dropFirst()) : rawText
+                    }
+                } else {
+                    namePart = Self.localizedPrivateChannelHashtagLabel()
                 }
                 let tagFont = lineMentionFont ?? s.mentionFont
+                let t = UIColor.theme
+                let inaccessibleFg: UIColor = buzzStyled ? s.bodyColor.withAlphaComponent(0.55) : t.textDisabled
+                let inaccessibleBg: UIColor = buzzStyled ? s.codeBgColor.withAlphaComponent(0.45) : t.tertiary
+                let fg = accessible ? s.mentionColor : inaccessibleFg
+                let bg = accessible ? s.mentionBgColor : inaccessibleBg
                 var tagAttrs = bodyAttributes(s)
                 tagAttrs[.font] = tagFont
-                tagAttrs[.foregroundColor] = s.mentionColor
-                tagAttrs[.backgroundColor] = s.mentionBgColor
-                tagAttrs[.mezonHashtag] = [
-                    "c": channelId ?? "",
-                    "g": clanId ?? "",
-                ] as NSDictionary
-                if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: s.mentionColor, font: tagFont) {
+                tagAttrs[.foregroundColor] = fg
+                tagAttrs[.backgroundColor] = bg
+                if accessible {
+                    tagAttrs[.mezonHashtag] = [
+                        "c": cid,
+                        "g": clanId ?? "",
+                    ] as NSDictionary
+                }
+                if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: fg, font: tagFont) {
+                    let iconStr = NSMutableAttributedString(attachment: att)
+                    iconStr.addAttributes(tagAttrs, range: NSRange(location: 0, length: iconStr.length))
+                    result.append(iconStr)
+                    result.append(NSAttributedString(string: "\u{2009}", attributes: tagAttrs))
+                    result.append(NSAttributedString(string: namePart, attributes: tagAttrs))
+                } else {
+                    result.append(NSAttributedString(string: "#\(namePart)", attributes: tagAttrs))
+                }
+
+            case .mezonChannelLink(let isVk, let channelId, let clanId):
+                let gidForAccess = clanId.isEmpty ? nil : clanId
+                let accessible = !channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? true)
+                let chType: Int32 = isVk ? MezonConstants.ChannelType.mezonVoice.rawValue : MezonConstants.ChannelType.channel.rawValue
+                let iconName: String
+                if accessible {
+                    iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                        type: chType, channelPrivate: 0, ageRestricted: 0
+                    )
+                } else {
+                    iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
+                        type: MezonConstants.ChannelType.channel.rawValue, channelPrivate: 1, ageRestricted: 0
+                    )
+                }
+                let namePart = accessible
+                    ? (isVk ? "Voice" : "Channel")
+                    : Self.localizedPrivateChannelHashtagLabel()
+                let tagFont = lineMentionFont ?? s.mentionFont
+                let t = UIColor.theme
+                let inaccessibleFg: UIColor = buzzStyled ? s.bodyColor.withAlphaComponent(0.55) : t.textDisabled
+                let inaccessibleBg: UIColor = buzzStyled ? s.codeBgColor.withAlphaComponent(0.45) : t.tertiary
+                let fg = accessible ? s.mentionColor : inaccessibleFg
+                let bg = accessible ? s.mentionBgColor : inaccessibleBg
+                var tagAttrs = bodyAttributes(s)
+                tagAttrs[.font] = tagFont
+                tagAttrs[.foregroundColor] = fg
+                tagAttrs[.backgroundColor] = bg
+                if accessible {
+                    tagAttrs[.mezonHashtag] = [
+                        "c": channelId,
+                        "g": clanId,
+                    ] as NSDictionary
+                }
+                if let att = RichTextBuilder.hashtagIconAttachment(named: iconName, tint: fg, font: tagFont) {
                     let iconStr = NSMutableAttributedString(attachment: att)
                     iconStr.addAttributes(tagAttrs, range: NSRange(location: 0, length: iconStr.length))
                     result.append(iconStr)
@@ -370,7 +459,12 @@ enum RichTextBuilder {
         return result
     }
 
-    static func buildSegments(from content: ParsedContent, style: Style? = nil, buzzStyled: Bool = false) -> [RichTextSegment] {
+    static func buildSegments(
+        from content: ParsedContent,
+        style: Style? = nil,
+        buzzStyled: Bool = false,
+        hashtagChannelAccess: ((String, String?) -> Bool)? = nil
+    ) -> [RichTextSegment] {
         var s = style ?? .fromTheme()
         if buzzStyled {
             s = Style.buzz(from: s)
@@ -384,7 +478,7 @@ enum RichTextBuilder {
             .sorted { $0.start < $1.start }
 
         guard !codeBlockTokens.isEmpty else {
-            return [.text(build(from: content, style: s, buzzStyled: false))]
+            return [.text(build(from: content, style: s, buzzStyled: false, hashtagChannelAccess: hashtagChannelAccess))]
         }
 
         var segments: [RichTextSegment] = []
@@ -395,7 +489,7 @@ enum RichTextBuilder {
         for token in codeBlockTokens {
             if token.start > lastIndex {
                 let beforeContent = sliceContent(content, from: lastIndex, to: token.start)
-                let attrText = build(from: beforeContent, style: s, buzzStyled: false)
+                let attrText = build(from: beforeContent, style: s, buzzStyled: false, hashtagChannelAccess: hashtagChannelAccess)
                 if attrText.length > 0 {
                     segments.append(.text(attrText))
                 }
@@ -421,7 +515,7 @@ enum RichTextBuilder {
 
         if lastIndex < utf16Len {
             let afterContent = sliceContent(content, from: lastIndex, to: utf16Len)
-            let attrText = build(from: afterContent, style: s, buzzStyled: false)
+            let attrText = build(from: afterContent, style: s, buzzStyled: false, hashtagChannelAccess: hashtagChannelAccess)
             if attrText.length > 0 {
                 segments.append(.text(attrText))
             }
@@ -453,7 +547,7 @@ enum RichTextBuilder {
         ]
     }
 
-    private static func hashtagIconAttachment(named assetName: String, tint: UIColor, font: UIFont) -> NSTextAttachment? {
+    static func hashtagIconAttachment(named assetName: String, tint: UIColor, font: UIFont) -> NSTextAttachment? {
         let side = max(ceil(font.capHeight), 12)
         let raw = UIImage(named: assetName) ?? UIImage(systemName: "speaker.wave.2.fill")
         guard let base = raw else { return nil }

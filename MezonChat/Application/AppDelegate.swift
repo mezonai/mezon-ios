@@ -144,6 +144,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         DispatchQueue.main.async {
             ThemeManager.shared.applyStatusBarStyle()
         }
+        AppUpdateGate.scheduleVersionCheckIfNeeded(mainWindow: mainWindow)
     }
 
     private func requestNotificationPermission() {
@@ -338,6 +339,7 @@ extension Notification.Name {
     static let mezonQRNavigateToDM = Notification.Name("MezonQRNavigateToDM")
     static let mezonDidReceiveSharedContent = Notification.Name("MezonDidReceiveSharedContent")
     static let mezonVoicePresenceChanged = Notification.Name("MezonVoicePresenceChanged")
+    static let mezonAlignHomeAfterCrossClanVoice = Notification.Name("MezonAlignHomeAfterCrossClanVoice")
 }
 
 extension AppDelegate: MessagingDelegate {

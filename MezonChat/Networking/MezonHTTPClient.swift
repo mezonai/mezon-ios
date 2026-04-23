@@ -116,15 +116,27 @@ final class MezonHTTPClient {
         )
     }
 
-    func confirmLogin(loginId: String, token: String) async throws -> MezonSession {
+    @discardableResult
+    func confirmLogin(loginId: String, token: String) async throws -> MezonSession? {
         struct Body: Encodable {
             let login_id: String
         }
-        return try await post(
+        let request = try buildRequest(
+            method: "POST",
             path: "/v2/account/authenticate/confirmlogin",
+            queryItems: [],
             body: Body(login_id: loginId),
             auth: .bearer(token)
         )
+        let (data, response) = try await urlSession.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        if (200..<300).contains(http.statusCode) {
+            if data.isEmpty { return nil }
+            return try? JSONDecoder().decode(MezonSession.self, from: data)
+        }
+        let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+            ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
     func getAccount(token: String) async throws -> Mezon_Api_Account {
@@ -727,6 +739,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func addChannelUsers(channelId: Int64, userIds: [Int64], token: String) async throws {
+        var req = Mezon_Api_AddChannelUsersRequest()
+        req.channelID = channelId
+        req.userIds = userIds
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/AddChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func isBanned(channelId: Int64, token: String) async throws -> Mezon_Api_IsBannedResponse {
         var req = Mezon_Api_IsBannedRequest()
         req.channelID = channelId
@@ -1112,6 +1135,17 @@ final class MezonHTTPClient {
         req.messageID = messageId
         return try await postProto(
             path: "/mezon.api.Mezon/CreatePinMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func reportMessageAbuse(messageId: Int64, abuseType: String, token: String) async throws {
+        var req = Mezon_Api_ReportMessageAbuseReqest()
+        req.messageID = messageId
+        req.abuseType = abuseType
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/ReportMessageAbuse",
             message: req,
             auth: .bearer(token)
         )

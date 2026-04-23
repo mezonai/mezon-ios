@@ -4,7 +4,6 @@ import AVFoundation
 
 class ShareViewController: UIViewController {
 
-    private let hostAppBundleIdentifier = "mezon.mobile"
     private let shareProtocol = "mezon.mobile.sharing"
     private let sharedKey = "mezon.mobile.sharing"
     private let appGroupIdentifier = "group.mezon.mobile"
@@ -16,57 +15,41 @@ class ShareViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        NSLog("[MezonSharing] viewDidLoad called")
         view.backgroundColor = UIColor.black.withAlphaComponent(0.3)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        NSLog("[MezonSharing] viewDidAppear - starting processInputItems")
         processInputItems()
     }
 
     private func processInputItems() {
         guard let extensionItems = extensionContext?.inputItems as? [NSExtensionItem] else {
-            NSLog("[MezonSharing] ERROR: No extensionContext or inputItems")
             dismissWithError(message: "No content to share")
             return
         }
 
-        NSLog("[MezonSharing] Found %d extension items", extensionItems.count)
-
         guard let extensionItem = extensionItems.first,
               let attachments = extensionItem.attachments, !attachments.isEmpty else {
-            NSLog("[MezonSharing] ERROR: No attachments found")
             dismissWithError(message: "No content to share")
             return
         }
 
         pendingItems = attachments.count
         processedItems = 0
-        NSLog("[MezonSharing] Processing %d attachments", pendingItems)
 
         for (index, attachment) in attachments.enumerated() {
-            let identifiers = attachment.registeredTypeIdentifiers
-            NSLog("[MezonSharing] Attachment %d types: %@", index, identifiers.joined(separator: ", "))
-
             if attachment.hasItemConformingToTypeIdentifier(kUTTypeImage as String) {
-                NSLog("[MezonSharing] Handling as IMAGE")
                 handleImages(attachment: attachment, index: index)
             } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeMovie as String) {
-                NSLog("[MezonSharing] Handling as VIDEO")
                 handleVideos(attachment: attachment, index: index)
             } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeFileURL as String) {
-                NSLog("[MezonSharing] Handling as FILE")
                 handleFiles(attachment: attachment, index: index)
             } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeURL as String) {
-                NSLog("[MezonSharing] Handling as URL")
                 handleUrl(attachment: attachment, index: index)
             } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeText as String) {
-                NSLog("[MezonSharing] Handling as TEXT")
                 handleText(attachment: attachment, index: index)
             } else {
-                NSLog("[MezonSharing] SKIP: Unsupported type")
                 itemProcessed()
             }
         }
@@ -76,27 +59,21 @@ class ShareViewController: UIViewController {
         attachment.loadItem(forTypeIdentifier: kUTTypeImage as String, options: nil) { [weak self] data, error in
             guard let self = self else { return }
 
-            if let error = error {
-                NSLog("[MezonSharing] Image load error: %@", error.localizedDescription)
+            if error != nil {
                 self.itemProcessed()
                 return
             }
 
             var url: URL?
             if let dataURL = data as? URL {
-                NSLog("[MezonSharing] Image loaded as URL: %@", dataURL.absoluteString)
                 url = dataURL
             } else if let image = data as? UIImage {
-                NSLog("[MezonSharing] Image loaded as UIImage, saving screenshot")
                 url = self.saveScreenshot(image)
             } else if let imageData = data as? Data, let image = UIImage(data: imageData) {
-                NSLog("[MezonSharing] Image loaded as Data (%d bytes), saving", imageData.count)
                 url = self.saveScreenshot(image)
             } else {
-                NSLog("[MezonSharing] Image loaded as unknown type: %@, trying Data fallback", String(describing: type(of: data)))
                 attachment.loadDataRepresentation(forTypeIdentifier: kUTTypeImage as String) { rawData, rawError in
                     if let rawData = rawData, let image = UIImage(data: rawData) {
-                        NSLog("[MezonSharing] Fallback: loaded image from raw data (%d bytes)", rawData.count)
                         let savedURL = self.saveScreenshot(image)
                         if let savedURL = savedURL {
                             self.sharedMedia.append(SharedMediaFile(
@@ -106,8 +83,6 @@ class ShareViewController: UIViewController {
                                 type: .image
                             ))
                         }
-                    } else {
-                        NSLog("[MezonSharing] Fallback failed: %@", rawError?.localizedDescription ?? "unknown")
                     }
                     self.itemProcessed()
                 }
@@ -115,7 +90,6 @@ class ShareViewController: UIViewController {
             }
 
             guard let sourceURL = url else {
-                NSLog("[MezonSharing] ERROR: No source URL for image")
                 self.itemProcessed()
                 return
             }
@@ -123,13 +97,11 @@ class ShareViewController: UIViewController {
             let fileExtension = self.getExtension(from: sourceURL, type: .image)
             let newName = UUID().uuidString
             guard let newPath = self.sharedContainerURL()?.appendingPathComponent("\(newName).\(fileExtension)") else {
-                NSLog("[MezonSharing] ERROR: Cannot create shared container path")
                 self.itemProcessed()
                 return
             }
 
             if self.copyFile(at: sourceURL, to: newPath) {
-                NSLog("[MezonSharing] Image copied to: %@", newPath.absoluteString)
                 self.sharedMedia.append(SharedMediaFile(
                     path: newPath.absoluteString,
                     thumbnail: nil,
@@ -145,7 +117,6 @@ class ShareViewController: UIViewController {
     private func handleVideos(attachment: NSItemProvider, index: Int) {
         attachment.loadItem(forTypeIdentifier: kUTTypeMovie as String, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let url = data as? URL else {
-                NSLog("[MezonSharing] Video load error: %@", error?.localizedDescription ?? "unknown")
                 self?.itemProcessed()
                 return
             }
@@ -170,7 +141,6 @@ class ShareViewController: UIViewController {
     private func handleFiles(attachment: NSItemProvider, index: Int) {
         attachment.loadItem(forTypeIdentifier: kUTTypeFileURL as String, options: nil) { [weak self] data, error in
             guard let self = self, error == nil, let url = data as? URL else {
-                NSLog("[MezonSharing] File load error: %@", error?.localizedDescription ?? "unknown")
                 self?.itemProcessed()
                 return
             }
@@ -220,7 +190,6 @@ class ShareViewController: UIViewController {
 
     private func itemProcessed() {
         processedItems += 1
-        NSLog("[MezonSharing] Item processed: %d/%d", processedItems, pendingItems)
         if processedItems >= pendingItems {
             DispatchQueue.main.async { [weak self] in
                 self?.saveAndRedirect()
@@ -229,10 +198,8 @@ class ShareViewController: UIViewController {
     }
 
     private func saveAndRedirect() {
-        NSLog("[MezonSharing] saveAndRedirect - media: %d, text: %d", sharedMedia.count, sharedText.count)
 
         guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            NSLog("[MezonSharing] ERROR: Cannot access UserDefaults for group: %@", appGroupIdentifier)
             dismissWithError(message: "Cannot access shared storage")
             return
         }
@@ -241,35 +208,27 @@ class ShareViewController: UIViewController {
             let encodedData = try? JSONEncoder().encode(sharedMedia)
             userDefaults.set(encodedData, forKey: sharedKey)
             userDefaults.synchronize()
-            NSLog("[MezonSharing] Saved %d media items to UserDefaults", sharedMedia.count)
             redirectToHostApp(type: .media)
         } else if !sharedText.isEmpty {
             userDefaults.set(sharedText, forKey: sharedKey)
             userDefaults.synchronize()
-            NSLog("[MezonSharing] Saved %d text items to UserDefaults", sharedText.count)
             redirectToHostApp(type: .text)
         } else {
-            NSLog("[MezonSharing] ERROR: No content to save")
             dismissWithError(message: "No supported content found")
         }
     }
 
     private func redirectToHostApp(type: RedirectType) {
         guard let url = URL(string: "\(shareProtocol)://dataUrl=\(sharedKey)#\(type)") else {
-            NSLog("[MezonSharing] ERROR: Cannot create URL")
             dismissWithError(message: "Failed to create redirect URL")
             return
         }
-
-        NSLog("[MezonSharing] Redirecting to host app with URL: %@", url.absoluteString)
 
         openURLViaApplication(url)
     }
 
     private func openURLViaApplication(_ url: URL) {
-        NSLog("[MezonSharing] Calling OpenURLHelper.openURL via ObjC")
-        OpenURLHelper.open(url) { [weak self] success in
-            NSLog("[MezonSharing] OpenURLHelper result: %d", success)
+        OpenURLHelper.open(url) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.completeExtension()
             }
@@ -277,15 +236,11 @@ class ShareViewController: UIViewController {
     }
 
     private func completeExtension() {
-        NSLog("[MezonSharing] completeExtension called")
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 
     private func sharedContainerURL() -> URL? {
         let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
-        if url == nil {
-            NSLog("[MezonSharing] ERROR: sharedContainerURL is nil for group: %@", appGroupIdentifier)
-        }
         return url
     }
 
@@ -325,7 +280,6 @@ class ShareViewController: UIViewController {
             try FileManager.default.copyItem(at: srcURL, to: dstURL)
             return true
         } catch {
-            NSLog("[MezonSharing] Cannot copy item at %@ to %@: %@", srcURL.absoluteString, dstURL.absoluteString, error.localizedDescription)
             return false
         }
     }
@@ -348,7 +302,6 @@ class ShareViewController: UIViewController {
             try UIImage(cgImage: img).pngData()?.write(to: thumbnailPath)
             return SharedMediaFile(path: videoURL.absoluteString, thumbnail: thumbnailPath.absoluteString, duration: duration, type: .video)
         } catch {
-            NSLog("[MezonSharing] Failed to generate video thumbnail: %@", error.localizedDescription)
             return SharedMediaFile(path: videoURL.absoluteString, thumbnail: nil, duration: duration, type: .video)
         }
     }
@@ -359,7 +312,6 @@ class ShareViewController: UIViewController {
     }
 
     private func dismissWithError(message: String) {
-        NSLog("[MezonSharing] dismissWithError: %@", message)
         let alert = UIAlertController(title: "Error", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .cancel) { [weak self] _ in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
