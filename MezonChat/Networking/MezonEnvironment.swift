@@ -137,6 +137,14 @@ enum MezonEnvironment {
         }
     }
 
+    var zkAPIURL: URL {
+        if let s = Self.infoPlistString("MEZON_ZK_API_URL"), let u = URL(string: s) { return u }
+        switch self {
+        case .dev:  return URL(string: "https://dong.mezon.ai/zk-api/")!
+        case .prod: return URL(string: "https://dong.mezon.ai/zk-api/")!
+        }
+    }
+
     var meetWebSocketURLString: String {
         if let override = Self.infoPlistString("MEET_WS_URL"), !override.isEmpty {
             return override

@@ -46,6 +46,7 @@ struct ChatInteraction {
     let onSwipeReply: (ChatMessageDisplay) -> Void
     let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
     let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void
+    let onSendTokenLogTapped: () -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -300,13 +301,6 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     static let unreadLineId = "__unread_line__"
-    static let bottomLoaderId = "__bottom_loader__"
-
-    private static func shouldShowBottomMessageLoader(_ state: ChatState) -> Bool {
-        guard !state.messages.isEmpty else { return false }
-        return state.isLoadingMessageContext
-    }
-
     private func buildIds(from state: ChatState) -> [String] {
         let messages = state.messages
         let lastSeenId = state.lastSeenMessageId
@@ -320,9 +314,6 @@ final class ChatContainerNode: ASDisplayNode {
                messages.count > 2 {
                 ids.append(Self.unreadLineId)
             }
-        }
-        if Self.shouldShowBottomMessageLoader(state) {
-            ids.insert(Self.bottomLoaderId, at: 0)
         }
         return ids
     }
@@ -352,9 +343,6 @@ final class ChatContainerNode: ASDisplayNode {
                 items.append(ChatNewMessageLineItem())
             }
         }
-        if Self.shouldShowBottomMessageLoader(state) {
-            items.insert(ChatBottomLoaderItem(), at: 0)
-        }
         return items
     }
 
@@ -374,16 +362,12 @@ final class ChatContainerNode: ASDisplayNode {
 
         committedMessageIds = Array(newIds)
 
-        let scrollToLoader: ListViewScrollToItem? = Self.shouldShowBottomMessageLoader(state)
-            ? ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
-            : nil
-
         listView.transaction(
             deleteIndices: deleteItems,
             insertIndicesAndItems: insertItems,
             updateIndicesAndItems: [],
             options: [.Synchronous, .LowLatency],
-            scrollToItem: scrollToLoader,
+            scrollToItem: nil,
             updateOpaqueState: nil,
             completion: { _ in }
         )
@@ -476,27 +460,18 @@ final class ChatContainerNode: ASDisplayNode {
             || new.isLoadingMore || new.isLoadingNewer
             || old.isLoadingMessageContext || new.isLoadingMessageContext
 
-        let onlyAddedBottomLoader = removedIds.isEmpty && addedIds.count == 1 && addedIds.contains(Self.bottomLoaderId)
-        let onlyRemovedBottomLoader = addedIds.isEmpty && removedIds.count == 1 && removedIds.contains(Self.bottomLoaderId)
-
         let newestMessageIsMe: Bool = {
             guard hasNewAtBottom else { return false }
             return new.messages.last?.isMe == true
         }()
 
         var scrollToItem: ListViewScrollToItem?
-        if onlyAddedBottomLoader && (isAtBottom || newestMessageIsMe) {
-            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
-        } else if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
+        if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }
 
-        var transactionOptions: ListViewDeleteAndInsertOptions = [.Synchronous, .LowLatency]
-        if onlyAddedBottomLoader || onlyRemovedBottomLoader {
-            transactionOptions.insert(.AnimateInsertion)
-            transactionOptions.insert(.AnimateAlpha)
-        }
+        let transactionOptions: ListViewDeleteAndInsertOptions = [.Synchronous, .LowLatency]
 
         listView.transaction(
             deleteIndices: deleteItems,

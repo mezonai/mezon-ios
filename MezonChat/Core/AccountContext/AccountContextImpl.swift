@@ -236,6 +236,7 @@ final class AccountContextImpl: AccountContext {
             Task { try? await engine.auth.sessionLogout(session: s, deviceId: deviceId, platform: "ios") }
         }
         SessionStore.clear()
+        MmnWalletStore.shared.clear()
         SessionRefreshManager.shared.reset()
         session = nil
         currentUser = nil
@@ -275,7 +276,14 @@ final class AccountContextImpl: AccountContext {
     func refreshSession() async throws {
         guard let current = session else { throw SessionError.noSession }
         let new = try await engine.auth.sessionRefresh(session: current)
-        applySession(new, user: currentUser, connectSocket: false, fetchAccount: false)
+        let merged = mergeIdToken(into: new, previous: current)
+        MmnDebugLog.line("refreshSession applied idToken.len=\(merged.idToken?.count ?? 0) (server=\(new.idToken?.count ?? 0), prev=\(current.idToken?.count ?? 0))")
+        applySession(merged, user: currentUser, connectSocket: false, fetchAccount: false)
+    }
+
+    private func mergeIdToken(into newSession: MezonSession, previous: MezonSession?) -> MezonSession {
+        let merged = previous.map { newSession.mergedPreservingIdToken(from: $0) } ?? newSession
+        return SessionStore.applyIdTokenFallback(merged)
     }
 
     private var lastRecoverTime: Date?
@@ -360,7 +368,9 @@ final class AccountContextImpl: AccountContext {
             session: saved,
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
-                self.applySession(newSession, user: self.currentUser, connectSocket: true)
+                let merged = self.mergeIdToken(into: newSession, previous: saved)
+                MmnDebugLog.line("restoreAndRefreshSession applied idToken.len=\(merged.idToken?.count ?? 0) (server=\(newSession.idToken?.count ?? 0), prev=\(saved.idToken?.count ?? 0))")
+                self.applySession(merged, user: self.currentUser, connectSocket: true)
                 self.registerFCMTokenIfNeeded()
                 self.markSessionReady()
             },
@@ -384,6 +394,9 @@ final class AccountContextImpl: AccountContext {
     ) {
         self.session = session
         SessionStore.save(session)
+        if let uid = session.userId, !uid.isEmpty {
+            MmnWalletStore.shared.bind(userId: uid)
+        }
         account.network.updateBaseURL(from: session)
 
         account.network.bearerUnauthorizedRecovery = { [weak self] in

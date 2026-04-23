@@ -143,6 +143,8 @@ struct ChatMessageDisplay: Identifiable {
     let clanInviteLinkCode: String?
     var isFailed: Bool { sendingState == .failed }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
+    var isSendTokenLog: Bool { messageCode == MezonConstants.MessageCode.sendToken.rawValue }
+    var isPollMessage: Bool { messageCode == MezonConstants.MessageCode.poll.rawValue }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
@@ -520,6 +522,11 @@ final class ChatViewController: ViewController {
                         }
                     }
                 }
+            },
+            onSendTokenLogTapped: { [weak self] in
+                guard let self else { return }
+                let vc = QRScannerViewController(context: self.context)
+                self.navigationController?.pushViewController(vc, animated: true)
             },
             onMessagesReloaded: nil
         )
@@ -1465,6 +1472,14 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private func isSenderCurrentUser(senderId: String, currentUserId: String?) -> Bool {
+        guard let currentUserId, !currentUserId.isEmpty else { return false }
+        let s = senderId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let c = currentUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s == c { return true }
+        if let a = Int64(s), let b = Int64(c), a == b { return true }
+        return false
+    }
 
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
@@ -1537,7 +1552,7 @@ final class ChatViewController: ViewController {
                 || (record.senderId == "0" && bodyEmpty && senderLabel == "system")
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
-            let isMe = currentUserId != nil && record.senderId == currentUserId
+            let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
             let hasMention = Self.checkIncludeMention(
                 mentionsData: record.mentionsJSON,
                 referencesData: record.referencesData,
@@ -2120,17 +2135,70 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
     }
 
+    private func layoutTransitionMatchingKeyboard(_ notification: Notification) -> ContainedViewLayoutTransition {
+        let rawDuration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
+        let duration = rawDuration > 0.01 ? rawDuration : 0.25
+        let curveNumber = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 7
+        let curve: ContainedViewLayoutTransitionCurve
+        if curveNumber == 7 {
+            curve = .spring
+        } else if let ac = UIView.AnimationCurve(rawValue: Int(curveNumber)) {
+            switch ac {
+            case .linear:
+                curve = .linear
+            case .easeIn, .easeOut, .easeInOut:
+                curve = .easeInOut
+            @unknown default:
+                curve = .easeInOut
+            }
+        } else {
+            curve = .easeInOut
+        }
+        return .animated(duration: duration, curve: curve)
+    }
+
+    private func runUIViewAnimationMatchingKeyboard(
+        _ notification: Notification,
+        animations: @escaping () -> Void
+    ) {
+        let rawDuration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
+        let duration = rawDuration > 0.01 ? rawDuration : 0.25
+        let c = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.intValue ?? 0
+        let options: UIView.AnimationOptions
+        if c == 7 {
+            options = .curveEaseInOut
+        } else if let ac = UIView.AnimationCurve(rawValue: c) {
+            switch ac {
+            case .easeIn: options = .curveEaseIn
+            case .easeOut: options = .curveEaseOut
+            case .linear: options = .curveLinear
+            case .easeInOut: options = .curveEaseInOut
+            @unknown default: options = .curveEaseInOut
+            }
+        } else {
+            options = .curveEaseInOut
+        }
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            options: options.union([.beginFromCurrentState, .allowUserInteraction]),
+            animations: animations
+        )
+    }
+
     @objc private func keyboardWillShow(_ notification: Notification) {
         isKeyboardVisible = true
         if let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
             trackedKeyboardHeight = frame.height
         }
 
+        let keyTransition = layoutTransitionMatchingKeyboard(notification)
+
         switch emojiPicker.handleKeyboardWillShow() {
         case .searchAbsorbed:
             break
         case .dismissedForKeyboard:
-            UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+            runUIViewAnimationMatchingKeyboard(notification) { self.view.layoutIfNeeded() }
         case .unaffected:
             break
         }
@@ -2140,11 +2208,11 @@ final class ChatViewController: ViewController {
             advancePanelHeightConstraint?.constant = 0
             advancePanelView.isHidden = true
             advancePanelView.resetToCollapsed()
-            UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
+            runUIViewAnimationMatchingKeyboard(notification) { self.view.layoutIfNeeded() }
         }
 
         if let layout = lastLayout {
-            containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
+            containerLayoutUpdated(layout, transition: keyTransition)
         }
     }
 
@@ -2152,10 +2220,15 @@ final class ChatViewController: ViewController {
         isKeyboardVisible = false
         trackedKeyboardHeight = 0
 
+        let keyTransition = layoutTransitionMatchingKeyboard(notification)
 
         emojiPicker.handleKeyboardWillHide()
         if advancePanelCollapsedHeight > 0 && !advancePanelView.isHidden {
             advancePanelView.applySnapCollapsed()
+        }
+
+        if let layout = lastLayout {
+            containerLayoutUpdated(layout, transition: keyTransition)
         }
     }
 
@@ -2260,6 +2333,8 @@ final class ChatViewController: ViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.sendInputViewController.focusTextInput()
             }
+        case "transfer_funds":
+            navigateToTransferFunds()
         default:
             let toast = UILabel()
             toast.text = "  \(item.label.replacingOccurrences(of: "\n", with: " ")) — Coming soon  "
@@ -2286,6 +2361,22 @@ final class ChatViewController: ViewController {
                 }
             }
         }
+    }
+
+    private func navigateToTransferFunds() {
+        view.endEditing(true)
+        sendInputViewController.markAdvancePanelDismissedByHost()
+        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        let payload = TransferQRPayload(
+            receiverUserId: nil,
+            walletAddress: nil,
+            suggestedAmount: nil,
+            note: nil,
+            extraAttribute: nil,
+            receiverDisplayName: nil
+        )
+        let vc = WalletTransferViewController(context: context, payload: payload)
+        navigationController?.pushViewController(vc, animated: true)
     }
 
     private func handleSendLocation() {
@@ -2852,11 +2943,43 @@ final class ChatViewController: ViewController {
     }
 
     private weak var activeActionSheet: MessageActionSheetController?
+    private weak var reportMessageModal: ReportMessageModalController?
+
+    private var isDirectMessageStreamChannel: Bool {
+        channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
+    }
+
+    private func userHasDeleteMessagePermissionInClan() -> Bool {
+        guard clanId != 0 else { return false }
+        guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return false }
+        let maxLevel = roleList.maxLevelPermission
+        guard let allPerms = context.engine.clanData.getAllPermissions() else { return false }
+        guard let perm = allPerms.permissions.first(where: {
+            $0.slug.lowercased().replacingOccurrences(of: "_", with: "-") == "delete-message"
+        }) else { return false }
+        return perm.level <= maxLevel
+    }
+
+    private func messageActionCanShowDelete(for display: ChatMessageDisplay, isOwn: Bool) -> Bool {
+        if isOwn {
+            if display.messageCode == Self.messageCodeTopic { return false }
+            return true
+        }
+        if isDirectMessageStreamChannel { return false }
+        if clanId == 0 { return false }
+        return userHasDeleteMessagePermissionInClan()
+    }
 
     private func showMessageActions(_ display: ChatMessageDisplay) {
         view.endEditing(true)
-        let isOwnMessage = display.message.senderId == context.currentUser?.id
-        let controller = MessageActionSheetController(display: display, isOwnMessage: isOwnMessage) { [weak self] action in
+        let isOwn = isSenderCurrentUser(senderId: display.message.senderId, currentUserId: context.currentUser?.id)
+        let canDelete = messageActionCanShowDelete(for: display, isOwn: isOwn)
+        let controller = MessageActionSheetController(
+            display: display,
+            isOwnMessage: isOwn,
+            canShowDeleteMessage: canDelete
+        ) { [weak self] action in
             self?.handleMessageAction(action, display: display)
         }
         controller.onDismiss = { [weak self] in
@@ -2999,6 +3122,11 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    private func showMessageActionComingSoon(_ action: MessageAction) {
+        let line = "\(action.title) — \(L(L10n.Common.comingSoon))"
+        Toast.comingSoonLine(line)
+    }
+
     private func handleMessageAction(_ action: MessageAction, display: ChatMessageDisplay) {
         switch action {
         case .reply:
@@ -3039,7 +3167,7 @@ final class ChatViewController: ViewController {
         case .pinMessage:
             showPinMessageConfirm(display: display)
         case .forward, .forwardMessage:
-            break
+            showMessageActionComingSoon(.forwardMessage)
         case .resend:
             let msgId = display.message.id
             let text = display.parsedContent.text
@@ -3049,22 +3177,90 @@ final class ChatViewController: ViewController {
                 sendInputViewController.send()
             }
         case .giveACoffee:
-            break
+            runGiveACoffeeIfPossible(display: display)
         case .createThread:
-            break
+            showMessageActionComingSoon(.createThread)
         case .markUnread:
-            break
+            showMessageActionComingSoon(.markUnread)
         case .topicDiscussion:
-            break
+            showMessageActionComingSoon(.topicDiscussion)
         case .markMessage:
-            break
+            showMessageActionComingSoon(.markMessage)
         case .quickMenu:
-            break
+            showMessageActionComingSoon(.quickMenu)
         case .editMessage:
             sendInputViewController.setEditingMessage(display)
             sendInputViewController.view.becomeFirstResponder()
         case .report:
-            break
+            presentReportMessageModal(messageId: display.message.id)
+        }
+    }
+
+    private func presentReportMessageModal(messageId: String) {
+        let modal = ReportMessageModalController(context: context, messageId: messageId)
+        modal.onDismiss = { [weak self] in
+            self?.reportMessageModal = nil
+        }
+        reportMessageModal = modal
+        presentInGlobalOverlay(modal)
+        modal.animateIn()
+    }
+
+    private static let giveCoffeeEmojiId: String = "7280417126303261185"
+    private static let giveCoffeeShortname: String = ":coffee:"
+
+    private func runGiveACoffeeIfPossible(display: ChatMessageDisplay) {
+        guard isSenderCurrentUser(senderId: display.message.senderId, currentUserId: context.currentUser?.id) == false else { return }
+        let mid = display.message.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !mid.isEmpty, !mid.hasPrefix("pending-"), Int64(mid) != nil else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performGiveACoffeeTransfer(display: display)
+        }
+    }
+
+    @MainActor
+    private func performGiveACoffeeTransfer(display: ChatMessageDisplay) async {
+        let ch = display.message.channelId
+        let cl = display.message.clanId ?? "0"
+        let ref = display.message.id
+        let recv = display.message.senderId
+        do {
+            let r = try await MmnTransferCoordinator.sendGiveCoffee(
+                context: context,
+                receiverUserId: recv,
+                messageChannelId: ch,
+                messageClanId: cl,
+                messageRefId: ref
+            )
+            if r.ok == true {
+                writeMessageReaction(
+                    display: display,
+                    emojiId: Self.giveCoffeeEmojiId,
+                    shortname: Self.giveCoffeeShortname,
+                    count: 1,
+                    actionDelete: false
+                )
+                Toast.success(L(L10n.MessageAction.giveCoffeeSuccess))
+            } else {
+                let err = (r.error?.isEmpty == false) ? (r.error ?? "") : L(L10n.Profile.sendTokenErrSendFailed)
+                Toast.error(err)
+            }
+        } catch MmnTransferError.giveCoffeeInProgress {
+        } catch MmnTransferError.walletNotReady {
+            var p: UIViewController = self
+            while let n = p.presentedViewController { p = n }
+            MezonConfirm.present(
+                from: p,
+                title: L(L10n.Profile.sendTokenErrSessionExpired),
+                content: L(L10n.Profile.sendTokenErrLoginAgain),
+                confirmTitle: L(L10n.Common.confirm),
+                showsCancelButton: false
+            ) { [weak self] in
+                self?.context.logout()
+            }
+        } catch {
+            Toast.error(error.localizedDescription)
         }
     }
 

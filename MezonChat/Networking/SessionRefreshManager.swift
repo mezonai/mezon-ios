@@ -44,9 +44,10 @@ final class SessionRefreshManager {
         let newSession = try await MezonHTTPClient.shared.sessionRefresh(
             refreshToken: session.refreshToken
         )
-        lastRefreshToken = newSession.refreshToken
+        let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingIdToken(from: session))
+        lastRefreshToken = merged.refreshToken
         failCount = 0
-        return newSession
+        return merged
     }
 
     private let launchRefreshTimeout: UInt64 = 15_000_000_000

@@ -22,6 +22,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private var reactionsNode: MessageReactionsNode?
     private var locationNode: MessageLocationNode?
     private var clanInviteLinkNode: MessageClanInviteLinkNode?
+    private var sendTokenLogNode: MessageSendTokenLogNode?
+    private var pollUnsupportedNode: ASTextNode2?
     private var errorTextNode: ASTextNode2?
     private var editedNode: ASTextNode2?
 
@@ -29,6 +31,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private let interaction: ChatInteraction
     private let isCombine: Bool
     private let hasCallLog: Bool
+    private let hasPoll: Bool
     private let hasTopic: Bool
     private let hasContent: Bool
     private let hasMedia: Bool
@@ -59,6 +62,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedReactionsSize: CGSize = .zero
     private var cachedLocationSize: CGSize = .zero
     private var cachedClanInviteSize: CGSize = .zero
+    private var cachedSendTokenLogSize: CGSize = .zero
+    private var cachedPollSize: CGSize = .zero
     private var cachedErrorSize: CGSize = .zero
     private var cachedEditedSize: CGSize = .zero
     private var cachedForwardHeaderSize: CGSize = .zero
@@ -79,6 +84,7 @@ final class MessageBubbleNode: ASDisplayNode {
         self.hasReply = display.replyRef != nil
         self.hasDeletedReply = display.isDeletedReply
         self.hasCallLog = display.isCallLog
+        self.hasPoll = display.isPollMessage
         self.hasTopic = display.isTopic
 
         let parsed = display.parsedContent
@@ -89,6 +95,20 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         if display.isCallLog {
+            self.hasContent = false
+            self.hasMedia = false
+            self.hasAudio = false
+            self.hasFiles = false
+            self.hasEmbeds = false
+            self.hasLocation = false
+        } else if display.isPollMessage {
+            self.hasContent = false
+            self.hasMedia = false
+            self.hasAudio = false
+            self.hasFiles = false
+            self.hasEmbeds = false
+            self.hasLocation = false
+        } else if display.isSendTokenLog {
             self.hasContent = false
             self.hasMedia = false
             self.hasAudio = false
@@ -221,6 +241,24 @@ final class MessageBubbleNode: ASDisplayNode {
             cln.configure(callLog: callLog, isMe: display.isMe, senderName: display.senderDisplayName, contentText: parsed.text)
             callLogNode = cln
             addSubnode(cln)
+        }
+
+        if display.isPollMessage {
+            let pn = ASTextNode2()
+            pn.attributedText = Self.pollUnsupportedAttributedString()
+            pn.maximumNumberOfLines = 0
+            pollUnsupportedNode = pn
+            addSubnode(pn)
+        }
+
+        if display.isSendTokenLog {
+            let stn = MessageSendTokenLogNode()
+            stn.configure(messageContent: parsed.text)
+            stn.onTransactionTapped = { [weak self] in
+                self?.handleSendTokenLogTapped()
+            }
+            sendTokenLogNode = stn
+            addSubnode(stn)
         }
 
         if let topic = display.topicData {
@@ -505,6 +543,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
+        pollUnsupportedNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
@@ -535,6 +574,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private static func shouldShowTextContent(for display: ChatMessageDisplay) -> Bool {
         if display.isCallLog { return false }
         if display.isLocation { return false }
+        if display.isPollMessage { return false }
+        if display.isSendTokenLog { return false }
         if display.checkOneLinkImage { return false }
         return !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -563,6 +604,7 @@ final class MessageBubbleNode: ASDisplayNode {
         guard display.message.editedAt != nil else { return false }
         if display.message.isDeleted { return false }
         if display.isCallLog { return false }
+        if display.isPollMessage { return false }
         if display.isSystemMessage { return false }
         return true
     }
@@ -715,6 +757,10 @@ final class MessageBubbleNode: ASDisplayNode {
         if let vc = findViewController() {
             vc.present(gallery, animated: true)
         }
+    }
+
+    private func handleSendTokenLogTapped() {
+        interaction.onSendTokenLogTapped()
     }
 
     private func handleEmbedImageTap(url: String) {
@@ -914,6 +960,20 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedCallLogSize = .zero
         }
 
+        if let pollUnsupportedNode {
+            cachedPollSize = pollUnsupportedNode.measure(CGSize(width: bodyContentWidth, height: .greatestFiniteMagnitude))
+            totalH += cachedPollSize.height + vertSpacing
+        } else {
+            cachedPollSize = .zero
+        }
+
+        if let sendTokenLogNode {
+            cachedSendTokenLogSize = sendTokenLogNode.measureSize(maxWidth: bodyContentWidth)
+            totalH += cachedSendTokenLogSize.height + vertSpacing
+        } else {
+            cachedSendTokenLogSize = .zero
+        }
+
         if let textContentNode {
             cachedTextSize = textContentNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedTextSize.height + vertSpacing
@@ -1073,6 +1133,18 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedCallLogSize.height + vertSpacing
         }
 
+        if let pollUnsupportedNode {
+            pollUnsupportedNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedPollSize.height)
+            noteForwardBlock(topY: y, height: cachedPollSize.height)
+            y += cachedPollSize.height + vertSpacing
+        }
+
+        if let sendTokenLogNode {
+            sendTokenLogNode.frame = CGRect(x: contentInnerX, y: y, width: cachedSendTokenLogSize.width, height: cachedSendTokenLogSize.height)
+            noteForwardBlock(topY: y, height: cachedSendTokenLogSize.height)
+            y += cachedSendTokenLogSize.height + vertSpacing
+        }
+
         if let textContentNode {
             textContentNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedTextSize.height)
             noteForwardBlock(topY: y, height: cachedTextSize.height)
@@ -1164,6 +1236,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
+        pollUnsupportedNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
@@ -1179,7 +1252,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private static func hasClanInviteCard(for display: ChatMessageDisplay) -> Bool {
         guard let code = display.clanInviteLinkCode, !code.isEmpty else { return false }
-        return !display.isCallLog && !display.isLocation
+        return !display.isCallLog && !display.isLocation && !display.isPollMessage
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -1193,6 +1266,29 @@ final class MessageBubbleNode: ASDisplayNode {
         f.dateFormat = "dd/MM/yyyy, HH:mm"
         return f
     }()
+
+    private static func pollUnsupportedAttributedString() -> NSAttributedString {
+        let t = UIColor.theme
+        let line1 = L(L10n.ChannelMessages.pollUnsupported)
+        let line2 = L(L10n.ChannelMessages.pollComingSoon)
+        let full = line1 + "\n" + line2
+        let s = NSMutableAttributedString(string: full)
+        let fullNS = full as NSString
+        s.addAttributes([
+            .font: UIFont.systemFont(ofSize: 14.sf),
+            .foregroundColor: t.text,
+        ], range: NSRange(location: 0, length: fullNS.length))
+        let line1NS = line1 as NSString
+        let line2NS = line2 as NSString
+        let second = NSRange(location: line1NS.length + 1, length: line2NS.length)
+        if second.location + second.length <= fullNS.length {
+            s.addAttributes([
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .medium),
+                .foregroundColor: t.textDisabled,
+            ], range: second)
+        }
+        return s
+    }
 
     private static func forwardHeaderLabelAttributedString() -> NSAttributedString {
         let t = UIColor.theme
@@ -1221,6 +1317,7 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.isFailed { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
+        if display.isPollMessage { return false }
         if display.isTopic { return false }
         if display.message.isDeleted { return false }
         return true

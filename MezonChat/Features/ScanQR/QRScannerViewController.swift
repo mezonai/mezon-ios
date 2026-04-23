@@ -208,10 +208,9 @@ final class QRScannerViewController: ViewController {
             return
         }
         
-        if let jsonData = data.data(using: .utf8), 
-           let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-           let receiverId = json["receiver_id"] as? String {
-            showTransferConfirm(receiverId: receiverId)
+        if let payload = MmnTransferParse.fromQRString(data) {
+            let vc = WalletTransferViewController(context: context, payload: payload)
+            navigationController?.pushViewController(vc, animated: true)
             return
         }
         
@@ -418,18 +417,6 @@ final class QRScannerViewController: ViewController {
                                       preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default, handler: { [weak self] _ in
             self?.closeTapped()
-        }))
-        present(alert, animated: true)
-    }
-    
-    private func showTransferConfirm(receiverId: String) {
-        let alert = UIAlertController(title: L(L10n.Profile.transferFunds), 
-                                      message: String(format: L(L10n.QRScanner.transferTo), receiverId), 
-                                      preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel, handler: { [weak self] _ in
-            self?.captureSession?.startRunning()
-        }))
-        alert.addAction(UIAlertAction(title: L(L10n.Common.confirm), style: .default, handler: { _ in
         }))
         present(alert, animated: true)
     }
