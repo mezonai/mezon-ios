@@ -17,6 +17,7 @@ final class MezonEngine {
     lazy var topicDiscussion = TopicService(engine: self)
     lazy var peers = Peers(engine: self)
     lazy var clanData = ClanData(engine: self)
+    lazy var friendsData = FriendsData(engine: self)
     lazy var data = EngineData(postbox: account.postbox)
 }
 
