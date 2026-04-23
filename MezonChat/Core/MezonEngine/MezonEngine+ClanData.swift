@@ -1,6 +1,13 @@
 import Foundation
 import SwiftProtobuf
 
+enum EStateFriend: Int32 {
+    case friend = 0
+    case otherPending = 1
+    case myPending = 2
+    case block = 3
+}
+
 extension MezonEngine {
 
     @MainActor
@@ -348,6 +355,163 @@ extension MezonEngine {
                     }
                 }
             } catch {}
+        }
+    }
+
+    @MainActor
+    final class FriendsData {
+        private let engine: MezonEngine
+        private var network: MezonHTTPClient { engine.account.network }
+        private var postbox: Postbox { engine.account.postbox }
+
+        let friendsUpdated = ValuePipe<Void>()
+
+        private var socketDisposable: Disposable?
+        private var socketRefreshTask: Task<Void, Never>?
+        private var tokenProvider: (() async -> String?)?
+
+        init(engine: MezonEngine) {
+            self.engine = engine
+        }
+
+        deinit {
+            socketDisposable?.dispose()
+            socketRefreshTask?.cancel()
+        }
+
+        func start(tokenProvider: @escaping () async -> String?) {
+            self.tokenProvider = tokenProvider
+            socketDisposable?.dispose()
+            socketDisposable = (MezonSocket.shared.events()
+                |> deliverOnMainQueue).start(next: { [weak self] event in
+                    guard let self else { return }
+                    switch event {
+                    case .addFriend, .removeFriend, .blockFriend:
+                        self.scheduleRefreshFromSocket()
+                    default:
+                        break
+                    }
+                })
+        }
+
+        func allFriends() -> [Mezon_Api_Friend] {
+            decodeFriends(postbox.getPreferenceData(key: PreferencesKeys.friendsList))
+        }
+
+        func pendingIncomingFriends() -> [Mezon_Api_Friend] {
+            allFriends().filter { $0.state == EStateFriend.myPending.rawValue }
+        }
+
+        func incomingFriendRequestCount() -> Int {
+            pendingIncomingFriends().count
+        }
+
+        func lookupByUsername() -> [String: Mezon_Api_Friend] {
+            var result: [String: Mezon_Api_Friend] = [:]
+            for friend in allFriends() {
+                let username = friend.user.username.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !username.isEmpty else { continue }
+                result[username] = friend
+            }
+            return result
+        }
+
+        func refreshFromNetwork(token: String) async {
+            let states: [Int32] = [
+                EStateFriend.friend.rawValue,
+                EStateFriend.otherPending.rawValue,
+                EStateFriend.myPending.rawValue,
+                EStateFriend.block.rawValue
+            ]
+
+            var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
+            for state in states {
+                do {
+                    let response = try await network.listFriends(token: token, state: state)
+                    for friend in response.friends {
+                        dedupByUserId[friend.user.id] = friend
+                    }
+                } catch {
+                }
+            }
+
+            let merged = dedupByUserId.values.sorted { lhs, rhs in
+                let lName = lhs.user.displayName.isEmpty ? lhs.user.username : lhs.user.displayName
+                let rName = rhs.user.displayName.isEmpty ? rhs.user.username : rhs.user.displayName
+                if lName.caseInsensitiveCompare(rName) == .orderedSame {
+                    return lhs.user.id < rhs.user.id
+                }
+                return lName.localizedCaseInsensitiveCompare(rName) == .orderedAscending
+            }
+            persistFriends(Array(merged))
+        }
+
+        func removePendingRequest(userId: Int64) {
+            var list = allFriends()
+            list.removeAll { $0.user.id == userId && $0.state == EStateFriend.myPending.rawValue }
+            persistFriends(list)
+        }
+
+        private func scheduleRefreshFromSocket() {
+            socketRefreshTask?.cancel()
+            socketRefreshTask = Task { [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard let tokenProvider = self.tokenProvider, let token = await tokenProvider() else { return }
+                await self.refreshFromNetwork(token: token)
+            }
+        }
+
+        private func persistFriends(_ list: [Mezon_Api_Friend]) {
+            postbox.setPreferenceData(
+                key: PreferencesKeys.friendsList,
+                value: encodeFriends(list)
+            )
+            friendsUpdated.putNext(())
+        }
+
+        private func encodeFriends(_ list: [Mezon_Api_Friend]) -> Data {
+            var data = Data()
+            var count = UInt32(list.count)
+            count = count.littleEndian
+            data.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+            for friend in list {
+                guard let entry = try? friend.serializedData() else { continue }
+                var len = UInt32(entry.count)
+                len = len.littleEndian
+                data.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+                data.append(entry)
+            }
+            return data
+        }
+
+        private func decodeFriends(_ data: Data?) -> [Mezon_Api_Friend] {
+            guard let data, data.count >= 4 else { return [] }
+            return data.withUnsafeBytes { rawPtr in
+                guard let base = rawPtr.baseAddress else { return [] }
+                var offset = 0
+                func readUInt32() -> UInt32? {
+                    guard offset + 4 <= rawPtr.count else { return nil }
+                    let value = base.advanced(by: offset).assumingMemoryBound(to: UInt32.self).pointee
+                    offset += 4
+                    return UInt32(littleEndian: value)
+                }
+
+                guard let count = readUInt32() else { return [] }
+                var result: [Mezon_Api_Friend] = []
+                result.reserveCapacity(Int(count))
+                for _ in 0..<count {
+                    guard let len = readUInt32() else { break }
+                    let intLen = Int(len)
+                    guard intLen >= 0, offset + intLen <= rawPtr.count else { break }
+                    let entryData = Data(bytes: base.advanced(by: offset), count: intLen)
+                    offset += intLen
+                    if let friend = try? Mezon_Api_Friend(serializedBytes: entryData) {
+                        result.append(friend)
+                    }
+                }
+                return result
+            }
         }
     }
 }
