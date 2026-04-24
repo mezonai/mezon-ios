@@ -1303,11 +1303,9 @@ final class VoiceChannelRoomViewController: ViewController {
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
 
         styleVoiceAgentHeaderButton(agentToggleButton)
-        agentToggleButton.tintColor = UIColor.theme.white
         agentToggleButton.addTarget(self, action: #selector(agentToggleTapped), for: .touchUpInside)
         agentToggleSpinner.hidesWhenStopped = true
         agentToggleSpinner.translatesAutoresizingMaskIntoConstraints = false
-        agentToggleSpinner.color = .white
         agentToggleButton.addSubview(agentToggleSpinner)
         NSLayoutConstraint.activate([
             agentToggleSpinner.centerXAnchor.constraint(equalTo: agentToggleButton.centerXAnchor),
@@ -1516,8 +1514,14 @@ final class VoiceChannelRoomViewController: ViewController {
         button.layer.cornerRadius = 20
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.theme.border.cgColor
-        if let img = UIImage(named: "Channel/VoiceAgentControl") {
-            button.setImage(img.withRenderingMode(.alwaysTemplate), for: .normal)
+        if let base = UIImage(named: "Channel/VoiceAgentControl") {
+            if #available(iOS 15.0, *) {
+                let img = base.withTintColor(
+                    UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+                button.setImage(img, for: .normal)
+            } else {
+                button.setImage(base.withRenderingMode(.alwaysTemplate), for: .normal)
+            }
         }
         button.imageView?.contentMode = .scaleAspectFit
         button.imageEdgeInsets = UIEdgeInsets(top: 9, left: 9, bottom: 9, right: 9)
@@ -3388,13 +3392,21 @@ final class VoiceChannelRoomViewController: ViewController {
     }
 
     private func refreshVoiceAgentButtonAppearance() {
+        let iconTint = voiceAgentEnabled ? UIColor.theme.white : UIColor.theme.textStrong
         if isAgentToggleLoading {
             agentToggleSpinner.startAnimating()
             agentToggleButton.setImage(nil, for: .normal)
         } else {
             agentToggleSpinner.stopAnimating()
-            if let img = UIImage(named: "Channel/VoiceAgentControl") {
-                agentToggleButton.setImage(img.withRenderingMode(.alwaysTemplate), for: .normal)
+            if let base = UIImage(named: "Channel/VoiceAgentControl") {
+                if #available(iOS 15.0, *) {
+                    let img = base.withTintColor(
+                        iconTint, renderingMode: .alwaysOriginal)
+                    agentToggleButton.setImage(img, for: .normal)
+                } else {
+                    agentToggleButton.setImage(
+                        base.withRenderingMode(.alwaysTemplate), for: .normal)
+                }
             }
         }
         agentToggleButton.isEnabled = !isAgentToggleLoading
@@ -3407,7 +3419,8 @@ final class VoiceChannelRoomViewController: ViewController {
             agentToggleButton.layer.borderColor = UIColor.theme.border.cgColor
             agentToggleButton.layer.borderWidth = 1
         }
-        agentToggleButton.tintColor = .white
+        agentToggleButton.tintColor = iconTint
+        agentToggleSpinner.color = iconTint
     }
 
     @objc private func agentToggleTapped() {

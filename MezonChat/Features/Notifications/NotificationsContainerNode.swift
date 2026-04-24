@@ -460,6 +460,14 @@ final class NotificationsContainerNode: ASDisplayNode {
         applyLayout(transition: transition)
     }
 
+    private let listHeaderTopPadding: CGFloat = 8.sh
+
+    private func resolvedNotificationsListTop(layout: ContainerViewLayout) -> CGFloat {
+        let vTop = isNodeLoaded ? view.safeAreaInsets.top : 0
+        let base = max(vTop, layout.safeInsets.top, layout.statusBarHeight ?? 0)
+        return base + listHeaderTopPadding
+    }
+
     private func applyLayout(transition: ContainedViewLayoutTransition) {
         guard let layout = lastLayout else { return }
 
@@ -474,18 +482,16 @@ final class NotificationsContainerNode: ASDisplayNode {
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
         CATransaction.commit()
 
-        let safeTop: CGFloat
-        let realSafeTop = view.safeAreaInsets.top
-        safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
+        let listTopY = resolvedNotificationsListTop(layout: layout)
 
         let sideInset: CGFloat = 16
         let headerH: CGFloat = 44
         let tabH: CGFloat = 40
-        let tabScrollY = safeTop + headerH + 4
+        let tabScrollY = listTopY + headerH + 4
 
         transition.updateFrame(
             view: headerView,
-            frame: CGRect(x: 0, y: safeTop, width: layout.size.width, height: headerH))
+            frame: CGRect(x: 0, y: listTopY, width: layout.size.width, height: headerH))
         transition.updateFrame(
             view: titleLabel,
             frame: CGRect(

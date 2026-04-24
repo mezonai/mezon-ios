@@ -152,7 +152,7 @@ final class HomeViewController: BaseViewController {
         channelListVC.didMove(toParent: self)
 
         NSLayoutConstraint.activate([
-            clanListVC.view.topAnchor.constraint(equalTo: view.topAnchor),
+            clanListVC.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             clanListVC.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             clanListVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             clanListVC.view.widthAnchor.constraint(equalToConstant: clanSidebarWidth),

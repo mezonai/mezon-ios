@@ -214,7 +214,8 @@ final class SendMessageInputViewController: UIViewController {
     private lazy var textView: PastableTextView = {
         let tv = PastableTextView()
         tv.isScrollEnabled = false
-        tv.textContainerInset = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 36)
+        let pad = Self.composerVerticalInset
+        tv.textContainerInset = UIEdgeInsets(top: pad, left: 12, bottom: pad, right: 36)
         tv.textContainer.lineFragmentPadding = 0
         tv.clipsToBounds = true
         tv.translatesAutoresizingMaskIntoConstraints = false
@@ -251,7 +252,13 @@ final class SendMessageInputViewController: UIViewController {
 
     private var textViewHeightConstraint: NSLayoutConstraint?
     private var inputBarHeightConstraint: NSLayoutConstraint?
-    private static var textViewMinHeight: CGFloat { 40.swh }
+    private static var composerControlHeight: CGFloat { 40.swh }
+    private static var textViewMinHeight: CGFloat { composerControlHeight }
+    private static var composerVerticalInset: CGFloat {
+        let lineH = ceil(UIFont.systemFont(ofSize: 15.sf).lineHeight)
+        let pad = floor((composerControlHeight - lineH) / 2)
+        return max(2, pad)
+    }
     private static let inputBarPadding: CGFloat = 16
 
     private(set) var isEmojiPickerVisible = false
@@ -1864,19 +1871,19 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private static func decodeChannelListPref(_ data: Data) -> [Mezon_Api_ChannelDescription] {
-        guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        guard data.count > 4 else { return [] }
         var result: [Mezon_Api_ChannelDescription] = []
         var offset = 4
-        for _ in 0..<count {
-            guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let end = data.count
+        while offset + 4 <= end {
+            let lenU = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
             offset += 4
-            guard offset + Int(len) <= data.count else { break }
-            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+            let len = Int(lenU)
+            if len < 0 || len > 8_000_000 || len > end - offset { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + len))) {
                 result.append(m)
             }
-            offset += Int(len)
+            offset += len
         }
         return result
     }
@@ -4399,6 +4406,34 @@ extension SendMessageInputViewController: UITextViewDelegate {
         view.superview?.layoutIfNeeded()
     }
 
+    private func resolvedComposerFittingContentWidth() -> CGFloat {
+        view.layoutIfNeeded()
+        inputBarView.layoutIfNeeded()
+        let insetL = textView.textContainerInset.left
+        let insetR = textView.textContainerInset.right
+        var outer = textView.bounds.width
+        if outer < 2 {
+            outer = textView.frame.width
+        }
+        if outer < 2, inputBarView.bounds.width > 2 {
+            outer = inputBarView.bounds.width
+        }
+        if outer < 2 {
+            let w = view.window?.bounds.width ?? view.bounds.width
+            if w > 2 {
+                outer = w
+            }
+        }
+        var inner = max(0, outer - insetL - insetR)
+        if inner < 40 {
+            let host = max(view.window?.bounds.width ?? 0, view.bounds.width)
+            if host > 2 {
+                inner = max(inner, max(0, host - 140) - insetL - insetR)
+            }
+        }
+        return max(1, inner)
+    }
+
     private func updateTextViewHeight() {
         let font = textView.font ?? .systemFont(ofSize: 15.sf)
         let lineHeight = font.lineHeight
@@ -4406,10 +4441,18 @@ extension SendMessageInputViewController: UITextViewDelegate {
         let verticalInsets = textView.textContainerInset.top + textView.textContainerInset.bottom
         let maxHeight = lineHeight * maxLines + verticalInsets
         let minHeight = Self.textViewMinHeight
-
-        let fittingSize = CGSize(width: textView.frame.width - textView.textContainerInset.left - textView.textContainerInset.right, height: .greatestFiniteMagnitude)
+        let availableWidth = resolvedComposerFittingContentWidth()
+        let fittingSize = CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
         let textHeight = textView.sizeThatFits(fittingSize).height
-        let newHeight = min(max(textHeight, minHeight), maxHeight)
+        let contentBlockHeight = max(0, textHeight - verticalInsets)
+        let newHeight: CGFloat
+        if contentBlockHeight <= lineHeight * 1.5 {
+            newHeight = minHeight
+        } else {
+            let lines = min(Int(maxLines), max(1, Int(ceil(contentBlockHeight / lineHeight - 0.01))))
+            let computed = CGFloat(lines) * lineHeight + verticalInsets
+            newHeight = min(max(computed, minHeight), maxHeight)
+        }
 
         let shouldScroll = textHeight > maxHeight
         if textView.isScrollEnabled != shouldScroll {

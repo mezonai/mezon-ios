@@ -44,7 +44,7 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var cid: String {
+  var cid: Int32 {
     get {_storage._cid}
     set {_uniqueStorage()._cid = newValue}
   }
@@ -864,12 +864,12 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
   }
 
   /// Message sending to another server for update localcache
-  var updateLocalcacheEvent: Mezon_Realtime_UpdateLocalCacheEvent {
+  var apiRequestEvent: Mezon_Realtime_ApiRequestEvent {
     get {
-      if case .updateLocalcacheEvent(let v)? = _storage._message {return v}
-      return Mezon_Realtime_UpdateLocalCacheEvent()
+      if case .apiRequestEvent(let v)? = _storage._message {return v}
+      return Mezon_Realtime_ApiRequestEvent()
     }
-    set {_uniqueStorage()._message = .updateLocalcacheEvent(newValue)}
+    set {_uniqueStorage()._message = .apiRequestEvent(newValue)}
   }
 
   /// Clan Created Event
@@ -897,6 +897,15 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
       return Mezon_Realtime_ListChannelUsersBannedEvent()
     }
     set {_uniqueStorage()._message = .listChannelUsersBannedEvent(newValue)}
+  }
+
+  /// Refresh session event
+  var refreshSessionEvent: Mezon_Api_Session {
+    get {
+      if case .refreshSessionEvent(let v)? = _storage._message {return v}
+      return Mezon_Api_Session()
+    }
+    set {_uniqueStorage()._message = .refreshSessionEvent(newValue)}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -1082,13 +1091,15 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     /// Config Allow Anonymous
     case allowAnonymousEvent(Mezon_Realtime_AllowAnonymousEvent)
     /// Message sending to another server for update localcache
-    case updateLocalcacheEvent(Mezon_Realtime_UpdateLocalCacheEvent)
+    case apiRequestEvent(Mezon_Realtime_ApiRequestEvent)
     /// Clan Created Event
     case clanCreatedEvent(Mezon_Realtime_ClanCreatedEvent)
     /// Voice Agent Event
     case aiagentEnabledEvent(Mezon_Realtime_AIAgentEnabledEvent)
     /// Ban Channel User Event
     case listChannelUsersBannedEvent(Mezon_Realtime_ListChannelUsersBannedEvent)
+    /// Refresh session event
+    case refreshSessionEvent(Mezon_Api_Session)
 
   }
 
@@ -1097,14 +1108,16 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-struct Mezon_Realtime_UpdateLocalCacheEvent: Sendable {
+struct Mezon_Realtime_ApiRequestEvent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var params1: [Int64] = []
+  var apiIndex: Int32 = 0
 
-  var params2: [Int64] = []
+  var apiName: String = String()
+
+  var body: Data = Data()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2862,7 +2875,7 @@ struct Mezon_Realtime_UserPresence: Sendable {
   var userID: Int64 = 0
 
   /// A unique session ID identifying the particular connection, because the user may have many.
-  var sessionID: String = String()
+  var sessionID: Int32 = 0
 
   /// The username for display purposes.
   var username: String = String()
@@ -3812,10 +3825,10 @@ fileprivate let _protobuf_package = "mezon.realtime"
 
 extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Envelope"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cid\0\u{1}channel\0\u{3}clan_join\0\u{3}channel_join\0\u{3}channel_leave\0\u{3}channel_message\0\u{3}channel_message_ack\0\u{3}channel_message_send\0\u{3}channel_message_update\0\u{3}channel_message_remove\0\u{3}channel_presence_event\0\u{1}error\0\u{1}notifications\0\u{1}rpc\0\u{1}status\0\u{3}status_follow\0\u{3}status_presence_event\0\u{3}status_unfollow\0\u{3}status_update\0\u{3}stream_data\0\u{3}stream_presence_event\0\u{1}ping\0\u{1}pong\0\u{3}message_typing_event\0\u{3}last_seen_message_event\0\u{3}message_reaction_event\0\u{3}voice_joined_event\0\u{3}voice_leaved_event\0\u{3}voice_started_event\0\u{3}voice_ended_event\0\u{3}channel_created_event\0\u{3}channel_deleted_event\0\u{3}channel_updated_event\0\u{3}last_pin_message_event\0\u{3}custom_status_event\0\u{3}user_channel_added_event\0\u{3}user_channel_removed_event\0\u{3}user_clan_removed_event\0\u{3}clan_updated_event\0\u{3}clan_profile_updated_event\0\u{3}check_name_existed_event\0\u{3}user_profile_updated_event\0\u{3}add_clan_user_event\0\u{3}clan_event_created\0\u{3}role_assign_event\0\u{3}clan_deleted_event\0\u{3}give_coffee_event\0\u{3}sticker_create_event\0\u{3}sticker_update_event\0\u{3}sticker_delete_event\0\u{3}role_event\0\u{3}event_emoji\0\u{3}streaming_joined_event\0\u{3}streaming_leaved_event\0\u{3}streaming_started_event\0\u{3}streaming_ended_event\0\u{3}permission_set_event\0\u{3}permission_changed_event\0\u{3}token_sent_event\0\u{3}message_button_clicked\0\u{3}unmute_event\0\u{3}webrtc_signaling_fwd\0\u{3}list_activity\0\u{3}dropdown_box_selected\0\u{3}incoming_call_push\0\u{3}sd_topic_event\0\u{3}follow_event\0\u{3}channel_app_event\0\u{3}user_status_event\0\u{3}remove_friend\0\u{3}webhook_event\0\u{3}noti_user_channel\0\u{3}join_channel_app_data\0\u{3}canvas_event\0\u{3}unpin_message_event\0\u{3}category_event\0\u{3}handle_participant_meet_state_event\0\u{3}delete_account_event\0\u{3}ephemeral_message_send\0\u{3}block_friend\0\u{3}voice_reaction_send\0\u{3}mark_as_read\0\u{3}list_data_socket\0\u{3}quick_menu_event\0\u{3}un_block_friend\0\u{3}meet_participant_event\0\u{3}transfer_ownership_event\0\u{3}add_friend\0\u{3}ban_user_event\0\u{3}active_archived_thread\0\u{3}allow_anonymous_event\0\u{3}update_localcache_event\0\u{3}clan_created_event\0\u{3}aiagent_enabled_event\0\u{3}list_channel_users_banned_event\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cid\0\u{1}channel\0\u{3}clan_join\0\u{3}channel_join\0\u{3}channel_leave\0\u{3}channel_message\0\u{3}channel_message_ack\0\u{3}channel_message_send\0\u{3}channel_message_update\0\u{3}channel_message_remove\0\u{3}channel_presence_event\0\u{1}error\0\u{1}notifications\0\u{1}rpc\0\u{1}status\0\u{3}status_follow\0\u{3}status_presence_event\0\u{3}status_unfollow\0\u{3}status_update\0\u{3}stream_data\0\u{3}stream_presence_event\0\u{1}ping\0\u{1}pong\0\u{3}message_typing_event\0\u{3}last_seen_message_event\0\u{3}message_reaction_event\0\u{3}voice_joined_event\0\u{3}voice_leaved_event\0\u{3}voice_started_event\0\u{3}voice_ended_event\0\u{3}channel_created_event\0\u{3}channel_deleted_event\0\u{3}channel_updated_event\0\u{3}last_pin_message_event\0\u{3}custom_status_event\0\u{3}user_channel_added_event\0\u{3}user_channel_removed_event\0\u{3}user_clan_removed_event\0\u{3}clan_updated_event\0\u{3}clan_profile_updated_event\0\u{3}check_name_existed_event\0\u{3}user_profile_updated_event\0\u{3}add_clan_user_event\0\u{3}clan_event_created\0\u{3}role_assign_event\0\u{3}clan_deleted_event\0\u{3}give_coffee_event\0\u{3}sticker_create_event\0\u{3}sticker_update_event\0\u{3}sticker_delete_event\0\u{3}role_event\0\u{3}event_emoji\0\u{3}streaming_joined_event\0\u{3}streaming_leaved_event\0\u{3}streaming_started_event\0\u{3}streaming_ended_event\0\u{3}permission_set_event\0\u{3}permission_changed_event\0\u{3}token_sent_event\0\u{3}message_button_clicked\0\u{3}unmute_event\0\u{3}webrtc_signaling_fwd\0\u{3}list_activity\0\u{3}dropdown_box_selected\0\u{3}incoming_call_push\0\u{3}sd_topic_event\0\u{3}follow_event\0\u{3}channel_app_event\0\u{3}user_status_event\0\u{3}remove_friend\0\u{3}webhook_event\0\u{3}noti_user_channel\0\u{3}join_channel_app_data\0\u{3}canvas_event\0\u{3}unpin_message_event\0\u{3}category_event\0\u{3}handle_participant_meet_state_event\0\u{3}delete_account_event\0\u{3}ephemeral_message_send\0\u{3}block_friend\0\u{3}voice_reaction_send\0\u{3}mark_as_read\0\u{3}list_data_socket\0\u{3}quick_menu_event\0\u{3}un_block_friend\0\u{3}meet_participant_event\0\u{3}transfer_ownership_event\0\u{3}add_friend\0\u{3}ban_user_event\0\u{3}active_archived_thread\0\u{3}allow_anonymous_event\0\u{3}api_request_event\0\u{3}clan_created_event\0\u{3}aiagent_enabled_event\0\u{3}list_channel_users_banned_event\0\u{3}refresh_session_event\0")
 
   fileprivate class _StorageClass {
-    var _cid: String = String()
+    var _cid: Int32 = 0
     var _message: Mezon_Realtime_Envelope.OneOf_Message?
 
       // This property is used as the initial default value for new instances of the type.
@@ -3847,7 +3860,7 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
         // allocates stack space for every case branch when no optimizations are
         // enabled. https://github.com/apple/swift-protobuf/issues/1034
         switch fieldNumber {
-        case 1: try { try decoder.decodeSingularStringField(value: &_storage._cid) }()
+        case 1: try { try decoder.decodeSingularInt32Field(value: &_storage._cid) }()
         case 2: try {
           var v: Mezon_Realtime_Channel?
           var hadOneofValue = false
@@ -5019,16 +5032,16 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
           }
         }()
         case 92: try {
-          var v: Mezon_Realtime_UpdateLocalCacheEvent?
+          var v: Mezon_Realtime_ApiRequestEvent?
           var hadOneofValue = false
           if let current = _storage._message {
             hadOneofValue = true
-            if case .updateLocalcacheEvent(let m) = current {v = m}
+            if case .apiRequestEvent(let m) = current {v = m}
           }
           try decoder.decodeSingularMessageField(value: &v)
           if let v = v {
             if hadOneofValue {try decoder.handleConflictingOneOf()}
-            _storage._message = .updateLocalcacheEvent(v)
+            _storage._message = .apiRequestEvent(v)
           }
         }()
         case 93: try {
@@ -5070,6 +5083,19 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
             _storage._message = .listChannelUsersBannedEvent(v)
           }
         }()
+        case 96: try {
+          var v: Mezon_Api_Session?
+          var hadOneofValue = false
+          if let current = _storage._message {
+            hadOneofValue = true
+            if case .refreshSessionEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._message = .refreshSessionEvent(v)
+          }
+        }()
         default: break
         }
       }
@@ -5082,8 +5108,8 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
       // allocates stack space for every if/case branch local when no optimizations
       // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
       // https://github.com/apple/swift-protobuf/issues/1182
-      if !_storage._cid.isEmpty {
-        try visitor.visitSingularStringField(value: _storage._cid, fieldNumber: 1)
+      if _storage._cid != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._cid, fieldNumber: 1)
       }
       switch _storage._message {
       case .channel?: try {
@@ -5446,8 +5472,8 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
         guard case .allowAnonymousEvent(let v)? = _storage._message else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 91)
       }()
-      case .updateLocalcacheEvent?: try {
-        guard case .updateLocalcacheEvent(let v)? = _storage._message else { preconditionFailure() }
+      case .apiRequestEvent?: try {
+        guard case .apiRequestEvent(let v)? = _storage._message else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 92)
       }()
       case .clanCreatedEvent?: try {
@@ -5461,6 +5487,10 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
       case .listChannelUsersBannedEvent?: try {
         guard case .listChannelUsersBannedEvent(let v)? = _storage._message else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 95)
+      }()
+      case .refreshSessionEvent?: try {
+        guard case .refreshSessionEvent(let v)? = _storage._message else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 96)
       }()
       case nil: break
       }
@@ -5484,9 +5514,9 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-extension Mezon_Realtime_UpdateLocalCacheEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".UpdateLocalCacheEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}params1\0\u{1}params2\0")
+extension Mezon_Realtime_ApiRequestEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ApiRequestEvent"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}api_index\0\u{3}api_name\0\u{1}body\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5494,26 +5524,31 @@ extension Mezon_Realtime_UpdateLocalCacheEvent: SwiftProtobuf.Message, SwiftProt
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeRepeatedInt64Field(value: &self.params1) }()
-      case 2: try { try decoder.decodeRepeatedInt64Field(value: &self.params2) }()
+      case 1: try { try decoder.decodeSingularInt32Field(value: &self.apiIndex) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.apiName) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.body) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.params1.isEmpty {
-      try visitor.visitPackedInt64Field(value: self.params1, fieldNumber: 1)
+    if self.apiIndex != 0 {
+      try visitor.visitSingularInt32Field(value: self.apiIndex, fieldNumber: 1)
     }
-    if !self.params2.isEmpty {
-      try visitor.visitPackedInt64Field(value: self.params2, fieldNumber: 2)
+    if !self.apiName.isEmpty {
+      try visitor.visitSingularStringField(value: self.apiName, fieldNumber: 2)
+    }
+    if !self.body.isEmpty {
+      try visitor.visitSingularBytesField(value: self.body, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Mezon_Realtime_UpdateLocalCacheEvent, rhs: Mezon_Realtime_UpdateLocalCacheEvent) -> Bool {
-    if lhs.params1 != rhs.params1 {return false}
-    if lhs.params2 != rhs.params2 {return false}
+  static func ==(lhs: Mezon_Realtime_ApiRequestEvent, rhs: Mezon_Realtime_ApiRequestEvent) -> Bool {
+    if lhs.apiIndex != rhs.apiIndex {return false}
+    if lhs.apiName != rhs.apiName {return false}
+    if lhs.body != rhs.body {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -8675,7 +8710,7 @@ extension Mezon_Realtime_UserPresence: SwiftProtobuf.Message, SwiftProtobuf._Mes
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.sessionID) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.username) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._status) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.isMobile) }()
@@ -8693,8 +8728,8 @@ extension Mezon_Realtime_UserPresence: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if self.userID != 0 {
       try visitor.visitSingularInt64Field(value: self.userID, fieldNumber: 1)
     }
-    if !self.sessionID.isEmpty {
-      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 2)
+    if self.sessionID != 0 {
+      try visitor.visitSingularInt32Field(value: self.sessionID, fieldNumber: 2)
     }
     if !self.username.isEmpty {
       try visitor.visitSingularStringField(value: self.username, fieldNumber: 3)

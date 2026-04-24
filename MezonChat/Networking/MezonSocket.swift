@@ -96,7 +96,8 @@ final class MezonSocket: NSObject {
 
     var tokenProvider: (() async throws -> String)?
 
-    private var pendingDataSocketCallbacks: [String: (Mezon_Realtime_ListDataSocket) -> Void] = [:]
+    private var nextListDataSocketCid: Int32 = 1
+    private var pendingDataSocketCallbacks: [Int32: (Mezon_Realtime_ListDataSocket) -> Void] = [:]
     private var reconnectWorkItem: DispatchWorkItem?
 
     private override init() { super.init() }
@@ -430,7 +431,9 @@ final class MezonSocket: NSObject {
 
     func listDataSocket(_ request: Mezon_Realtime_ListDataSocket) async throws -> Mezon_Realtime_ListDataSocket {
         return try await withCheckedThrowingContinuation { continuation in
-            let id = UUID().uuidString
+            let id = nextListDataSocketCid
+            nextListDataSocketCid &+= 1
+            if nextListDataSocketCid == 0 { nextListDataSocketCid = 1 }
             var resumed = false
             pendingDataSocketCallbacks[id] = { [weak self] response in
                 guard !resumed else { return }

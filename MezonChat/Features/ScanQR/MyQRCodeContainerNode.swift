@@ -204,6 +204,7 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         pStyle.alignment = .center
 
         if selectedTab == 0 {
+            subtitleNode.isHidden = false
             subtitleNode.attributedText = NSAttributedString(
                 string: L(L10n.QRScanner.shareWithOthers),
                 attributes: [
@@ -218,18 +219,14 @@ final class MyQRCodeContainerNode: ASDisplayNode {
                     .paragraphStyle: pStyle,
                 ])
 
-            if let payload = encodeProfilePayload(user: user) {
-                generateQR(data: "https://mezon.ai/chat/\(user?.username ?? "")?data=\(payload)")
+            if let urlString = profileChatURLString(user: user) {
+                generateQR(data: urlString)
             } else {
                 generateQR(data: "https://mezon.ai/chat/\(user?.username ?? "")")
             }
         } else {
-            subtitleNode.attributedText = NSAttributedString(
-                string: "\(L(L10n.Profile.balance)): 0 \(L(L10n.Profile.currency))",
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
-                    .foregroundColor: UIColor.mezonTextMuted,
-                ])
+            subtitleNode.isHidden = true
+            subtitleNode.attributedText = nil
             scanInstructionNode.attributedText = NSAttributedString(
                 string: L(L10n.QRScanner.scanTransferHelp),
                 attributes: [
@@ -242,30 +239,22 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         }
     }
 
-    private func encodeProfilePayload(user: User?) -> String? {
-        guard let user = user else { return nil }
-        let payload: [String: Any] = [
-            "id": user.id,
-            "avatar": user.avatarURL?.absoluteString ?? "",
-            "name": user.displayName,
-        ]
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: payload),
-            let jsonString = String(data: jsonData, encoding: .utf8)
-        else {
-            return nil
-        }
-
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-_.!~*'()")
-
-        guard let encodedJSON = jsonString.addingPercentEncoding(withAllowedCharacters: allowed),
-            let encodedData = encodedJSON.data(using: .utf8)
-        else {
-            return nil
-        }
-
-        return encodedData.base64EncodedString()
+    private func profileChatURLString(user: User?) -> String? {
+        guard let user else { return nil }
+        let profile = QRUserProfileData(
+            id: user.id, avatar: user.avatarURL?.absoluteString, name: user.displayName)
+        guard let jsonData = try? JSONEncoder().encode(profile) else { return nil }
+        let b64 = jsonData.base64EncodedString()
+        var c = URLComponents()
+        c.scheme = "https"
+        c.host = "mezon.ai"
+        let pathSegAllowed = CharacterSet.urlPathAllowed.subtracting(
+            CharacterSet(charactersIn: "/"))
+        let enc = user.username.addingPercentEncoding(withAllowedCharacters: pathSegAllowed)
+            ?? user.username
+        c.percentEncodedPath = "/chat/" + enc
+        c.queryItems = [URLQueryItem(name: "data", value: b64)]
+        return c.url?.absoluteString
     }
 
     private func generateQR(data: String) {
@@ -394,7 +383,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
             child: headerTitleCenter, overlay: ASAbsoluteLayoutSpec(children: [backButtonCenter]))
         headerOverlay.style.preferredSize = CGSize(width: size.width, height: 44.sh)
 
-        let safeTop = max(layout?.safeInsets.top ?? 0, 54.sh)
+        let layoutTop = layout?.safeInsets.top ?? 0
+        let safeTop = isNodeLoaded ? max(view.safeAreaInsets.top, layoutTop) : layoutTop
         let headerInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: safeTop, left: 0, bottom: 0, right: 0),
             child: headerOverlay)

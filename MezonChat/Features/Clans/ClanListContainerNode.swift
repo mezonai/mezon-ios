@@ -145,16 +145,17 @@ final class ClanListContainerNode: ASDisplayNode {
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
-        let topY = layout.safeInsets.top + 4.sh
+        let topY: CGFloat = 0
         let centerX = layout.size.width / 2
         let contentWidth = layout.size.width
+        let containerHeight = (isNodeLoaded && view.bounds.height > 0) ? view.bounds.height : layout.size.height
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        gradientLayer.frame = CGRect(origin: .zero, size: CGSize(width: layout.size.width, height: containerHeight))
         CATransaction.commit()
 
-        let logoTopPad: CGFloat = 6.sh
+        let logoTopPad: CGFloat = 0
         let logoHeaderHeight = logoTopPad + Self.logoImageHeight + 16.sh
         transition.updateFrame(view: logoHeaderView, frame: CGRect(
             x: 0, y: topY, width: contentWidth, height: logoHeaderHeight
@@ -173,12 +174,12 @@ final class ClanListContainerNode: ASDisplayNode {
 
         transition.updateFrame(view: collectionView, frame: CGRect(
             x: 0, y: topY + logoHeaderHeight, width: contentWidth,
-            height: layout.size.height - topY - logoHeaderHeight - layout.intrinsicInsets.bottom
+            height: containerHeight - topY - logoHeaderHeight - layout.intrinsicInsets.bottom
         ))
 
         let liSize: CGFloat = 24.swh
         transition.updateFrame(view: loadingIndicator, frame: CGRect(
-            x: centerX - liSize / 2, y: (layout.size.height - liSize) / 2, width: liSize, height: liSize
+            x: centerX - liSize / 2, y: (containerHeight - liSize) / 2, width: liSize, height: liSize
         ))
     }
 

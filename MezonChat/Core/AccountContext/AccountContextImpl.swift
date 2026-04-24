@@ -226,6 +226,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     func logout() {
+        SessionExpiredModal.removeOverlayIfPresented()
         account.network.bearerUnauthorizedRecovery = nil
         socketEventsDisposable?.dispose()
         socketEventsDisposable = nil
@@ -324,10 +325,20 @@ final class AccountContextImpl: AccountContext {
                 return true
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, (code == 401 || code == 403) {
-                    SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
+                    SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
                     return false
                 }
+                #if DEBUG
+                print(
+                    "[SessionRefresh] refreshSessionWithRetry MezonError attempt=\(attempt)/\(maxForegroundRecoverRetries): \(error.localizedDescription)"
+                )
+                #endif
             } catch {
+                #if DEBUG
+                print(
+                    "[SessionRefresh] refreshSessionWithRetry attempt=\(attempt)/\(maxForegroundRecoverRetries): \(error.localizedDescription)"
+                )
+                #endif
             }
 
             if attempt < maxForegroundRecoverRetries {
@@ -341,7 +352,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     @objc private func handleSessionExpired() {
-        SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
+        SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
     }
 
     private func setLoggedIn(_ value: Bool) {
@@ -375,8 +386,9 @@ final class AccountContextImpl: AccountContext {
                 self.markSessionReady()
             },
             onExpired: { [weak self] in
-                self?.markSessionReady()
-                SessionExpiredModal.show(onLoginAgain: { [weak self] in self?.logout() })
+                guard let self else { return }
+                self.markSessionReady()
+                SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
             },
             onReady: { [weak self] in
                 guard let self else { return }
@@ -727,9 +739,16 @@ final class AccountContextImpl: AccountContext {
 
         var messageId: String = ""
         if !noti.content.isEmpty,
-           let json = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any],
-           let mid = json["message_id"] {
-            messageId = "\(mid)"
+           let json = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any] {
+            for key in ["message_id", "messageId", "messageID", "msg_id", "id"] {
+                if let v = json[key], !(v is NSNull) {
+                    let s = "\(v)".trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !s.isEmpty, s != "0" {
+                        messageId = s
+                        break
+                    }
+                }
+            }
         }
 
         let clanId = noti.clanID

@@ -126,10 +126,7 @@ final class ChatContainerNode: ASDisplayNode {
             guard totalItems > 0 else { return }
 
             if loadedRange.lastIndex >= totalItems - 5 {
-                let hasWelcome = self.state.messages.contains(where: { $0.isWelcome })
-                if !hasWelcome {
-                    self.interaction.onScrolledNearTop()
-                }
+                self.interaction.onScrolledNearTop()
             }
             if loadedRange.firstIndex <= 2 {
                 self.interaction.onScrolledNearBottom()
@@ -323,14 +320,20 @@ final class ChatContainerNode: ASDisplayNode {
         var items: [ListViewItem] = []
         let lastSeenId = state.lastSeenMessageId
         let lastMessageId = messages.last?.id
+        var didInsertWelcomeHero = false
         for display in messages.reversed() {
             if display.isWelcome {
-                items.append(ChatWelcomeItem(
-                    channelLabel: state.channelLabel,
-                    channelType: state.channelType,
-                    isPrivate: state.isPrivate,
-                    isAgeRestricted: state.isAgeRestricted
-                ))
+                if !didInsertWelcomeHero {
+                    items.append(ChatWelcomeItem(
+                        channelLabel: state.channelLabel,
+                        channelType: state.channelType,
+                        isPrivate: state.isPrivate,
+                        isAgeRestricted: state.isAgeRestricted
+                    ))
+                    didInsertWelcomeHero = true
+                } else {
+                    items.append(ChatSystemMessageItem(display: display, interaction: interaction))
+                }
             } else if display.isSystemMessage {
                 items.append(ChatSystemMessageItem(display: display, interaction: interaction))
             } else {
@@ -551,7 +554,7 @@ final class ChatContainerNode: ASDisplayNode {
         guard let layout = lastLayout else { return }
         let inputBarHeight = lastInputBarHeight
         let realSafeTop = view.safeAreaInsets.top
-        let safeTop = realSafeTop > 20 ? realSafeTop : max(layout.safeInsets.top, 54)
+        let safeTop = max(realSafeTop, layout.safeInsets.top)
 
         let fullWidth = view.bounds.width > 0 ? view.bounds.width : layout.size.width
         let headerH: CGFloat = 44

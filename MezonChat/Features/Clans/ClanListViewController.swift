@@ -167,6 +167,33 @@ final class ClanListViewController: ViewController {
         guard senderId != context.currentUser?.id else { return }
 
         if clanId != 0 {
+            if let data = notification.userInfo?["serializedChannelMessage"] as? Data,
+               let m = try? Mezon_Api_ChannelMessage(serializedBytes: data)
+            {
+                var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+                if topicId == 0, m.topicID != 0 { topicId = m.topicID }
+                if topicId != 0, ActiveChannelTracker.currentChannelId == topicId { return }
+                if topicId == 0, ActiveChannelTracker.currentChannelId == channelId { return }
+                if topicId != 0,
+                   Self.checkMessageMentionsUser(
+                    m, currentUserId: context.currentUser?.id,
+                    currentUserRoleIds: Self.getCurrentUserRoleIds(context: context))
+                {
+                    let mid = String(m.messageID)
+                    let dedup: String
+                    if !mid.isEmpty, mid != "0" { dedup = "\(topicId)_\(mid)" }
+                    else { dedup = "\(topicId)_\(m.createTimeSeconds)" }
+                    guard !processedMentionIds.contains(dedup) else { return }
+                    processedMentionIds.insert(dedup)
+                    if processedMentionIds.count > 500 { processedMentionIds.removeAll() }
+                    for i in 0..<clans.count {
+                        if clans[i].clanID == clanId { clans[i].badgeCount += 1 }
+                    }
+                    clansPipe.putNext(clans)
+                    persistClanRecordsToPostbox(clans)
+                    needsReloadPipe.putNext(())
+                }
+            }
             return
         }
 
@@ -217,9 +244,9 @@ final class ClanListViewController: ViewController {
     }
 
     @objc private func handleMentionReceived(_ notification: Notification) {
-        guard let clanId = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
         guard clanId != 0 else { return }
-        let channelId = notification.userInfo?["channelId"] as? Int64 ?? 0
+        let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) ?? 0
 
         if notification.userInfo?["isParentOfTopic"] as? Bool == true { return }
 

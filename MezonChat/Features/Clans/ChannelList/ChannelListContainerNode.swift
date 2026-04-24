@@ -19,8 +19,11 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let headerUIView = ChannelListHeaderView()
     private let bannerView = ChannelBannerView()
     private let headerSpacer = UIView()
+    private var headerSpacerHeightConstraint: NSLayoutConstraint?
     private var stickyTopOffset: CGFloat = 0
-    private let headerH: CGFloat = 120.sh
+    private let headerHMin: CGFloat = 120
+    private var currentHeaderH: CGFloat = 120
+    private var hasClanBanner: Bool = false
     private var channelApps: [Mezon_Api_ChannelAppResponse] = []
     private var isChannelAppsExpanded = true
     private var hasChannelAppsSection: Bool { !channelApps.isEmpty }
@@ -563,13 +566,16 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         headerSpacer.backgroundColor = .clear
         headerSpacer.translatesAutoresizingMaskIntoConstraints = false
-        headerSpacer.heightAnchor.constraint(equalToConstant: headerH).isActive = true
+        let headerHConstraint = headerSpacer.heightAnchor.constraint(equalToConstant: currentHeaderH)
+        headerHConstraint.isActive = true
+        headerSpacerHeightConstraint = headerHConstraint
 
         let tableHeader = UIStackView(arrangedSubviews: [bannerView, headerSpacer])
         tableHeader.axis = .vertical
         tableHeader.spacing = 0
         tableNode.view.tableHeaderView = tableHeader
         bannerView.isHidden = true
+        applyClanHeaderMetrics(hasBanner: false)
 
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
@@ -691,17 +697,43 @@ final class ChannelListContainerNode: ASDisplayNode {
         stickyTopOffset = topInset
         let tableFrame = CGRect(x: 0, y: topInset, width: layout.size.width, height: layout.size.height - topInset - layout.intrinsicInsets.bottom)
         transition.updateFrame(node: tableNode, frame: tableFrame)
+        recomputeClanHeaderHeight()
         updateTableHeaderLayout()
         layoutNewUnreadButton(containerSize: layout.size, bottomInset: layout.intrinsicInsets.bottom)
     }
 
     private static let bannerKnownHeight: CGFloat = 140.sh
 
+    private func applyClanHeaderMetrics(hasBanner: Bool) {
+        hasClanBanner = hasBanner
+        headerUIView.setClanBannerVisible(hasBanner)
+        recomputeClanHeaderHeight()
+    }
+
+    @discardableResult
+    private func recomputeClanHeaderHeight() -> CGFloat {
+        let width = max(tableNode.bounds.width, view.bounds.width)
+        guard width > 0 else { return currentHeaderH }
+        headerUIView.bounds = CGRect(x: 0, y: 0, width: width, height: currentHeaderH)
+        let fitting = headerUIView.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        )
+        let computed = max(headerHMin, ceil(fitting.height))
+        if abs(currentHeaderH - computed) > 0.5 {
+            currentHeaderH = computed
+            headerSpacerHeightConstraint?.constant = computed
+        }
+        return currentHeaderH
+    }
+
     private func updateStickyHeaderPosition() {
-        let bannerHeight = bannerView.isHidden ? 0 : Self.bannerKnownHeight
+        recomputeClanHeaderHeight()
+        let bannerHeight = hasClanBanner ? Self.bannerKnownHeight : 0
         let contentOffsetY = tableNode.view.contentOffset.y
         let headerY = max(0, bannerHeight - contentOffsetY)
-        headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: headerH)
+        headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: currentHeaderH)
     }
 
     func markClanSwitching() {
@@ -741,9 +773,11 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         UIView.performWithoutAnimation {
             if let url = bannerURL, !url.isEmpty {
+                applyClanHeaderMetrics(hasBanner: true)
                 bannerView.isHidden = false
                 bannerView.loadBanner(urlString: url)
             } else {
+                applyClanHeaderMetrics(hasBanner: false)
                 bannerView.isHidden = true
                 bannerView.clearBanner()
             }
@@ -1350,14 +1384,23 @@ final class ChannelListHeaderView: UIView {
     private let titleLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 16, weight: .medium)
+        l.adjustsFontForContentSizeCategory = false
         l.translatesAutoresizingMaskIntoConstraints = false
+        l.setContentCompressionResistancePriority(.required, for: .vertical)
+        l.setContentHuggingPriority(.required, for: .vertical)
+        l.lineBreakMode = .byTruncatingTail
+        l.numberOfLines = 1
         return l
     }()
 
     private let memberCountLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 12)
+        l.adjustsFontForContentSizeCategory = false
         l.translatesAutoresizingMaskIntoConstraints = false
+        l.setContentCompressionResistancePriority(.required, for: .vertical)
+        l.setContentHuggingPriority(.required, for: .vertical)
+        l.numberOfLines = 1
         return l
     }()
 
@@ -1373,7 +1416,11 @@ final class ChannelListHeaderView: UIView {
         let l = UILabel()
         l.font = .systemFont(ofSize: 12)
         l.text = "Community"
+        l.adjustsFontForContentSizeCategory = false
         l.translatesAutoresizingMaskIntoConstraints = false
+        l.setContentCompressionResistancePriority(.required, for: .vertical)
+        l.setContentHuggingPriority(.required, for: .vertical)
+        l.numberOfLines = 1
         return l
     }()
 
@@ -1426,13 +1473,17 @@ final class ChannelListHeaderView: UIView {
         return v
     }()
 
+    private var mainStackTopConstraint: NSLayoutConstraint!
+    private let mainStackTopBase: CGFloat = 6
+    private let topInsetExtraWhenNoClanBanner: CGFloat = 6
+
     override init(frame: CGRect) {
         super.init(frame: frame)
 
         let titleStack = UIStackView(arrangedSubviews: [titleLabel])
         titleStack.axis = .horizontal
         titleStack.spacing = 4
-        titleStack.alignment = .center
+        titleStack.alignment = .fill
         titleStack.translatesAutoresizingMaskIntoConstraints = false
 
         let communityStack = UIStackView(arrangedSubviews: [communityDot, communityLabel])
@@ -1479,8 +1530,11 @@ final class ChannelListHeaderView: UIView {
         addSubview(mainStack)
         addSubview(separator)
 
+        mainStackTopConstraint = mainStack.topAnchor.constraint(
+            equalTo: topAnchor, constant: mainStackTopBase)
+        mainStackTopConstraint.isActive = true
+
         NSLayoutConstraint.activate([
-            mainStack.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             mainStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             mainStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
@@ -1509,6 +1563,12 @@ final class ChannelListHeaderView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func setClanBannerVisible(_ visible: Bool) {
+        mainStackTopConstraint.constant = visible
+            ? mainStackTopBase
+            : mainStackTopBase + topInsetExtraWhenNoClanBanner
+    }
 
     @objc private func searchBarTapped() {
         onSearchTapped?()

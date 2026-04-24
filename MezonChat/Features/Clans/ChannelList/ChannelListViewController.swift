@@ -294,6 +294,74 @@ final class ChannelListViewController: ViewController {
     private let dataDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
 
+    private func indexOfChannelInAllChannels(_ channelId: Int64) -> Int? {
+        allChannels.firstIndex { $0.channelID == channelId }
+    }
+
+    private func parentChannelIdForThreadBadge(topicId: Int64, messageChannelId: Int64) -> Int64 {
+        guard topicId != 0 else { return messageChannelId }
+        if let row = allChannels.first(where: { $0.channelID == topicId }), row.parentID != 0 {
+            return row.parentID
+        }
+        if messageChannelId != 0, messageChannelId != topicId {
+            return messageChannelId
+        }
+        return messageChannelId
+    }
+
+    private func recordTimestampSentinelForMention(
+        clanId: Int64, channelIds: [Int64], ts: UInt32?
+    ) {
+        guard let ts, ts != 0, clanId != 0 else { return }
+        for w in -2...2 {
+            let t = Int64(ts) + Int64(w)
+            for c in channelIds where c != 0 {
+                processedBadgeKeys.insert("ts:\(clanId)_\(c)_\(t)")
+            }
+        }
+    }
+
+    private func hasRecentMentionSentinel(
+        clanId: Int64, channelId: Int64, ts: UInt32?
+    ) -> Bool {
+        guard let ts, ts != 0, clanId != 0 else { return false }
+        for w in -2...2 {
+            let t = Int64(ts) + Int64(w)
+            if processedBadgeKeys.contains("ts:\(clanId)_\(channelId)_\(t)") { return true }
+        }
+        return false
+    }
+
+    @discardableResult
+    private func applyMentionEventUnreadIfNeeded(
+        clanId: Int64,
+        messageId: Int64,
+        parentChannelId: Int64,
+        threadChannelId: Int64?,
+        ts: UInt32? = nil
+    ) -> Bool {
+        guard clanId != 0, messageId != 0, parentChannelId != 0 else { return false }
+        let ekey = "m:\(clanId)_\(messageId)"
+        if processedBadgeKeys.contains(ekey) { return false }
+        processedBadgeKeys.insert(ekey)
+        recordTimestampSentinelForMention(
+            clanId: clanId,
+            channelIds: [parentChannelId, threadChannelId ?? 0],
+            ts: ts
+        )
+        if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
+        var didChange = false
+        if let ip = indexOfChannelInAllChannels(parentChannelId) {
+            allChannels[ip].countMessUnread += 1
+            didChange = true
+        }
+        if let t = threadChannelId, t != 0, t != parentChannelId, let it = indexOfChannelInAllChannels(t) {
+            allChannels[it].countMessUnread += 1
+            didChange = true
+        }
+        return didChange
+    }
+
     deinit {
         fetchDisposable.dispose()
         dataDisposable.dispose()
@@ -594,13 +662,15 @@ final class ChannelListViewController: ViewController {
 
         guard clanId == self.clanId, clanId != 0 else { return }
         guard senderId != context.currentUser?.id else { return }
-        if ActiveChannelTracker.currentChannelId == channelId { return }
 
-        let topicId: Int64 = {
-            if let t = notification.userInfo?["topicId"] as? Int64 { return t }
-            if let t = notification.userInfo?["topicId"] as? Int { return Int64(t) }
-            return 0
-        }()
+        let apiMessage: Mezon_Api_ChannelMessage? = (notification.userInfo?["serializedChannelMessage"] as? Data).flatMap { try? Mezon_Api_ChannelMessage(serializedBytes: $0) }
+        var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+        if let m = apiMessage, topicId == 0, m.topicID != 0 { topicId = m.topicID }
+        if topicId != 0 {
+            if ActiveChannelTracker.currentChannelId == topicId { return }
+        } else {
+            if ActiveChannelTracker.currentChannelId == channelId { return }
+        }
 
         var updated = false
         for i in 0..<allChannels.count {
@@ -623,8 +693,7 @@ final class ChannelListViewController: ViewController {
             }
         }
 
-        if let serializedData = notification.userInfo?["serializedChannelMessage"] as? Data,
-           let apiMessage = try? Mezon_Api_ChannelMessage(serializedBytes: serializedData) {
+        if let apiMessage {
             let currentUserId = context.currentUser?.id
             let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context)
             let isMentioned = ClanListViewController.checkMessageMentionsUser(
@@ -632,42 +701,16 @@ final class ChannelListViewController: ViewController {
                 currentUserId: currentUserId,
                 currentUserRoleIds: roleIds
             )
-            if isMentioned {
-                let isTopicMessage = topicId != 0
-                if isTopicMessage {
-                    let topicDedupKey = "\(topicId)_\(apiMessage.messageID)"
-                    if !processedBadgeKeys.contains(topicDedupKey) {
-                        processedBadgeKeys.insert(topicDedupKey)
-                        if processedBadgeKeys.count > 500 { processedBadgeKeys.removeAll() }
-                        for i in 0..<allChannels.count {
-                            if allChannels[i].channelID == topicId {
-                                allChannels[i].countMessUnread += 1
-                                updated = true
-                            }
-                        }
-                    }
-                    let parentDedupKey = "\(channelId)_\(apiMessage.messageID)"
-                    if !processedBadgeKeys.contains(parentDedupKey) {
-                        processedBadgeKeys.insert(parentDedupKey)
-                        for i in 0..<allChannels.count {
-                            if allChannels[i].channelID == channelId {
-                                allChannels[i].countMessUnread += 1
-                                updated = true
-                            }
-                        }
-                    }
+            if isMentioned, apiMessage.messageID != 0 {
+                if topicId != 0 {
+                    let parentId = parentChannelIdForThreadBadge(topicId: topicId, messageChannelId: channelId)
+                    if applyMentionEventUnreadIfNeeded(
+                        clanId: clanId, messageId: apiMessage.messageID, parentChannelId: parentId, threadChannelId: topicId, ts: ts
+                    ) { updated = true }
                 } else {
-                    let dedupKey = "\(channelId)_\(apiMessage.messageID)"
-                    if !processedBadgeKeys.contains(dedupKey) {
-                        processedBadgeKeys.insert(dedupKey)
-                        if processedBadgeKeys.count > 500 { processedBadgeKeys.removeAll() }
-                        for i in 0..<allChannels.count {
-                            if allChannels[i].channelID == channelId {
-                                allChannels[i].countMessUnread += 1
-                                updated = true
-                            }
-                        }
-                    }
+                    if applyMentionEventUnreadIfNeeded(
+                        clanId: clanId, messageId: apiMessage.messageID, parentChannelId: channelId, threadChannelId: nil, ts: ts
+                    ) { updated = true }
                 }
             }
         }
@@ -680,8 +723,35 @@ final class ChannelListViewController: ViewController {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
               let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
         guard clanId == self.clanId, clanId != 0 else { return }
+        if notification.userInfo?["isParentOfTopic"] as? Bool == true { return }
         let messageId = notification.userInfo?["messageId"] as? String ?? ""
         let ts = notification.userInfo?["timestampSeconds"]
+        let tsU32: UInt32? = {
+            if let t = ts as? UInt32 { return t }
+            if let t = ts as? Int { return UInt32(t) }
+            if let t = ts as? NSNumber { return t.uint32Value }
+            return nil
+        }()
+        if !messageId.isEmpty, messageId != "0", let mid = Int64(messageId), mid != 0 {
+            if processedBadgeKeys.contains("m:\(clanId)_\(mid)") { return }
+            var updated = false
+            let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+            if topicFromNoti != 0 {
+                let parentId = parentChannelIdForThreadBadge(
+                    topicId: topicFromNoti, messageChannelId: channelId
+                )
+                if applyMentionEventUnreadIfNeeded(
+                    clanId: clanId, messageId: mid, parentChannelId: parentId, threadChannelId: topicFromNoti, ts: tsU32
+                ) { updated = true }
+            } else {
+                if applyMentionEventUnreadIfNeeded(
+                    clanId: clanId, messageId: mid, parentChannelId: channelId, threadChannelId: nil, ts: tsU32
+                ) { updated = true }
+            }
+            if updated { rebuildAndReload() }
+            return
+        }
+        if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) { return }
         let dedupKey: String
         if !messageId.isEmpty, messageId != "0" {
             dedupKey = "\(channelId)_\(messageId)"
@@ -690,17 +760,11 @@ final class ChannelListViewController: ViewController {
         }
         guard !processedBadgeKeys.contains(dedupKey) else { return }
         processedBadgeKeys.insert(dedupKey)
-        if processedBadgeKeys.count > 500 { processedBadgeKeys.removeAll() }
-
-        var updated = false
-        for i in 0..<allChannels.count {
-            if allChannels[i].channelID == channelId {
-                allChannels[i].countMessUnread += 1
-                updated = true
-            }
+        if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
+        if let i = indexOfChannelInAllChannels(channelId) {
+            allChannels[i].countMessUnread += 1
+            rebuildAndReload()
         }
-        guard updated else { return }
-        rebuildAndReload()
     }
 
     private func applyBuiltCategoriesPreservingCollapse(_ built: [ChannelCategory]) -> [ChannelCategory] {

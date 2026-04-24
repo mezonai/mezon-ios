@@ -248,7 +248,8 @@ final class FriendRequestContainerNode: ASDisplayNode {
     }
 
     func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
-        let nextLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat) = (size, safeTop, bottomInset)
+        let top = isNodeLoaded ? max(safeTop, view.safeAreaInsets.top) : safeTop
+        let nextLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat) = (size, top, bottomInset)
         if let previousLayout,
            previousLayout.size == nextLayout.size,
            previousLayout.safeTop == nextLayout.safeTop,

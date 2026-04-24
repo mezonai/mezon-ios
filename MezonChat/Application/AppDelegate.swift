@@ -123,9 +123,14 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             (context.isLoggedInSignal |> deliverOnMainQueue)
                 .start(next: { [weak self] isLoggedIn in
                     guard let self, let sharedContext = self.sharedContext, let mainWindow = self.mainWindow else { return }
-                    guard isLoggedIn != lastLoggedIn else { return }
-                    lastLoggedIn = isLoggedIn
-                    self.showRoot(isLoggedIn: isLoggedIn, context: context, sharedContext: sharedContext, mainWindow: mainWindow)
+                    if !isLoggedIn {
+                        lastLoggedIn = false
+                        self.showRoot(isLoggedIn: false, context: context, sharedContext: sharedContext, mainWindow: mainWindow)
+                        return
+                    }
+                    if lastLoggedIn == true { return }
+                    lastLoggedIn = true
+                    self.showRoot(isLoggedIn: true, context: context, sharedContext: sharedContext, mainWindow: mainWindow)
                 })
         )
     }
