@@ -292,6 +292,8 @@
 		98935EC729EA98AB9E9EEE28 /* HStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA1E84383C2F71247332C087 /* HStack.swift */; };
 		990BFCA15E9F12829DEC8E07 /* LongPressGesture.swift in Sources */ = {isa = PBXBuildFile; fileRef = B976DE08100A81B1BFE8600C /* LongPressGesture.swift */; };
 		99F467D84EA6215DE8B2C624 /* CallManagers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97726FD3233DB31DD6AC5385 /* CallManagers.swift */; };
+		9A6A29E72F9B717C00D44138 /* UpdatePhoneNumberViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A29E62F9B717C00D44138 /* UpdatePhoneNumberViewController.swift */; };
+		9A6A29E92F9B718500D44138 /* VerifyPhoneOTPViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A29E82F9B718500D44138 /* VerifyPhoneOTPViewController.swift */; };
 		9AB07E0FF22814CBCE67E56C /* SVariable.m in Sources */ = {isa = PBXBuildFile; fileRef = 09EF700E3C59BDE6081FE041 /* SVariable.m */; };
 		9ACC1ED3DFE7C2C6747F08CB /* ChannelBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55993173346619928A1FF1F /* ChannelBannerView.swift */; };
 		9AFF69B9981CF6C50BB2E3D2 /* MmnEd25519PKCS8.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D36E730232ECF3D41FED372 /* MmnEd25519PKCS8.swift */; };
@@ -821,6 +823,8 @@
 		99B0FE9FAE989D2B98228285 /* NavigationBarTitleTransitionNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarTitleTransitionNode.swift; sourceTree = "<group>"; };
 		99F32910E622ECD62BA3448A /* TopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicListView.swift; sourceTree = "<group>"; };
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
+		9A6A29E62F9B717C00D44138 /* UpdatePhoneNumberViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePhoneNumberViewController.swift; sourceTree = "<group>"; };
+		9A6A29E82F9B718500D44138 /* VerifyPhoneOTPViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyPhoneOTPViewController.swift; sourceTree = "<group>"; };
 		9A95963C16177D92D4F4F3A2 /* ReactionEmojiImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionEmojiImageLoader.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
@@ -1061,6 +1065,8 @@
 		04015AFAC4C0E26572D6AB77 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				9A6A29E82F9B718500D44138 /* VerifyPhoneOTPViewController.swift */,
+				9A6A29E62F9B717C00D44138 /* UpdatePhoneNumberViewController.swift */,
 				E223C3A86A605970EEA7163D /* AccountSettingsViewController.swift */,
 				FD94BB519169EBB90AFFA4AF /* AppThemeViewController.swift */,
 				ACE3F1520028CFB731221677 /* LanguageSettingsViewController.swift */,
@@ -2688,6 +2694,7 @@
 				7B0985AD19C25F90B0896A86 /* MentionSuggestionView.swift in Sources */,
 				95F5E6A42CC90E343563E840 /* Message.swift in Sources */,
 				6DFE6BE330DD11E6264CB51A /* MessageActionSheet.swift in Sources */,
+				9A6A29E92F9B718500D44138 /* VerifyPhoneOTPViewController.swift in Sources */,
 				FDE34923A940D508932CBC71 /* MessageAudioAttachmentNode.swift in Sources */,
 				6152E2619F4F916017D431BA /* MessageBubbleNode.swift in Sources */,
 				AD926700E6FB205203A36A34 /* MessageClanInviteLinkNode.swift in Sources */,
@@ -2934,6 +2941,7 @@
 				0DC5B7AD0A77BD90861393BC /* UIWindow+OrientationChange.m in Sources */,
 				46D6A8760CF4DAB5027387D6 /* UniversalMasterController.swift in Sources */,
 				B8B3BE792A068FC7E9223BCF /* UniversalTapRecognizer.swift in Sources */,
+				9A6A29E72F9B717C00D44138 /* UpdatePhoneNumberViewController.swift in Sources */,
 				2109F024782BFCFD89B5C9EF /* UpdateEmailViewController.swift in Sources */,
 				A9C3DB05DFD5E9D1F9C3720E /* User.swift in Sources */,
 				B47F7138A4BB90103FB87738 /* VStack.swift in Sources */,

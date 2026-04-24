@@ -145,6 +145,21 @@ enum L10n {
         static let verifySuccess = "emailSetting.verifySuccess"
     }
 
+    enum PhoneSetting {
+        static let updatePhoneTitle = "phoneSetting.updatePhoneTitle"
+        static let newPhoneNumber = "phoneSetting.newPhoneNumber"
+        static let phonePlaceholder = "phoneSetting.phonePlaceholder"
+        static let nextButton = "phoneSetting.nextButton"
+        static let invalidPhoneNumber = "phoneSetting.invalidPhoneNumber"
+        static let phoneAlreadyLinked = "phoneSetting.phoneAlreadyLinked"
+        static let tooFast = "phoneSetting.tooFast"
+        static let updateFailed = "phoneSetting.updateFailed"
+        static let verifyPhoneTitle = "phoneSetting.verifyPhoneTitle"
+        static let verifyDescription = "phoneSetting.verifyDescription"
+        static let verifyButton = "phoneSetting.verifyButton"
+        static let verifySuccess = "phoneSetting.verifySuccess"
+    }
+
     enum UpdateGate {
         static let outOfDateVersion  = "updateGate.outOfDateVersion"
         static let updateExperience  = "updateGate.updateExperience"
@@ -641,8 +656,21 @@ extension L10n {
         "emailSetting.updateFailed": "Failed to update email. Please try again.",
         "emailSetting.verifyEmailTitle": "Verify Email",
         "emailSetting.verifyDescription": "Enter the 6-digit code we sent to",
-        "emailSetting.verifyButton": "Verify Code",
+        "emailSetting.verifyButton": "Verify",
         "emailSetting.verifySuccess": "Email linked successfully",
+
+        "phoneSetting.updatePhoneTitle": "Update Phone Number",
+        "phoneSetting.newPhoneNumber": "New Phone Number",
+        "phoneSetting.phonePlaceholder": "Phone number",
+        "phoneSetting.nextButton": "Next",
+        "phoneSetting.invalidPhoneNumber": "Invalid phone number",
+        "phoneSetting.phoneAlreadyLinked": "This phone number is already linked",
+        "phoneSetting.tooFast": "Please wait %ds before requesting again",
+        "phoneSetting.updateFailed": "Failed to update phone number. Please try again.",
+        "phoneSetting.verifyPhoneTitle": "Verify Phone Number",
+        "phoneSetting.verifyDescription": "Enter the 6-digit code we sent to",
+        "phoneSetting.verifyButton": "Verify",
+        "phoneSetting.verifySuccess": "Phone number linked successfully",
 
         "settings.title":           "Settings",
         "settings.language":        "Language",
@@ -1142,6 +1170,19 @@ extension L10n {
         "emailSetting.verifyDescription": "Nhập mã gồm 6 chữ số chúng tôi đã gửi tới",
         "emailSetting.verifyButton": "Xác thực",
         "emailSetting.verifySuccess": "Liên kết email thành công",
+
+        "phoneSetting.updatePhoneTitle": "Cập nhật số điện thoại",
+        "phoneSetting.newPhoneNumber": "Số điện thoại mới",
+        "phoneSetting.phonePlaceholder": "Số điện thoại",
+        "phoneSetting.nextButton": "Tiếp tục",
+        "phoneSetting.invalidPhoneNumber": "Số điện thoại không hợp lệ",
+        "phoneSetting.phoneAlreadyLinked": "Số điện thoại này đã được liên kết",
+        "phoneSetting.tooFast": "Vui lòng đợi %ds trước khi gửi lại",
+        "phoneSetting.updateFailed": "Không thể cập nhật số điện thoại. Vui lòng thử lại.",
+        "phoneSetting.verifyPhoneTitle": "Xác thực số điện thoại",
+        "phoneSetting.verifyDescription": "Nhập mã gồm 6 chữ số chúng tôi đã gửi tới",
+        "phoneSetting.verifyButton": "Xác thực",
+        "phoneSetting.verifySuccess": "Liên kết số điện thoại thành công",
 
         "settings.title":           "Cài đặt",
         "settings.language":        "Ngôn ngữ",
