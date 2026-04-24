@@ -527,7 +527,7 @@ final class ProfileSettingViewController: BaseViewController {
         noClanDescLabel.textColor = .mezonTextPrimary
         createClanButton.backgroundColor = .outgoingBubble
         createClanButton.setTitleColor(.white, for: .normal)
-        joinClanButton.backgroundColor = .mezonTextPrimary
+        joinClanButton.backgroundColor = .darkGray
         joinClanButton.setTitleColor(.white, for: .normal)
         updateClanNicknamePlaceholderAppearance()
     }
