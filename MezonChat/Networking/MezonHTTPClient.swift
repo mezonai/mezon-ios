@@ -255,7 +255,7 @@ final class MezonHTTPClient {
     }
 
     func listCategoryDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_CategoryDesc] {
-        var req = Mezon_Api_ListCategoryDescsRequest()
+        var req = Mezon_Api_ListChannelDescsRequest()
         req.clanID = clanId
         req.limit = 100
         let response: Mezon_Api_CategoryDescList = try await postProto(

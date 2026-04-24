@@ -1864,19 +1864,19 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private static func decodeChannelListPref(_ data: Data) -> [Mezon_Api_ChannelDescription] {
-        guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        guard data.count > 4 else { return [] }
         var result: [Mezon_Api_ChannelDescription] = []
         var offset = 4
-        for _ in 0..<count {
-            guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let end = data.count
+        while offset + 4 <= end {
+            let lenU = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
             offset += 4
-            guard offset + Int(len) <= data.count else { break }
-            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+            let len = Int(lenU)
+            if len < 0 || len > 8_000_000 || len > end - offset { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + len))) {
                 result.append(m)
             }
-            offset += Int(len)
+            offset += len
         }
         return result
     }
