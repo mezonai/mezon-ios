@@ -294,15 +294,6 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
 
-    private lazy var gradientLayer: CAGradientLayer = {
-        let gl = CAGradientLayer()
-        gl.startPoint = CGPoint(x: 0, y: 0)
-        gl.endPoint = CGPoint(x: 1, y: 1)
-        gl.locations = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
-        return gl
-    }()
-
-
     private let emptyStateStack: UIStackView = {
         let sv = UIStackView()
         sv.axis = .vertical
@@ -355,7 +346,8 @@ final class NotificationsContainerNode: ASDisplayNode {
     init(signal: Signal<NotificationsState, NoError>, interaction: NotificationsInteraction) {
         self.interaction = interaction
         super.init()
-        backgroundColor = .clear
+        let t0 = UIColor.theme
+        backgroundColor = t0.secondary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -389,8 +381,11 @@ final class NotificationsContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
-        layer.insertSublayer(gradientLayer, at: 0)
-
+        let t = UIColor.theme
+        backgroundColor = t.primary
+        view.backgroundColor = t.primary
+        tableView.isOpaque = false
+        tableView.backgroundView = nil
 
         titleLabel.text = L(L10n.Notifications.title)
         titleLabel.font = .systemFont(ofSize: 17, weight: .bold)
@@ -476,11 +471,6 @@ final class NotificationsContainerNode: ASDisplayNode {
             layer.maskedCorners = [.layerMinXMinYCorner]
             clipsToBounds = true
         }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
-        CATransaction.commit()
 
         let listTopY = resolvedNotificationsListTop(layout: layout)
 
@@ -642,13 +632,10 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [
-            t.primaryGradient.cgColor,
-            t.secondary.cgColor,
-            t.secondary.cgColor,
-            t.primaryGradient.cgColor,
-        ]
-        backgroundColor = .clear
+        backgroundColor = t.secondary
+        if isNodeLoaded {
+            view.backgroundColor = t.secondary
+        }
         tableView.backgroundColor = .clear
         headerView.backgroundColor = .clear
         tabScrollView.backgroundColor = .clear
