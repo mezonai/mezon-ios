@@ -144,7 +144,9 @@ final class TabBarItemNode: ASDisplayNode {
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
-        let isWhiteTheme = ThemeManager.shared.current == .light
+        let currentTheme = ThemeManager.shared.current
+        let isWhiteTheme = currentTheme == .light
+            || (currentTheme == .system && UITraitCollection.current.userInterfaceStyle == .light)
         let primaryTint: UIColor
         if isWhiteTheme {
             primaryTint = selected ? UIColor(hex: 0xC0C8F2) : UIColor(hex: 0xCECECE)
