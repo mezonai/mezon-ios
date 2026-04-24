@@ -197,14 +197,7 @@ final class ProfileContainerNode: ASDisplayNode {
         let u = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let base = !d.isEmpty ? d : u
         if base.isEmpty { return "?" }
-        let parts = base.split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { !$0.isEmpty }
-        if parts.count >= 2 {
-            let a = parts[0].first.map { String($0) } ?? ""
-            let b = parts[1].first.map { String($0) } ?? ""
-            return (a + b).uppercased()
-        }
-        let s = parts.first ?? base
-        return String(s.prefix(2)).uppercased()
+        return base.first.map { String($0).uppercased() } ?? "?"
     }
 
     private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {

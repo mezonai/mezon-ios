@@ -131,10 +131,11 @@ final class AccountSettingsViewController: BaseViewController {
         let hasPhone = !phone.isEmpty
 
         let blockedDetail = blockedUsersCount > 0 ? "\(blockedUsersCount)" : ""
+        let rawDisplayName = accountRowDetailText(rawAccountDisplayName())
 
         let infoRows: [(title: String, detail: String?, warn: Bool, destructive: Bool, tap: RowTapAction)] = [
             (L(L10n.AccountSetting.username), accountRowDetailText(user?.username), false, false, .userProfile),
-            (L(L10n.AccountSetting.displayName), accountRowDetailText(user?.displayName), false, false, .userProfile),
+            (L(L10n.AccountSetting.displayName), rawDisplayName, false, false, .userProfile),
             (L(L10n.Login.email), hasEmail ? AccountSettingMask.maskEmail(email) : L(L10n.Common.linkEmail), !hasEmail, false, .linkEmail),
             (L(L10n.AccountSetting.phoneSectionTitle), hasPhone ? AccountSettingMask.maskPhone(phone) : L(L10n.Common.linkPhoneNumber), !hasPhone, false, .none),
         ]
@@ -182,6 +183,16 @@ final class AccountSettingsViewController: BaseViewController {
     private func accountRowDetailText(_ raw: String?) -> String? {
         let s = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return s.isEmpty ? nil : s
+    }
+
+    private func rawAccountDisplayName() -> String? {
+        guard
+            let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.account),
+            let api = try? Mezon_Api_Account(serializedData: data)
+        else {
+            return nil
+        }
+        return api.user.displayName
     }
 
     private func addGroupedCard(rows: [(title: String, detail: String?, warn: Bool, destructive: Bool, tap: RowTapAction)]) {

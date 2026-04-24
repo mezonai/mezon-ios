@@ -542,7 +542,7 @@ final class AccountContextImpl: AccountContext {
             if let data = try? apiAccount.serializedData() {
                 account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
             }
-            currentUser = mapAccountToUser(apiAccount)
+            applyCurrentUser(mapAccountToUser(apiAccount))
         } catch {
             applyCachedAccountIfAvailable()
         }

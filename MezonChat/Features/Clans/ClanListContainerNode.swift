@@ -25,7 +25,7 @@ final class ClanListContainerNode: ASDisplayNode {
         iv.clipsToBounds = true
         iv.backgroundColor = .clear
         iv.layer.cornerRadius = 12.swh
-        iv.image = UIImage(named: "MezonLogo")
+        iv.image = UIImage(named: "NewMezonLogo")
         iv.translatesAutoresizingMaskIntoConstraints = true
         iv.autoresizingMask = []
         iv.isUserInteractionEnabled = true

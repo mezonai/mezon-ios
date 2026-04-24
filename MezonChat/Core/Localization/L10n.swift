@@ -83,6 +83,8 @@ enum L10n {
         static let duplicateNickname = "profileSetting.duplicateNickname"
         static let noClanTitle       = "profileSetting.noClanTitle"
         static let noClanDesc        = "profileSetting.noClanDesc"
+        static let noClanCreateClan  = "profileSetting.noClanCreateClan"
+        static let noClanJoinClan    = "profileSetting.noClanJoinClan"
         static let directMessageIcon = "profileSetting.directMessageIcon"
     }
 
@@ -892,7 +894,7 @@ extension L10n {
         "friendRequest.title": "Add Friend",
         "friendRequest.received": "Received",
         "friendRequest.sent": "Sent",
-        "friendRequest.emptyReceivedTitle": "No friend requests",
+        "friendRequest.emptyReceivedTitle": "No incoming friend requests",
         "friendRequest.emptyReceivedDesc": "Here you will see all the friend requests that people send to you.",
         "friendRequest.addByTitle": "Add by username or phone number",
         "friendRequest.addByQuestion": "Who would you like to add as a friend?",
@@ -1016,8 +1018,10 @@ extension L10n {
         "profileSetting.updateError": "Failed to update profile",
         "profileSetting.clanUpdateSuccess": "Clan profile updated successfully",
         "profileSetting.duplicateNickname": "This nickname already exists in the clan. Please choose another.",
-        "profileSetting.noClanTitle": "No Clans Yet",
-        "profileSetting.noClanDesc": "You haven't joined any clans yet.",
+        "profileSetting.noClanTitle": "You don't have any clan",
+        "profileSetting.noClanDesc": "Create or join a clan to get started!",
+        "profileSetting.noClanCreateClan": "Create a clan",
+        "profileSetting.noClanJoinClan": "Join a clan",
         "profileSetting.directMessageIcon": "Direct Message Icon",
 
         "qrScanner.joinGroup": "Join Group",
@@ -1512,8 +1516,10 @@ extension L10n {
         "profileSetting.updateError": "Cập nhật hồ sơ thất bại",
         "profileSetting.clanUpdateSuccess": "Cập nhật hồ sơ Clan thành công",
         "profileSetting.duplicateNickname": "Biệt danh này đã tồn tại trong Clan. Vui lòng chọn tên khác.",
-        "profileSetting.noClanTitle": "Chưa có Clan",
-        "profileSetting.noClanDesc": "Bạn chưa tham gia Clan nào.",
+        "profileSetting.noClanTitle": "Bạn chưa tham gia clan nào",
+        "profileSetting.noClanDesc": "Tạo hoặc tham gia một clan để thiết lập hồ sơ clan của bạn.",
+        "profileSetting.noClanCreateClan": "Tạo clan",
+        "profileSetting.noClanJoinClan": "Tham gia clan",
         "profileSetting.directMessageIcon": "Biểu tượng tin nhắn riêng",
 
         "qrScanner.title": "Quét mã QR",

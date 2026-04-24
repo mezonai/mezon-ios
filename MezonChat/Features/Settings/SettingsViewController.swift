@@ -120,6 +120,7 @@ final class SettingsViewController: BaseViewController {
     }
 
     private let side: CGFloat = 16.sw
+    private let rowIconTitleSpacing: CGFloat = 22.sw
 
     private func allSettingsSections() -> [(header: String, rows: [SettingsRow])] {
         [
@@ -344,10 +345,10 @@ final class SettingsViewController: BaseViewController {
 
             iconView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16.sw),
             iconView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 24.swh),
+            iconView.widthAnchor.constraint(equalToConstant: 20.swh),
+            iconView.heightAnchor.constraint(equalToConstant: 20.swh),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10.sw),
+            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: rowIconTitleSpacing),
             titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
 
@@ -444,10 +445,10 @@ final class SettingsViewController: BaseViewController {
 
             iconView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16.sw),
             iconView.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 24.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 24.swh),
+            iconView.widthAnchor.constraint(equalToConstant: 20.swh),
+            iconView.heightAnchor.constraint(equalToConstant: 20.swh),
 
-            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10.sw),
+            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: rowIconTitleSpacing),
             label.centerYAnchor.constraint(equalTo: card.centerYAnchor),
         ])
 

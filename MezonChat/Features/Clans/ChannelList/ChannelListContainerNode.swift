@@ -37,6 +37,23 @@ final class ChannelListContainerNode: ASDisplayNode {
         return gl
     }()
 
+    private static var shouldUseFlatBackgroundForCurrentTheme: Bool {
+        switch ThemeManager.shared.current {
+        case .dark, .light:
+            return true
+        case .system:
+            let effective = UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light
+            switch effective {
+            case .dark, .light:
+                return true
+            default:
+                return false
+            }
+        case .sunrise, .redDark, .purpleHaze, .abyssDark, .sunset:
+            return false
+        }
+    }
+
     private var state: ChannelListState = .empty
     private var threadLookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
 
@@ -882,17 +899,19 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [
+        let useFlatBackground = Self.shouldUseFlatBackgroundForCurrentTheme
+        gradientLayer.isHidden = useFlatBackground
+        gradientLayer.colors = useFlatBackground ? [t.secondary.cgColor, t.secondary.cgColor] : [
             t.primaryGradient.cgColor,
             t.secondary.cgColor,
             t.secondary.cgColor,
             t.primaryGradient.cgColor
         ]
-        backgroundColor = .clear
-        tableNode.backgroundColor = .clear
-        tableNode.view.backgroundColor = .clear
+        backgroundColor = useFlatBackground ? t.secondary : .clear
+        tableNode.backgroundColor = useFlatBackground ? t.secondary : .clear
+        tableNode.view.backgroundColor = useFlatBackground ? t.secondary : .clear
         headerUIView.applyTheme()
-        headerUIView.backgroundColor = t.primaryGradient
+        headerUIView.backgroundColor = useFlatBackground ? t.secondary : t.primaryGradient
         newUnreadButton.backgroundColor = UIColor.mezonUnreadBadge
         newUnreadButton.setTitleColor(.white, for: .normal)
         newUnreadButton.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
@@ -1441,7 +1460,8 @@ final class ChannelListHeaderView: UIView {
     private let searchLabel: UILabel = {
         let l = UILabel()
         l.text = "Search"
-        l.font = .systemFont(ofSize: 14)
+        l.font = .systemFont(ofSize: 13)
+        l.textAlignment = .center
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
@@ -1545,9 +1565,9 @@ final class ChannelListHeaderView: UIView {
             searchBar.heightAnchor.constraint(equalToConstant: 32),
             searchIcon.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 12),
             searchIcon.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
-            searchIcon.widthAnchor.constraint(equalToConstant: 16),
-            searchIcon.heightAnchor.constraint(equalToConstant: 16),
-            searchLabel.leadingAnchor.constraint(equalTo: searchIcon.trailingAnchor, constant: 8),
+            searchIcon.widthAnchor.constraint(equalToConstant: 22),
+            searchIcon.heightAnchor.constraint(equalToConstant: 22),
+            searchLabel.centerXAnchor.constraint(equalTo: searchBar.centerXAnchor),
             searchLabel.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
 
             qrButton.widthAnchor.constraint(equalToConstant: 32),
