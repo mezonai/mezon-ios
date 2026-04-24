@@ -347,7 +347,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         self.interaction = interaction
         super.init()
         let t0 = UIColor.theme
-        backgroundColor = t0.primary
+        backgroundColor = t0.secondary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -632,9 +632,9 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.primary
+        backgroundColor = t.secondary
         if isNodeLoaded {
-            view.backgroundColor = t.primary
+            view.backgroundColor = t.secondary
         }
         tableView.backgroundColor = .clear
         headerView.backgroundColor = .clear

@@ -33,7 +33,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         self.context = context
         super.init()
         let t0 = UIColor.theme
-        backgroundColor = t0.primary
+        backgroundColor = t0.secondary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -66,8 +66,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         super.didLoad()
 
         let t = UIColor.theme
-        backgroundColor = t.primary
-        view.backgroundColor = t.primary
+        backgroundColor = t.secondary
+        view.backgroundColor = t.secondary
         tableView.isOpaque = false
         tableView.backgroundView = nil
 
@@ -201,9 +201,9 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.primary
+        backgroundColor = t.secondary
         if isNodeLoaded {
-            view.backgroundColor = t.primary
+            view.backgroundColor = t.secondary
         }
         titleLabel.textColor = t.textStrong
 
