@@ -144,14 +144,15 @@ final class TabBarItemNode: ASDisplayNode {
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
+        let isWhiteTheme = ThemeManager.shared.current == .light
         let primaryTint: UIColor
-        if !ThemeManager.shared.current.usesLightStatusBarContent {
+        if isWhiteTheme {
             primaryTint = selected ? UIColor(hex: 0xC0C8F2) : UIColor(hex: 0xCECECE)
         } else {
             primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
         }
         let faceTint: UIColor
-        if !ThemeManager.shared.current.usesLightStatusBarContent {
+        if isWhiteTheme {
             faceTint = selected ? UIColor(hex: 0x475ED9) : UIColor.theme.borderRadio
         } else {
             faceTint = selected ? UIColor.theme.textStrong : UIColor.theme.borderRadio
