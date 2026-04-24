@@ -150,7 +150,12 @@ final class TabBarItemNode: ASDisplayNode {
         } else {
             primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
         }
-        let faceTint = selected ? UIColor(hex: 0x475ED9) : UIColor.theme.borderRadio
+        let faceTint: UIColor
+        if !ThemeManager.shared.current.usesLightStatusBarContent {
+            faceTint = selected ? UIColor(hex: 0x475ED9) : UIColor.theme.borderRadio
+        } else {
+            faceTint = selected ? UIColor.theme.textStrong : UIColor.theme.borderRadio
+        }
         primaryIconNode.tintColor = primaryTint
         if let faceName = item.mezonTabBarFaceAssetName,
            let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {

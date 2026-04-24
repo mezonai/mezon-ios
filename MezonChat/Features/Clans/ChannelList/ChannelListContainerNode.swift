@@ -35,7 +35,20 @@ final class ChannelListContainerNode: ASDisplayNode {
     }()
 
     private static var shouldUseFlatBackgroundForCurrentTheme: Bool {
-        ThemeManager.shared.current.usesLightStatusBarContent
+        switch ThemeManager.shared.current {
+        case .dark, .light:
+            return true
+        case .system:
+            let effective = UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light
+            switch effective {
+            case .dark, .light:
+                return true
+            default:
+                return false
+            }
+        case .sunrise, .redDark, .purpleHaze, .abyssDark, .sunset:
+            return false
+        }
     }
 
     private var state: ChannelListState = .empty
