@@ -159,15 +159,15 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
         switch route {
         case .speaker:
             AudioManager.shared.isSpeakerOutputPreferred = true
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
             try session.overrideOutputAudioPort(.speaker)
         case .bluetooth:
             AudioManager.shared.isSpeakerOutputPreferred = false
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
             try session.overrideOutputAudioPort(.none)
         case .earpiece:
             AudioManager.shared.isSpeakerOutputPreferred = false
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
             try session.overrideOutputAudioPort(.none)
         }
     } catch {
@@ -3075,7 +3075,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private func ensureVoiceChannelAudioSessionCategory() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
             try session.setActive(true)
         } catch {
         }

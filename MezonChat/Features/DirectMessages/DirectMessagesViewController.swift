@@ -78,6 +78,7 @@ final class DirectMessagesViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.backgroundColor = UIColor.theme.primary
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
@@ -106,6 +107,7 @@ final class DirectMessagesViewController: ViewController {
 
     @objc private func handleDirectMessagesThemeChange() {
         guard isNodeLoaded else { return }
+        view.backgroundColor = UIColor.theme.primary
         directMessagesNode.applyTheme()
     }
 

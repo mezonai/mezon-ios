@@ -104,6 +104,7 @@ final class DmListItemCell: UITableViewCell {
 
     private func setup() {
         backgroundColor = .clear
+        contentView.backgroundColor = .clear
         selectionStyle = .none
 
         let containerView = UIView()
