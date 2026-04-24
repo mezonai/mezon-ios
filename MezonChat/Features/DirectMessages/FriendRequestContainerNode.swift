@@ -71,6 +71,8 @@ final class FriendRequestContainerNode: ASDisplayNode {
         if validLayout != nil {
             applyLayout(transition: .immediate)
         }
+
+        updateContent(oldFriends: [], newFriends: currentFriends)
     }
 
     private func setupHeader() {
@@ -142,7 +144,7 @@ final class FriendRequestContainerNode: ASDisplayNode {
         emptyContainerView.backgroundColor = .clear
         emptyContainerView.isHidden = true
 
-        emptyImageView.image = UIImage(named: "Invite/EmptyFriendIcon")
+        emptyImageView.image = UIImage(named: "Invite/NewEmptyFriendIcon")
         emptyImageView.contentMode = .scaleAspectFit
         emptyImageView.clipsToBounds = true
 
@@ -171,6 +173,10 @@ final class FriendRequestContainerNode: ASDisplayNode {
         if isEmpty {
             emptyTitleLabel.text = L(L10n.FriendRequest.emptyReceivedTitle)
             emptyDescLabel.text = L(L10n.FriendRequest.emptyReceivedDesc)
+        }
+
+        if isNodeLoaded, validLayout != nil {
+            applyLayout(transition: .immediate)
         }
 
         applyFriendDiff(oldFriends: oldFriends, newFriends: newFriends)
@@ -282,14 +288,15 @@ final class FriendRequestContainerNode: ASDisplayNode {
         transition.updateFrame(view: searchPillLabel, frame: CGRect(x: pillInset, y: 0, width: size.width - sideInset * 2 - pillInset * 2 - chevronW - 8.sw, height: searchH))
         transition.updateFrame(view: searchPillChevron, frame: CGRect(x: chevronX, y: (searchH - chevronW) / 2, width: chevronW, height: chevronW))
 
+        let showsIncomingTitle = !currentFriends.isEmpty
         let incomingTitleY = searchY + searchH + 12.sh
-        let incomingTitleH: CGFloat = 20.sh
+        let incomingTitleH: CGFloat = showsIncomingTitle ? 20.sh : 0
         transition.updateFrame(
             view: incomingTitleLabel,
             frame: CGRect(x: sideInset, y: incomingTitleY, width: size.width - sideInset * 2, height: incomingTitleH)
         )
 
-        let contentY = incomingTitleY + incomingTitleH + 8.sh
+        let contentY = showsIncomingTitle ? (incomingTitleY + incomingTitleH + 8.sh) : (searchY + searchH + 12.sh)
         let contentH = size.height - contentY - bottomInset
 
         transition.updateFrame(node: tableNode, frame: CGRect(x: 0, y: contentY, width: size.width, height: contentH))

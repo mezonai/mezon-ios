@@ -144,8 +144,13 @@ final class TabBarItemNode: ASDisplayNode {
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
-        let primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
-        let faceTint = selected ? UIColor.theme.textStrong : UIColor.theme.borderRadio
+        let primaryTint: UIColor
+        if !ThemeManager.shared.current.usesLightStatusBarContent {
+            primaryTint = selected ? UIColor(hex: 0xC0C8F2) : UIColor(hex: 0xCECECE)
+        } else {
+            primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
+        }
+        let faceTint = selected ? UIColor(hex: 0x475ED9) : UIColor.theme.borderRadio
         primaryIconNode.tintColor = primaryTint
         if let faceName = item.mezonTabBarFaceAssetName,
            let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {
@@ -188,10 +193,14 @@ public final class TabBarNode: ASDisplayNode {
 
     var onSelect: ((Int, Bool) -> Void)?
 
+    private static var shouldEnableBackgroundBlurForCurrentTheme: Bool {
+        !ThemeManager.shared.current.usesLightStatusBarContent
+    }
+
     override public init() {
         backgroundNode = NavigationBackgroundNode(
-            color: UIColor.theme.primary,
-            enableBlur: true
+            color: UIColor.theme.secondaryLight,
+            enableBlur: Self.shouldEnableBackgroundBlurForCurrentTheme
         )
         super.init()
         automaticallyManagesSubnodes = false
@@ -238,7 +247,11 @@ public final class TabBarNode: ASDisplayNode {
         let totalHeight = Self.barHeight + bottomInset
 
         transition.updateFrame(node: backgroundNode, frame: CGRect(origin: .zero, size: CGSize(width: size.width, height: totalHeight)))
-        backgroundNode.updateColor(color: UIColor.theme.primary, transition: transition)
+        backgroundNode.updateColor(
+            color: UIColor.theme.secondaryLight,
+            enableBlur: Self.shouldEnableBackgroundBlurForCurrentTheme,
+            transition: transition
+        )
         backgroundNode.update(size: CGSize(width: size.width, height: totalHeight), cornerRadius: 0, transition: transition)
 
         let separatorH = 1.0 / UIScreen.main.scale

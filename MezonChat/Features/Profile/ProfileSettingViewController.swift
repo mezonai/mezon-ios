@@ -136,6 +136,15 @@ final class ProfileSettingViewController: BaseViewController {
         iv.clipsToBounds = true
         return iv
     }()
+    private let avatarPlaceholderLabel: UILabel = {
+        let l = UILabel()
+        l.textAlignment = .center
+        l.textColor = .white
+        l.adjustsFontSizeToFitWidth = true
+        l.minimumScaleFactor = 0.5
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
     private let avatarSpinner: UIActivityIndicatorView = {
         let s = UIActivityIndicatorView(style: .medium)
         s.hidesWhenStopped = true
@@ -250,6 +259,52 @@ final class ProfileSettingViewController: BaseViewController {
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
+    
+    private let noClanStateView: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        return v
+    }()
+    private let noClanImageView: UIImageView = {
+        let iv = UIImageView()
+        iv.contentMode = .scaleAspectFit
+        iv.clipsToBounds = true
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        return iv
+    }()
+    private let noClanTitleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 22.sf, weight: .bold)
+        l.textAlignment = .center
+        l.numberOfLines = 0
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    private let noClanDescLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 15.sf)
+        l.textAlignment = .center
+        l.numberOfLines = 0
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+    private let createClanButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.layer.cornerRadius = 12.swh
+        btn.clipsToBounds = true
+        btn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
+    private let joinClanButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.layer.cornerRadius = 12.swh
+        btn.clipsToBounds = true
+        btn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
 
     private let nicknameErrorLabel: UILabel = {
         let l = UILabel()
@@ -342,6 +397,7 @@ final class ProfileSettingViewController: BaseViewController {
         setupBanner()
         setupDetailCard()
         setupDMIconSection()
+        setupNoClanState()
 
         view.addSubview(loadingOverlay)
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -428,6 +484,8 @@ final class ProfileSettingViewController: BaseViewController {
         detailCard.layer.borderColor = UIColor.mezonBorder.cgColor
         detailNameLabel.textColor = .mezonTextStrong
         detailUsernameLabel.textColor = .mezonTextPrimary
+        avatarPlaceholderLabel.font = .systemFont(ofSize: avatarSize * 0.36, weight: .semibold)
+        avatarPlaceholderLabel.textColor = .white
 
         displayNameLabel.textColor = .mezonTextPrimary
         displayNameFieldContainer.backgroundColor = .mezonSecondaryBackground
@@ -458,6 +516,19 @@ final class ProfileSettingViewController: BaseViewController {
             displayNameLabel.text = L(L10n.ProfileSetting.clanNickname)
         }
         dmIconLabel.text = L(L10n.ProfileSetting.directMessageIcon)
+        noClanTitleLabel.text = L(L10n.ProfileSetting.noClanTitle)
+        noClanDescLabel.text = L(L10n.ProfileSetting.noClanDesc)
+        createClanButton.setTitle(L(L10n.ProfileSetting.noClanCreateClan), for: .normal)
+        joinClanButton.setTitle(L(L10n.ProfileSetting.noClanJoinClan), for: .normal)
+        noClanImageView.image = UIImage(named: "Profile/EmptyClanIcon")
+
+        noClanStateView.backgroundColor = .clear
+        noClanTitleLabel.textColor = .mezonTextStrong
+        noClanDescLabel.textColor = .mezonTextPrimary
+        createClanButton.backgroundColor = .outgoingBubble
+        createClanButton.setTitleColor(.white, for: .normal)
+        joinClanButton.backgroundColor = .mezonTextPrimary
+        joinClanButton.setTitleColor(.white, for: .normal)
         updateClanNicknamePlaceholderAppearance()
     }
 
@@ -477,6 +548,7 @@ final class ProfileSettingViewController: BaseViewController {
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.layer.cornerRadius = avatarSize / 2
         avatarContainerView.addSubview(avatarImageView)
+        avatarContainerView.addSubview(avatarPlaceholderLabel)
         avatarContainerView.addSubview(avatarSpinner)
 
         let avatarTap = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
@@ -500,6 +572,11 @@ final class ProfileSettingViewController: BaseViewController {
             avatarImageView.leadingAnchor.constraint(equalTo: avatarContainerView.leadingAnchor),
             avatarImageView.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor),
             avatarImageView.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor),
+
+            avatarPlaceholderLabel.topAnchor.constraint(equalTo: avatarContainerView.topAnchor),
+            avatarPlaceholderLabel.leadingAnchor.constraint(equalTo: avatarContainerView.leadingAnchor),
+            avatarPlaceholderLabel.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor),
+            avatarPlaceholderLabel.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor),
 
             avatarSpinner.centerXAnchor.constraint(equalTo: avatarContainerView.centerXAnchor),
             avatarSpinner.centerYAnchor.constraint(equalTo: avatarContainerView.centerYAnchor),
@@ -644,6 +721,49 @@ final class ProfileSettingViewController: BaseViewController {
             clanSelectorChevron.heightAnchor.constraint(equalToConstant: 14),
         ])
     }
+    
+    private func setupNoClanState() {
+        contentStack.addArrangedSubview(noClanStateView)
+        contentStack.setCustomSpacing(16.sh, after: noClanStateView)
+        
+        noClanStateView.addSubview(noClanImageView)
+        noClanStateView.addSubview(noClanTitleLabel)
+        noClanStateView.addSubview(noClanDescLabel)
+        noClanStateView.addSubview(createClanButton)
+        noClanStateView.addSubview(joinClanButton)
+        
+        createClanButton.addTarget(self, action: #selector(createClanTapped), for: .touchUpInside)
+        joinClanButton.addTarget(self, action: #selector(joinClanTapped), for: .touchUpInside)
+        
+        NSLayoutConstraint.activate([
+            noClanStateView.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            noClanStateView.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            
+            noClanImageView.topAnchor.constraint(equalTo: noClanStateView.topAnchor, constant: 40.sh),
+            noClanImageView.centerXAnchor.constraint(equalTo: noClanStateView.centerXAnchor),
+            noClanImageView.widthAnchor.constraint(equalToConstant: 120.swh),
+            noClanImageView.heightAnchor.constraint(equalToConstant: 120.swh),
+            
+            noClanTitleLabel.topAnchor.constraint(equalTo: noClanImageView.bottomAnchor, constant: 24.sh),
+            noClanTitleLabel.leadingAnchor.constraint(equalTo: noClanStateView.leadingAnchor, constant: 16.sw),
+            noClanTitleLabel.trailingAnchor.constraint(equalTo: noClanStateView.trailingAnchor, constant: -16.sw),
+            
+            noClanDescLabel.topAnchor.constraint(equalTo: noClanTitleLabel.bottomAnchor, constant: 8.sh),
+            noClanDescLabel.leadingAnchor.constraint(equalTo: noClanStateView.leadingAnchor, constant: 24.sw),
+            noClanDescLabel.trailingAnchor.constraint(equalTo: noClanStateView.trailingAnchor, constant: -24.sw),
+            
+            createClanButton.topAnchor.constraint(equalTo: noClanDescLabel.bottomAnchor, constant: 28.sh),
+            createClanButton.leadingAnchor.constraint(equalTo: noClanStateView.leadingAnchor, constant: 16.sw),
+            createClanButton.trailingAnchor.constraint(equalTo: noClanStateView.trailingAnchor, constant: -16.sw),
+            createClanButton.heightAnchor.constraint(equalToConstant: 44.sh),
+            
+            joinClanButton.topAnchor.constraint(equalTo: createClanButton.bottomAnchor, constant: 12.sh),
+            joinClanButton.leadingAnchor.constraint(equalTo: noClanStateView.leadingAnchor, constant: 16.sw),
+            joinClanButton.trailingAnchor.constraint(equalTo: noClanStateView.trailingAnchor, constant: -16.sw),
+            joinClanButton.heightAnchor.constraint(equalToConstant: 44.sh),
+            joinClanButton.bottomAnchor.constraint(equalTo: noClanStateView.bottomAnchor, constant: -24.sh),
+        ])
+    }
 
     private func loadInitialData() {
         guard let user = context.currentUser else { return }
@@ -738,11 +858,23 @@ final class ProfileSettingViewController: BaseViewController {
 
     private func refreshContent() {
         let isUser = currentTab == .userProfile
+        let showNoClanState = !isUser && clans.isEmpty
+        
+        noClanStateView.isHidden = !showNoClanState
+        bannerView.isHidden = showNoClanState
+        detailCard.isHidden = showNoClanState
+        dmIconSection.isHidden = showNoClanState
+
         clanSelectorView.isHidden = isUser
         aboutMeLabel.isHidden = !isUser
         aboutMeContainer.isHidden = !isUser
         dmIconSection.isHidden = !isUser
         nicknameErrorLabel.isHidden = isUser || !isDuplicateNickname
+
+        if showNoClanState {
+            clanSelectorView.isHidden = true
+            return
+        }
 
         if isUser {
             displayNameLabel.text = L(L10n.ProfileSetting.displayName)
@@ -791,7 +923,7 @@ final class ProfileSettingViewController: BaseViewController {
     private func refreshDMIcon() {
         let isDefaultLogo = userDmLogoUrl.isEmpty || userDmLogoUrl == kMezonLogoURL
         if isDefaultLogo {
-            dmIconImageView.image = UIImage(named: "MezonLogo")
+            dmIconImageView.image = UIImage(named: "NewMezonLogo")
             dmIconRemoveButton.isHidden = true
         } else {
             loadRemoteImage(urlString: userDmLogoUrl, into: dmIconImageView)
@@ -857,28 +989,49 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
+    private func avatarInitialText() -> String {
+        let source: String
+        if currentTab == .userProfile {
+            source = userDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? userName : userDisplayName
+        } else {
+            let trimmedClanNick = clanNickname.trimmingCharacters(in: .whitespacesAndNewlines)
+            source = trimmedClanNick.isEmpty ? clanNicknamePreviewWhenEmpty() : trimmedClanNick
+        }
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.first.map { String($0).uppercased() } ?? "?"
+    }
+
+    private func showAvatarPlaceholder() {
+        avatarPlaceholderLabel.text = avatarInitialText()
+        avatarPlaceholderLabel.isHidden = false
+        avatarImageView.image = nil
+        avatarContainerView.backgroundColor = .colorAvatarDefault
+        bannerColorView.backgroundColor = .outgoingBubble
+    }
+
     private func loadAvatarImage(urlString: String) {
         guard !urlString.isEmpty else {
-            avatarImageView.image = UIImage(named: "MezonLogo")
-            bannerColorView.backgroundColor = UIImage(named: "MezonLogo")?.dominantColor() ?? .outgoingBubble
+            showAvatarPlaceholder()
             return
         }
         if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
             avatarImageView.image = cached
+            avatarPlaceholderLabel.isHidden = true
+            avatarContainerView.backgroundColor = .clear
             bannerColorView.backgroundColor = cached.dominantColor() ?? .mezonBackground
             return
         }
         ImageCache.shared.loadImage(urlString: urlString) { [weak self] img in
             guard let self, let img else {
                 DispatchQueue.main.async {
-                    let fallback = UIImage(named: "MezonLogo")
-                    self?.avatarImageView.image = fallback
-                    self?.bannerColorView.backgroundColor = fallback?.dominantColor() ?? .outgoingBubble
+                    self?.showAvatarPlaceholder()
                 }
                 return
             }
             DispatchQueue.main.async {
                 self.avatarImageView.image = img
+                self.avatarPlaceholderLabel.isHidden = true
+                self.avatarContainerView.backgroundColor = .clear
                 self.bannerColorView.backgroundColor = img.dominantColor() ?? .mezonBackground
             }
         }
@@ -1056,14 +1209,18 @@ final class ProfileSettingViewController: BaseViewController {
         case .userAvatar:
             userAvatarUrl = kMezonLogoURL
             avatarImageView.image = logo
+            avatarPlaceholderLabel.isHidden = true
+            avatarContainerView.backgroundColor = .clear
             bannerColorView.backgroundColor = bannerTint
         case .clanAvatar:
             clanAvatarUrl = kMezonLogoURL
             avatarImageView.image = logo
+            avatarPlaceholderLabel.isHidden = true
+            avatarContainerView.backgroundColor = .clear
             bannerColorView.backgroundColor = bannerTint
         case .dmIcon:
             userDmLogoUrl = ""
-            dmIconImageView.image = UIImage(named: "MezonLogo")
+            dmIconImageView.image = UIImage(named: "NewMezonLogo")
             dmIconRemoveButton.isHidden = true
         }
     }
@@ -1143,10 +1300,14 @@ final class ProfileSettingViewController: BaseViewController {
                 case .userAvatar:
                     userAvatarUrl = cdnURL
                     targetImageView.image = image
+                    avatarPlaceholderLabel.isHidden = true
+                    avatarContainerView.backgroundColor = .clear
                     bannerColorView.backgroundColor = image.dominantColor() ?? .outgoingBubble
                 case .clanAvatar:
                     clanAvatarUrl = cdnURL
                     targetImageView.image = image
+                    avatarPlaceholderLabel.isHidden = true
+                    avatarContainerView.backgroundColor = .clear
                     bannerColorView.backgroundColor = image.dominantColor() ?? .outgoingBubble
                 case .dmIcon:
                     userDmLogoUrl = cdnURL
@@ -1208,6 +1369,16 @@ final class ProfileSettingViewController: BaseViewController {
 
     @objc private func clanSelectorTapped() {
         showClanPicker()
+    }
+    
+    @objc private func createClanTapped() {
+        let vc = CreateClanEntryViewController(context: context)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+    
+    @objc private func joinClanTapped() {
+        let vc = JoinClanSheetViewController(context: context)
+        present(vc, animated: true)
     }
 
     private func showClanPicker() {

@@ -113,8 +113,8 @@ enum AppTheme: String, CaseIterable {
 private extension ThemeAttributes {
 
     static let dark = ThemeAttributes(
-        primary:          hex("#121218"),
-        primaryGradient:  hex("#121218"),
+        primary:          hex("#131318"),
+        primaryGradient:  hex("#131318"),
         secondary:        hex("#1c1d23"),
         secondaryWeight:  hex("#212122"),
         secondaryLight:   hex("#26272f"),
@@ -173,7 +173,7 @@ private extension ThemeAttributes {
         primaryGradient:  hex("#ffffff"),
         secondary:        hex("#ffffff"),
         secondaryWeight:  hex("#F0F0F0"),
-        secondaryLight:   hex("#fefdfe"),
+        secondaryLight:   hex("#ffffff"),
         tertiary:         hex("#f2f3f6"),
         border:           hex("#ededf1"),
         borderDim:        hex("#dfdfdf"),

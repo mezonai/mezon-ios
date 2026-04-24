@@ -47,15 +47,16 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         automaticallyManagesSubnodes = true
 
         setupButton(
-            searchButtonNode, icon: "magnifyingglass", label: searchLabel,
+            searchButtonNode, icon: "magnifyingglass", assetName: "Channel/Search", label: searchLabel,
             text: L(L10n.Common.search))
         setupButton(
-            threadsButtonNode, icon: "text.bubble", label: threadsLabel,
+            threadsButtonNode, icon: "text.bubble", assetName: "Channel/channelThread", label: threadsLabel,
             text: L(L10n.Channel.thread))
         setupButton(
-            muteButtonNode, icon: "bell.slash", label: muteLabel, text: L(L10n.ChannelAction.mute))
+            muteButtonNode, icon: "bell.fill", assetName: nil, label: muteLabel,
+            text: L(L10n.ChannelAction.mute))
         setupButton(
-            settingsButtonNode, icon: "gearshape", label: settingsLabel,
+            settingsButtonNode, icon: "gearshape.fill", assetName: nil, label: settingsLabel,
             text: L(L10n.Common.settings))
 
         threadsButtonNode.isHidden = !showThreads
@@ -85,19 +86,28 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         onSettingsTapped?()
     }
 
-    private func setupButton(_ button: ASButtonNode, icon: String, label: ASTextNode2, text: String)
+    private func setupButton(
+        _ button: ASButtonNode,
+        icon: String,
+        assetName: String?,
+        label: ASTextNode2,
+        text: String
+    )
     {
         let t = UIColor.theme
         let size: CGFloat = 52.sw
         button.style.preferredSize = CGSize(width: size, height: size)
         button.cornerRadius = size / 2
         button.backgroundColor = t.secondary
+        button.imageNode.contentMode = .scaleAspectFit
+        button.imageNode.style.preferredSize = CGSize(width: 24.sw, height: 24.sw)
 
         button.setImage(
-            UIImage(systemName: icon)?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
-            )
-            .withTintColor(t.textStrong, renderingMode: .alwaysOriginal),
+            actionIconImage(
+                assetName: assetName,
+                fallbackSystemName: icon,
+                fallbackTintColor: t.textStrong
+            ),
             for: .normal
         )
 
@@ -170,19 +180,22 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        let pairs: [(ASButtonNode, ASTextNode2, String)] = [
-            (searchButtonNode, searchLabel, "magnifyingglass"),
-            (threadsButtonNode, threadsLabel, "text.bubble"),
-            (muteButtonNode, muteLabel, "bell.slash"),
-            (settingsButtonNode, settingsLabel, "gearshape"),
+        let pairs: [(ASButtonNode, ASTextNode2, String, String?)] = [
+            (searchButtonNode, searchLabel, "magnifyingglass", "Channel/Search"),
+            (threadsButtonNode, threadsLabel, "text.bubble", "Channel/channelThread"),
+            (muteButtonNode, muteLabel, "bell.fill", nil),
+            (settingsButtonNode, settingsLabel, "gearshape.fill", nil),
         ]
-        for (button, label, iconName) in pairs {
+        for (button, label, iconName, assetName) in pairs {
             button.backgroundColor = t.secondary
+            button.imageNode.contentMode = .scaleAspectFit
+            button.imageNode.style.preferredSize = CGSize(width: 24.sw, height: 24.sw)
             button.setImage(
-                UIImage(systemName: iconName)?.withConfiguration(
-                    UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
-                )
-                .withTintColor(t.textStrong, renderingMode: .alwaysOriginal),
+                actionIconImage(
+                    assetName: assetName,
+                    fallbackSystemName: iconName,
+                    fallbackTintColor: t.textStrong
+                ),
                 for: .normal
             )
             if let text = label.attributedText?.string {
@@ -195,5 +208,39 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
                 )
             }
         }
+    }
+
+    private func actionIconImage(assetName: String?, fallbackSystemName: String, fallbackTintColor: UIColor)
+        -> UIImage?
+    {
+        if let assetName, let assetImage = UIImage(named: assetName) {
+            if assetName.hasPrefix("ChannelSetting/") {
+                return assetImage.withRenderingMode(.alwaysOriginal)
+            }
+            return resizedOriginalIcon(assetImage)
+        }
+        let baseConfig = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        let symbolImage = UIImage(systemName: fallbackSystemName, withConfiguration: baseConfig)
+        return symbolImage?.withTintColor(fallbackTintColor, renderingMode: .alwaysOriginal)
+    }
+
+    private func resizedOriginalIcon(_ image: UIImage) -> UIImage {
+        let targetSize = CGSize(width: 20.sw, height: 20.sw)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let sourceSize = image.size
+        let scale = min(
+            targetSize.width / max(sourceSize.width, 1),
+            targetSize.height / max(sourceSize.height, 1)
+        )
+        let drawSize = CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        let origin = CGPoint(
+            x: (targetSize.width - drawSize.width) / 2,
+            y: (targetSize.height - drawSize.height) / 2
+        )
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: origin, size: drawSize))
+        }.withRenderingMode(.alwaysOriginal)
     }
 }
