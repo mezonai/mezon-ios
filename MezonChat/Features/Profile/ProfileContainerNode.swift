@@ -449,6 +449,7 @@ final class ProfileContainerNode: ASDisplayNode {
         let iconBtnSize: CGFloat = 36.swh
         headphoneButton.layer.cornerRadius = iconBtnSize / 2
         headphoneButton.clipsToBounds = true
+        headphoneButton.addTarget(self, action: #selector(shopTapped), for: .touchUpInside)
         fixedHeaderView.addSubview(headphoneButton)
 
         micButton.layer.cornerRadius = iconBtnSize / 2
@@ -501,6 +502,9 @@ final class ProfileContainerNode: ASDisplayNode {
         transferRow.isUserInteractionEnabled = true
         let transferTap = UITapGestureRecognizer(target: self, action: #selector(transferFundsTapped))
         transferRow.addGestureRecognizer(transferTap)
+        historyRow.isUserInteractionEnabled = true
+        let historyTap = UITapGestureRecognizer(target: self, action: #selector(historyTransactionTapped))
+        historyRow.addGestureRecognizer(historyTap)
     }
 
     private func setupAboutMeCard() {
@@ -570,6 +574,9 @@ final class ProfileContainerNode: ASDisplayNode {
 
             friendsCard.heightAnchor.constraint(equalToConstant: 56.sh),
         ])
+        friendsCard.isUserInteractionEnabled = true
+        let friendsTap = UITapGestureRecognizer(target: self, action: #selector(yourFriendsTapped))
+        friendsCard.addGestureRecognizer(friendsTap)
     }
 
     private func setupCopyCard() {
@@ -1103,6 +1110,23 @@ final class ProfileContainerNode: ASDisplayNode {
 
     @objc private func transferFundsTapped() {
         onTransferFundsTapped?()
+    }
+
+    @objc private func shopTapped() {
+        showComingSoonToastLine(title: "Shop")
+    }
+
+    @objc private func historyTransactionTapped() {
+        showComingSoonToastLine(title: L(L10n.Profile.historyTransaction))
+    }
+
+    @objc private func yourFriendsTapped() {
+        showComingSoonToastLine(title: L(L10n.Profile.yourFriends))
+    }
+
+    private func showComingSoonToastLine(title: String) {
+        let line = "\(title) — \(L(L10n.Common.comingSoon))"
+        Toast.comingSoonLine(line)
     }
 }
 

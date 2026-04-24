@@ -484,6 +484,9 @@ final class SettingsViewController: BaseViewController {
         case L(L10n.Settings.qrScan):
             let vc = QRScannerViewController(context: context)
             navigationController?.pushViewController(vc, animated: true)
+        case L(L10n.Settings.devices):
+            let line = "\(L(L10n.Settings.devices)) — \(L(L10n.Common.comingSoon))"
+            Toast.comingSoonLine(line)
         default:
             break
         }

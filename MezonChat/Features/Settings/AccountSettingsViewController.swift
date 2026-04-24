@@ -42,6 +42,10 @@ final class AccountSettingsViewController: BaseViewController {
         case none
         case userProfile
         case linkEmail
+        case linkPhone
+        case blockedUsers
+        case setPassword
+        case deleteAccount
     }
 
     init(context: AccountContext) {
@@ -137,7 +141,7 @@ final class AccountSettingsViewController: BaseViewController {
             (L(L10n.AccountSetting.username), accountRowDetailText(user?.username), false, false, .userProfile),
             (L(L10n.AccountSetting.displayName), rawDisplayName, false, false, .userProfile),
             (L(L10n.Login.email), hasEmail ? AccountSettingMask.maskEmail(email) : L(L10n.Common.linkEmail), !hasEmail, false, .linkEmail),
-            (L(L10n.AccountSetting.phoneSectionTitle), hasPhone ? AccountSettingMask.maskPhone(phone) : L(L10n.Common.linkPhoneNumber), !hasPhone, false, .none),
+            (L(L10n.AccountSetting.phoneSectionTitle), hasPhone ? AccountSettingMask.maskPhone(phone) : L(L10n.Common.linkPhoneNumber), !hasPhone, false, .linkPhone),
         ]
 
         addSectionHeader(L(L10n.AccountSetting.accountInformation))
@@ -146,14 +150,14 @@ final class AccountSettingsViewController: BaseViewController {
         addSpacer(12.sh)
         addSectionHeader(L(L10n.AccountSetting.users))
         addGroupedCard(rows: [
-            (L(L10n.AccountSetting.blockedUsers), blockedDetail.isEmpty ? nil : blockedDetail, false, false, .none),
+            (L(L10n.AccountSetting.blockedUsers), blockedDetail.isEmpty ? nil : blockedDetail, false, false, .blockedUsers),
         ])
 
         addSpacer(12.sh)
         addSectionHeader(L(L10n.AccountSetting.accountManagement))
         addGroupedCard(rows: [
-            (L(L10n.AccountSetting.setPassword), nil, false, false, .none),
-            (L(L10n.Common.deleteAccount), nil, false, true, .none),
+            (L(L10n.AccountSetting.setPassword), nil, false, false, .setPassword),
+            (L(L10n.Common.deleteAccount), nil, false, true, .deleteAccount),
         ])
 
         addSpacer(40.sh)
@@ -323,6 +327,18 @@ final class AccountSettingsViewController: BaseViewController {
             let currentEmail = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let vc = UpdateEmailViewController(context: context, currentEmail: currentEmail)
             navigationController?.pushViewController(vc, animated: true)
+        case .linkPhone:
+            let line = "\(L(L10n.AccountSetting.phoneSectionTitle)) — \(L(L10n.Common.comingSoon))"
+            Toast.comingSoonLine(line)
+        case .blockedUsers:
+            let line = "\(L(L10n.AccountSetting.blockedUsers)) — \(L(L10n.Common.comingSoon))"
+            Toast.comingSoonLine(line)
+        case .setPassword:
+            let line = "\(L(L10n.AccountSetting.setPassword)) — \(L(L10n.Common.comingSoon))"
+            Toast.comingSoonLine(line)
+        case .deleteAccount:
+            let line = "\(L(L10n.Common.deleteAccount)) — \(L(L10n.Common.comingSoon))"
+            Toast.comingSoonLine(line)
         }
     }
 
