@@ -271,6 +271,29 @@ final class MezonHTTPClient {
         )
     }
 
+    func linkSMS(phoneNumber: String, token: String) async throws -> OTPRequestResponse {
+        var req = Mezon_Api_AccountMezon()
+        req.phoneNumber = phoneNumber
+        req.vars = ["m": "true"]
+        let response: Mezon_Api_LinkAccountConfirmRequest = try await postProto(
+            path: "/mezon.api.Mezon/LinkSMS",
+            message: req,
+            auth: .bearer(token)
+        )
+        return OTPRequestResponse(reqId: response.reqID.isEmpty ? nil : response.reqID)
+    }
+
+    func confirmLinkPhoneOTP(reqId: String, otpCode: String, token: String) async throws {
+        var req = Mezon_Api_LinkAccountConfirmRequest()
+        req.reqID = reqId
+        req.otpCode = otpCode
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/ConfirmLinkMezonOTP",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     @discardableResult
     func confirmLogin(loginId: String, token: String) async throws -> MezonSession? {
         struct Body: Encodable {
