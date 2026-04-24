@@ -168,7 +168,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             if media.count > 4 {
                 let countNode = ASTextNode2()
                 countNode.attributedText = NSAttributedString(
-                    string: "+\(media.count - 4)",
+                    string: "+\(media.count - 3)",
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 20.sf, weight: .bold),
                         .foregroundColor: UIColor.white,

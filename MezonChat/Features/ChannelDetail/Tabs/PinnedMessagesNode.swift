@@ -70,6 +70,50 @@ final class PinnedMessagesNode: ASDisplayNode {
         }
     }
 
+    private func requestUnpin(_ pin: Mezon_Api_PinMessage) {
+        guard let presenter = tableNode.view.findHostingViewController() else {
+            unpinMessage(pin)
+            return
+        }
+        MezonConfirm.present(
+            from: presenter,
+            title: L(L10n.ChannelDetail.unpinConfirmTitle),
+            content: L(L10n.ChannelDetail.unpinConfirmBody),
+            confirmTitle: L(L10n.ChannelDetail.unpinConfirmAction),
+            isDanger: true,
+            onConfirm: { [weak self] in
+                self?.unpinMessage(pin)
+            }
+        )
+    }
+
+    private func unpinMessage(_ pin: Mezon_Api_PinMessage) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await context.getToken() else { return }
+            let targetClanId =
+                (channelType == MezonConstants.ChannelType.dm.rawValue
+                    || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+            do {
+                try await context.account.network.deletePinMessage(
+                    clanId: targetClanId,
+                    channelId: channelId,
+                    pinId: pin.id,
+                    messageId: pin.messageID,
+                    token: token
+                )
+                if pin.id != 0 {
+                    self.pinnedMessages.removeAll { $0.id == pin.id }
+                } else {
+                    self.pinnedMessages.removeAll { $0.messageID == pin.messageID }
+                }
+                await self.tableNode.reloadData()
+            } catch {
+                Toast.error(L(L10n.ChannelDetail.unpinError))
+            }
+        }
+    }
+
     private func jumpToPinnedMessage(_ pin: Mezon_Api_PinMessage) {
         let messageId = "\(pin.messageID)"
         guard let nav = tableNode.view.findHostingViewController()?.navigationController else { return }
@@ -139,11 +183,15 @@ extension PinnedMessagesNode: ASTableDataSource, ASTableDelegate {
         }
         let pin = pinnedMessages[indexPath.row]
         let displayName = resolvedSenderDisplayName(for: pin)
-        let previewText = PinMessagePreview.text(for: pin)
+        let row = PinRowContent.make(from: pin)
         let avatarURL = resolvedAvatarURLString(for: pin)
-        return {
+        return { [weak self] in
             PinnedMessageCellNode(
-                displayName: displayName, previewText: previewText, avatarURLString: avatarURL)
+                displayName: displayName,
+                row: row,
+                avatarURLString: avatarURL,
+                onUnpin: { self?.requestUnpin(pin) }
+            )
         }
     }
 
@@ -156,23 +204,80 @@ extension PinnedMessagesNode: ASTableDataSource, ASTableDelegate {
     }
 }
 
-private enum PinMessagePreview {
-    static func text(for pin: Mezon_Api_PinMessage) -> String {
+private struct PinRowContent {
+    let caption: String
+    let media: ParsedAttachment?
+    let fileIconName: String?
+
+    static func make(from pin: Mezon_Api_PinMessage) -> PinRowContent {
         let data = Data(pin.content.utf8)
         let parsed = MessageContentParser.parse(data: data, mentionsData: Data())
         let trimmed = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-        if !parsed.embeds.isEmpty { return L(L10n.ChannelDetail.pinEmbedPreview) }
-        if !pin.attachment.isEmpty { return L(L10n.ChannelDetail.pinAttachmentPreview) }
+        let hasEmbed = !parsed.embeds.isEmpty
+        if !pin.attachment.isEmpty, let att = try? Mezon_Api_ChannelAttachment(serializedBytes: pin.attachment) {
+            var urlStr = att.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if urlStr.isEmpty {
+                for e in parsed.embeds {
+                    if let u = e.imageURL, !u.isEmpty { urlStr = u; break }
+                    if let u = e.thumbnailURL, !u.isEmpty { urlStr = u; break }
+                }
+            }
+            let w = att.width == 0 ? nil : Int(att.width)
+            let h = att.height == 0 ? nil : Int(att.height)
+            let pa = ParsedAttachment(
+                url: urlStr,
+                filename: att.filename,
+                filetype: att.filetype,
+                width: w,
+                height: h,
+                durationSeconds: nil,
+                localImage: nil,
+                isUploading: false
+            )
+            if pa.isMedia, !urlStr.isEmpty {
+                let cap: String
+                if !trimmed.isEmpty { cap = trimmed }
+                else {
+                    let fn = att.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+                    cap = fn.isEmpty ? " " : fn
+                }
+                return PinRowContent(caption: cap, media: pa, fileIconName: nil)
+            }
+            let cap: String
+            if !trimmed.isEmpty { cap = trimmed }
+            else {
+                let fn = att.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !fn.isEmpty { cap = fn } else { cap = L(L10n.ChannelDetail.pinAttachmentPreview) }
+            }
+            return PinRowContent(caption: cap, media: nil, fileIconName: Self.sfSymbol(for: att.filetype, parsed: pa))
+        }
+        if !trimmed.isEmpty { return PinRowContent(caption: trimmed, media: nil, fileIconName: nil) }
+        if hasEmbed { return PinRowContent(caption: L(L10n.ChannelDetail.pinEmbedPreview), media: nil, fileIconName: nil) }
+        if !pin.attachment.isEmpty { return PinRowContent(caption: L(L10n.ChannelDetail.pinAttachmentPreview), media: nil, fileIconName: "doc.fill") }
         if let d = pin.content.data(using: .utf8),
             let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
             let t = json["t"] as? String
         {
             let tTrim = t.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !tTrim.isEmpty { return tTrim }
+            if !tTrim.isEmpty { return PinRowContent(caption: tTrim, media: nil, fileIconName: nil) }
         }
         let raw = pin.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        return raw.isEmpty ? " " : raw
+        let cap = raw.isEmpty ? " " : raw
+        return PinRowContent(caption: cap, media: nil, fileIconName: nil)
+    }
+
+    private static func sfSymbol(for filetype: String, parsed: ParsedAttachment) -> String {
+        let ft = filetype.lowercased()
+        if ft.hasPrefix("image/") { return "photo" }
+        if ft.hasPrefix("video/") { return "play.rectangle.fill" }
+        if parsed.isImage { return "photo" }
+        if parsed.isVideo { return "play.rectangle.fill" }
+        if ft.contains("pdf") { return "doc.richtext.fill" }
+        if ft.contains("audio") || ft.contains("mpeg") || ft.contains("mp3") || ft.contains("wav") { return "music.note" }
+        if ft.contains("zip") || ft.contains("rar") || ft.contains("tar") || ft.contains("gz") { return "archivebox.fill" }
+        if ft.contains("text") || ft.contains("json") || ft.contains("xml") { return "doc.plaintext.fill" }
+        if ft.contains("sheet") || ft.contains("excel") || ft.contains("spreadsheet") { return "tablecells.fill" }
+        return "doc.fill"
     }
 }
 
@@ -245,8 +350,39 @@ private final class PinnedMessageCellNode: ASCellNode {
     private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
     private let contentNode = ASTextNode2()
+    private let mediaThumbNode: TransformImageNode?
+    private let playOnVideoNode: ASImageNode?
+    private let fileIconNode = ASImageNode()
+    private let unpinButton = ASButtonNode()
+    private let rowContent: PinRowContent
+    private let onUnpin: () -> Void
 
-    init(displayName: String, previewText: String, avatarURLString: String) {
+    init(
+        displayName: String, row: PinRowContent, avatarURLString: String, onUnpin: @escaping () -> Void
+    ) {
+        self.rowContent = row
+        self.onUnpin = onUnpin
+        if let m = row.media {
+            let tn = TransformImageNode()
+            tn.contentAnimations = [.firstUpdate]
+            tn.style.preferredSize = CGSize(width: 56, height: 56)
+            tn.cornerRadius = 8.sf
+            tn.clipsToBounds = true
+            self.mediaThumbNode = tn
+            if m.isVideo {
+                let p = ASImageNode()
+                let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+                p.image = UIImage(systemName: "play.fill", withConfiguration: cfg)?.withTintColor(
+                    .white, renderingMode: .alwaysOriginal)
+                p.contentMode = .center
+                self.playOnVideoNode = p
+            } else {
+                self.playOnVideoNode = nil
+            }
+        } else {
+            self.mediaThumbNode = nil
+            self.playOnVideoNode = nil
+        }
         super.init()
         automaticallyManagesSubnodes = true
         backgroundColor = .clear
@@ -299,7 +435,7 @@ private final class PinnedMessageCellNode: ASCellNode {
         nameNode.truncationMode = .byTruncatingTail
 
         contentNode.attributedText = NSAttributedString(
-            string: previewText,
+            string: row.caption,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
                 .foregroundColor: t.text,
@@ -307,7 +443,50 @@ private final class PinnedMessageCellNode: ASCellNode {
         )
         contentNode.maximumNumberOfLines = 3
         contentNode.truncationMode = .byTruncatingTail
+
+        fileIconNode.style.preferredSize = CGSize(width: 32, height: 32)
+        fileIconNode.contentMode = .scaleAspectFit
+        if mediaThumbNode != nil {
+            fileIconNode.isHidden = true
+        } else if let sym = row.fileIconName, let img = UIImage(systemName: sym)?.withTintColor(t.text, renderingMode: .alwaysOriginal) {
+            fileIconNode.image = img
+            fileIconNode.isHidden = false
+        } else {
+            fileIconNode.isHidden = true
+        }
+
+        unpinButton.setImage(
+            UIImage(systemName: "xmark.circle.fill")?.withTintColor(
+                t.text.withAlphaComponent(0.75), renderingMode: .alwaysOriginal),
+            for: .normal)
+        unpinButton.style.preferredSize = CGSize(width: 44, height: 44)
+        unpinButton.contentHorizontalAlignment = .middle
+        unpinButton.contentVerticalAlignment = .center
+        unpinButton.addTarget(
+            self, action: #selector(unpinPressed), forControlEvents: .touchUpInside)
     }
+
+    override func didLoad() {
+        super.didLoad()
+        guard let m = rowContent.media, let node = mediaThumbNode else { return }
+        if m.isVideo {
+            node.setSignal(
+                videoThumbnailSignal(url: m.url, resizeMode: .fill), attemptSynchronously: false
+            )
+        } else {
+            let w = 400
+            let h = 400
+            let proxy = ImgproxyURL.attachmentURL(
+                from: m.url, width: w, height: h, resizeType: "fit"
+            )
+            node.setSignal(
+                remoteAttachmentImageSignal(proxyURL: proxy, originalURL: m.url, resizeMode: .fit),
+                attemptSynchronously: false
+            )
+        }
+    }
+
+    @objc fileprivate func unpinPressed() { onUnpin() }
 
     private static func displayURL(from raw: String) -> URL? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -349,12 +528,55 @@ private final class PinnedMessageCellNode: ASCellNode {
         textStack.style.flexShrink = 1
         textStack.style.flexGrow = 1
 
+        var rowChildren: [ASLayoutElement] = [avatarStack, textStack]
+        if let mt = mediaThumbNode {
+            let thumbInCard: ASLayoutElement
+            if let play = playOnVideoNode {
+                let playCentered = ASCenterLayoutSpec(
+                    centeringOptions: .XY,
+                    sizingOptions: .minimumXY,
+                    child: play
+                )
+                playCentered.style.preferredSize = CGSize(width: 56, height: 56)
+                thumbInCard = ASOverlayLayoutSpec(child: mt, overlay: playCentered)
+            } else {
+                thumbInCard = ASInsetLayoutSpec(insets: .zero, child: mt)
+            }
+            let right = ASInsetLayoutSpec(insets: .zero, child: thumbInCard)
+            right.style.alignSelf = .center
+            rowChildren.append(
+                ASInsetLayoutSpec(
+                    insets: UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0),
+                    child: right
+                )
+            )
+        } else if rowContent.fileIconName != nil {
+            let rightInner = ASCenterLayoutSpec(
+                centeringOptions: .XY,
+                sizingOptions: .minimumXY,
+                child: fileIconNode
+            )
+            rightInner.style.alignSelf = .center
+            rowChildren.append(
+                ASInsetLayoutSpec(
+                    insets: UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 0),
+                    child: rightInner
+                )
+            )
+        }
+        let unpinWrap = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 0),
+            child: unpinButton
+        )
+        unpinWrap.style.alignSelf = .center
+        rowChildren.append(unpinWrap)
+
         let row = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 12,
             justifyContent: .start,
             alignItems: .center,
-            children: [avatarStack, textStack]
+            children: rowChildren
         )
 
         let cardContent = ASInsetLayoutSpec(

@@ -18,13 +18,6 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let searchButton = UIButton(type: .system)
     private let tableView: UITableView
 
-    private lazy var gradientLayer: CAGradientLayer = {
-        let gl = CAGradientLayer()
-        gl.startPoint = CGPoint(x: 0.5, y: 0)
-        gl.endPoint   = CGPoint(x: 0.5, y: 1)
-        return gl
-    }()
-
     private var state: DirectMessagesState = .empty
     private let interaction: DirectMessagesInteraction
     private let disposables = DisposableSet()
@@ -39,6 +32,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         self.interaction = interaction
         self.context = context
         super.init()
+        let t0 = UIColor.theme
+        backgroundColor = t0.primary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -71,8 +66,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         super.didLoad()
 
         let t = UIColor.theme
-        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
-        layer.addSublayer(gradientLayer)
+        backgroundColor = t.primary
 
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
@@ -96,14 +90,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         titleLabel.text = L(L10n.Tab.messages)
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
-        titleLabel.textColor = .mezonTextPrimary
+        titleLabel.textColor = UIColor.theme.textStrong
 
         if #available(iOS 15.0, *) {
             var addCfg = UIButton.Configuration.filled()
             addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
             addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
             addCfg.baseForegroundColor = UIColor.theme.textStrong
-            addCfg.baseBackgroundColor = UIColor.theme.secondary
+            addCfg.baseBackgroundColor = UIColor.theme.tertiary
             addCfg.cornerStyle = .capsule
             addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
             addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
@@ -116,7 +110,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
             addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
             addFriendButton.tintColor = UIColor.theme.textStrong
-            addFriendButton.backgroundColor = UIColor.theme.secondary
+            addFriendButton.backgroundColor = UIColor.theme.tertiary
             addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
             addFriendButton.layer.cornerRadius = 16
         }
@@ -125,14 +119,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
             searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-            searchCfg.baseForegroundColor = UIColor.theme.textDisabled
-            searchCfg.baseBackgroundColor = UIColor.theme.secondary
+            searchCfg.baseForegroundColor = UIColor.theme.textStrong
+            searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
             searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
-            searchButton.tintColor = UIColor.theme.textDisabled
-            searchButton.backgroundColor = UIColor.theme.secondary
+            searchButton.tintColor = UIColor.theme.textStrong
+            searchButton.backgroundColor = UIColor.theme.tertiary
             searchButton.layer.cornerRadius = 16
         }
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
@@ -160,15 +154,17 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         }
     }
 
+    private let headerTopPadding: CGFloat = 8.sh
+
     private func applyLayout(transition: ContainedViewLayoutTransition) {
         guard let (size, safeTop, bottomInset) = validLayout else {
             return
         }
 
-        let topY = safeTop + 10.sh
+        let topY = safeTop + headerTopPadding
         let sideInset: CGFloat = 18.sw
 
-        let titleH: CGFloat = 36.sh
+        let titleH: CGFloat = 44
         transition.updateFrame(view: headerView, frame: CGRect(x: 0, y: topY, width: size.width, height: titleH))
         transition.updateFrame(view: titleLabel, frame: CGRect(x: sideInset, y: 0, width: size.width - sideInset * 2, height: titleH))
 
@@ -196,16 +192,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: size.width, height: tvHeight))
 
 
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        gradientLayer.frame = CGRect(origin: .zero, size: size)
-        CATransaction.commit()
     }
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
-        titleLabel.textColor = .mezonTextPrimary
+        backgroundColor = t.primary
+        titleLabel.textColor = t.textStrong
 
         guard isNodeLoaded else { return }
 
@@ -214,7 +206,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
             addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
             addCfg.baseForegroundColor = UIColor.theme.textStrong
-            addCfg.baseBackgroundColor = UIColor.theme.secondary
+            addCfg.baseBackgroundColor = UIColor.theme.tertiary
             addCfg.cornerStyle = .capsule
             addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
             addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
@@ -224,19 +216,19 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         } else {
             addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
             addFriendButton.tintColor = UIColor.theme.textStrong
-            addFriendButton.backgroundColor = UIColor.theme.secondary
+            addFriendButton.backgroundColor = UIColor.theme.tertiary
         }
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
             searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-            searchCfg.baseForegroundColor = UIColor.theme.textDisabled
-            searchCfg.baseBackgroundColor = UIColor.theme.secondary
+            searchCfg.baseForegroundColor = UIColor.theme.textStrong
+            searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
-            searchButton.tintColor = UIColor.theme.textDisabled
-            searchButton.backgroundColor = UIColor.theme.secondary
+            searchButton.tintColor = UIColor.theme.textStrong
+            searchButton.backgroundColor = UIColor.theme.tertiary
         }
 
         tableView.reloadData()

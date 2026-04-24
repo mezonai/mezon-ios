@@ -14,6 +14,24 @@ final class SessionRefreshManager {
 
     private init() {}
 
+    private func isTransientURLError(_ error: Error) -> Bool {
+        var e: Error? = error
+        for _ in 0..<4 {
+            guard let err = e else { break }
+            let ns = err as NSError
+            if ns.domain == NSURLErrorDomain {
+                switch ns.code {
+                case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet,
+                    NSURLErrorCannotConnectToHost, NSURLErrorDataNotAllowed:
+                    return true
+                default: break
+                }
+            }
+            e = ns.userInfo[NSUnderlyingErrorKey] as? Error
+        }
+        return false
+    }
+
     func refresh(session: MezonSession) async throws -> MezonSession {
         if let active = activeTask {
             return try await active.value
@@ -36,17 +54,34 @@ final class SessionRefreshManager {
             failCount = 0
         }
 
+        let tail = String(session.refreshToken.suffix(6))
+        MezonHTTPClient.emit("[SessionRefresh] doRefresh start sameToken=\(isSameToken) failCount=\(failCount)/\(maxRetriesSameToken) tail=\(tail)")
+
         if failCount >= maxRetriesSameToken {
             reset()
+            MezonHTTPClient.emit("[SessionRefresh] GIVE UP maxRetriesSameToken=\(maxRetriesSameToken) tail=\(tail)")
             throw SessionError.maxRetriesExceeded
         }
 
-        let newSession = try await MezonHTTPClient.shared.sessionRefresh(
-            refreshToken: session.refreshToken
-        )
+        let newSession: MezonSession
+        do {
+            newSession = try await MezonHTTPClient.shared.sessionRefresh(
+                refreshToken: session.refreshToken
+            )
+        } catch {
+            let transient = isTransientURLError(error)
+            if transient, isSameToken {
+                failCount = max(0, failCount - 1)
+            }
+            MezonHTTPClient.emit(
+                "[SessionRefresh] FAIL transient=\(transient) sameTokenLoop=\(isSameToken) failCountAfter=\(failCount) | \(MezonHTTPClient.describeNSError(error))"
+            )
+            throw error
+        }
         let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingIdToken(from: session))
         lastRefreshToken = merged.refreshToken
         failCount = 0
+        MezonHTTPClient.emit("[SessionRefresh] OK newTokenLen=\(merged.token.count) newRefreshLen=\(merged.refreshToken.count) userId=\(merged.userId ?? "nil")")
         return merged
     }
 
@@ -58,6 +93,8 @@ final class SessionRefreshManager {
         onExpired: @escaping () -> Void,
         onReady: @escaping () -> Void
     ) {
+        let tail = String(session.refreshToken.suffix(6))
+        MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch start tail=\(tail) connected=\(NetworkMonitor.shared.isConnected)")
         Task { @MainActor in
             var onReadyCalled = false
             func safeOnReady(source: String) {
@@ -65,7 +102,16 @@ final class SessionRefreshManager {
                     return
                 }
                 onReadyCalled = true
+                MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch onReady source=\(source)")
                 onReady()
+            }
+
+            func endLaunchRefreshExpired() async {
+                MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch expired connected=\(NetworkMonitor.shared.isConnected)")
+                if NetworkMonitor.shared.isConnected {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    onExpired()
+                }
             }
 
             let timeoutTask = Task { @MainActor in
@@ -84,16 +130,10 @@ final class SessionRefreshManager {
                     return
                 } catch let error as MezonError {
                     retriesLeft -= 1
-
+                    MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch MezonError retriesLeft=\(retriesLeft) | \(error.localizedDescription)")
+                    safeOnReady(source: "MezonError")
                     if retriesLeft == 0 {
-                        safeOnReady(source: "MezonError")
-                        switch error {
-                        case .httpError(let code, _) where code == 401 || code == 403:
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            onExpired()
-                        default:
-                            break
-                        }
+                        await endLaunchRefreshExpired()
                         return
                     }
 
@@ -102,12 +142,24 @@ final class SessionRefreshManager {
 
                 } catch let error as SessionError {
                     retriesLeft -= 1
+                    MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch SessionError retriesLeft=\(retriesLeft) | \(error.localizedDescription ?? String(describing: error))")
                     safeOnReady(source: "SessionError")
-                    if retriesLeft == 0 { onExpired() }
-                    return
+                    if retriesLeft == 0 {
+                        await endLaunchRefreshExpired()
+                        return
+                    }
+                    let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000
+                    try? await Task.sleep(nanoseconds: delay)
                 } catch {
                     retriesLeft -= 1
+                    MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch other retriesLeft=\(retriesLeft) | \(MezonHTTPClient.describeNSError(error))")
                     safeOnReady(source: "catch")
+                    if retriesLeft == 0 {
+                        await endLaunchRefreshExpired()
+                        return
+                    }
+                    let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000
+                    try? await Task.sleep(nanoseconds: delay)
                 }
             }
         }

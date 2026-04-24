@@ -546,6 +546,10 @@ enum L10n {
         static let pinAttachmentPreview = "channelDetail.pinAttachmentPreview"
         static let pinEmbedPreview = "channelDetail.pinEmbedPreview"
         static let noPinsYet = "channelDetail.noPinsYet"
+        static let unpinError = "channelDetail.unpinError"
+        static let unpinConfirmTitle = "channelDetail.unpinConfirmTitle"
+        static let unpinConfirmBody = "channelDetail.unpinConfirmBody"
+        static let unpinConfirmAction = "channelDetail.unpinConfirmAction"
     }
 
     enum FriendRequest {
@@ -1067,6 +1071,10 @@ extension L10n {
         "channelDetail.pinAttachmentPreview": "Attachment",
         "channelDetail.pinEmbedPreview": "Embed",
         "channelDetail.noPinsYet": "No pinned messages",
+        "channelDetail.unpinError": "Couldn’t unpin message. Try again.",
+        "channelDetail.unpinConfirmTitle": "Unpin this message?",
+        "channelDetail.unpinConfirmBody": "It will be removed from pinned for everyone in this channel.",
+        "channelDetail.unpinConfirmAction": "Unpin",
     ]
 
     private static let vi: [String: String] = [
@@ -1567,5 +1575,9 @@ extension L10n {
         "channelDetail.pinAttachmentPreview": "Tệp đính kèm",
         "channelDetail.pinEmbedPreview": "Nội dung nhúng",
         "channelDetail.noPinsYet": "Chưa có tin nhắn ghim",
+        "channelDetail.unpinError": "Không thể bỏ ghim. Thử lại sau.",
+        "channelDetail.unpinConfirmTitle": "Bỏ ghim tin nhắn này?",
+        "channelDetail.unpinConfirmBody": "Tin sẽ được gỡ khỏi mục ghim với mọi người trong kênh.",
+        "channelDetail.unpinConfirmAction": "Bỏ ghim",
     ]
 }

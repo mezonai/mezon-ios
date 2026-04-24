@@ -170,9 +170,8 @@ final class QRScannerViewController: ViewController {
     }
     
     private func handleScannedData(_ data: String) {
-        captureSession?.stopRunning()
-        
         if data.allSatisfy({ $0.isNumber }) && data.count >= 15 {
+            captureSession?.stopRunning()
             showLoginConfirm(userId: data)
             return
         }
@@ -193,22 +192,34 @@ final class QRScannerViewController: ViewController {
             
             if !code.isEmpty {
                 self.showClanInvite(code: code)
+            } else {
+                showAlert(message: L(L10n.QRScanner.invalidQR)) { [weak self] in
+                    self?.captureSession?.startRunning()
+                }
             }
             return
         }
         
         if data.contains("mezon.ai/chat/") {
-            guard let url = URL(string: data),
-                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  let dataParam = components.queryItems?.first(where: { $0.name == "data" })?.value else {
+            guard let dataParam = extractProfileDataParam(from: data) else {
+                showAlert(message: L(L10n.QRScanner.invalidQR)) { [weak self] in
+                    self?.captureSession?.startRunning()
+                }
                 return
             }
-            
-            self.showUserProfile(dataParam: dataParam)
+            guard let profile = decodeProfileQRDataParam(dataParam) else {
+                showAlert(message: L(L10n.QRScanner.invalidQR)) { [weak self] in
+                    self?.captureSession?.startRunning()
+                }
+                return
+            }
+            captureSession?.stopRunning()
+            presentUserProfile(profileData: profile)
             return
         }
         
         if let payload = MmnTransferParse.fromQRString(data) {
+            captureSession?.stopRunning()
             let vc = WalletTransferViewController(context: context, payload: payload)
             navigationController?.pushViewController(vc, animated: true)
             return
@@ -217,6 +228,41 @@ final class QRScannerViewController: ViewController {
         showAlert(title: L(L10n.QRScanner.invalidQR), message: data) { [weak self] in
             self?.captureSession?.startRunning()
         }
+    }
+
+    private func extractProfileDataParam(from string: String) -> String? {
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmed),
+           let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let v = c.queryItems?.first(where: { $0.name == "data" })?.value,
+           !v.isEmpty {
+            return v
+        }
+        guard let range = trimmed.range(of: "data=") else { return nil }
+        var rest = String(trimmed[range.upperBound...])
+        if let a = rest.firstIndex(of: "&") {
+            rest = String(rest[..<a])
+        }
+        if let p = rest.removingPercentEncoding, !p.isEmpty { return p }
+        return rest.isEmpty ? nil : rest
+    }
+
+    private func decodeProfileQRDataParam(_ dataParam: String) -> QRUserProfileData? {
+        let s = dataParam.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: "")
+        guard !s.isEmpty else { return nil }
+        if let raw = Data(base64Encoded: s, options: .ignoreUnknownCharacters),
+           let p = try? JSONDecoder().decode(QRUserProfileData.self, from: raw) {
+            return p
+        }
+        if let raw = Data(base64Encoded: s, options: .ignoreUnknownCharacters),
+           let str = String(data: raw, encoding: .utf8),
+           let json = str.removingPercentEncoding,
+           let j = json.data(using: .utf8),
+           let p = try? JSONDecoder().decode(QRUserProfileData.self, from: j) {
+            return p
+        }
+        return nil
     }
     
     private func showLoginConfirm(userId: String) {
@@ -342,61 +388,46 @@ final class QRScannerViewController: ViewController {
         }
     }
     
-    private func showUserProfile(dataParam: String) {
-        guard let data = Data(base64Encoded: dataParam),
-              let urlEncodedString = String(data: data, encoding: .utf8),
-              let decodedString = urlEncodedString.removingPercentEncoding,
-              let jsonData = decodedString.data(using: .utf8) else {
-            return
-        }
+    private func presentUserProfile(profileData: QRUserProfileData) {
+        let theme = context.sharedContext.currentPresentationTheme.attributes
+        let profileNode = QRUserProfileNode(profile: profileData, theme: theme)
+        profileNode.frame = self.displayNode.bounds
         
-        do {
-            let profileData = try JSONDecoder().decode(QRUserProfileData.self, from: jsonData)
-            
-            captureSession?.stopRunning()
-            
-            let theme = context.sharedContext.currentPresentationTheme.attributes
-            let profileNode = QRUserProfileNode(profile: profileData, theme: theme)
-            profileNode.frame = self.displayNode.bounds
-            
-            profileNode.onMessage = { [weak self] in
-                guard let self = self else { return }
-                Task {
-                    do {
-                        let token = await self.context.getToken() ?? ""
-                        if let userId = Int64(profileData.id) {
-                            let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
-                            await MainActor.run {
-                                self.hideUserProfile()
-                                self.closeTapped()
-                                NotificationCenter.default.post(
-                                    name: .mezonQRNavigateToDM,
-                                    object: nil,
-                                    userInfo: ["channelId": "\(channel.channelID)", "title": profileData.name]
-                                )
-                            }
-                        }
-                    } catch {
+        profileNode.onMessage = { [weak self] in
+            guard let self = self else { return }
+            Task {
+                do {
+                    let token = await self.context.getToken() ?? ""
+                    if let userId = Int64(profileData.id) {
+                        let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
                         await MainActor.run {
-                            self.showAlert(message: error.localizedDescription)
+                            self.hideUserProfile()
+                            self.closeTapped()
+                            NotificationCenter.default.post(
+                                name: .mezonQRNavigateToDM,
+                                object: nil,
+                                userInfo: ["channelId": "\(channel.channelID)", "title": profileData.name]
+                            )
                         }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.showAlert(message: error.localizedDescription)
                     }
                 }
             }
-            
-            profileNode.onClose = { [weak self] in
-                self?.hideUserProfile()
-            }
-            
-            self.userProfileNode = profileNode
-            self.displayNode.addSubnode(profileNode)
-            
-            profileNode.alpha = 0
-            UIView.animate(withDuration: 0.3) {
-                profileNode.alpha = 1
-            }
-            
-        } catch {
+        }
+        
+        profileNode.onClose = { [weak self] in
+            self?.hideUserProfile()
+        }
+        
+        self.userProfileNode = profileNode
+        self.displayNode.addSubnode(profileNode)
+        
+        profileNode.alpha = 0
+        UIView.animate(withDuration: 0.3) {
+            profileNode.alpha = 1
         }
     }
     

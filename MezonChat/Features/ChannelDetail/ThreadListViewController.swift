@@ -27,6 +27,8 @@ final class ThreadListViewController: ViewController {
 
     private var displaySections: [(title: String, threads: [Mezon_Api_ChannelDescription])] = []
 
+    private var cachedClanMembersList: [ClanMemberRecord]?
+
     private static let thirtyDays: TimeInterval = 30 * 24 * 60 * 60
     private static let joinedStatus: Int32 = 1
     private static let activePublicStatus: Int32 = 2
@@ -300,6 +302,7 @@ final class ThreadListViewController: ViewController {
         ) else { return }
         if let decoded = Self.decodeThreadListCache(data) {
             allThreads = Self.filterPrivateThreads(decoded.channels)
+            cachedClanMembersList = nil
         }
     }
 
@@ -328,6 +331,7 @@ final class ThreadListViewController: ViewController {
                     token: token
                 )
                 self.allThreads = Self.filterPrivateThreads(list.channeldesc)
+                self.cachedClanMembersList = nil
                 self.persistThreadsCache()
                 self.rebuildSections()
                 self.tableView.reloadData()
@@ -491,6 +495,32 @@ final class ThreadListViewController: ViewController {
         guard header.timestampSeconds > 0 else { return "" }
         let date = Date(timeIntervalSince1970: TimeInterval(header.timestampSeconds))
         return relativeTimeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func clanMembersListCached() -> [ClanMemberRecord] {
+        if let c = cachedClanMembersList { return c }
+        let list = context.account.postbox.read { $0.getClanMembers(clanId: clanId) }
+        cachedClanMembersList = list
+        return list
+    }
+
+    private func senderDisplayNameForPreview(senderId: Int64) -> String {
+        guard senderId != 0 else { return "" }
+        if let m = clanMembersListCached().first(where: { $0.userId == senderId }) {
+            if !m.clanNick.isEmpty { return m.clanNick }
+            if !m.displayName.isEmpty { return m.displayName }
+            if !m.username.isEmpty { return m.username }
+        }
+        if let cur = context.currentUser, cur.id == String(senderId) {
+            if !cur.displayName.isEmpty { return cur.displayName }
+            if !cur.username.isEmpty { return cur.username }
+        }
+        let uid = String(senderId)
+        if let p = context.account.postbox.read({ $0.getProfile(userId: uid) }) {
+            if let dn = p.displayName, !dn.isEmpty { return dn }
+            if !p.username.isEmpty { return p.username }
+        }
+        return ""
     }
 }
 
@@ -736,7 +766,7 @@ extension ThreadListViewController: UITableViewDataSource, UITableViewDelegate {
         if thread.hasLastSentMessage {
             let h = thread.lastSentMessage
             preview = Self.previewText(from: h)
-            sender = h.senderID != 0 ? "\(h.senderID)" : ""
+            sender = senderDisplayNameForPreview(senderId: h.senderID)
             time = Self.formatTime(h)
         } else {
             preview = ""

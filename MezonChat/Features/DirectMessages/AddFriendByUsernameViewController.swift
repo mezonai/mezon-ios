@@ -71,7 +71,8 @@ final class AddFriendByUsernameViewController: ViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        let safeTop = max(layout.safeInsets.top, 54)
+        let viewSafeTop = isViewLoaded ? view.safeAreaInsets.top : 0
+        let safeTop = max(layout.safeInsets.top, layout.statusBarHeight ?? 0, viewSafeTop)
         addFriendNode.updateLayout(
             size: layout.size,
             safeTop: safeTop,
@@ -295,7 +296,8 @@ private final class AddFriendByUsernameContainerNode: ASDisplayNode, ASEditableT
     }
 
     func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
-        validLayout = (size, safeTop, bottomInset)
+        let top = isNodeLoaded ? max(safeTop, view.safeAreaInsets.top) : safeTop
+        validLayout = (size, top, bottomInset)
         applyLayout(transition: transition)
     }
 

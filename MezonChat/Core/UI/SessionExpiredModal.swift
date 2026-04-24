@@ -7,88 +7,160 @@ enum SessionExpiredModal {
             SessionExpiredModalManager.shared.present(onLoginAgain: onLoginAgain)
         }
     }
+
+    @MainActor
+    static func removeOverlayIfPresented() {
+        SessionExpiredModalManager.shared.removeOverlayImmediately()
+    }
 }
 
-private final class SessionExpiredModalManager {
+private final class PassthroughView: UIView {}
+
+private final class SessionExpiredOverlayWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        if hit === rootViewController?.view {
+            return nil
+        }
+        return hit
+    }
+}
+
+private final class SessionExpiredRootViewController: UIViewController {
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        if #available(iOS 13.0, *) {
+            return .darkContent
+        }
+        return .default
+    }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
+}
+
+private final class SessionExpiredModalManager: NSObject, UIGestureRecognizerDelegate {
 
     static let shared = SessionExpiredModalManager()
 
-    private var overlayContainer: UIView?
+    private var overlayWindow: SessionExpiredOverlayWindow?
+    private var dimmingView: UIView?
+    private var contentView: SessionExpiredContentView?
 
-    private init() {}
+    private override init() {
+        super.init()
+    }
+
+    func removeOverlayImmediately() {
+        tearDownWindow()
+    }
 
     func present(onLoginAgain: @escaping () -> Void) {
-        overlayContainer?.removeFromSuperview()
+        tearDownWindow()
 
-        guard let window = keyWindow else { return }
+        guard let scene = activeScene else { return }
 
-        let container = UIView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        let window = SessionExpiredOverlayWindow(windowScene: scene)
+        window.windowLevel = .alert + 1
+        window.backgroundColor = .clear
 
-        let contentView = SessionExpiredContentView()
-        contentView.onLoginAgain = { [weak self] in
-            onLoginAgain()
+        let root = SessionExpiredRootViewController()
+        root.view.backgroundColor = .clear
+        window.rootViewController = root
+
+        let dimming = UIView()
+        dimming.translatesAutoresizingMaskIntoConstraints = false
+        dimming.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        root.view.addSubview(dimming)
+
+        let content = SessionExpiredContentView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.onLoginAgain = { [weak self] in
+            self?.dismiss(completion: {
+                Task { @MainActor in
+                    onLoginAgain()
+                }
+            })
+        }
+        content.onCancel = { [weak self] in
             self?.dismiss()
         }
-        contentView.onCancel = { [weak self] in
-            self?.dismiss()
-        }
+        root.view.addSubview(content)
 
-        contentView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(contentView)
-
-        window.addSubview(container)
         NSLayoutConstraint.activate([
-            container.leadingAnchor.constraint(equalTo: window.leadingAnchor),
-            container.trailingAnchor.constraint(equalTo: window.trailingAnchor),
-            container.topAnchor.constraint(equalTo: window.topAnchor),
-            container.bottomAnchor.constraint(equalTo: window.bottomAnchor),
+            dimming.leadingAnchor.constraint(equalTo: root.view.leadingAnchor),
+            dimming.trailingAnchor.constraint(equalTo: root.view.trailingAnchor),
+            dimming.topAnchor.constraint(equalTo: root.view.topAnchor),
+            dimming.bottomAnchor.constraint(equalTo: root.view.bottomAnchor),
 
-            contentView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            contentView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            contentView.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
-            contentView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24),
+            content.centerXAnchor.constraint(equalTo: root.view.centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: root.view.centerYAnchor),
+            content.leadingAnchor.constraint(equalTo: root.view.leadingAnchor, constant: 24),
+            content.trailingAnchor.constraint(equalTo: root.view.trailingAnchor, constant: -24),
         ])
-
-        overlayContainer = container
-        contentView.alpha = 0
-        container.alpha = 0
-        UIView.animate(withDuration: 0.25) {
-            container.alpha = 1
-            contentView.alpha = 1
-        }
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissByTappingBackground(_:)))
         tap.cancelsTouchesInView = false
-        container.addGestureRecognizer(tap)
+        tap.delegate = self
+        dimming.addGestureRecognizer(tap)
+
+        window.isHidden = false
+        window.makeKeyAndVisible()
+
+        dimming.alpha = 0
+        content.alpha = 0
+        UIView.animate(withDuration: 0.25) {
+            dimming.alpha = 1
+            content.alpha = 1
+        }
+
+        overlayWindow = window
+        dimmingView = dimming
+        contentView = content
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let content = contentView else { return true }
+        let p = touch.location(in: content)
+        return !content.bounds.insetBy(dx: -1, dy: -1).contains(p)
     }
 
     @objc private func dismissByTappingBackground(_ gesture: UITapGestureRecognizer) {
-        guard let container = overlayContainer, let contentView = container.subviews.first else { return }
-        let loc = gesture.location(in: container)
-        guard !contentView.frame.contains(loc) else { return }
+        guard let content = contentView else { return }
+        let loc = gesture.location(in: content)
+        guard !content.bounds.contains(loc) else { return }
         dismiss()
     }
 
-    private func dismiss() {
+    private func dismiss(completion: (() -> Void)? = nil) {
+        let window = overlayWindow
+        let dimming = dimmingView
+        let content = contentView
         UIView.animate(withDuration: 0.2) {
-            self.overlayContainer?.alpha = 0
-        } completion: { _ in
-            self.overlayContainer?.removeFromSuperview()
-            self.overlayContainer = nil
+            dimming?.alpha = 0
+            content?.alpha = 0
+        } completion: { [weak self] _ in
+            window?.isHidden = true
+            window?.rootViewController = nil
+            if self?.overlayWindow === window {
+                self?.overlayWindow = nil
+                self?.dimmingView = nil
+                self?.contentView = nil
+            }
+            completion?()
         }
     }
 
-    private var keyWindow: UIWindow? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
-        ?? UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first
+    private func tearDownWindow() {
+        overlayWindow?.isHidden = true
+        overlayWindow?.rootViewController = nil
+        overlayWindow = nil
+        dimmingView = nil
+        contentView = nil
+    }
+
+    private var activeScene: UIWindowScene? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.first(where: { $0.activationState == .foregroundActive })
+            ?? scenes.first(where: { $0.activationState == .foregroundInactive })
+            ?? scenes.first
     }
 }
 
@@ -108,11 +180,13 @@ private final class SessionExpiredContentView: UIView {
     @objc private func cancelTapped() { onCancel?() }
 
     private func setup() {
-        backgroundColor = .white
+        let t = UIColor.theme
+        backgroundColor = t.secondary
         layer.cornerRadius = 16
         clipsToBounds = true
-
-        let t = UIColor.theme
+        layer.borderWidth = 1
+        layer.borderColor = t.border.cgColor
+        isUserInteractionEnabled = true
 
         let titleLabel = UILabel()
         titleLabel.text = L(L10n.Error.sessionExpiredOrNetwork)
@@ -128,26 +202,30 @@ private final class SessionExpiredContentView: UIView {
         let messageLabel = UILabel()
         messageLabel.text = L(L10n.Error.sessionExpiredContent)
         messageLabel.font = .systemFont(ofSize: 15)
-        messageLabel.textColor = t.textNormal
+        messageLabel.textColor = t.text
         messageLabel.numberOfLines = 0
         messageLabel.textAlignment = .center
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let loginBtn = UIButton(type: .system)
+        let loginBtn = UIButton(type: .custom)
         loginBtn.setTitle(L(L10n.Error.sessionExpiredConfirm), for: .normal)
         loginBtn.setTitleColor(.white, for: .normal)
-        loginBtn.backgroundColor = t.primary
+        loginBtn.setTitleColor(UIColor.white.withAlphaComponent(0.6), for: .highlighted)
+        loginBtn.backgroundColor = t.loginButtonBg
         loginBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
         loginBtn.layer.cornerRadius = 10
         loginBtn.addTarget(self, action: #selector(loginAgainTapped), for: .touchUpInside)
         loginBtn.translatesAutoresizingMaskIntoConstraints = false
 
-        let cancelBtn = UIButton(type: .system)
+        let cancelBtn = UIButton(type: .custom)
         cancelBtn.setTitle(L(L10n.Common.cancel), for: .normal)
         cancelBtn.setTitleColor(t.textStrong, for: .normal)
+        cancelBtn.setTitleColor(t.textStrong.withAlphaComponent(0.6), for: .highlighted)
         cancelBtn.backgroundColor = t.tertiary
         cancelBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
         cancelBtn.layer.cornerRadius = 10
+        cancelBtn.layer.borderWidth = 1
+        cancelBtn.layer.borderColor = t.border.cgColor
         cancelBtn.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
         cancelBtn.translatesAutoresizingMaskIntoConstraints = false
 

@@ -65,10 +65,9 @@ final class DirectMessagesViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         if let layout = lastLayout {
-            let safeTop = max(layout.safeInsets.top, 54)
             directMessagesNode.updateLayout(
                 size: layout.size,
-                safeTop: safeTop,
+                safeTop: resolvedSafeTop(for: layout),
                 bottomInset: layout.intrinsicInsets.bottom,
                 transition: .immediate
             )
@@ -290,13 +289,17 @@ final class DirectMessagesViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
 
-        let safeTop = max(layout.safeInsets.top, 54)
         directMessagesNode.updateLayout(
             size: layout.size,
-            safeTop: safeTop,
+            safeTop: resolvedSafeTop(for: layout),
             bottomInset: layout.intrinsicInsets.bottom,
             transition: transition
         )
+    }
+
+    private func resolvedSafeTop(for layout: ContainerViewLayout) -> CGFloat {
+        let viewSafeTop = isViewLoaded ? view.safeAreaInsets.top : 0
+        return max(layout.safeInsets.top, layout.statusBarHeight ?? 0, viewSafeTop)
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {

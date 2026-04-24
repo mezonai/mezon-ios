@@ -360,7 +360,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
     private let bannerNode = ASDisplayNode()
 
-    private let avatarNode = ASNetworkImageNode()
+    private let avatarNode = ASImageNode()
     private let statusDotNode = ASDisplayNode()
 
     private let infoCardNode = ASDisplayNode()
@@ -432,13 +432,12 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         avatarNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
         avatarNode.cornerRadius = avatarSize / 2
         avatarNode.clipsToBounds = true
+        avatarNode.contentMode = .scaleAspectFill
         avatarNode.backgroundColor = t.tertiary
         avatarNode.borderWidth = 4.sf
         avatarNode.borderColor = t.primary.cgColor
-        if !user.avatarURL.isEmpty, let url = URL(string: user.avatarURL) {
-            avatarNode.url = url
-        }
         avatarNode.isUserInteractionEnabled = false
+        applyCachedAvatarToImageNodeIfAny()
 
         statusDotNode.backgroundColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
         statusDotNode.cornerRadius = 8.sf
@@ -526,6 +525,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
     override func didLoad() {
         super.didLoad()
+        loadProfileAvatar()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimTapped))
         dimmingNode.view.addGestureRecognizer(tap)
@@ -819,6 +819,41 @@ private final class MemberProfileSheetNode: ASDisplayNode {
             self.containerNode.frame.origin.y = layout.size.height
         }) { _ in
             completion()
+        }
+    }
+
+    private func profileAvatarCacheKeys() -> (full: String, list: String, absolute: String)? {
+        let raw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        let abs = SharingImageProxy.resolvedAssetURLString(raw)
+        guard !abs.isEmpty else { return nil }
+        return (
+            ImgproxyURL.create(from: abs, width: 200, height: 200),
+            ImgproxyURL.create(from: abs, width: 100, height: 100),
+            abs
+        )
+    }
+
+    private func applyCachedAvatarToImageNodeIfAny() {
+        guard let k = profileAvatarCacheKeys() else { return }
+        if let i = ImageCache.shared.memoryImage(forKey: k.full) {
+            avatarNode.image = i
+        } else if let i = ImageCache.shared.memoryImage(forKey: k.list) {
+            avatarNode.image = i
+        }
+    }
+
+    private func loadProfileAvatar() {
+        guard let k = profileAvatarCacheKeys() else { return }
+        ImageCache.shared.loadAvatar(urlString: k.full) { [weak self] image in
+            guard let self else { return }
+            if let i = image {
+                self.avatarNode.image = i
+            } else {
+                ImageCache.shared.loadImage(urlString: k.absolute) { [weak self] im in
+                    if let v = im { self?.avatarNode.image = v }
+                }
+            }
         }
     }
 
