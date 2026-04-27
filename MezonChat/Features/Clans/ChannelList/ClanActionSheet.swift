@@ -56,7 +56,6 @@ final class ClanActionSheetController: ViewController {
     private let clanName: String
     private let avatarURL: String
     private let memberCount: Int
-    private let onlineCount: Int
     private let isCommunity: Bool
     private let onAction: (ClanAction) -> Void
     var onDismiss: (() -> Void)?
@@ -66,13 +65,12 @@ final class ClanActionSheetController: ViewController {
     }
 
     init(
-        clanName: String, avatarURL: String, memberCount: Int, onlineCount: Int, isCommunity: Bool,
+        clanName: String, avatarURL: String, memberCount: Int, isCommunity: Bool,
         onAction: @escaping (ClanAction) -> Void
     ) {
         self.clanName = clanName
         self.avatarURL = avatarURL
         self.memberCount = memberCount
-        self.onlineCount = onlineCount
         self.isCommunity = isCommunity
         self.onAction = onAction
 
@@ -89,7 +87,6 @@ final class ClanActionSheetController: ViewController {
             clanName: clanName,
             avatarURL: avatarURL,
             memberCount: memberCount,
-            onlineCount: onlineCount,
             isCommunity: isCommunity,
             onAction: { [weak self] action in
                 guard let self else { return }
@@ -136,7 +133,6 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private let clanName: String
     private let avatarURL: String
     private let memberCount: Int
-    private let onlineCount: Int
     private let isCommunity: Bool
     private let onAction: (ClanAction) -> Void
     private let onDimTapped: () -> Void
@@ -153,13 +149,12 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private let handleH: CGFloat = 25.sh
 
     init(
-        clanName: String, avatarURL: String, memberCount: Int, onlineCount: Int, isCommunity: Bool,
+        clanName: String, avatarURL: String, memberCount: Int, isCommunity: Bool,
         onAction: @escaping (ClanAction) -> Void, onDimTapped: @escaping () -> Void
     ) {
         self.clanName = clanName
         self.avatarURL = avatarURL
         self.memberCount = memberCount
-        self.onlineCount = onlineCount
         self.isCommunity = isCommunity
         self.onAction = onAction
         self.onDimTapped = onDimTapped
@@ -380,9 +375,6 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
                 textColor: UIColor.theme.textDisabled)
             tagsStack.addArrangedSubview(commTag)
         }
-
-        let onlineTag = createDotTagView(text: L(L10n.ClanAction.onlineCount, onlineCount), dotColor: .green)
-        tagsStack.addArrangedSubview(onlineTag)
 
         let membersTag = createDotTagView(text: L(L10n.ClanAction.memberCount, memberCount), dotColor: .gray)
         tagsStack.addArrangedSubview(membersTag)

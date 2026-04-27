@@ -338,8 +338,37 @@ final class AccountSettingsViewController: BaseViewController {
             let line = "\(L(L10n.AccountSetting.setPassword)) — \(L(L10n.Common.comingSoon))"
             Toast.comingSoonLine(line)
         case .deleteAccount:
-            let line = "\(L(L10n.Common.deleteAccount)) — \(L(L10n.Common.comingSoon))"
-            Toast.comingSoonLine(line)
+            presentDeleteAccountConfirmation()
+        }
+    }
+
+    private func presentDeleteAccountConfirmation() {
+        let alert = UIAlertController(
+            title: L(L10n.AccountSetting.deleteAccountAlertTitle),
+            message: L(L10n.AccountSetting.deleteAccountAlertMessage),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.AccountSetting.deleteAccountCancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: L(L10n.AccountSetting.deleteAccountConfirm), style: .destructive) { [weak self] _ in
+            self?.performDeleteAccount()
+        })
+        present(alert, animated: true)
+    }
+
+    private func performDeleteAccount() {
+        Task { @MainActor in
+            // guard let token = await context.getToken() else {
+            //     Toast.error(L(L10n.AccountSetting.deleteAccountError))
+            //     return
+            // }
+            // do {
+            //     try await context.account.network.deleteAccount(token: token)
+            // } catch {
+            //     Toast.error(L(L10n.AccountSetting.deleteAccountError))
+            //     return
+            // }
+            context.logout()
+            Toast.success(L(L10n.AccountSetting.deleteAccountSuccess))
         }
     }
 

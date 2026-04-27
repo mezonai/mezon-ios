@@ -69,7 +69,6 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var clanLogoURL: String = ""
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
-    private var onlineCount: Int = 0
 
     private let newUnreadButton: UIButton = {
         let b = UIButton(type: .system)
@@ -599,9 +598,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.onSearchTapped = interaction.onSearchTapped
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
-        headerUIView.onTap = { [weak self] in
-            self?.presentClanActionSheet()
-        }
+        //        headerUIView.onTap = { [weak self] in
+        //            self?.presentClanActionSheet()
+        //        }
 
         newUnreadButton.layer.zPosition = 85
         newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
@@ -780,11 +779,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         committedSectionCount = totalSections
     }
 
-    func configure(clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, onlineCount: Int = 0, isCommunity: Bool = false) {
+    func configure(clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         self.clanLogoURL = logoURL ?? ""
         self.isCommunity = isCommunity
         self.memberCount = memberCount
-        self.onlineCount = onlineCount
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
         isChannelAppsExpanded = true
 
@@ -868,7 +866,6 @@ final class ChannelListContainerNode: ASDisplayNode {
             clanName: headerUIView.title,
             avatarURL: clanLogoURL,
             memberCount: memberCount,
-            onlineCount: onlineCount,
             isCommunity: isCommunity,
             onAction: { [weak self] action in
                 guard let self else { return }
@@ -1070,21 +1067,21 @@ extension ChannelListContainerNode: ASTableDataSource {
                 && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
             return {
                 let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers)
-                if !inFav {
-                    node.onLongPress = { [weak self] in
-                        self?.interaction.onLongPressChannel(ch)
-                    }
-                }
+                //        if !inFav {
+                //            node.onLongPress = { [weak self] in
+                //                self?.interaction.onLongPressChannel(ch)
+                //            }
+                //        }
                 return node
             }
         case .thread(let ch, let isLast, let inFav):
             return {
                 let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
-                if !inFav {
-                    node.onLongPress = { [weak self] in
-                        self?.interaction.onLongPressChannel(ch)
-                    }
-                }
+                //        if !inFav {
+                //            node.onLongPress = { [weak self] in
+                //                self?.interaction.onLongPressChannel(ch)
+                //            }
+                //        }
                 return node
             }
         case .voiceMembersCollapsed(_, let userIds):

@@ -129,6 +129,12 @@ enum L10n {
         static let setPassword        = "accountSetting.setPassword"
         static let phoneSectionTitle  = "accountSetting.phoneNumberSetting.title"
         static let emailSectionTitle  = "accountSetting.emailSetting.title"
+        static let deleteAccountAlertTitle = "accountSetting.deleteAccountAlert.title"
+        static let deleteAccountAlertMessage = "accountSetting.deleteAccountAlert.description"
+        static let deleteAccountConfirm = "accountSetting.deleteAccountAlert.yesConfirm"
+        static let deleteAccountCancel = "accountSetting.deleteAccountAlert.noConfirm"
+        static let deleteAccountSuccess = "accountSetting.toast.deleteAccount.success"
+        static let deleteAccountError = "accountSetting.toast.deleteAccount.error"
     }
 
     enum EmailSetting {
@@ -646,6 +652,12 @@ extension L10n {
         "accountSetting.setPassword": "Set Password",
         "accountSetting.phoneNumberSetting.title": "Phone",
         "accountSetting.emailSetting.title": "Email",
+        "accountSetting.deleteAccountAlert.title": "Delete Account",
+        "accountSetting.deleteAccountAlert.description": "Please confirm if you would like to delete your account?",
+        "accountSetting.deleteAccountAlert.yesConfirm": "Yes",
+        "accountSetting.deleteAccountAlert.noConfirm": "No",
+        "accountSetting.toast.deleteAccount.success": "Account deleted successfully",
+        "accountSetting.toast.deleteAccount.error": "You are the owner of the clan",
 
         "emailSetting.updateEmailTitle": "Update Email",
         "emailSetting.newEmail": "New Email",
@@ -1158,6 +1170,12 @@ extension L10n {
         "accountSetting.setPassword": "Đặt mật khẩu",
         "accountSetting.phoneNumberSetting.title": "Số điện thoại",
         "accountSetting.emailSetting.title": "Email",
+        "accountSetting.deleteAccountAlert.title": "Xóa tài khoản",
+        "accountSetting.deleteAccountAlert.description": "Bạn có chắc muốn xóa tài khoản?",
+        "accountSetting.deleteAccountAlert.yesConfirm": "Có",
+        "accountSetting.deleteAccountAlert.noConfirm": "Không",
+        "accountSetting.toast.deleteAccount.success": "Đã xóa tài khoản thành công",
+        "accountSetting.toast.deleteAccount.error": "Bạn đang là chủ clan",
 
         "emailSetting.updateEmailTitle": "Cập nhật Email",
         "emailSetting.newEmail": "Email mới",

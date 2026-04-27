@@ -221,6 +221,8 @@ struct ChatState {
 
 final class ChatViewController: ViewController {
 
+    private static var isLicenseAgreementPresentationScheduled = false
+
     let clanId: Int64
     private(set) var channel: Mezon_Api_ChannelDescription
     let context: AccountContext
@@ -697,6 +699,33 @@ final class ChatViewController: ViewController {
         }
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .immediate)
+        }
+        presentLicenseAgreementIfNeeded()
+    }
+
+    private func presentLicenseAgreementIfNeeded() {
+        guard !LicenseAgreementPolicyStore.hasAgreed else { return }
+        guard presentedViewController == nil else { return }
+        if let nav = navigationController {
+            guard nav.topViewController === self else { return }
+        }
+        guard !Self.isLicenseAgreementPresentationScheduled else { return }
+        Self.isLicenseAgreementPresentationScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            Self.isLicenseAgreementPresentationScheduled = false
+            guard let self else { return }
+            guard !LicenseAgreementPolicyStore.hasAgreed else { return }
+            guard self.presentedViewController == nil else { return }
+            if let nav = self.navigationController {
+                guard nav.topViewController === self else { return }
+            }
+            let vc = LicenseAgreementViewController()
+            vc.modalPresentationStyle = .overFullScreen
+            vc.modalTransitionStyle = .crossDissolve
+            if #available(iOS 13.0, *) {
+                vc.isModalInPresentation = true
+            }
+            self.present(vc, animated: true)
         }
     }
 
