@@ -10,6 +10,8 @@ final class KeychainHelper {
     private let service = "mezon.postbox.dbkeys"
     private static let log = OSLog(subsystem: "mezon.security", category: "keychain")
 
+    private static let maxKeychainRetries = 3
+
     func databaseKey(for identifier: String) -> Data {
         let account = "db.\(identifier)"
         if let existing = load(account: account) { return existing }
@@ -19,12 +21,20 @@ final class KeychainHelper {
             SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
         }
         guard result == errSecSuccess else {
-            fatalError("SecRandomCopyBytes failed with status \(result). Cannot generate database encryption key.")
+            fatalError("SecRandomCopyBytes failed with status \(result).")
         }
-        guard save(account: account, data: key) else {
-            fatalError("Failed to save database encryption key to Keychain for \(identifier).")
+
+        for attempt in 1...Self.maxKeychainRetries {
+            if save(account: account, data: key) { return key }
+            os_log(.error, log: Self.log, "Keychain save attempt %d/%d failed for %{public}@", attempt, Self.maxKeychainRetries, identifier)
+            if attempt < Self.maxKeychainRetries {
+                Thread.sleep(forTimeInterval: 0.1 * Double(attempt))
+            }
         }
-        return key
+
+        if let reloaded = load(account: account) { return reloaded }
+
+        fatalError("Failed to save database encryption key to Keychain for \(identifier) after \(Self.maxKeychainRetries) attempts.")
     }
 
     @discardableResult

@@ -56,15 +56,11 @@ final class MmnWalletStore: @unchecked Sendable {
             if let payload, payload.userId == userId {
                 _zkProofs = payload.zkProofs
                 _ephemeralKey = payload.ephemeralKey
-                MmnDebugLog.line("walletStore bind userId=\(userId) zkProof=\(payload.zkProofs != nil) eph=\(payload.ephemeralKey != nil)")
             } else {
                 _zkProofs = nil
                 _ephemeralKey = nil
                 if let p = payload, p.userId != userId {
                     Self.persist(nil)
-                    MmnDebugLog.line("walletStore bind userId=\(userId) cleared (was \(p.userId))")
-                } else {
-                    MmnDebugLog.line("walletStore bind userId=\(userId) (no cached data)")
                 }
             }
         }
@@ -77,7 +73,6 @@ final class MmnWalletStore: @unchecked Sendable {
             _zkProofs = zk
             _ephemeralKey = ephemeralKey
             Self.persist(MmnWalletPersistedPayload(userId: userId, zkProofs: zk, ephemeralKey: ephemeralKey))
-            MmnDebugLog.line("walletStore set zkProof.proof.len=\(zk.proof.count) pub.len=\(zk.publicInput.count) eph.pub58.len=\(ephemeralKey.publicKeyBase58.count) userId=\(userId)")
         }
     }
 
@@ -87,7 +82,6 @@ final class MmnWalletStore: @unchecked Sendable {
             _zkProofs = nil
             _ephemeralKey = nil
             Self.persist(nil)
-            MmnDebugLog.line("walletStore clear")
         }
     }
 

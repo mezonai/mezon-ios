@@ -6,49 +6,49 @@ enum MezonEnvironment {
 
     var apiHost: String {
         switch self {
-        case .dev:  return "dev-mezon.nccsoft.vn"
+        case .dev:  return Secrets.devApiHost
         case .prod: return Secrets.prodApiHost
         }
     }
 
     var apiPort: Int? {
         switch self {
-        case .dev:  return 7305
-        case .prod: return nil
+        case .dev:  return Secrets.devApiPort
+        case .prod: return Secrets.prodApiPort
         }
     }
 
     var apiGWHost: String {
         switch self {
-        case .dev:  return "dev-mezon.nccsoft.vn"
+        case .dev:  return Secrets.devApiGWHost
         case .prod: return Secrets.prodApiGWHost
         }
     }
 
     var apiGWPort: Int? {
         switch self {
-        case .dev:  return 8088
-        case .prod: return nil
+        case .dev:  return Secrets.devApiGWPort
+        case .prod: return Secrets.prodApiGWPort
         }
     }
 
     var wsHost: String {
         switch self {
-        case .dev:  return "dev-mezon.nccsoft.vn"
+        case .dev:  return Secrets.devWsHost
         case .prod: return Secrets.prodWsHost
         }
     }
 
     var wsPort: Int? {
         switch self {
-        case .dev:  return 7305
-        case .prod: return nil
+        case .dev:  return Secrets.devWsPort
+        case .prod: return Secrets.prodWsPort
         }
     }
 
     var serverKey: String {
         switch self {
-        case .dev:  return "defaultkey"
+        case .dev:  return Secrets.devServerKey
         case .prod: return Secrets.prodServerKey
         }
     }
@@ -57,15 +57,29 @@ enum MezonEnvironment {
 
     var baseImgURL: String {
         switch self {
-        case .dev:  return "https://cdn.mezon.ai"
+        case .dev:  return Secrets.devBaseImgURL
         case .prod: return Secrets.prodBaseImgURL
         }
     }
 
     var profileImgURL: String {
         switch self {
-        case .dev:  return "https://profile.mezon.ai"
+        case .dev:  return Secrets.devProfileImgURL
         case .prod: return Secrets.prodProfileImgURL
+        }
+    }
+
+    var imgproxyBaseURL: String {
+        switch self {
+        case .dev:  return Secrets.devImgproxyBaseURL
+        case .prod: return Secrets.prodImgproxyBaseURL
+        }
+    }
+
+    var imgproxySigningPath: String {
+        switch self {
+        case .dev:  return Secrets.devImgproxySigningPath
+        case .prod: return Secrets.prodImgproxySigningPath
         }
     }
 
@@ -112,14 +126,7 @@ enum MezonEnvironment {
         return "Basic \(encoded)"
     }
 
-    static var current: MezonEnvironment = {
-        #if DEBUG
-        return .dev
-        #else
-        return .prod
-        #endif
-    }()
-
+    static var current: MezonEnvironment = .prod
 
     private static func infoPlistString(_ key: String) -> String? {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
@@ -127,12 +134,23 @@ enum MezonEnvironment {
         return t.isEmpty ? nil : t
     }
 
-    static var tenorAPIKey: String? { Secrets.tenorAPIKey }
-    static var tenorClientKey: String? { Secrets.tenorClientKey }
+    static var tenorAPIKey: String? {
+        switch current {
+        case .dev:  return Secrets.devTenorAPIKey
+        case .prod: return Secrets.prodTenorAPIKey
+        }
+    }
+
+    static var tenorClientKey: String? {
+        switch current {
+        case .dev:  return Secrets.devTenorClientKey
+        case .prod: return Secrets.prodTenorClientKey
+        }
+    }
 
     var mmnAPIURL: URL {
         switch self {
-        case .dev:  return URL(string: "https://dev-mmn.nccsoft.vn/mmn-api/")!
+        case .dev:  return URL(string: Secrets.devMmnAPIURL)!
         case .prod: return URL(string: Secrets.prodMmnAPIURL)!
         }
     }
@@ -140,8 +158,8 @@ enum MezonEnvironment {
     var zkAPIURL: URL {
         if let s = Self.infoPlistString("MEZON_ZK_API_URL"), let u = URL(string: s) { return u }
         switch self {
-        case .dev:  return URL(string: "https://dong.mezon.ai/zk-api/")!
-        case .prod: return URL(string: "https://dong.mezon.ai/zk-api/")!
+        case .dev:  return URL(string: Secrets.devZkAPIURL)!
+        case .prod: return URL(string: Secrets.prodZkAPIURL)!
         }
     }
 
@@ -150,8 +168,8 @@ enum MezonEnvironment {
             return override
         }
         switch self {
-        case .dev: return "wss://meet.mezon.ai"
-        case .prod: return "wss://meet.mezon.ai"
+        case .dev:  return Secrets.devMeetWebSocketURL
+        case .prod: return Secrets.prodMeetWebSocketURL
         }
     }
 }

@@ -12,6 +12,8 @@ final class MezonRootController: NavigationController {
     private(set) var notificationsController: NotificationsViewController?
     private(set) var profileController: ProfileViewController?
 
+    private func pushNavLog(_ message: @autoclosure () -> String) {}
+
     init(context: AccountContext) {
         self.context = context
         super.init(mode: .single, theme: Self.makeNavTheme())
@@ -108,6 +110,7 @@ final class MezonRootController: NavigationController {
 
     private func processPendingNavigation() {
         guard var pending = AppDelegate.pendingNavigation else { return }
+        pushNavLog("processPendingNavigation dequeue pending=\(pending)")
         AppDelegate.pendingNavigation = nil
         if pending["navigationInstanceId"] == nil {
             pending["navigationInstanceId"] = UUID().uuidString
@@ -134,8 +137,10 @@ final class MezonRootController: NavigationController {
             }
             if let sid = pending["navigationInstanceId"] as? String,
                sid == AppDelegate.lastHandledNavigationInstanceId {
+                self.pushNavLog("processPendingNavigation skip alreadyHandled id=\(sid)")
                 return
             }
+            self.pushNavLog("processPendingNavigation repost after wait pending=\(pending)")
             NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: pending)
         }
     }
@@ -153,18 +158,23 @@ final class MezonRootController: NavigationController {
     }
 
     @objc private func handleNavigateToChannel(_ notification: Notification) {
-        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        guard let channelIdStr = notification.userInfo?["channelId"] as? String else {
+            pushNavLog("handleNavigateToChannel abort no channelId userInfo=\(String(describing: notification.userInfo))")
+            return
+        }
         AppDelegate.recordNavigationInstanceHandled(userInfo: notification.userInfo)
         let clanIdStr = notification.userInfo?["clanId"] as? String
         let isDM = notification.userInfo?["isDM"] as? Bool ?? false
         let title = notification.userInfo?["title"] as? String
+        let nid = notification.userInfo?["navigationInstanceId"] as? String ?? ""
+        pushNavLog("handleNavigateToChannel id=\(nid) channel=\(channelIdStr) clan=\(clanIdStr ?? "nil") isDM=\(isDM) title=\(title ?? "nil")")
 
         AppDelegate.pendingNavigation = nil
 
         if isDM {
             navigateToDM(channelIdStr: channelIdStr, title: title)
         } else {
-            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, pushTitle: title)
         }
     }
 
@@ -182,7 +192,11 @@ final class MezonRootController: NavigationController {
     }
 
     private func navigateToDM(channelIdStr: String, title: String?) {
-        guard let channelIdInt = Int64(channelIdStr) else { return }
+        guard let channelIdInt = Int64(channelIdStr) else {
+            pushNavLog("navigateToDM abort bad channelIdStr=\(channelIdStr)")
+            return
+        }
+        pushNavLog("navigateToDM channel=\(channelIdInt) title=\(title ?? "nil")")
         rootTabController?.selectedIndex = 1
 
         if let existingChat = viewControllers.compactMap({ $0 as? ChatViewController }).first(where: {
@@ -213,7 +227,10 @@ final class MezonRootController: NavigationController {
             return minimal
         }()
 
-        pushViewController(ChatViewController(clanId: 0, channel: resolvedChannel, context: context), animated: false)
+        pushViewController(
+            ChatViewController(clanId: 0, channel: resolvedChannel, context: context, fallbackChannelLabel: title),
+            animated: false
+        )
 
         Task { @MainActor [weak self] in
             guard let self, let token = await self.context.getToken() else { return }
@@ -245,17 +262,29 @@ final class MezonRootController: NavigationController {
         return fallbackClanId
     }
 
-    private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
-        guard let channelIdInt = Int64(channelIdStr) else { return }
-        if isChatAlreadyVisible(channelId: channelIdInt) { return }
+    private func navigateToChannel(channelIdStr: String, clanIdStr: String?, pushTitle: String? = nil) {
+        guard let channelIdInt = Int64(channelIdStr) else {
+            pushNavLog("navigateToChannel abort bad channelIdStr=\(channelIdStr)")
+            return
+        }
+        if isChatAlreadyVisible(channelId: channelIdInt) {
+            pushNavLog("navigateToChannel skip alreadyVisible channel=\(channelIdInt)")
+            return
+        }
 
         rootTabController?.selectedIndex = 0
 
         popToTabBarController()
 
-        guard let homeVC = homeController else { return }
+        guard let homeVC = homeController else {
+            pushNavLog("navigateToChannel abort no homeController")
+            return
+        }
 
         let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
+        pushNavLog(
+            "navigateToChannel start channel=\(channelIdInt) notificationClan=\(notificationClanId.map(String.init) ?? "nil") pushTitle=\(pushTitle ?? "nil") context.currentClanId=\(context.currentClanId) homeListClanId=\(homeVC.channelListVC.clanId) selectedClanId=\(homeVC.clanListVC.selectedClanId)"
+        )
 
         if let (cachedClanId, cachedChannel) = context.account.postbox.getChannelDescription(channelId: channelIdInt) {
             let resolvedClanId = resolvedClanIdForOpenChat(
@@ -269,7 +298,35 @@ final class MezonRootController: NavigationController {
             if cachedChannel.parentID != 0 {
                 parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == cachedChannel.parentID })?.channelLabel
             }
-            let chatVC = ChatViewController(clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName)
+            let chatVC = ChatViewController(
+                clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName,
+                fallbackChannelLabel: pushTitle
+            )
+            pushNavLog("navigateToChannel path=postboxPerClanCache resolvedClan=\(resolvedClanId) label=\(cachedChannel.channelLabel)")
+            pushViewController(chatVC, animated: false)
+            fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
+            return
+        }
+
+        if let ch = context.engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == channelIdInt }) {
+            let resolvedClanId = resolvedClanIdForOpenChat(
+                notificationClanId: notificationClanId,
+                channel: ch,
+                fallbackClanId: ch.clanID != 0
+                    ? ch.clanID
+                    : (context.currentClanId != 0 ? context.currentClanId : homeVC.channelListVC.clanId)
+            )
+            switchClanIfNeeded(homeVC: homeVC, toClanId: resolvedClanId)
+            homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            var parentName: String?
+            if ch.parentID != 0 {
+                parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
+            }
+            let chatVC = ChatViewController(
+                clanId: resolvedClanId, channel: ch, context: context, parentName: parentName,
+                fallbackChannelLabel: pushTitle
+            )
+            pushNavLog("navigateToChannel path=allChannelsByUser resolvedClan=\(resolvedClanId) ch.clanID=\(ch.clanID) label=\(ch.channelLabel)")
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
@@ -286,7 +343,11 @@ final class MezonRootController: NavigationController {
             if ch.parentID != 0 {
                 parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
             }
-            let chatVC = ChatViewController(clanId: resolvedClanId, channel: ch, context: context, parentName: parentName)
+            let chatVC = ChatViewController(
+                clanId: resolvedClanId, channel: ch, context: context, parentName: parentName,
+                fallbackChannelLabel: pushTitle
+            )
+            pushNavLog("navigateToChannel path=currentClanChannelList resolvedClan=\(resolvedClanId) label=\(ch.channelLabel)")
             pushViewController(chatVC, animated: false)
             return
         }
@@ -294,6 +355,7 @@ final class MezonRootController: NavigationController {
         let listClanId = homeVC.channelListVC.clanId
         let fallbackWhenNoPushClan: Int64 = context.currentClanId != 0 ? context.currentClanId : listClanId
         let targetClanId: Int64 = notificationClanId ?? fallbackWhenNoPushClan
+        pushNavLog("navigateToChannel fallback targetClanId=\(targetClanId) listClanId=\(listClanId) fallbackWhenNoPushClan=\(fallbackWhenNoPushClan)")
 
         if let notificationClanId, notificationClanId != homeVC.clanListVC.selectedClanId,
            let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == notificationClanId }) {
@@ -321,14 +383,21 @@ final class MezonRootController: NavigationController {
                         channel: ch,
                         fallbackClanId: targetClanId
                     )
-                    let chatVC = ChatViewController(clanId: resolved, channel: ch, context: self.context, parentName: parentName)
+                    let chatVC = ChatViewController(
+                        clanId: resolved, channel: ch, context: self.context, parentName: parentName,
+                        fallbackChannelLabel: pushTitle
+                    )
+                    self.pushNavLog("navigateToChannel path=asyncAfterClanSwitch foundChannel resolved=\(resolved)")
                     self.pushViewController(chatVC, animated: false)
                 } else {
                     homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
                     var minimal = Mezon_Api_ChannelDescription()
                     minimal.channelID = channelIdInt
                     minimal.clanID = targetClanId
-                    let chatVC = ChatViewController(clanId: targetClanId, channel: minimal, context: self.context)
+                    let chatVC = ChatViewController(
+                        clanId: targetClanId, channel: minimal, context: self.context, fallbackChannelLabel: pushTitle
+                    )
+                    self.pushNavLog("navigateToChannel path=asyncAfterClanSwitch minimal clan=\(targetClanId)")
                     self.pushViewController(chatVC, animated: false)
                 }
             }))
@@ -339,7 +408,10 @@ final class MezonRootController: NavigationController {
             var minimal = Mezon_Api_ChannelDescription()
             minimal.channelID = channelIdInt
             minimal.clanID = targetClanId
-            let chatVC = ChatViewController(clanId: targetClanId, channel: minimal, context: self.context)
+            let chatVC = ChatViewController(
+                clanId: targetClanId, channel: minimal, context: self.context, fallbackChannelLabel: pushTitle
+            )
+            pushNavLog("navigateToChannel path=immediateMinimal clan=\(targetClanId)")
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: targetClanId, selectChannelId: channelIdInt)
         }
@@ -351,7 +423,7 @@ final class MezonRootController: NavigationController {
             homeVC.clanListVC.select(clan: clan)
             homeVC.channelListVC.configure(clanId: toClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
         } else {
-
+            pushNavLog("switchClanIfNeeded clan \(toClanId) not in list; set context.currentClanId and fetch")
 
             context.currentClanId = toClanId
 
@@ -450,7 +522,7 @@ final class MezonRootController: NavigationController {
 
     deinit {
         navigationDisposable.dispose()
-        NotificationCenter.default.removeObserver(self, name: .mezonDidReceiveSharedContent, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {

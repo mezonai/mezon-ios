@@ -84,6 +84,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
 
     private static let handleHeight: CGFloat = 24
     private static let tabBarHeight: CGFloat = 44
+    private static let collapsingConstraintPriority = UILayoutPriority(rawValue: 999)
 
     private var sheetPanGesture: UIPanGestureRecognizer!
     private var dragStartHeight: CGFloat = 0
@@ -133,28 +134,40 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         addSubview(separatorLine)
         addSubview(contentScrollView)
 
+        let handleH = handleArea.heightAnchor.constraint(equalToConstant: Self.handleHeight)
+        handleH.priority = Self.collapsingConstraintPriority
+        let tabTop = tabContainerView.topAnchor.constraint(equalTo: handleArea.bottomAnchor, constant: 4)
+        tabTop.priority = Self.collapsingConstraintPriority
+        let tabH = tabContainerView.heightAnchor.constraint(equalToConstant: Self.tabBarHeight)
+        tabH.priority = Self.collapsingConstraintPriority
+        let sepTop = separatorLine.topAnchor.constraint(equalTo: tabContainerView.bottomAnchor, constant: 4)
+        sepTop.priority = Self.collapsingConstraintPriority
+        let sepH = separatorLine.heightAnchor.constraint(equalToConstant: 0.5)
+        sepH.priority = Self.collapsingConstraintPriority
+        let scrollTop = contentScrollView.topAnchor.constraint(equalTo: separatorLine.bottomAnchor)
+        scrollTop.priority = Self.collapsingConstraintPriority
         NSLayoutConstraint.activate([
             handleArea.topAnchor.constraint(equalTo: topAnchor),
             handleArea.leadingAnchor.constraint(equalTo: leadingAnchor),
             handleArea.trailingAnchor.constraint(equalTo: trailingAnchor),
-            handleArea.heightAnchor.constraint(equalToConstant: Self.handleHeight),
+            handleH,
 
             grabberBar.centerXAnchor.constraint(equalTo: handleArea.centerXAnchor),
             grabberBar.centerYAnchor.constraint(equalTo: handleArea.centerYAnchor),
             grabberBar.widthAnchor.constraint(equalToConstant: 36),
             grabberBar.heightAnchor.constraint(equalToConstant: 5),
 
-            tabContainerView.topAnchor.constraint(equalTo: handleArea.bottomAnchor, constant: 4),
+            tabTop,
             tabContainerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             tabContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            tabContainerView.heightAnchor.constraint(equalToConstant: Self.tabBarHeight),
+            tabH,
 
-            separatorLine.topAnchor.constraint(equalTo: tabContainerView.bottomAnchor, constant: 4),
+            sepTop,
             separatorLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separatorLine.heightAnchor.constraint(equalToConstant: 0.5),
+            sepH,
 
-            contentScrollView.topAnchor.constraint(equalTo: separatorLine.bottomAnchor),
+            scrollTop,
             contentScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -194,11 +207,13 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
             tabButtons.append(btn)
         }
 
-        tabIndicatorView.widthAnchor.constraint(
+        let indicatorW = tabIndicatorView.widthAnchor.constraint(
             equalTo: tabContainerView.widthAnchor,
             multiplier: 1.0 / 3.0,
             constant: -8.0 / 3.0
-        ).isActive = true
+        )
+        indicatorW.priority = Self.collapsingConstraintPriority
+        indicatorW.isActive = true
 
         updateTabSelection(animated: false)
     }
@@ -208,24 +223,36 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         contentScrollView.addSubview(gifsPanel)
         contentScrollView.addSubview(stickersPanel)
 
+        let ejW = emojisPanel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor)
+        ejW.priority = Self.collapsingConstraintPriority
+        let ejH = emojisPanel.heightAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.heightAnchor)
+        ejH.priority = Self.collapsingConstraintPriority
+        let gjW = gifsPanel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor)
+        gjW.priority = Self.collapsingConstraintPriority
+        let gjH = gifsPanel.heightAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.heightAnchor)
+        gjH.priority = Self.collapsingConstraintPriority
+        let sjW = stickersPanel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor)
+        sjW.priority = Self.collapsingConstraintPriority
+        let sjH = stickersPanel.heightAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.heightAnchor)
+        sjH.priority = Self.collapsingConstraintPriority
         NSLayoutConstraint.activate([
             emojisPanel.topAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.topAnchor),
             emojisPanel.leadingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.leadingAnchor),
             emojisPanel.trailingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.trailingAnchor),
-            emojisPanel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor),
-            emojisPanel.heightAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.heightAnchor),
+            ejW,
+            ejH,
 
             gifsPanel.topAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.topAnchor),
             gifsPanel.leadingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.leadingAnchor),
             gifsPanel.trailingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.trailingAnchor),
-            gifsPanel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor),
-            gifsPanel.heightAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.heightAnchor),
+            gjW,
+            gjH,
 
             stickersPanel.topAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.topAnchor),
             stickersPanel.leadingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.leadingAnchor),
             stickersPanel.trailingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.trailingAnchor),
-            stickersPanel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor),
-            stickersPanel.heightAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.heightAnchor),
+            sjW,
+            sjH,
         ])
 
         emojisPanel.onEmojiSelected = { [weak self] id, shortname in

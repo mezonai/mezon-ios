@@ -40,7 +40,6 @@ struct MmnEphemeralKeyPair: Sendable {
         let sk = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
         let publicKeyBase58 = MmnBase58.encode(sk.publicKey.rawRepresentation)
         let pkcs8 = MmnEd25519PKCS8.pkcs8Hex(fromSeed32: seed)
-        MmnDebugLog.line("ephemeral key pub58.len=\(publicKeyBase58.count) pkcs8Hex.len=\(pkcs8.count)")
         return MmnEphemeralKeyPair(publicKeyBase58: publicKeyBase58, privateKeyPkcs8Hex: pkcs8, signingKey: sk, seed: seed)
     }
 }
@@ -93,9 +92,7 @@ enum MmnTransactionSigner {
 
     static func buildSignedAddTxBody(tx: MmnTxMsgForSign, signingKey: Curve25519.Signing.PrivateKey) throws -> [String: Any] {
         let line = Data(tx.serializationLine.utf8)
-        MmnDebugLog.line("tx sign line.len=\(line.count) type=\(tx.type) amount=\(tx.amount) nonce=\(tx.nonce) ts=\(tx.timestamp)")
         let signature = try buildSignatureString(serialized: line, signingKey: signingKey)
-        MmnDebugLog.line("tx sign sigB58.len=\(signature.count)")
         return ["tx_msg": tx.asAddTxMessage, "signature": signature]
     }
 }
