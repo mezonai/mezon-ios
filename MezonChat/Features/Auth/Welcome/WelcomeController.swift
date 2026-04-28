@@ -43,6 +43,10 @@ final class WelcomeController: ViewController, AuthScreenStatusBarStyle {
         welcomeNode.updateLayout(layout: layout, transition: transition)
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     @objc private func handleLanguageChange() {
         welcomeNode.refreshLocalizedStrings()
     }

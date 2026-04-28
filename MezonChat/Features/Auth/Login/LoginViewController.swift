@@ -114,7 +114,10 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         loginNode.updateLayout(layout: layout, transition: transition)
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        disposables.dispose()
+    }
 
     func setMode(_ v: LoginMode) { mode = v; modePipe.putNext(v); needsReloadPipe.putNext(()) }
     func setEmail(_ v: String) { email = v; emailPipe.putNext(v) }

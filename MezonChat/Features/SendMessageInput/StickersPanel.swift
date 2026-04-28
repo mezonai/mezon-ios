@@ -38,6 +38,10 @@ final class StickersPanel: UIView {
     var onStickerSelected: ((CachedClanStickerRecord) -> Void)?
     var onSearchFocusChanged: ((Bool) -> Void)?
 
+    deinit {
+        stopAudioPreview()
+    }
+
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
 
     var sheetPanCoordinationScrollView: UIScrollView { stickerGrid }

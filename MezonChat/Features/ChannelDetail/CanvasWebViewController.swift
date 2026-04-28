@@ -245,6 +245,28 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
         """
     }
 
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let targetURL = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+        let scheme = targetURL.scheme?.lowercased() ?? ""
+        if scheme == "about" || scheme == "blob" {
+            decisionHandler(.allow)
+            return
+        }
+        if (scheme == "https" || scheme == "http"),
+           targetURL.host?.lowercased() == pageURL.host?.lowercased() {
+            decisionHandler(.allow)
+        } else {
+            decisionHandler(.cancel)
+        }
+    }
+
     private static func canvasChromeHideScript() -> String {
         """
         (function() {

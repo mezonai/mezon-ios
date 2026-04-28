@@ -1424,10 +1424,15 @@ final class MezonHTTPClient {
         body: Body?,
         auth: AuthMethod
     ) throws -> URLRequest {
-        var components = URLComponents(url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+            throw MezonError.invalidResponse
+        }
         if !queryItems.isEmpty { components.queryItems = queryItems }
 
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw MezonError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
