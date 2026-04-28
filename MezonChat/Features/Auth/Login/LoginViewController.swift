@@ -224,7 +224,6 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     }
 
     func handleSessionReceived(_ session: MezonSession) {
-        MmnDebugLog.line("login(password) idToken.len=\(session.idToken?.count ?? 0) token.len=\(session.token.count) userId=\(session.userId ?? "nil")")
         SessionStore.save(session)
         self.context.account.network.updateBaseURL(from: session)
         let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? email, displayName: session.username ?? email, avatarURL: nil, status: .online, bio: nil)

@@ -598,9 +598,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.onSearchTapped = interaction.onSearchTapped
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
-        //        headerUIView.onTap = { [weak self] in
-        //            self?.presentClanActionSheet()
-        //        }
 
         newUnreadButton.layer.zPosition = 85
         newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
@@ -1067,21 +1064,11 @@ extension ChannelListContainerNode: ASTableDataSource {
                 && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
             return {
                 let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers)
-                //        if !inFav {
-                //            node.onLongPress = { [weak self] in
-                //                self?.interaction.onLongPressChannel(ch)
-                //            }
-                //        }
                 return node
             }
         case .thread(let ch, let isLast, let inFav):
             return {
                 let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
-                //        if !inFav {
-                //            node.onLongPress = { [weak self] in
-                //                self?.interaction.onLongPressChannel(ch)
-                //            }
-                //        }
                 return node
             }
         case .voiceMembersCollapsed(_, let userIds):

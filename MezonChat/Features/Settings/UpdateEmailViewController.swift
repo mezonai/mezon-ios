@@ -277,28 +277,23 @@ final class UpdateEmailViewController: BaseViewController {
 
     private func callLinkEmailAPI(email: String) {
         setLoading(true)
-        print("[UpdateEmail] Start linkEmail. email=\(email)")
 
         Task { @MainActor in
             do {
                 guard let token = await context.getToken() else {
-                    print("[UpdateEmail] Missing auth token")
                     setLoading(false)
                     showUpdateFailedToast()
                     return
                 }
-                print("[UpdateEmail] Got token. Calling linkEmail API...")
 
                 let response = try await context.account.network.linkEmail(
                     email: email,
                     token: token
                 )
-                print("[UpdateEmail] linkEmail response received. reqId=\(response.reqId ?? "nil")")
 
                 setLoading(false)
 
                 guard let reqId = response.reqId, !reqId.isEmpty else {
-                    print("[UpdateEmail] linkEmail missing reqId, cannot navigate to verify screen")
                     showUpdateFailedToast()
                     return
                 }
@@ -311,17 +306,10 @@ final class UpdateEmailViewController: BaseViewController {
                     email: email,
                     requestId: reqId
                 )
-                print("[UpdateEmail] Navigate to VerifyEmailOTPViewController with reqId=\(reqId)")
                 navigationController?.pushViewController(verifyVC, animated: true)
 
             } catch {
                 setLoading(false)
-                if let mezonError = error as? MezonError,
-                   case .httpError(_, let msg) = mezonError {
-                    print("[UpdateEmail] linkEmail HTTP error: \(msg)")
-                } else {
-                    print("[UpdateEmail] linkEmail unknown error: \(error)")
-                }
                 Toast.error(L(L10n.EmailSetting.updateFailed))
             }
         }

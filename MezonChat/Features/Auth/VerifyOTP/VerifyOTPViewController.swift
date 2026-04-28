@@ -253,7 +253,6 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         setErrorMessage(nil)
         do {
             let session = try await self.context.account.network.confirmAuthenticateOTP(reqId: currentReqId, otp: otpCode)
-            MmnDebugLog.line("login(otp) idToken.len=\(session.idToken?.count ?? 0) token.len=\(session.token.count) userId=\(session.userId ?? "nil")")
             SessionStore.save(session)
             self.context.account.network.updateBaseURL(from: session)
             let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? otpContext.target, displayName: session.username ?? otpContext.target, avatarURL: nil, status: .online, bio: nil)

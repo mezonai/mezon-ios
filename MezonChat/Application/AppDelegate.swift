@@ -224,23 +224,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
 
-    #if DEBUG
-    private static func pushDebugLog(_ message: @autoclosure () -> String) {
-        print("[MezonPush] \(message())")
-    }
-
-    private static func pushDebugUserInfoSummary(_ userInfo: [AnyHashable: Any]) -> String {
-        let top = userInfo.keys.map { "\($0)" }.sorted().joined(separator: ",")
-        if let d = userInfo["data"] as? [String: Any] {
-            let dk = d.keys.map(\.description).sorted().joined(separator: ",")
-            return "userInfoKeys=\(top) | dataKeys=\(dk)"
-        }
-        return "userInfoKeys=\(top)"
-    }
-    #else
     private static func pushDebugLog(_ message: @autoclosure () -> String) {}
     private static func pushDebugUserInfoSummary(_ userInfo: [AnyHashable: Any]) -> String { "" }
-    #endif
 
     private static func stringFromPushValue(_ value: Any?) -> String? {
         guard let value else { return nil }

@@ -12,13 +12,7 @@ final class MezonRootController: NavigationController {
     private(set) var notificationsController: NotificationsViewController?
     private(set) var profileController: ProfileViewController?
 
-    #if DEBUG
-    private func pushNavLog(_ message: @autoclosure () -> String) {
-        print("[MezonPushNav] \(message())")
-    }
-    #else
     private func pushNavLog(_ message: @autoclosure () -> String) {}
-    #endif
 
     init(context: AccountContext) {
         self.context = context
