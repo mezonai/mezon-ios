@@ -106,9 +106,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             let userInfo = notificationResponse.notification.request.content.userInfo
             let title = notificationResponse.notification.request.content.title
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
-            Self.pushDebugLog(
-                "scene coldStart tap \(Self.pushDebugUserInfoSummary(userInfo)) → parsed channel=\(channelId ?? "nil") clan=\(clanId ?? "nil") isDM=\(isDM) title=\(title)"
-            )
             if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
                 accountContext?.currentClanId = clanIdInt
             }
@@ -224,9 +221,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
 
-    private static func pushDebugLog(_ message: @autoclosure () -> String) {}
-    private static func pushDebugUserInfoSummary(_ userInfo: [AnyHashable: Any]) -> String { "" }
-
     private static func stringFromPushValue(_ value: Any?) -> String? {
         guard let value else { return nil }
         if let s = value as? String, !s.isEmpty { return s }
@@ -284,9 +278,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let body = notification.request.content.body
 
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
-        Self.pushDebugLog(
-            "willPresent \(Self.pushDebugUserInfoSummary(userInfo)) → parsed channel=\(channelId ?? "nil") clan=\(clanId ?? "nil") isDM=\(isDM) title=\(title)"
-        )
 
         let isViewingChannel: Bool = {
             guard let chId = channelId, let chIdInt = Int64(chId) else { return false }
@@ -312,9 +303,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let userInfo = response.notification.request.content.userInfo
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
         let title = response.notification.request.content.title
-        Self.pushDebugLog(
-            "didReceive action=\(response.actionIdentifier) \(Self.pushDebugUserInfoSummary(userInfo)) → parsed channel=\(channelId ?? "nil") clan=\(clanId ?? "nil") isDM=\(isDM) title=\(title)"
-        )
 
         if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
             accountContext?.currentClanId = clanIdInt
@@ -329,10 +317,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     static var lastHandledNavigationInstanceId: String?
 
     static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false, title: String? = nil) {
-        guard let channelId, !channelId.isEmpty else {
-            pushDebugLog("navigateToChannel abort missing channelId clan=\(clanId ?? "nil") isDM=\(isDM)")
-            return
-        }
+        guard let channelId, !channelId.isEmpty else { return }
         var info: [String: Any] = [
             "channelId": channelId,
             "isDM": isDM,
@@ -340,8 +325,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
         if let title, !title.isEmpty { info["title"] = title }
-        let nid = info["navigationInstanceId"] as? String ?? ""
-        pushDebugLog("navigateToChannel post NotificationCenter id=\(nid) channel=\(channelId) clan=\(clanId ?? "nil") isDM=\(isDM) title=\(title ?? "nil")")
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String
