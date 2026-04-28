@@ -294,6 +294,8 @@
 		99F467D84EA6215DE8B2C624 /* CallManagers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97726FD3233DB31DD6AC5385 /* CallManagers.swift */; };
 		9A6A29E72F9B717C00D44138 /* UpdatePhoneNumberViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A29E62F9B717C00D44138 /* UpdatePhoneNumberViewController.swift */; };
 		9A6A29E92F9B718500D44138 /* VerifyPhoneOTPViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A29E82F9B718500D44138 /* VerifyPhoneOTPViewController.swift */; };
+		9A6A29EB2FA0625600D44138 /* FriendListContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A29EA2FA0625600D44138 /* FriendListContainerNode.swift */; };
+		9A6A29ED2FA0626300D44138 /* FriendListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A6A29EC2FA0626300D44138 /* FriendListViewController.swift */; };
 		9AB07E0FF22814CBCE67E56C /* SVariable.m in Sources */ = {isa = PBXBuildFile; fileRef = 09EF700E3C59BDE6081FE041 /* SVariable.m */; };
 		9ACC1ED3DFE7C2C6747F08CB /* ChannelBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E55993173346619928A1FF1F /* ChannelBannerView.swift */; };
 		9AFF69B9981CF6C50BB2E3D2 /* MmnEd25519PKCS8.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D36E730232ECF3D41FED372 /* MmnEd25519PKCS8.swift */; };
@@ -825,6 +827,8 @@
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
 		9A6A29E62F9B717C00D44138 /* UpdatePhoneNumberViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePhoneNumberViewController.swift; sourceTree = "<group>"; };
 		9A6A29E82F9B718500D44138 /* VerifyPhoneOTPViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyPhoneOTPViewController.swift; sourceTree = "<group>"; };
+		9A6A29EA2FA0625600D44138 /* FriendListContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendListContainerNode.swift; sourceTree = "<group>"; };
+		9A6A29EC2FA0626300D44138 /* FriendListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendListViewController.swift; sourceTree = "<group>"; };
 		9A95963C16177D92D4F4F3A2 /* ReactionEmojiImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionEmojiImageLoader.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
@@ -2006,6 +2010,8 @@
 		C0FD1E8BFC48749FCD96F0F2 /* DirectMessages */ = {
 			isa = PBXGroup;
 			children = (
+				9A6A29EC2FA0626300D44138 /* FriendListViewController.swift */,
+				9A6A29EA2FA0625600D44138 /* FriendListContainerNode.swift */,
 				811B1E2FBC03AED1C62BEB68 /* AddFriendByUsernameViewController.swift */,
 				2CAE873940BA07736BE01F46 /* DirectMessagesContainerNode.swift */,
 				4085DC7BDBF7832C3E4EBD25 /* DirectMessagesViewController.swift */,
@@ -2832,6 +2838,7 @@
 				4DE1D70796E584457648AA43 /* SQueue.m in Sources */,
 				4A0C85A11465B8D62B7B9902 /* SQueueLocalObject.m in Sources */,
 				B5A61807597E26B005D8BB1C /* SSignal+Catch.m in Sources */,
+				9A6A29EB2FA0625600D44138 /* FriendListContainerNode.swift in Sources */,
 				0A9CFAA02EBC2F67DE33AF27 /* SSignal+Combine.m in Sources */,
 				9B5F3EFD9FA6AD1F3C2F6593 /* SSignal+Dispatch.m in Sources */,
 				04F402146BBC8FBC81ACBDBC /* SSignal+Mapping.m in Sources */,
@@ -2896,6 +2903,7 @@
 				41855D500456AAA11465DB59 /* SubstringSearch.swift in Sources */,
 				0365C8B4AF462C6D2B26434F /* SwitchNode.swift in Sources */,
 				490A7C34CA44AA088C336A35 /* TabBarController.swift in Sources */,
+				9A6A29ED2FA0626300D44138 /* FriendListViewController.swift in Sources */,
 				4B184A6D33AE232840D998C5 /* TabBarControllerImpl.swift in Sources */,
 				0B83CAD169D270D2B71D78B7 /* TabBarControllerNode.swift in Sources */,
 				770F28AFF6F2B17327A54155 /* TabBarNode.swift in Sources */,
