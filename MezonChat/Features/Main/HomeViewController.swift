@@ -104,7 +104,6 @@ final class HomeViewController: BaseViewController {
                 logoURL: nil,
                 bannerURL: nil,
                 memberCount: 0,
-                onlineCount: 0,
                 isCommunity: false
             )
             if voiceChannelId != 0 {
@@ -125,8 +124,7 @@ final class HomeViewController: BaseViewController {
         context.currentClanId = id
         let users = context.engine.clanData.getClanUsers(clanId: id)?.clanUsers ?? []
         let memberCount = users.count
-        let onlineCount = users.filter { $0.user.online }.count
-        channelListVC.configure(clanId: id, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner, memberCount: memberCount, onlineCount: onlineCount, isCommunity: clan.isCommunity)
+        channelListVC.configure(clanId: id, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner, memberCount: memberCount, isCommunity: clan.isCommunity)
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -254,14 +252,13 @@ final class HomeViewController: BaseViewController {
                 .start(next: { [weak self] clanId in
                     guard let self else { return }
                     guard let clanId, clanId != 0 else {
-                        self.channelListVC.configure(clanId: 0, clanName: "", logoURL: nil, bannerURL: nil, memberCount: 0, onlineCount: 0, isCommunity: false)
+                        self.channelListVC.configure(clanId: 0, clanName: "", logoURL: nil, bannerURL: nil, memberCount: 0, isCommunity: false)
                         return
                     }
                     let clan = self.clanListVC.clans.first(where: { $0.clanID == clanId })
                     let users = self.context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers ?? []
                     let memberCount = users.count
-                    let onlineCount = users.filter { $0.user.online }.count
-                    self.channelListVC.configure(clanId: clanId, clanName: clan?.clanName ?? "", logoURL: clan?.logo, bannerURL: clan?.banner, memberCount: memberCount, onlineCount: onlineCount, isCommunity: clan?.isCommunity ?? false)
+                    self.channelListVC.configure(clanId: clanId, clanName: clan?.clanName ?? "", logoURL: clan?.logo, bannerURL: clan?.banner, memberCount: memberCount, isCommunity: clan?.isCommunity ?? false)
                 })
         )
         disposables.add(

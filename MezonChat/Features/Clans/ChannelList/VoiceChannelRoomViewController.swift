@@ -295,6 +295,8 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var systemCallPiPSourceView: UIView?
     private var systemCallPiPContentVC: UIViewController?
     private var systemCallPiPBackgroundObserver: NSObjectProtocol?
+    private var systemCallPiPForegroundObserver: NSObjectProtocol?
+    private var systemCallPiPActiveObserver: NSObjectProtocol?
     private var themeChangeObserver: NSObjectProtocol?
 
     private weak var overlayPiPRootViewController: UIViewController?
@@ -866,6 +868,24 @@ final class VoiceChannelPiPOverlay: NSObject {
                 self?.tryStartOverlaySystemPiPIfNeeded()
             }
         }
+        systemCallPiPForegroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.stopSystemPiPOnForeground()
+            }
+        }
+        systemCallPiPActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.stopSystemPiPOnForeground()
+            }
+        }
         updateOverlaySystemCallPiPStatusFromRoom()
         refreshContent()
     }
@@ -903,10 +923,30 @@ final class VoiceChannelPiPOverlay: NSObject {
         }
     }
 
+    private func stopSystemPiPOnForeground() {
+        guard #available(iOS 15.0, *) else { return }
+        guard let pip = systemCallPiPController else { return }
+        if pip.isPictureInPictureActive {
+            pip.stopPictureInPicture()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, let pip = self.systemCallPiPController, pip.isPictureInPictureActive else { return }
+            pip.stopPictureInPicture()
+        }
+    }
+
     private func tearDownOverlaySystemCallPiP() {
         if let obs = systemCallPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             systemCallPiPBackgroundObserver = nil
+        }
+        if let obs = systemCallPiPForegroundObserver {
+            NotificationCenter.default.removeObserver(obs)
+            systemCallPiPForegroundObserver = nil
+        }
+        if let obs = systemCallPiPActiveObserver {
+            NotificationCenter.default.removeObserver(obs)
+            systemCallPiPActiveObserver = nil
         }
         let pip = systemCallPiPController
         if pip?.isPictureInPictureActive == true {
@@ -1175,6 +1215,8 @@ final class VoiceChannelRoomViewController: ViewController {
         return v
     }()
     private var callPiPBackgroundObserver: NSObjectProtocol?
+    private var callPiPForegroundObserver: NSObjectProtocol?
+    private var callPiPActiveObserver: NSObjectProtocol?
 
     private let connectingOverlay = UIView()
     private let connectingSpinner = UIActivityIndicatorView(style: .large)
@@ -1563,6 +1605,12 @@ final class VoiceChannelRoomViewController: ViewController {
         voiceReactionDisposable?.dispose()
         liveKitReconnectTask?.cancel()
         if let obs = callPiPBackgroundObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = callPiPForegroundObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        if let obs = callPiPActiveObserver {
             NotificationCenter.default.removeObserver(obs)
         }
         callPiPController?.stopPictureInPicture()
@@ -2699,6 +2747,24 @@ final class VoiceChannelRoomViewController: ViewController {
                 self?.tryStartCallPiPIfNeeded()
             }
         }
+        if callPiPForegroundObserver == nil {
+            callPiPForegroundObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.stopCallPiPOnForeground()
+            }
+        }
+        if callPiPActiveObserver == nil {
+            callPiPActiveObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.stopCallPiPOnForeground()
+            }
+        }
         if let room = liveKitBridge?.room {
             updateCallPiPContent(room: room)
         }
@@ -2724,10 +2790,30 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
+    private func stopCallPiPOnForeground() {
+        guard #available(iOS 15.0, *) else { return }
+        guard let pip = callPiPController else { return }
+        if pip.isPictureInPictureActive {
+            pip.stopPictureInPicture()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, let pip = self.callPiPController, pip.isPictureInPictureActive else { return }
+            pip.stopPictureInPicture()
+        }
+    }
+
     private func tearDownCallPiP() {
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             callPiPBackgroundObserver = nil
+        }
+        if let obs = callPiPForegroundObserver {
+            NotificationCenter.default.removeObserver(obs)
+            callPiPForegroundObserver = nil
+        }
+        if let obs = callPiPActiveObserver {
+            NotificationCenter.default.removeObserver(obs)
+            callPiPActiveObserver = nil
         }
         let pip = callPiPController
         if pip?.isPictureInPictureActive == true {

@@ -326,6 +326,15 @@ final class MezonHTTPClient {
         )
     }
 
+    func deleteAccount(token: String) async throws {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteAccount",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func updateUserStatus(_ request: Mezon_Api_UserStatusUpdate, token: String) async throws {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/UpdateUserStatus",
@@ -503,6 +512,22 @@ final class MezonHTTPClient {
         req.state       = 1
         req.page        = 0
         req.channelType = 3
+        req.isMobile    = true
+        let response: Mezon_Api_ChannelDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channeldesc
+    }
+
+    func listGroupMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID      = 0
+        req.limit       = 500
+        req.state       = 1
+        req.page        = 0
+        req.channelType = 2
         req.isMobile    = true
         let response: Mezon_Api_ChannelDescList = try await postProto(
             path: "/mezon.api.Mezon/ListChannelDescs",
@@ -920,6 +945,17 @@ final class MezonHTTPClient {
         req.state = state
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelUsersUC(channelId: Int64, limit: Int32 = 500, token: String) async throws -> Mezon_Api_AllUsersAddChannelResponse {
+        var req = Mezon_Api_AllUsersAddChannelRequest()
+        req.channelID = channelId
+        req.limit = limit
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelUsersUC",
             message: req,
             auth: .bearer(token)
         )
