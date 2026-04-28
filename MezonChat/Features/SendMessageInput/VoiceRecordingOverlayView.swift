@@ -150,6 +150,10 @@ final class VoiceRecordingOverlayView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    deinit {
+        displayLink?.invalidate()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = bounds

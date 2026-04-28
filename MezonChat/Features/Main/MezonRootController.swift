@@ -522,7 +522,7 @@ final class MezonRootController: NavigationController {
 
     deinit {
         navigationDisposable.dispose()
-        NotificationCenter.default.removeObserver(self, name: .mezonDidReceiveSharedContent, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {

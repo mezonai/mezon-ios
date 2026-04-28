@@ -42,7 +42,10 @@ public final class QueueLocalObject<T: AnyObject> {
                 result = f(value)
             }
         }
-        return result!
+        guard let result else {
+            preconditionFailure("QueueLocalObject.syncWith: valueRef was nil — object was already deallocated or not yet initialized")
+        }
+        return result
     }
 
     public func signalWith<R, E>(_ f: @escaping (T, Subscriber<R, E>) -> Disposable) -> Signal<R, E> {

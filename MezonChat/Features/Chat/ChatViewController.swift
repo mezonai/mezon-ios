@@ -59,11 +59,18 @@ struct ParsedAttachment: Equatable {
     }
 
     private static let maxPendingCacheEntries = 50
+    private static let pendingCacheLock = NSLock()
 
     private static var _pendingImageCache: [String: [UIImage]] = [:]
     static var pendingImageCache: [String: [UIImage]] {
-        get { _pendingImageCache }
+        get {
+            pendingCacheLock.lock()
+            defer { pendingCacheLock.unlock() }
+            return _pendingImageCache
+        }
         set {
+            pendingCacheLock.lock()
+            defer { pendingCacheLock.unlock() }
             _pendingImageCache = newValue
             if _pendingImageCache.count > maxPendingCacheEntries {
                 let keysToRemove = _pendingImageCache.keys.prefix(_pendingImageCache.count - maxPendingCacheEntries)
@@ -74,8 +81,14 @@ struct ParsedAttachment: Equatable {
 
     private static var _pendingDocumentPlaceholders: [String: [ParsedAttachment]] = [:]
     static var pendingDocumentPlaceholders: [String: [ParsedAttachment]] {
-        get { _pendingDocumentPlaceholders }
+        get {
+            pendingCacheLock.lock()
+            defer { pendingCacheLock.unlock() }
+            return _pendingDocumentPlaceholders
+        }
         set {
+            pendingCacheLock.lock()
+            defer { pendingCacheLock.unlock() }
             _pendingDocumentPlaceholders = newValue
             if _pendingDocumentPlaceholders.count > maxPendingCacheEntries {
                 let keysToRemove = _pendingDocumentPlaceholders.keys.prefix(_pendingDocumentPlaceholders.count - maxPendingCacheEntries)
@@ -889,10 +902,7 @@ final class ChatViewController: ViewController {
     deinit {
         typingPruneTimer?.invalidate()
         stateDisposables.dispose()
-        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: .mezonMessageTypingReceived, object: nil)
-        NotificationCenter.default.removeObserver(self, name: .mezonChannelPinsNeedRefresh, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
