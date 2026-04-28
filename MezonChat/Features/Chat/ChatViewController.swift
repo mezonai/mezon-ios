@@ -246,6 +246,8 @@ final class ChatViewController: ViewController {
     private var lastFetchedOlderMessageId: Int64?
     private var lastFetchedNewerMessageId: Int64?
     private var isJumping: Bool = false
+    private var pinnedMessageIds: Set<String> = []
+    private var pinServerIdByMessageId: [String: Int64] = [:]
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
     private(set) var channelMeta: ChannelRecord?
@@ -367,13 +369,21 @@ final class ChatViewController: ViewController {
 
     init(
         clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext,
-        parentName: String? = nil
+        parentName: String? = nil,
+        fallbackChannelLabel: String? = nil
     ) {
         self.clanId = clanId
         self.channel = channel
         self.context = context
         self.initialParentName = parentName
-        self.channelLabel = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
+        let trimmed = fallbackChannelLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !channel.channelLabel.isEmpty {
+            self.channelLabel = channel.channelLabel
+        } else if let trimmed, !trimmed.isEmpty {
+            self.channelLabel = trimmed
+        } else {
+            self.channelLabel = "channel"
+        }
         if channel.hasLastSeenMessage && channel.lastSeenMessage.id != 0 {
             self.lastSeenMessageId = "\(channel.lastSeenMessage.id)"
         }
@@ -560,6 +570,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnected(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
     }
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
@@ -740,6 +751,36 @@ final class ChatViewController: ViewController {
         remoteTypingLabel.textColor = t.textDisabled
     }
 
+    @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
+        let eventClan = Self.int64FromTypingUserInfo(notification.userInfo?["clanId"]) ?? 0
+        let eventChannel = Self.int64FromTypingUserInfo(notification.userInfo?["channelId"]) ?? 0
+        guard eventChannel == channel.channelID else { return }
+        guard eventClan == clanId || eventClan == pinApiClanId() else { return }
+
+        if let pinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["pinnedMessageId"]), pinnedMid != 0 {
+            pinnedMessageIds.insert("\(pinnedMid)")
+            syncPinnedStateToPostbox()
+            reloadDisplaysWithCurrentPins()
+            return
+        }
+        if let unpinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["unpinnedMessageId"]), unpinnedMid != 0 {
+            pinnedMessageIds = Set(pinnedMessageIds.filter { k in
+                guard let v = Int64(k.trimmingCharacters(in: .whitespacesAndNewlines)) else { return true }
+                return v != unpinnedMid
+            })
+            for k in Array(pinServerIdByMessageId.keys) {
+                if Int64(k.trimmingCharacters(in: .whitespacesAndNewlines)) == unpinnedMid {
+                    pinServerIdByMessageId.removeValue(forKey: k)
+                }
+            }
+            syncPinnedStateToPostbox()
+            reloadDisplaysWithCurrentPins()
+            return
+        }
+
+        refreshPinnedMessagesFromServer()
+    }
+
     @objc private func handleSocketReconnected(_ notification: Notification) {
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
         if pendingMarkAsRead {
@@ -750,6 +791,7 @@ final class ChatViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             self.fetchMessages(token: token)
             self.joinChat()
+            self.refreshPinnedMessagesFromServer()
             if !self.hasCompletedInitialFetch {
                 self.hasCompletedInitialFetch = true
                 self.fetchNotificationSetting(token: token)
@@ -850,6 +892,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: .mezonMessageTypingReceived, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonChannelPinsNeedRefresh, object: nil)
     }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
@@ -910,6 +953,7 @@ final class ChatViewController: ViewController {
             setMessages([])
             setIsLoading(false)
         } else {
+            restorePinnedStateFromPostboxIfNeeded()
             let cachedMessages = context.account.postbox.read { tx in
                 tx.getMessages(channelId: channelIdStr)
             }
@@ -970,6 +1014,7 @@ final class ChatViewController: ViewController {
             self.fetchMessages(token: token)
             await self.waitForSocketConnected()
             self.joinChat()
+            self.refreshPinnedMessagesFromServer()
             self.fetchNotificationSetting(token: token)
             self.fetchChannelPermissions(token: token)
             self.fetchChannelMembers(token: token)
@@ -1436,7 +1481,8 @@ final class ChatViewController: ViewController {
         let att = m.attachments
             .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
             .joined(separator: ";")
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)"
+        let pin = m.message.isPinned ? "1" : "0"
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -1532,7 +1578,7 @@ final class ChatViewController: ViewController {
             let parsedRaw = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
             let parsed = enrichParsedContent(parsedRaw, fallbackClanId: record.clanId)
             let content = parsed.text
-            let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
+            let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: pinnedMessageIds.contains(record.id))
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
             if record.sendingState == .pending {
@@ -2102,6 +2148,92 @@ final class ChatViewController: ViewController {
             if context.account.socket.isConnected {
                 return
             }
+        }
+    }
+
+    private func pinApiClanId() -> Int64 {
+        let channelType = channel.type != 0 ? channel.type : (clanId == 0 ? MezonConstants.ChannelType.group.rawValue : MezonConstants.ChannelType.channel.rawValue)
+        if channelType == MezonConstants.ChannelType.dm.rawValue || channelType == MezonConstants.ChannelType.group.rawValue {
+            return 0
+        }
+        return clanId
+    }
+
+    private func applyPinList(_ list: Mezon_Api_PinMessagesList) {
+        var ids = Set<String>()
+        var byMsg: [String: Int64] = [:]
+        for p in list.pinMessagesList {
+            let mid = "\(p.messageID)"
+            ids.insert(mid)
+            byMsg[mid] = p.id
+        }
+        pinnedMessageIds = ids
+        pinServerIdByMessageId = byMsg
+        syncPinnedStateToPostbox()
+    }
+
+    private func restorePinnedStateFromPostboxIfNeeded() {
+        guard channel.channelID != 0 else { return }
+        guard let snap = ChannelPinnedStatePersistence.load(
+            postbox: context.account.postbox,
+            accountId: context.account.id,
+            clanId: pinApiClanId(),
+            channelId: channel.channelID
+        ) else { return }
+        pinnedMessageIds = Set(snap.pinnedMessageIds)
+        pinServerIdByMessageId = snap.pinServerIdByMessageId
+    }
+
+    private func syncPinnedStateToPostbox() {
+        guard channel.channelID != 0 else { return }
+        ChannelPinnedStatePersistence.save(
+            postbox: context.account.postbox,
+            accountId: context.account.id,
+            clanId: pinApiClanId(),
+            channelId: channel.channelID,
+            pinnedMessageIds: pinnedMessageIds,
+            pinServerIdByMessageId: pinServerIdByMessageId
+        )
+    }
+
+    private func mergePinListEntries(_ list: Mezon_Api_PinMessagesList) {
+        for p in list.pinMessagesList {
+            let mid = "\(p.messageID)"
+            pinnedMessageIds.insert(mid)
+            if p.id != 0 {
+                pinServerIdByMessageId[mid] = p.id
+            }
+        }
+    }
+
+    private func reloadDisplaysWithCurrentPins() {
+        let channelIdStr = storageChannelId
+        let rows = context.account.postbox.read { tx in
+            tx.getMessages(channelId: channelIdStr)
+        }
+        setMessages(buildDisplayMessages(from: rows))
+    }
+
+    private func fetchPinListFromServerAndApply() async {
+        guard channel.channelID != 0 else { return }
+        guard let token = await context.getToken() else { return }
+        do {
+            let res = try await context.account.network.listPinMessages(
+                clanId: pinApiClanId(),
+                channelId: channel.channelID,
+                token: token
+            )
+            applyPinList(res)
+        } catch {
+        }
+    }
+
+    private func refreshPinnedMessagesFromServer() {
+        guard channel.channelID != 0 else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.fetchPinListFromServerAndApply()
+            self.reloadDisplaysWithCurrentPins()
         }
     }
 
@@ -3000,8 +3132,26 @@ final class ChatViewController: ViewController {
         return userHasDeleteMessagePermissionInClan()
     }
 
+    private func displayWithLivePinState(_ display: ChatMessageDisplay) -> ChatMessageDisplay {
+        let liveIsPinned = pinnedMessageIds.contains(display.message.id)
+        guard liveIsPinned != display.message.isPinned else { return display }
+        var msg = display.message
+        msg.isPinned = liveIsPinned
+        return ChatMessageDisplay(
+            message: msg, senderDisplayName: display.senderDisplayName, avatarURL: display.avatarURL,
+            isCombine: display.isCombine, attachments: display.attachments, reactions: display.reactions,
+            parsedContent: display.parsedContent, replyRef: display.replyRef, isDeletedReply: display.isDeletedReply,
+            isWelcome: display.isWelcome, callLog: display.callLog, topicData: display.topicData,
+            locationData: display.locationData, isMe: display.isMe, sendingState: display.sendingState,
+            hasIncludeMention: display.hasIncludeMention, isForward: display.isForward,
+            showForwardHeader: display.showForwardHeader, messageCode: display.messageCode,
+            clanInviteLinkCode: display.clanInviteLinkCode
+        )
+    }
+
     private func showMessageActions(_ display: ChatMessageDisplay) {
         view.endEditing(true)
+        let display = displayWithLivePinState(display)
         let isOwn = isSenderCurrentUser(senderId: display.message.senderId, currentUserId: context.currentUser?.id)
         let canDelete = messageActionCanShowDelete(for: display, isOwn: isOwn)
         let controller = MessageActionSheetController(
@@ -3195,6 +3345,8 @@ final class ChatViewController: ViewController {
             context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
         case .pinMessage:
             showPinMessageConfirm(display: display)
+        case .unpinMessage:
+            showUnpinMessageConfirm(display: display)
         case .forward, .forwardMessage:
             showMessageActionComingSoon(.forwardMessage)
         case .resend:
@@ -3313,21 +3465,84 @@ final class ChatViewController: ViewController {
         presenter.present(alert, animated: true)
     }
 
+    private func showUnpinMessageConfirm(display: ChatMessageDisplay) {
+        let alert = UIAlertController(
+            title: L(L10n.MessageAction.unpinMessage),
+            message: L(L10n.MessageAction.unpinMessageConfirm),
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.yes), style: .default) { [weak self] _ in
+            self?.performUnpinMessage(display: display)
+        })
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.no), style: .cancel))
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(alert, animated: true)
+    }
+
     private func performPinMessage(display: ChatMessageDisplay) {
         guard let msgId = Int64(display.message.id) else { return }
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else { return }
             do {
-                let _ = try await self.context.account.network.createPinMessage(
-                    clanId: self.clanId,
+                let list = try await self.context.account.network.createPinMessage(
+                    clanId: self.pinApiClanId(),
                     channelId: self.channel.channelID,
                     messageId: msgId,
                     token: token
                 )
+                self.mergePinListEntries(list)
+                let idStr = "\(msgId)"
+                if !self.pinnedMessageIds.contains(idStr) {
+                    self.pinnedMessageIds.insert(idStr)
+                }
+                self.syncPinnedStateToPostbox()
+                self.reloadDisplaysWithCurrentPins()
                 Toast.success(L(L10n.MessageAction.pinSuccess))
             } catch {
                 Toast.error(L(L10n.MessageAction.pinError))
+            }
+        }
+    }
+
+    private func performUnpinMessage(display: ChatMessageDisplay) {
+        guard let msgId = Int64(display.message.id) else { return }
+        let idNorm = display.message.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pinId =
+            pinServerIdByMessageId[idNorm] ?? pinServerIdByMessageId[display.message.id] ?? pinServerIdByMessageId["\(msgId)"] ?? 0
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else { return }
+            do {
+                try await self.context.account.network.deletePinMessage(
+                    clanId: self.pinApiClanId(),
+                    channelId: self.channel.channelID,
+                    pinId: pinId,
+                    messageId: msgId,
+                    token: token
+                )
+                self.pinnedMessageIds.remove(idNorm)
+                self.pinnedMessageIds.remove("\(msgId)")
+                self.pinServerIdByMessageId.removeValue(forKey: idNorm)
+                self.pinServerIdByMessageId.removeValue(forKey: "\(msgId)")
+                ChannelPinnedStatePersistence.applyUnpinMessage(
+                    postbox: self.context.account.postbox,
+                    accountId: self.context.account.id,
+                    clanId: self.pinApiClanId(),
+                    channelId: self.channel.channelID,
+                    messageId: msgId
+                )
+                self.syncPinnedStateToPostbox()
+                self.reloadDisplaysWithCurrentPins()
+                Toast.success(L(L10n.MessageAction.unpinSuccess))
+            } catch {
+                Toast.error(L(L10n.MessageAction.unpinError))
             }
         }
     }

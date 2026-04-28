@@ -522,6 +522,7 @@ enum L10n {
         static let editedSuffix     = "messageAction.editedSuffix"
         static let deleteMessage    = "messageAction.deleteMessage"
         static let pinMessage       = "messageAction.pinMessage"
+        static let unpinMessage     = "messageAction.unpinMessage"
         static let forward          = "messageAction.forward"
         static let copied           = "messageAction.copied"
         static let giveACoffee        = "messageAction.giveACoffee"
@@ -534,8 +535,11 @@ enum L10n {
         static let quickMenu        = "messageAction.quickMenu"
         static let report           = "messageAction.report"
         static let pinMessageConfirm = "messageAction.pinMessageConfirm"
+        static let unpinMessageConfirm = "messageAction.unpinMessageConfirm"
         static let pinSuccess       = "messageAction.pinSuccess"
         static let pinError         = "messageAction.pinError"
+        static let unpinSuccess     = "messageAction.unpinSuccess"
+        static let unpinError       = "messageAction.unpinError"
         static let yes              = "messageAction.yes"
         static let no               = "messageAction.no"
     }
@@ -956,6 +960,7 @@ extension L10n {
         "messageAction.editedSuffix": "(edited)",
         "messageAction.deleteMessage": "Delete Message",
         "messageAction.pinMessage": "Pin Message",
+        "messageAction.unpinMessage": "Unpin Message",
         "messageAction.forward": "Forward",
         "messageAction.copied": "Copied to clipboard",
         "messageAction.giveACoffee": "Give A Coffee",
@@ -968,8 +973,11 @@ extension L10n {
         "messageAction.quickMenu": "Quick Menu",
         "messageAction.report": "Report",
         "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
+        "messageAction.unpinMessageConfirm": "Remove this message from pinned messages?",
         "messageAction.pinSuccess": "Message pinned successfully",
         "messageAction.pinError": "Failed to pin message",
+        "messageAction.unpinSuccess": "Message unpinned",
+        "messageAction.unpinError": "Failed to unpin message",
         "messageAction.yes": "Yes",
         "messageAction.no": "No",
 
@@ -1473,6 +1481,7 @@ extension L10n {
         "messageAction.editedSuffix": "(đã chỉnh sửa)",
         "messageAction.deleteMessage": "Xóa tin nhắn",
         "messageAction.pinMessage": "Ghim tin nhắn",
+        "messageAction.unpinMessage": "Bỏ ghim tin nhắn",
         "messageAction.forward": "Chuyển tiếp",
         "messageAction.copied": "Đã sao chép",
         "messageAction.giveACoffee": "Tặng cà phê",
@@ -1485,8 +1494,11 @@ extension L10n {
         "messageAction.quickMenu": "Menu nhanh",
         "messageAction.report": "Báo cáo",
         "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
+        "messageAction.unpinMessageConfirm": "Bỏ ghim tin nhắn này?",
         "messageAction.pinSuccess": "Ghim tin nhắn thành công",
         "messageAction.pinError": "Ghim tin nhắn thất bại",
+        "messageAction.unpinSuccess": "Đã bỏ ghim",
+        "messageAction.unpinError": "Không thể bỏ ghim",
         "messageAction.yes": "Đồng ý",
         "messageAction.no": "Không",
 

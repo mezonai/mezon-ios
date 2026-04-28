@@ -718,6 +718,42 @@ final class AccountContextImpl: AccountContext {
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
 
+        case .lastPin(let e):
+            ChannelPinnedStatePersistence.applyPinMessage(
+                postbox: account.postbox,
+                accountId: account.id,
+                clanId: e.clanID,
+                channelId: e.channelID,
+                messageId: e.messageID
+            )
+            NotificationCenter.default.post(
+                name: .mezonChannelPinsNeedRefresh,
+                object: nil,
+                userInfo: [
+                    "clanId": NSNumber(value: e.clanID),
+                    "channelId": NSNumber(value: e.channelID),
+                    "pinnedMessageId": NSNumber(value: e.messageID),
+                ]
+            )
+
+        case .unpinMessage(let e):
+            ChannelPinnedStatePersistence.applyUnpinMessage(
+                postbox: account.postbox,
+                accountId: account.id,
+                clanId: e.clanID,
+                channelId: e.channelID,
+                messageId: e.messageID
+            )
+            NotificationCenter.default.post(
+                name: .mezonChannelPinsNeedRefresh,
+                object: nil,
+                userInfo: [
+                    "clanId": NSNumber(value: e.clanID),
+                    "channelId": NSNumber(value: e.channelID),
+                    "unpinnedMessageId": NSNumber(value: e.messageID),
+                ]
+            )
+
         default:
             break
         }

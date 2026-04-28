@@ -139,7 +139,7 @@ targets:
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
-                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).AppDelegate
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - "mezon.mobile.sharing"

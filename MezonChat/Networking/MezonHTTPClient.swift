@@ -139,28 +139,32 @@ final class MezonHTTPClient {
         let auth = describeAuthHeader(request.value(forHTTPHeaderField: "Authorization"))
         let bodyLen = request.httpBody?.count ?? 0
         let line = "[REQ #\(reqId)] \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "?") | bodyLen=\(bodyLen) | auth=\(auth) | ct=\(request.value(forHTTPHeaderField: "Content-Type") ?? "-") | accept=\(request.value(forHTTPHeaderField: "Accept") ?? "-") | net=[\(currentNetworkSnapshot())]"
-        emit(line)
+        emit(line, kind: .routine)
     }
 
     private static func logResponse(reqId: UInt64, request: URLRequest, response: URLResponse, data: Data, elapsedMs: Double) {
         guard let http = response as? HTTPURLResponse else {
-            emit("[RES #\(reqId)] non-HTTP response \(type(of: response)) elapsed=\(String(format: "%.0f", elapsedMs))ms")
+            emit(
+                "[RES #\(reqId)] non-HTTP response \(type(of: response)) elapsed=\(String(format: "%.0f", elapsedMs))ms",
+                kind: .issue
+            )
             return
         }
         let ct = http.value(forHTTPHeaderField: "Content-Type") ?? "-"
         let server = http.value(forHTTPHeaderField: "Server") ?? "-"
         var line = "[RES #\(reqId)] \(http.statusCode) \(request.url?.absoluteString ?? "?") | bytes=\(data.count) | ct=\(ct) | server=\(server) | elapsed=\(String(format: "%.0f", elapsedMs))ms"
-        if !(200..<300).contains(http.statusCode) {
+        let kind: MezonHTTPLogKind = (200..<300).contains(http.statusCode) ? .routine : .issue
+        if kind == .issue {
             let snippet = bodySnippet(data, limit: 256)
             line += " | bodyPreview=\(snippet)"
         }
-        emit(line)
+        emit(line, kind: kind)
     }
 
     private static func logFailure(reqId: UInt64, request: URLRequest, error: Error, elapsedMs: Double) {
         let chain = describeNSError(error)
         let line = "[ERR #\(reqId)] \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "?") | elapsed=\(String(format: "%.0f", elapsedMs))ms | net=[\(currentNetworkSnapshot())] | chain=\(chain)"
-        emit(line)
+        emit(line, kind: .issue)
     }
 
     static func bodySnippet(_ data: Data, limit: Int) -> String {
@@ -172,8 +176,21 @@ final class MezonHTTPClient {
         return "<\(data.count)B binary> head=\(data.prefix(min(16, data.count)).map { String(format: "%02x", $0) }.joined())"
     }
 
-    static func emit(_ message: String) {
-        os_log("%{public}@", log: logger, type: .info, message)
+    static func emit(_ message: String, kind: MezonHTTPLogKind = .routine) {
+        #if DEBUG
+        switch kind {
+        case .routine:
+            guard MezonConsoleLog.httpVerbose else { return }
+        case .diagnostic:
+            guard MezonConsoleLog.networkDiagnostics else { return }
+        case .issue:
+            break
+        }
+        #else
+        if kind != .issue { return }
+        #endif
+        let ot: OSLogType = kind == .issue ? .default : .info
+        os_log("%{public}@", log: logger, type: ot, message)
         #if DEBUG
         print("[MezonHTTP] \(message)")
         #endif
@@ -354,7 +371,10 @@ final class MezonHTTPClient {
 
     func sessionRefresh(refreshToken: String) async throws -> MezonSession {
         let tokenTail = String(refreshToken.suffix(6))
-        Self.emit("[SessionRefresh] start | tokenLen=\(refreshToken.count) tail=\(tokenTail) baseURL=\(protoBaseURL.absoluteString)")
+        Self.emit(
+            "[SessionRefresh] start | tokenLen=\(refreshToken.count) tail=\(tokenTail) baseURL=\(protoBaseURL.absoluteString)",
+            kind: .diagnostic
+        )
         do {
             var req = Mezon_Api_SessionRefreshRequest()
             req.token = refreshToken
@@ -364,10 +384,13 @@ final class MezonHTTPClient {
                 message: req,
                 auth: .serverKey
             )
-            Self.emit("[SessionRefresh] ok | newTokenLen=\(apiSession.token.count) refreshLen=\(apiSession.refreshToken.count) userId=\(apiSession.userID)")
+            Self.emit(
+                "[SessionRefresh] ok | newTokenLen=\(apiSession.token.count) refreshLen=\(apiSession.refreshToken.count) userId=\(apiSession.userID)",
+                kind: .diagnostic
+            )
             return MezonSession.fromProto(apiSession)
         } catch {
-            Self.emit("[SessionRefresh] FAIL | tokenTail=\(tokenTail) | \(Self.describeNSError(error))")
+            Self.emit("[SessionRefresh] FAIL | tokenTail=\(tokenTail) | \(Self.describeNSError(error))", kind: .issue)
             throw error
         }
     }
@@ -1496,7 +1519,10 @@ final class MezonHTTPClient {
             do {
                 return try Response(serializedBytes: data)
             } catch {
-                Self.emit("[postProto] decode FAIL path=\(path) bytes=\(data.count) ct=\(http.value(forHTTPHeaderField: "Content-Type") ?? "-") preview=\(Self.bodySnippet(data, limit: 256)) err=\(Self.describeNSError(error))")
+                Self.emit(
+                    "[postProto] decode FAIL path=\(path) bytes=\(data.count) ct=\(http.value(forHTTPHeaderField: "Content-Type") ?? "-") preview=\(Self.bodySnippet(data, limit: 256)) err=\(Self.describeNSError(error))",
+                    kind: .issue
+                )
                 throw error
             }
         }
@@ -1506,7 +1532,7 @@ final class MezonHTTPClient {
             case .bearer = auth,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            Self.emit("[postProto] retry-after-401 path=\(path) status=\(http.statusCode) newTokenLen=\(newToken.count)")
+            Self.emit("[postProto] retry-after-401 path=\(path) status=\(http.statusCode) newTokenLen=\(newToken.count)", kind: .issue)
             return try await postProto(
                 path: path,
                 message: message,
@@ -1517,7 +1543,7 @@ final class MezonHTTPClient {
 
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-        Self.emit("[postProto] HTTP error path=\(path) status=\(http.statusCode) msg=\(msg)")
+        Self.emit("[postProto] HTTP error path=\(path) status=\(http.statusCode) msg=\(msg)", kind: .issue)
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 

@@ -10,6 +10,7 @@ enum MessageAction: CaseIterable {
     case markUnread
     case topicDiscussion
     case pinMessage
+    case unpinMessage
     case markMessage
     case quickMenu
     case editMessage
@@ -28,6 +29,7 @@ enum MessageAction: CaseIterable {
         case .markUnread:       return L(L10n.MessageAction.markUnread)
         case .topicDiscussion:  return L(L10n.MessageAction.topicDiscussion)
         case .pinMessage:       return L(L10n.MessageAction.pinMessage)
+        case .unpinMessage:     return L(L10n.MessageAction.unpinMessage)
         case .markMessage:      return L(L10n.MessageAction.markMessage)
         case .quickMenu:        return L(L10n.MessageAction.quickMenu)
         case .editMessage:      return L(L10n.MessageAction.editMessage)
@@ -48,6 +50,7 @@ enum MessageAction: CaseIterable {
         case .markUnread:       return "Chat/IconMarkUnread"
         case .topicDiscussion:  return nil
         case .pinMessage:       return "Chat/IconPin"
+        case .unpinMessage:     return nil
         case .markMessage:      return "Chat/IconStar"
         case .quickMenu:        return nil
         case .editMessage:      return nil
@@ -63,6 +66,7 @@ enum MessageAction: CaseIterable {
         case .createThread:     return "square.and.pencil"
         case .topicDiscussion:  return "text.bubble"
         case .quickMenu:       return "bolt.fill"
+        case .unpinMessage:     return "pin.slash"
         case .editMessage:      return "pencil"
         case .report:           return "flag.fill"
         case .resend:           return "arrow.clockwise"
@@ -82,7 +86,7 @@ enum MessageAction: CaseIterable {
         switch self {
         case .giveACoffee, .reply, .forwardMessage, .createThread, .resend, .editMessage, .forward:
             return .frequent
-        case .copyText, .markUnread, .topicDiscussion, .pinMessage, .markMessage, .quickMenu:
+        case .copyText, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
             return .normal
         case .deleteMessage, .report:
             return .warning
@@ -169,6 +173,17 @@ final class MessageActionSheetController: ViewController {
     }
 
 
+    private static func canShowPinAction(display: ChatMessageDisplay) -> Bool {
+        if display.isFailed { return false }
+        if display.message.id.hasPrefix("pending-") { return false }
+        if display.isSystemMessage { return false }
+        if display.isCallLog { return false }
+        if display.message.isDeleted { return false }
+        let id = display.message.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, Int64(id) != nil else { return false }
+        return true
+    }
+
     private static func shouldIncludeReport(isOwnMessage: Bool, messageId: String) -> Bool {
         guard !isOwnMessage else { return false }
         let id = messageId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -203,7 +218,13 @@ final class MessageActionSheetController: ViewController {
 
         actions.append(.markUnread)
         actions.append(.topicDiscussion)
-        actions.append(.pinMessage)
+        if Self.canShowPinAction(display: display) {
+            if display.message.isPinned {
+                actions.append(.unpinMessage)
+            } else {
+                actions.append(.pinMessage)
+            }
+        }
         actions.append(.markMessage)
         actions.append(.quickMenu)
 

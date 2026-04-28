@@ -714,21 +714,24 @@ extension StickersPanel: UICollectionViewDataSource, UICollectionViewDelegate, U
 
 extension StickersPanel: UICollectionViewDelegateFlowLayout {
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        let boundsH = max(1, collectionView.bounds.height)
         if collectionView.tag == 1 {
-            return CGSize(width: 36, height: 36)
+            let side = max(4, min(36, floor(boundsH)))
+            return CGSize(width: side, height: side)
         }
         guard indexPath.item < flatItems.count else { return .zero }
         switch flatItems[indexPath.item] {
         case .header:
-            return CGSize(width: collectionView.bounds.width - 16, height: 36)
+            let ih = max(8, min(36, boundsH))
+            return CGSize(width: collectionView.bounds.width - 16, height: ih)
         case .sticker:
             let w = stickerCellWidth()
-            if isAudioStickerMode { return CGSize(width: w, height: 52) }
-            return CGSize(width: w, height: w)
+            if isAudioStickerMode { return CGSize(width: w, height: max(4, min(52, boundsH))) }
+            return CGSize(width: w, height: max(4, min(w, boundsH)))
         case .emptyPad:
             let w = stickerCellWidth()
-            if isAudioStickerMode { return CGSize(width: w, height: 52) }
-            return CGSize(width: w, height: w)
+            if isAudioStickerMode { return CGSize(width: w, height: max(4, min(52, boundsH))) }
+            return CGSize(width: w, height: max(4, min(w, boundsH)))
         }
     }
 

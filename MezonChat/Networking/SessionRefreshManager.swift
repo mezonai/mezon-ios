@@ -55,11 +55,14 @@ final class SessionRefreshManager {
         }
 
         let tail = String(session.refreshToken.suffix(6))
-        MezonHTTPClient.emit("[SessionRefresh] doRefresh start sameToken=\(isSameToken) failCount=\(failCount)/\(maxRetriesSameToken) tail=\(tail)")
+        MezonHTTPClient.emit(
+            "[SessionRefresh] doRefresh start sameToken=\(isSameToken) failCount=\(failCount)/\(maxRetriesSameToken) tail=\(tail)",
+            kind: .diagnostic
+        )
 
         if failCount >= maxRetriesSameToken {
             reset()
-            MezonHTTPClient.emit("[SessionRefresh] GIVE UP maxRetriesSameToken=\(maxRetriesSameToken) tail=\(tail)")
+            MezonHTTPClient.emit("[SessionRefresh] GIVE UP maxRetriesSameToken=\(maxRetriesSameToken) tail=\(tail)", kind: .issue)
             throw SessionError.maxRetriesExceeded
         }
 
@@ -74,14 +77,18 @@ final class SessionRefreshManager {
                 failCount = max(0, failCount - 1)
             }
             MezonHTTPClient.emit(
-                "[SessionRefresh] FAIL transient=\(transient) sameTokenLoop=\(isSameToken) failCountAfter=\(failCount) | \(MezonHTTPClient.describeNSError(error))"
+                "[SessionRefresh] FAIL transient=\(transient) sameTokenLoop=\(isSameToken) failCountAfter=\(failCount) | \(MezonHTTPClient.describeNSError(error))",
+                kind: .issue
             )
             throw error
         }
         let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingIdToken(from: session))
         lastRefreshToken = merged.refreshToken
         failCount = 0
-        MezonHTTPClient.emit("[SessionRefresh] OK newTokenLen=\(merged.token.count) newRefreshLen=\(merged.refreshToken.count) userId=\(merged.userId ?? "nil")")
+        MezonHTTPClient.emit(
+            "[SessionRefresh] OK newTokenLen=\(merged.token.count) newRefreshLen=\(merged.refreshToken.count) userId=\(merged.userId ?? "nil")",
+            kind: .diagnostic
+        )
         return merged
     }
 
@@ -94,7 +101,10 @@ final class SessionRefreshManager {
         onReady: @escaping () -> Void
     ) {
         let tail = String(session.refreshToken.suffix(6))
-        MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch start tail=\(tail) connected=\(NetworkMonitor.shared.isConnected)")
+        MezonHTTPClient.emit(
+            "[SessionRefresh] refreshOnAppLaunch start tail=\(tail) connected=\(NetworkMonitor.shared.isConnected)",
+            kind: .diagnostic
+        )
         Task { @MainActor in
             var onReadyCalled = false
             func safeOnReady(source: String) {
@@ -102,12 +112,15 @@ final class SessionRefreshManager {
                     return
                 }
                 onReadyCalled = true
-                MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch onReady source=\(source)")
+                MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch onReady source=\(source)", kind: .diagnostic)
                 onReady()
             }
 
             func endLaunchRefreshExpired() async {
-                MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch expired connected=\(NetworkMonitor.shared.isConnected)")
+                MezonHTTPClient.emit(
+                    "[SessionRefresh] refreshOnAppLaunch expired connected=\(NetworkMonitor.shared.isConnected)",
+                    kind: .issue
+                )
                 if NetworkMonitor.shared.isConnected {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     onExpired()
@@ -130,9 +143,12 @@ final class SessionRefreshManager {
                     return
                 } catch let error as MezonError {
                     retriesLeft -= 1
-                    MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch MezonError retriesLeft=\(retriesLeft) | \(error.localizedDescription)")
-                    safeOnReady(source: "MezonError")
+                    MezonHTTPClient.emit(
+                        "[SessionRefresh] refreshOnAppLaunch MezonError retriesLeft=\(retriesLeft) | \(error.localizedDescription)",
+                        kind: .diagnostic
+                    )
                     if retriesLeft == 0 {
+                        safeOnReady(source: "MezonError-exhausted")
                         await endLaunchRefreshExpired()
                         return
                     }
@@ -142,9 +158,12 @@ final class SessionRefreshManager {
 
                 } catch let error as SessionError {
                     retriesLeft -= 1
-                    MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch SessionError retriesLeft=\(retriesLeft) | \(error.localizedDescription ?? String(describing: error))")
-                    safeOnReady(source: "SessionError")
+                    MezonHTTPClient.emit(
+                        "[SessionRefresh] refreshOnAppLaunch SessionError retriesLeft=\(retriesLeft) | \(error.localizedDescription ?? String(describing: error))",
+                        kind: .diagnostic
+                    )
                     if retriesLeft == 0 {
+                        safeOnReady(source: "SessionError-exhausted")
                         await endLaunchRefreshExpired()
                         return
                     }
@@ -152,9 +171,12 @@ final class SessionRefreshManager {
                     try? await Task.sleep(nanoseconds: delay)
                 } catch {
                     retriesLeft -= 1
-                    MezonHTTPClient.emit("[SessionRefresh] refreshOnAppLaunch other retriesLeft=\(retriesLeft) | \(MezonHTTPClient.describeNSError(error))")
-                    safeOnReady(source: "catch")
+                    MezonHTTPClient.emit(
+                        "[SessionRefresh] refreshOnAppLaunch other retriesLeft=\(retriesLeft) | \(MezonHTTPClient.describeNSError(error))",
+                        kind: .diagnostic
+                    )
                     if retriesLeft == 0 {
+                        safeOnReady(source: "catch-exhausted")
                         await endLaunchRefreshExpired()
                         return
                     }

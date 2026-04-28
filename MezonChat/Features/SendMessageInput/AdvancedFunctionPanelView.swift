@@ -47,6 +47,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
     }()
 
     private static let handleHeight: CGFloat = 24
+    private static let collapsingConstraintPriority = UILayoutPriority(rawValue: 999)
     private static let columnsCount: Int = 4
     private static let iconContainerSize: CGFloat = 42
     private static let itemSpacingV: CGFloat = 20
@@ -126,18 +127,24 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         addSubview(gridScrollView)
         gridScrollView.addSubview(gridContainerView)
 
+        let handleH = handleArea.heightAnchor.constraint(equalToConstant: Self.handleHeight)
+        handleH.priority = Self.collapsingConstraintPriority
+        let gridTop = gridScrollView.topAnchor.constraint(equalTo: handleArea.bottomAnchor, constant: 8)
+        gridTop.priority = Self.collapsingConstraintPriority
+        let gridW = gridContainerView.widthAnchor.constraint(equalTo: gridScrollView.frameLayoutGuide.widthAnchor)
+        gridW.priority = Self.collapsingConstraintPriority
         NSLayoutConstraint.activate([
             handleArea.topAnchor.constraint(equalTo: topAnchor),
             handleArea.leadingAnchor.constraint(equalTo: leadingAnchor),
             handleArea.trailingAnchor.constraint(equalTo: trailingAnchor),
-            handleArea.heightAnchor.constraint(equalToConstant: Self.handleHeight),
+            handleH,
 
             grabberBar.centerXAnchor.constraint(equalTo: handleArea.centerXAnchor),
             grabberBar.centerYAnchor.constraint(equalTo: handleArea.centerYAnchor),
             grabberBar.widthAnchor.constraint(equalToConstant: 36),
             grabberBar.heightAnchor.constraint(equalToConstant: 5),
 
-            gridScrollView.topAnchor.constraint(equalTo: handleArea.bottomAnchor, constant: 8),
+            gridTop,
             gridScrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             gridScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             gridScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -145,7 +152,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
             gridContainerView.topAnchor.constraint(equalTo: gridScrollView.contentLayoutGuide.topAnchor),
             gridContainerView.leadingAnchor.constraint(equalTo: gridScrollView.contentLayoutGuide.leadingAnchor),
             gridContainerView.trailingAnchor.constraint(equalTo: gridScrollView.contentLayoutGuide.trailingAnchor),
-            gridContainerView.widthAnchor.constraint(equalTo: gridScrollView.frameLayoutGuide.widthAnchor),
+            gridW,
         ])
     }
 

@@ -304,7 +304,10 @@ final class GifsPanel: UIView {
         let spacing: CGFloat = 10
         let availW = collectionView.bounds.width - inset * 2 - spacing
         let w = floor(availW / 2)
-        return CGSize(width: max(w, 60), height: 100)
+        let nw = max(w, 60)
+        let maxH = max(4, collectionView.bounds.height - inset * 2 - spacing)
+        let nh = min(100, maxH)
+        return CGSize(width: nw, height: nh)
     }
 
 

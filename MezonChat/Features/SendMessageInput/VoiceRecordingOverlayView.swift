@@ -65,7 +65,7 @@ final class VoiceRecordingOverlayView: UIView {
     private let rightMicButton: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.layer.cornerRadius = 24
+        v.layer.cornerRadius = 20
         v.clipsToBounds = false
         return v
     }()
@@ -84,7 +84,7 @@ final class VoiceRecordingOverlayView: UIView {
     private var isSlideCancelHighlighted = false
 
     private static let verticalInset: CGFloat = 6
-    private static let rightMicSize: CGFloat = 48
+    private static let rightMicSize: CGFloat = 40
     private static let appearDuration: TimeInterval = 0.34
     private static let appearSpringDamping: CGFloat = 0.78
     private static let appearSpringVelocity: CGFloat = 0.55
