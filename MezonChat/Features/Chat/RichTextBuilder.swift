@@ -540,10 +540,17 @@ enum RichTextBuilder {
         return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [])
     }
 
+    private static func bodyParagraphStyle() -> NSParagraphStyle {
+        let p = NSMutableParagraphStyle()
+        p.lineSpacing = 4.sh
+        return p
+    }
+
     private static func bodyAttributes(_ s: Style) -> [NSAttributedString.Key: Any] {
         [
             .font: s.bodyFont,
-            .foregroundColor: s.bodyColor
+            .foregroundColor: s.bodyColor,
+            .paragraphStyle: bodyParagraphStyle(),
         ]
     }
 

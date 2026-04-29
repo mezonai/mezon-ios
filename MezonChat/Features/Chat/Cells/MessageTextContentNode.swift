@@ -338,12 +338,15 @@ final class CodeBlockContainerNode: ASDisplayNode {
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
 
-        let codeFont = UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular)
+        let bodyFont = RichTextBuilder.Style.fromTheme().bodyFont
+        let codePara = NSMutableParagraphStyle()
+        codePara.lineSpacing = 4.sh
         codeTextNode.attributedText = NSAttributedString(
             string: code,
             attributes: [
-                .font: codeFont,
+                .font: bodyFont,
                 .foregroundColor: t.textStrong,
+                .paragraphStyle: codePara,
             ]
         )
         codeTextNode.maximumNumberOfLines = 0
