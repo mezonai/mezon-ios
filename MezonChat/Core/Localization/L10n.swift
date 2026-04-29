@@ -609,6 +609,17 @@ enum L10n {
         static let toastIncomingReq   = "friendRequest.toastIncomingReq"
         static let toastSendSuccess   = "friendRequest.toastSendSuccess"
     }
+
+    enum FriendList {
+        static let title              = "friendList.title"
+        static let friendCount        = "friendList.friendCount"
+        static let addFriend          = "friendList.addFriend"
+        static let searchPlaceholder  = "friendList.searchPlaceholder"
+        static let friendRequest      = "friendList.friendRequest"
+        static let received           = "friendList.received"
+        static let sent               = "friendList.sent"
+        static let noResults          = "friendList.noResults"
+    }
 }
 
 extension L10n {
@@ -971,6 +982,15 @@ extension L10n {
         "friendRequest.toastWaitAccept": "You have already sent a friend request to this user!",
         "friendRequest.toastIncomingReq": "This user already sent you a friend request",
         "friendRequest.toastSendSuccess": "Friend request sent successfully!",
+
+        "friendList.title": "Friends",
+        "friendList.friendCount": "Friends",
+        "friendList.addFriend": "Add Friend",
+        "friendList.searchPlaceholder": "Search",
+        "friendList.friendRequest": "Friend requests",
+        "friendList.received": "Received",
+        "friendList.sent": "Sent",
+        "friendList.noResults": "No friends results found",
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
@@ -1501,6 +1521,15 @@ extension L10n {
         "friendRequest.toastWaitAccept": "Bạn đã gửi yêu cầu kết bạn tới người dùng này rồi!",
         "friendRequest.toastIncomingReq": "Người này đã gửi yêu cầu kết bạn cho bạn",
         "friendRequest.toastSendSuccess": "Yêu cầu kết bạn đã được gửi thành công!",
+
+        "friendList.title": "Bạn bè",
+        "friendList.friendCount": "Bạn bè",
+        "friendList.addFriend": "Thêm bạn bè",
+        "friendList.searchPlaceholder": "Tìm kiếm",
+        "friendList.friendRequest": "Yêu cầu kết bạn",
+        "friendList.received": "Đã nhận",
+        "friendList.sent": "Đã gửi",
+        "friendList.noResults": "Không tìm thấy kết quả bạn bè",
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",

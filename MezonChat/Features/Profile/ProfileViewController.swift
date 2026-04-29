@@ -48,6 +48,11 @@ final class ProfileViewController: ViewController {
         node.onAvatarTapped = { [weak self] in self?.presentOnlineStatusSheet() }
         node.onDisplayNameTapped = { [weak self] in self?.presentOnlineStatusSheet() }
         node.onAddStatusTapped = { [weak self] in self?.presentAddStatusModal() }
+        node.onYourFriendsTapped = { [weak self] in
+            guard let self else { return }
+            let vc = FriendListViewController(context: self.context)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 

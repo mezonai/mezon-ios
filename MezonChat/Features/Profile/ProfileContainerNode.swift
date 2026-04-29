@@ -18,6 +18,7 @@ final class ProfileContainerNode: ASDisplayNode {
     var onAvatarTapped: (() -> Void)?
     var onDisplayNameTapped: (() -> Void)?
     var onAddStatusTapped: (() -> Void)?
+    var onYourFriendsTapped: (() -> Void)?
 
     private let avatarSize: CGFloat = 90.swh
     private let sideInset: CGFloat = 16.sw
@@ -1121,7 +1122,7 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     @objc private func yourFriendsTapped() {
-        showComingSoonToastLine(title: L(L10n.Profile.yourFriends))
+        onYourFriendsTapped?()
     }
 
     private func showComingSoonToastLine(title: String) {
