@@ -955,7 +955,7 @@ extension L10n {
         "friendList.friendRequest": "Friend requests",
         "friendList.received": "Received",
         "friendList.sent": "Sent",
-        "friendList.noResults": "No friends found",
+        "friendList.noResults": "No friends results found",
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
@@ -1475,7 +1475,7 @@ extension L10n {
         "friendList.friendRequest": "Yêu cầu kết bạn",
         "friendList.received": "Đã nhận",
         "friendList.sent": "Đã gửi",
-        "friendList.noResults": "Không tìm thấy bạn bè",
+        "friendList.noResults": "Không tìm thấy kết quả bạn bè",
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",

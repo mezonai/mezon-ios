@@ -12,7 +12,6 @@ struct FriendListInteraction {
 }
 
 final class FriendListContainerNode: ASDisplayNode {
-
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0.5, y: 0)
@@ -194,7 +193,7 @@ final class FriendListContainerNode: ASDisplayNode {
     }
 
     private func setupEmptyState() {
-        emptyLabel.text = "Không tìm thấy kết quả bạn bè"
+        emptyLabel.text = L(L10n.FriendList.noResults)
         emptyLabel.font = .systemFont(ofSize: 14.sf)
         emptyLabel.textColor = UIColor.theme.textDisabled
         emptyLabel.textAlignment = .left
@@ -422,7 +421,7 @@ final class FriendListItemNode: ASCellNode {
     private let cardNode: ASDisplayNode
     private let avatarNode: ASNetworkImageNode
     private let avatarPlaceholderNode: ASTextNode
-    private let onlineIndicatorNode: ASDisplayNode
+    private let onlineIndicatorNode: ASImageNode
     private let displayNameNode: ASTextNode
     private let callButtonNode: ASButtonNode
     private let messageButtonNode: ASButtonNode
@@ -437,7 +436,7 @@ final class FriendListItemNode: ASCellNode {
         self.cardNode = ASDisplayNode()
         self.avatarNode = ASNetworkImageNode()
         self.avatarPlaceholderNode = ASTextNode()
-        self.onlineIndicatorNode = ASDisplayNode()
+        self.onlineIndicatorNode = ASImageNode()
         self.displayNameNode = ASTextNode()
         self.callButtonNode = ASButtonNode()
         self.messageButtonNode = ASButtonNode()
@@ -510,19 +509,20 @@ final class FriendListItemNode: ASCellNode {
         }
 
         let dotSize: CGFloat = 14.swh
-        onlineIndicatorNode.cornerRadius = dotSize / 2
-        let statusColor: UIColor
+        let statusIconName: String
         switch user.status {
         case "online":
-            statusColor = UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1)
+            statusIconName = "OnlineIcon"
         case "idle":
-            statusColor = .orange
+            statusIconName = "IdleIcon"
         case "dnd":
-            statusColor = .red
+            statusIconName = "DisturbIcon"
         default:
-            statusColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
+            statusIconName = user.online ? "OnlineIcon" : "InvisibleIcon"
         }
-        onlineIndicatorNode.backgroundColor = statusColor
+        onlineIndicatorNode.image = UIImage(named: "Profile/\(statusIconName)", in: Bundle.main, compatibleWith: nil)?
+            .withRenderingMode(.alwaysOriginal)
+        onlineIndicatorNode.contentMode = .scaleAspectFit
 
         displayNameNode.attributedText = NSAttributedString(
             string: name,
