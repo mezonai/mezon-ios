@@ -33,4 +33,5 @@ protocol AccountContext: AnyObject {
 
 extension Notification.Name {
     static let mezonAccountCurrentUserDidChange = Notification.Name("mezon.account.currentUserDidChange")
+    static let mezonChannelPinsNeedRefresh = Notification.Name("mezon.channel.pinsNeedRefresh")
 }

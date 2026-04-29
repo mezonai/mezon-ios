@@ -120,9 +120,29 @@ final class MemberListNode: ASDisplayNode {
     }
 
     private func fetchMembersIfNeeded() {
+        let isDMOrGroup =
+            channelType == MezonConstants.ChannelType.dm.rawValue
+            || channelType == MezonConstants.ChannelType.group.rawValue
         Task {
             guard channelId > 0 else { return }
             let token = await context.getToken() ?? ""
+            if isDMOrGroup {
+                do {
+                    let res = try await context.account.network.listChannelUsersUC(
+                        channelId: channelId, limit: 500, token: token
+                    )
+                    applyGroupMemberList(res)
+                } catch {
+                    do {
+                        let res = try await context.account.network.listChannelUsers(
+                            clanId: clanId, channelId: channelId,
+                            channelType: channelType, token: token
+                        )
+                        applyChannelUserList(res.channelUsers)
+                    } catch {}
+                }
+                return
+            }
             do {
                 let res = try await context.account.network.listChannelUsers(
                     clanId: clanId,
@@ -140,6 +160,50 @@ final class MemberListNode: ASDisplayNode {
                     try? await applyClanMembersFallback(token: token)
                 }
             }
+        }
+    }
+
+    private func applyGroupMemberList(_ res: Mezon_Api_AllUsersAddChannelResponse) {
+        let userIds = res.userIds
+        guard !userIds.isEmpty else { return }
+        context.account.postbox.write { tx in
+            var members: [ChannelMemberRecord] = []
+            for (i, uid) in userIds.enumerated() {
+                let displayName = i < res.displayNames.count ? res.displayNames[i] : ""
+                let username = i < res.usernames.count ? res.usernames[i] : ""
+                let avatar = i < res.avatars.count ? res.avatars[i] : ""
+                let isOnline = i < res.onlines.count ? res.onlines[i] : false
+                let uidStr = String(uid)
+                let existing = tx.getProfile(userId: uidStr)
+                let profileDisplayName = displayName.isEmpty ? existing?.displayName : displayName
+                let profileUsername = username.isEmpty ? (existing?.username ?? "") : username
+                let profileAvatar: String? = avatar.isEmpty ? existing?.avatarUrl : avatar
+                tx.updateProfile(ProfileRecord(
+                    userId: uidStr,
+                    username: profileUsername,
+                    displayName: profileDisplayName,
+                    avatarUrl: profileAvatar,
+                    status: existing?.status ?? 0,
+                    isOnline: isOnline
+                ))
+                let resolvedDisplayName = profileDisplayName ?? ""
+                let resolvedUsername = profileUsername
+                let label = self.dmMemberLabelByUserId[uid]
+                let finalDisplayName = resolvedDisplayName.isEmpty
+                    ? (label ?? resolvedUsername) : resolvedDisplayName
+                let finalUsername = resolvedUsername.isEmpty
+                    ? (label ?? "") : resolvedUsername
+                members.append(ChannelMemberRecord(
+                    id: uid, userId: uid, roleIds: [],
+                    threadId: 0, clanNick: "",
+                    clanAvatar: avatar, clanId: 0,
+                    isBanned: false, expiredBanTime: 0,
+                    isOnline: isOnline,
+                    displayName: finalDisplayName,
+                    username: finalUsername
+                ))
+            }
+            tx.updateChannelMembers(members, channelId: self.channelId)
         }
     }
 
@@ -320,6 +384,17 @@ fileprivate func memberListResolvedAvatarURL(_ raw: String) -> String {
     let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     if t.hasPrefix("/") { return "\(base)\(t)" }
     return "\(base)/\(t)"
+}
+
+fileprivate func memberListAvatarInitial(from name: String) -> String {
+    let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return "?" }
+    for ch in t {
+        if ch.isLetter || ch.isNumber {
+            return String(ch).uppercased(with: Locale.current)
+        }
+    }
+    return String(t.prefix(1)).uppercased(with: Locale.current)
 }
 
 extension MemberListNode: ASTableDataSource, ASTableDelegate {
@@ -621,13 +696,16 @@ private final class ActionButtonCellNode: ASCellNode {
     }
 }
 
-private final class MemberCellNode: ASCellNode {
+private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let context: AccountContext
     private let userId: Int64
     private let initialDisplayName: String
     private let initialAvatarUrl: String
     private let clanNick: String
     private let clanAvatar: String
+
+    private var avatarUrlLoadKey: String = ""
+    private var nameForAvatarInitial: String = ""
 
     private let avatarContainerNode = ASDisplayNode()
     private let avatarBackplate = ASDisplayNode()
@@ -670,6 +748,8 @@ private final class MemberCellNode: ASCellNode {
         avatarNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
         avatarNode.cornerRadius = 20.sf
         avatarNode.clipsToBounds = true
+        avatarNode.contentMode = .scaleAspectFill
+        avatarNode.delegate = self
 
         avatarPlaceholderNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
 
@@ -753,6 +833,7 @@ private final class MemberCellNode: ASCellNode {
         if name.isEmpty {
             name = !initialDisplayName.isEmpty ? initialDisplayName : "User \(userId)"
         }
+        nameForAvatarInitial = name
 
         let t = UIColor.theme
         var nameTextColor = t.textStrong
@@ -783,29 +864,16 @@ private final class MemberCellNode: ASCellNode {
         if !absolute.isEmpty,
             let url = URL(string: ImgproxyURL.create(from: absolute, width: 100, height: 100))
         {
+            avatarUrlLoadKey = url.absoluteString
             avatarNode.url = url
             avatarNode.alpha = 1.0
             avatarPlaceholderNode.alpha = 0.0
         } else {
+            avatarUrlLoadKey = ""
             avatarNode.url = nil
             avatarNode.alpha = 0.0
             avatarPlaceholderNode.alpha = 1.0
-            let initial = String(name.prefix(1)).uppercased()
-            let side = 40.sf
-            let font = UIFont.systemFont(ofSize: 16.sf, weight: .semibold)
-            let p = NSMutableParagraphStyle()
-            p.alignment = .center
-            p.minimumLineHeight = side
-            p.maximumLineHeight = side
-            avatarPlaceholderNode.maximumNumberOfLines = 1
-            avatarPlaceholderNode.attributedText = NSAttributedString(
-                string: initial,
-                attributes: [
-                    .font: font,
-                    .foregroundColor: UIColor.white,
-                    .paragraphStyle: p,
-                ]
-            )
+            setAvatarPlaceholderInitials(for: name)
         }
 
         if isOnline {
@@ -822,6 +890,46 @@ private final class MemberCellNode: ASCellNode {
                 statusNode.backgroundColor = .lightGray
             }
         }
+    }
+
+    private func setAvatarPlaceholderInitials(for name: String) {
+        let initial = memberListAvatarInitial(from: name)
+        let side = 40.sf
+        let font = UIFont.systemFont(ofSize: 16.sf, weight: .semibold)
+        let p = NSMutableParagraphStyle()
+        p.alignment = .center
+        p.minimumLineHeight = side
+        p.maximumLineHeight = side
+        avatarPlaceholderNode.maximumNumberOfLines = 1
+        avatarPlaceholderNode.attributedText = NSAttributedString(
+            string: initial,
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: p,
+            ]
+        )
+    }
+
+    private func revertAvatarToInitialsIfKeyMatches(_ key: String) {
+        guard !key.isEmpty, key == avatarUrlLoadKey else { return }
+        avatarUrlLoadKey = ""
+        avatarNode.url = nil
+        avatarNode.alpha = 0.0
+        avatarPlaceholderNode.alpha = 1.0
+        setAvatarPlaceholderInitials(for: nameForAvatarInitial)
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        guard imageNode === self.avatarNode else { return }
+        if image.size.width < 0.5 || image.size.height < 0.5, let u = imageNode.url {
+            revertAvatarToInitialsIfKeyMatches(u.absoluteString)
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode === self.avatarNode, let u = imageNode.url else { return }
+        revertAvatarToInitialsIfKeyMatches(u.absoluteString)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

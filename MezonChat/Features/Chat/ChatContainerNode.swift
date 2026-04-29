@@ -497,7 +497,8 @@ final class ChatContainerNode: ASDisplayNode {
         let att = m.attachments
             .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
             .joined(separator: ";")
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)"
+        let pin = m.message.isPinned ? "1" : "0"
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {

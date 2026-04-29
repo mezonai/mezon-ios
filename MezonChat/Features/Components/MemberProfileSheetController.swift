@@ -361,6 +361,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
     private let bannerNode = ASDisplayNode()
 
     private let avatarNode = ASImageNode()
+    private let avatarInitialNode = ASTextNode2()
     private let statusDotNode = ASDisplayNode()
 
     private let infoCardNode = ASDisplayNode()
@@ -438,6 +439,9 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         avatarNode.borderColor = t.primary.cgColor
         avatarNode.isUserInteractionEnabled = false
         applyCachedAvatarToImageNodeIfAny()
+        updateAvatarInitialAttributedString()
+        avatarInitialNode.alpha = avatarNode.image == nil ? 1 : 0
+        avatarNode.backgroundColor = avatarNode.image == nil ? .colorAvatarDefault : .clear
 
         statusDotNode.backgroundColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
         statusDotNode.cornerRadius = 8.sf
@@ -517,6 +521,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         memberCardNode.addSubnode(memberSinceTitleNode)
         memberCardNode.addSubnode(memberSinceDateNode)
         containerNode.addSubnode(avatarNode)
+        containerNode.addSubnode(avatarInitialNode)
         containerNode.addSubnode(statusDotNode)
         if voiceChannelActions != nil {
             containerNode.addSubnode(voiceCardNode)
@@ -538,7 +543,8 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         memberCardNode.layer.zPosition = 2
         voiceCardNode.layer.zPosition = voiceChannelActions != nil ? 8 : 0
         avatarNode.layer.zPosition = 10
-        statusDotNode.layer.zPosition = 11
+        avatarInitialNode.layer.zPosition = 12
+        statusDotNode.layer.zPosition = 13
 
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.color = UIColor.theme.textDisabled
@@ -694,17 +700,10 @@ private final class MemberProfileSheetNode: ASDisplayNode {
             : .zero
 
         let btnH: CGFloat = 64.sh
-        let btnSpacing: CGFloat = 8.sf
         let actionW = screenW - pad * 2 - infoCardPad * 2
-        let showCallAndAddFriend = !isCurrentUser
-        callBtn.isHidden = !showCallAndAddFriend
-        addFriendBtn.isHidden = !showCallAndAddFriend
-        let btnW: CGFloat
-        if showCallAndAddFriend {
-            btnW = (actionW - btnSpacing * 2) / 3
-        } else {
-            btnW = actionW
-        }
+        callBtn.isHidden = true
+        addFriendBtn.isHidden = true
+        let btnW = actionW
 
         let cardW = screenW - pad * 2
 
@@ -756,10 +755,6 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         infoY += 12
         actionRow.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: btnH)
         messageBtn.frame = CGRect(x: 0, y: 0, width: btnW, height: btnH)
-        if showCallAndAddFriend {
-            callBtn.frame = CGRect(x: btnW + btnSpacing, y: 0, width: btnW, height: btnH)
-            addFriendBtn.frame = CGRect(x: (btnW + btnSpacing) * 2, y: 0, width: btnW, height: btnH)
-        }
         infoY += btnH + infoBottomPad
 
         let infoCardH = infoY
@@ -792,6 +787,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
 
         bannerNode.frame = CGRect(x: 0, y: 0, width: screenW, height: handleH + bannerH)
         avatarNode.frame = CGRect(x: avatarX, y: avatarTop, width: avatarSize, height: avatarSize)
+        avatarInitialNode.frame = CGRect(x: avatarX, y: avatarTop, width: avatarSize, height: avatarSize)
         statusDotNode.frame = CGRect(
             x: avatarX + avatarSize - 20.sf,
             y: avatarTop + avatarSize - 20.sh,
@@ -843,15 +839,64 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         }
     }
 
+    private func updateAvatarInitialAttributedString() {
+        let name = user.displayName.isEmpty ? user.username : user.displayName
+        let label = name.isEmpty ? "?" : memberProfileAvatarInitial(from: name)
+        let side: CGFloat = 80.sf
+        let font = UIFont.systemFont(ofSize: 32.sf, weight: .semibold)
+        let p = NSMutableParagraphStyle()
+        p.alignment = .center
+        p.minimumLineHeight = side
+        p.maximumLineHeight = side
+        avatarInitialNode.maximumNumberOfLines = 1
+        avatarInitialNode.attributedText = NSAttributedString(
+            string: label,
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: p,
+            ]
+        )
+    }
+
+    private func applyLoadedAvatarImage(_ image: UIImage) {
+        avatarNode.backgroundColor = .clear
+        avatarNode.image = image
+        avatarInitialNode.alpha = 0
+    }
+
+    private func showAvatarInitialsOnly() {
+        avatarNode.image = nil
+        avatarNode.backgroundColor = .colorAvatarDefault
+        updateAvatarInitialAttributedString()
+        avatarInitialNode.alpha = 1
+    }
+
     private func loadProfileAvatar() {
-        guard let k = profileAvatarCacheKeys() else { return }
+        if avatarNode.image != nil { return }
+        guard let k = profileAvatarCacheKeys() else {
+            showAvatarInitialsOnly()
+            return
+        }
         ImageCache.shared.loadAvatar(urlString: k.full) { [weak self] image in
             guard let self else { return }
             if let i = image {
-                self.avatarNode.image = i
-            } else {
+                self.applyLoadedAvatarImage(i)
+                return
+            }
+            ImageCache.shared.loadAvatar(urlString: k.list) { [weak self] image in
+                guard let self else { return }
+                if let i = image {
+                    self.applyLoadedAvatarImage(i)
+                    return
+                }
                 ImageCache.shared.loadImage(urlString: k.absolute) { [weak self] im in
-                    if let v = im { self?.avatarNode.image = v }
+                    guard let self else { return }
+                    if let v = im {
+                        self.applyLoadedAvatarImage(v)
+                    } else {
+                        self.showAvatarInitialsOnly()
+                    }
                 }
             }
         }
@@ -862,6 +907,17 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         let hue = CGFloat(hash % 360) / 360.0
         return UIColor(hue: hue, saturation: 0.3, brightness: 0.35, alpha: 1)
     }
+}
+
+private func memberProfileAvatarInitial(from name: String) -> String {
+    let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return "?" }
+    for ch in t {
+        if ch.isLetter || ch.isNumber {
+            return String(ch).uppercased(with: Locale.current)
+        }
+    }
+    return String(t.prefix(1)).uppercased(with: Locale.current)
 }
 
 

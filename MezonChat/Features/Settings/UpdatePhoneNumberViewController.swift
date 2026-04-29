@@ -395,28 +395,23 @@ final class UpdatePhoneNumberViewController: BaseViewController {
 
     private func callLinkPhoneAPI(phone: String) {
         setLoading(true)
-        print("[UpdatePhone] Start linkSMS. phone=\(phone)")
 
         Task { @MainActor in
             do {
                 guard let token = await context.getToken() else {
-                    print("[UpdatePhone] Missing auth token")
                     setLoading(false)
                     showUpdateFailedToast()
                     return
                 }
-                print("[UpdatePhone] Got token. Calling linkSMS API...")
 
                 let response = try await context.account.network.linkSMS(
                     phoneNumber: phone,
                     token: token
                 )
-                print("[UpdatePhone] linkSMS response received. reqId=\(response.reqId ?? "nil")")
 
                 setLoading(false)
 
                 guard let reqId = response.reqId, !reqId.isEmpty else {
-                    print("[UpdatePhone] linkSMS missing reqId, cannot navigate to verify screen")
                     showUpdateFailedToast()
                     return
                 }
@@ -429,17 +424,10 @@ final class UpdatePhoneNumberViewController: BaseViewController {
                     phoneNumber: phone,
                     requestId: reqId
                 )
-                print("[UpdatePhone] Navigate to VerifyPhoneOTPViewController with reqId=\(reqId)")
                 navigationController?.pushViewController(verifyVC, animated: true)
 
             } catch {
                 setLoading(false)
-                if let mezonError = error as? MezonError,
-                   case .httpError(_, let msg) = mezonError {
-                    print("[UpdatePhone] linkSMS HTTP error: \(msg)")
-                } else {
-                    print("[UpdatePhone] linkSMS unknown error: \(error)")
-                }
                 Toast.error(L(L10n.PhoneSetting.updateFailed))
             }
         }

@@ -2,7 +2,10 @@ import Foundation
 
 enum ImgproxyURL {
 
-    private static let proxyBase = "\(Secrets.imgproxyBaseURL)/\(Secrets.imgproxySigningPath)"
+    private static var proxyBase: String {
+        let env = MezonEnvironment.current
+        return "\(env.imgproxyBaseURL)/\(env.imgproxySigningPath)"
+    }
     private static let cdnHosts = ["cdn.mezon", "profile.mezon"]
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 

@@ -278,7 +278,6 @@ final class AccountContextImpl: AccountContext {
         guard let current = session else { throw SessionError.noSession }
         let new = try await engine.auth.sessionRefresh(session: current)
         let merged = mergeIdToken(into: new, previous: current)
-        MmnDebugLog.line("refreshSession applied idToken.len=\(merged.idToken?.count ?? 0) (server=\(new.idToken?.count ?? 0), prev=\(current.idToken?.count ?? 0))")
         applySession(merged, user: currentUser, connectSocket: false, fetchAccount: false)
     }
 
@@ -328,17 +327,7 @@ final class AccountContextImpl: AccountContext {
                     SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
                     return false
                 }
-                #if DEBUG
-                print(
-                    "[SessionRefresh] refreshSessionWithRetry MezonError attempt=\(attempt)/\(maxForegroundRecoverRetries): \(error.localizedDescription)"
-                )
-                #endif
             } catch {
-                #if DEBUG
-                print(
-                    "[SessionRefresh] refreshSessionWithRetry attempt=\(attempt)/\(maxForegroundRecoverRetries): \(error.localizedDescription)"
-                )
-                #endif
             }
 
             if attempt < maxForegroundRecoverRetries {
@@ -380,7 +369,6 @@ final class AccountContextImpl: AccountContext {
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
-                MmnDebugLog.line("restoreAndRefreshSession applied idToken.len=\(merged.idToken?.count ?? 0) (server=\(newSession.idToken?.count ?? 0), prev=\(saved.idToken?.count ?? 0))")
                 self.applySession(merged, user: self.currentUser, connectSocket: true)
                 self.registerFCMTokenIfNeeded()
                 self.markSessionReady()
@@ -717,6 +705,42 @@ final class AccountContextImpl: AccountContext {
 
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
+
+        case .lastPin(let e):
+            ChannelPinnedStatePersistence.applyPinMessage(
+                postbox: account.postbox,
+                accountId: account.id,
+                clanId: e.clanID,
+                channelId: e.channelID,
+                messageId: e.messageID
+            )
+            NotificationCenter.default.post(
+                name: .mezonChannelPinsNeedRefresh,
+                object: nil,
+                userInfo: [
+                    "clanId": NSNumber(value: e.clanID),
+                    "channelId": NSNumber(value: e.channelID),
+                    "pinnedMessageId": NSNumber(value: e.messageID),
+                ]
+            )
+
+        case .unpinMessage(let e):
+            ChannelPinnedStatePersistence.applyUnpinMessage(
+                postbox: account.postbox,
+                accountId: account.id,
+                clanId: e.clanID,
+                channelId: e.channelID,
+                messageId: e.messageID
+            )
+            NotificationCenter.default.post(
+                name: .mezonChannelPinsNeedRefresh,
+                object: nil,
+                userInfo: [
+                    "clanId": NSNumber(value: e.clanID),
+                    "channelId": NSNumber(value: e.channelID),
+                    "unpinnedMessageId": NSNumber(value: e.messageID),
+                ]
+            )
 
         default:
             break

@@ -37,7 +37,6 @@ final class ClanListContainerNode: ASDisplayNode {
         line.autoresizingMask = []
         return line
     }()
-    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0.5, y: 0)
@@ -63,16 +62,10 @@ final class ClanListContainerNode: ASDisplayNode {
                 guard let self else { return }
                 let prevDmFingerprint = Self.unreadDmStripFingerprint(self.state.unreadDMs)
                 let prevClanId = self.state.selectedClanId
-                let wasLoading = self.state.isLoading
                 let prevDMCount = self.state.unreadDMs.count
                 let prevDMBadges = self.state.unreadDMs.map { $0.countMessUnread }
                 let prevClanBadges = self.state.clans.map { $0.badgeCount }
                 self.state = newState
-
-                if newState.isLoading != wasLoading {
-                    if newState.isLoading { self.loadingIndicator.startAnimating() }
-                    else { self.loadingIndicator.stopAnimating() }
-                }
 
                 let hasClanSection = self.collectionView.numberOfSections > 1
                 let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
@@ -128,9 +121,6 @@ final class ClanListContainerNode: ASDisplayNode {
         collectionView.dataSource = self
         collectionView.delegate = self
 
-        loadingIndicator.hidesWhenStopped = true
-        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
-
         logoHeaderView.translatesAutoresizingMaskIntoConstraints = false
         logoHeaderView.backgroundColor = .clear
         logoHeaderView.clipsToBounds = false
@@ -141,12 +131,10 @@ final class ClanListContainerNode: ASDisplayNode {
 
         view.addSubview(collectionView)
         view.addSubview(logoHeaderView)
-        view.addSubview(loadingIndicator)
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         let topY: CGFloat = 0
-        let centerX = layout.size.width / 2
         let contentWidth = layout.size.width
         let containerHeight = (isNodeLoaded && view.bounds.height > 0) ? view.bounds.height : layout.size.height
 
@@ -176,18 +164,12 @@ final class ClanListContainerNode: ASDisplayNode {
             x: 0, y: topY + logoHeaderHeight, width: contentWidth,
             height: containerHeight - topY - logoHeaderHeight - layout.intrinsicInsets.bottom
         ))
-
-        let liSize: CGFloat = 24.swh
-        transition.updateFrame(view: loadingIndicator, frame: CGRect(
-            x: centerX - liSize / 2, y: (containerHeight - liSize) / 2, width: liSize, height: liSize
-        ))
     }
 
     func applyTheme() {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
         backgroundColor = .clear
-        loadingIndicator.color = t.textDisabled
         logoSeparatorLine.backgroundColor = t.border.withAlphaComponent(0.3)
         collectionView.reloadData()
     }
@@ -565,6 +547,7 @@ private final class ClanCreateActionCell: UICollectionViewCell {
 private final class UnreadDMBadgeCell: UICollectionViewCell {
 
     static let reuseID = "UnreadDMBadgeCell"
+    private static let groupPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
 
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
@@ -588,6 +571,15 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         v.clipsToBounds = true
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
+    }()
+
+    private let groupIconView: UIImageView = {
+        let iv = UIImageView(image: UIImage(systemName: "person.2.fill"))
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.contentMode = .scaleAspectFit
+        iv.tintColor = .white
+        iv.isHidden = true
+        return iv
     }()
 
     private let badgeLabel: UILabel = {
@@ -614,6 +606,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         contentView.addSubview(avatarContainer)
         avatarContainer.addSubview(avatarImageView)
         avatarContainer.addSubview(initialsLabel)
+        avatarContainer.addSubview(groupIconView)
         contentView.addSubview(badgeLabel)
 
         avatarContainer.layer.cornerRadius = radius
@@ -633,6 +626,11 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             initialsLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
             initialsLabel.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
 
+            groupIconView.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
+            groupIconView.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
+            groupIconView.widthAnchor.constraint(equalToConstant: 20.swh),
+            groupIconView.heightAnchor.constraint(equalToConstant: 20.swh),
+
             badgeLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 5.swh),
             badgeLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 5.swh),
             badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20.swh),
@@ -647,6 +645,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         imageTask?.cancel()
         avatarImageView.image = nil
         initialsLabel.text = nil
+        groupIconView.isHidden = true
         avatarContainer.backgroundColor = .clear
         badgeLabel.isHidden = true
         badgeLabel.layer.borderWidth = 0
@@ -670,10 +669,11 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             avatarURL = dm.avatars.first(where: { !$0.isEmpty }) ?? ""
         } else {
             let groupAvatar = dm.channelAvatar
-            avatarURL = (!groupAvatar.isEmpty && !groupAvatar.contains("avatar-group")) ? groupAvatar : ""
+            avatarURL = (!groupAvatar.isEmpty && !groupAvatar.contains("avatar-group.png")) ? groupAvatar : ""
         }
 
         if !avatarURL.isEmpty {
+            groupIconView.isHidden = true
             avatarContainer.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: avatarURL, width: 150, height: 150)
             avatarImageView.isHidden = false
@@ -686,10 +686,18 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
                 }
             }
         } else {
-            avatarContainer.backgroundColor = placeholderBg
             avatarImageView.isHidden = true
-            initialsLabel.isHidden = false
-            initialsLabel.text = String(name.prefix(1)).uppercased()
+            if isDM {
+                groupIconView.isHidden = true
+                avatarContainer.backgroundColor = placeholderBg
+                initialsLabel.isHidden = false
+                initialsLabel.text = String(name.prefix(1)).uppercased()
+            } else {
+                avatarContainer.backgroundColor = Self.groupPlaceholderOrange
+                initialsLabel.isHidden = true
+                groupIconView.tintColor = .white
+                groupIconView.isHidden = false
+            }
         }
 
         let count = dm.countMessUnread

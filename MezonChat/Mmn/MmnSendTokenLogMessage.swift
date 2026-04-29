@@ -28,7 +28,6 @@ enum MmnSendTokenLogMessage {
         do {
             try await send(context: context, receiverUserId: receiverId, amountInput: amountInput, note: note)
         } catch {
-            MmnDebugLog.line("sendTokenLogMessage: \(error.localizedDescription)")
         }
     }
 
@@ -67,6 +66,5 @@ enum MmnSendTokenLogMessage {
             code: MezonConstants.MessageCode.sendToken.rawValue,
             token: token
         )
-        MmnDebugLog.line("sendTokenLogMessage sent channelId=\(dm.channelID)")
     }
 }

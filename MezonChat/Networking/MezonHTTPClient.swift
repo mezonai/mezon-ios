@@ -2,7 +2,6 @@ import Foundation
 import SwiftProtobuf
 import UIKit
 import Network
-import os.log
 
 final class MezonHTTPClient {
 
@@ -43,35 +42,11 @@ final class MezonHTTPClient {
         return "\(appName)/\(appVersion).\(build) (iOS \(osVersion); \(model))"
     }()
 
-    private static let logger = OSLog(subsystem: "ai.mezon.MezonChat", category: "MezonHTTP")
-    private let seqLock = NSLock()
-    private var seqCounter: UInt64 = 0
-
-    private func nextReqId() -> UInt64 {
-        seqLock.lock()
-        defer { seqLock.unlock() }
-        seqCounter += 1
-        return seqCounter
-    }
-
     private func httpData(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        let reqId = nextReqId()
-        let start = Date()
-        Self.logRequest(reqId: reqId, request: request)
-        do {
-            let result: (Data, URLResponse)
-            if #available(iOS 15.0, *) {
-                result = try await urlSession.data(for: request)
-            } else {
-                result = try await legacyData(for: request)
-            }
-            let elapsed = Date().timeIntervalSince(start) * 1000
-            Self.logResponse(reqId: reqId, request: request, response: result.1, data: result.0, elapsedMs: elapsed)
-            return result
-        } catch {
-            let elapsed = Date().timeIntervalSince(start) * 1000
-            Self.logFailure(reqId: reqId, request: request, error: error, elapsedMs: elapsed)
-            throw error
+        if #available(iOS 15.0, *) {
+            return try await urlSession.data(for: request)
+        } else {
+            return try await legacyData(for: request)
         }
     }
 
@@ -90,93 +65,6 @@ final class MezonHTTPClient {
             }
             task.resume()
         }
-    }
-
-    static func describeAuthHeader(_ value: String?) -> String {
-        guard let v = value, !v.isEmpty else { return "none" }
-        if v.hasPrefix("Bearer ") {
-            let tok = String(v.dropFirst(7))
-            return "Bearer(len=\(tok.count), tail=\(tok.suffix(6)))"
-        }
-        if v.hasPrefix("Basic ") {
-            return "Basic(len=\(v.count - 6))"
-        }
-        return "type=\(v.prefix(12))…"
-    }
-
-    static func describeNSError(_ error: Error, maxDepth: Int = 5) -> String {
-        var lines: [String] = []
-        var current: Error? = error
-        var depth = 0
-        while let err = current, depth < maxDepth {
-            let ns = err as NSError
-            let keys = ns.userInfo.keys.map { String(describing: $0) }.sorted().joined(separator: ",")
-            var extra = ""
-            if ns.domain == NSURLErrorDomain {
-                extra = " urlErr=\(NSURLErrorName(ns.code))"
-                if let failingURL = ns.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
-                    extra += " failingURL=\(failingURL)"
-                }
-            }
-            lines.append("[\(depth)] \(ns.domain) code=\(ns.code)\(extra) desc=\(ns.localizedDescription) keys=[\(keys)]")
-            current = ns.userInfo[NSUnderlyingErrorKey] as? Error
-            depth += 1
-        }
-        return lines.joined(separator: " => ")
-    }
-
-    static func currentNetworkSnapshot() -> String {
-        var parts: [String] = []
-        parts.append("connected=\(NetworkMonitor.shared.isConnected)")
-        if Thread.isMainThread {
-            parts.append("appState=\(UIApplication.shared.applicationState.debugName)")
-        }
-        parts.append("iOS=\(UIDevice.current.systemVersion)")
-        return parts.joined(separator: " | ")
-    }
-
-    private static func logRequest(reqId: UInt64, request: URLRequest) {
-        let auth = describeAuthHeader(request.value(forHTTPHeaderField: "Authorization"))
-        let bodyLen = request.httpBody?.count ?? 0
-        let line = "[REQ #\(reqId)] \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "?") | bodyLen=\(bodyLen) | auth=\(auth) | ct=\(request.value(forHTTPHeaderField: "Content-Type") ?? "-") | accept=\(request.value(forHTTPHeaderField: "Accept") ?? "-") | net=[\(currentNetworkSnapshot())]"
-        emit(line)
-    }
-
-    private static func logResponse(reqId: UInt64, request: URLRequest, response: URLResponse, data: Data, elapsedMs: Double) {
-        guard let http = response as? HTTPURLResponse else {
-            emit("[RES #\(reqId)] non-HTTP response \(type(of: response)) elapsed=\(String(format: "%.0f", elapsedMs))ms")
-            return
-        }
-        let ct = http.value(forHTTPHeaderField: "Content-Type") ?? "-"
-        let server = http.value(forHTTPHeaderField: "Server") ?? "-"
-        var line = "[RES #\(reqId)] \(http.statusCode) \(request.url?.absoluteString ?? "?") | bytes=\(data.count) | ct=\(ct) | server=\(server) | elapsed=\(String(format: "%.0f", elapsedMs))ms"
-        if !(200..<300).contains(http.statusCode) {
-            let snippet = bodySnippet(data, limit: 256)
-            line += " | bodyPreview=\(snippet)"
-        }
-        emit(line)
-    }
-
-    private static func logFailure(reqId: UInt64, request: URLRequest, error: Error, elapsedMs: Double) {
-        let chain = describeNSError(error)
-        let line = "[ERR #\(reqId)] \(request.httpMethod ?? "?") \(request.url?.absoluteString ?? "?") | elapsed=\(String(format: "%.0f", elapsedMs))ms | net=[\(currentNetworkSnapshot())] | chain=\(chain)"
-        emit(line)
-    }
-
-    static func bodySnippet(_ data: Data, limit: Int) -> String {
-        guard !data.isEmpty else { return "<empty>" }
-        if let s = String(data: data.prefix(limit), encoding: .utf8) {
-            let truncated = data.count > limit ? "…(+\(data.count - limit)B)" : ""
-            return "\"\(s.replacingOccurrences(of: "\n", with: "\\n"))\"\(truncated)"
-        }
-        return "<\(data.count)B binary> head=\(data.prefix(min(16, data.count)).map { String(format: "%02x", $0) }.joined())"
-    }
-
-    static func emit(_ message: String) {
-        os_log("%{public}@", log: logger, type: .info, message)
-        #if DEBUG
-        print("[MezonHTTP] \(message)")
-        #endif
     }
 
     func updateBaseURL(from session: MezonSession) {
@@ -326,6 +214,15 @@ final class MezonHTTPClient {
         )
     }
 
+    func deleteAccount(token: String) async throws {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteAccount",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func updateUserStatus(_ request: Mezon_Api_UserStatusUpdate, token: String) async throws {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/UpdateUserStatus",
@@ -344,23 +241,15 @@ final class MezonHTTPClient {
     }
 
     func sessionRefresh(refreshToken: String) async throws -> MezonSession {
-        let tokenTail = String(refreshToken.suffix(6))
-        Self.emit("[SessionRefresh] start | tokenLen=\(refreshToken.count) tail=\(tokenTail) baseURL=\(protoBaseURL.absoluteString)")
-        do {
-            var req = Mezon_Api_SessionRefreshRequest()
-            req.token = refreshToken
-            req.vars = ["m": "true"]
-            let apiSession: Mezon_Api_Session = try await postProto(
-                path: "/mezon.api.Mezon/SessionRefresh",
-                message: req,
-                auth: .serverKey
-            )
-            Self.emit("[SessionRefresh] ok | newTokenLen=\(apiSession.token.count) refreshLen=\(apiSession.refreshToken.count) userId=\(apiSession.userID)")
-            return MezonSession.fromProto(apiSession)
-        } catch {
-            Self.emit("[SessionRefresh] FAIL | tokenTail=\(tokenTail) | \(Self.describeNSError(error))")
-            throw error
-        }
+        var req = Mezon_Api_SessionRefreshRequest()
+        req.token = refreshToken
+        req.vars = ["m": "true"]
+        let apiSession: Mezon_Api_Session = try await postProto(
+            path: "/mezon.api.Mezon/SessionRefresh",
+            message: req,
+            auth: .serverKey
+        )
+        return MezonSession.fromProto(apiSession)
     }
 
     func sessionLogout(session: MezonSession, deviceId: String = "", platform: String = "") async throws {
@@ -503,6 +392,22 @@ final class MezonHTTPClient {
         req.state       = 1
         req.page        = 0
         req.channelType = 3
+        req.isMobile    = true
+        let response: Mezon_Api_ChannelDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channeldesc
+    }
+
+    func listGroupMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID      = 0
+        req.limit       = 500
+        req.state       = 1
+        req.page        = 0
+        req.channelType = 2
         req.isMobile    = true
         let response: Mezon_Api_ChannelDescList = try await postProto(
             path: "/mezon.api.Mezon/ListChannelDescs",
@@ -920,6 +825,17 @@ final class MezonHTTPClient {
         req.state = state
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listChannelUsersUC(channelId: Int64, limit: Int32 = 500, token: String) async throws -> Mezon_Api_AllUsersAddChannelResponse {
+        var req = Mezon_Api_AllUsersAddChannelRequest()
+        req.channelID = channelId
+        req.limit = limit
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListChannelUsersUC",
             message: req,
             auth: .bearer(token)
         )
@@ -1460,7 +1376,6 @@ final class MezonHTTPClient {
             do {
                 return try Response(serializedBytes: data)
             } catch {
-                Self.emit("[postProto] decode FAIL path=\(path) bytes=\(data.count) ct=\(http.value(forHTTPHeaderField: "Content-Type") ?? "-") preview=\(Self.bodySnippet(data, limit: 256)) err=\(Self.describeNSError(error))")
                 throw error
             }
         }
@@ -1470,7 +1385,6 @@ final class MezonHTTPClient {
             case .bearer = auth,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            Self.emit("[postProto] retry-after-401 path=\(path) status=\(http.statusCode) newTokenLen=\(newToken.count)")
             return try await postProto(
                 path: path,
                 message: message,
@@ -1481,7 +1395,6 @@ final class MezonHTTPClient {
 
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-        Self.emit("[postProto] HTTP error path=\(path) status=\(http.statusCode) msg=\(msg)")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
@@ -1511,10 +1424,15 @@ final class MezonHTTPClient {
         body: Body?,
         auth: AuthMethod
     ) throws -> URLRequest {
-        var components = URLComponents(url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        guard var components = URLComponents(url: authBaseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false) else {
+            throw MezonError.invalidResponse
+        }
         if !queryItems.isEmpty { components.queryItems = queryItems }
 
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw MezonError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -1562,72 +1480,6 @@ final class MezonHTTPClient {
 private struct EmptyBody: Encodable {}
 struct EmptyResponse: Decodable {}
 struct APIError: Decodable { let message: String?; let code: Int? }
-
-private extension UIApplication.State {
-    var debugName: String {
-        switch self {
-        case .active: return "active"
-        case .inactive: return "inactive"
-        case .background: return "background"
-        @unknown default: return "unknown"
-        }
-    }
-}
-
-func NSURLErrorName(_ code: Int) -> String {
-    switch code {
-    case NSURLErrorUnknown: return "Unknown"
-    case NSURLErrorCancelled: return "Cancelled"
-    case NSURLErrorBadURL: return "BadURL"
-    case NSURLErrorTimedOut: return "TimedOut"
-    case NSURLErrorUnsupportedURL: return "UnsupportedURL"
-    case NSURLErrorCannotFindHost: return "CannotFindHost"
-    case NSURLErrorCannotConnectToHost: return "CannotConnectToHost"
-    case NSURLErrorNetworkConnectionLost: return "NetworkConnectionLost"
-    case NSURLErrorDNSLookupFailed: return "DNSLookupFailed"
-    case NSURLErrorHTTPTooManyRedirects: return "HTTPTooManyRedirects"
-    case NSURLErrorResourceUnavailable: return "ResourceUnavailable"
-    case NSURLErrorNotConnectedToInternet: return "NotConnectedToInternet"
-    case NSURLErrorRedirectToNonExistentLocation: return "RedirectToNonExistentLocation"
-    case NSURLErrorBadServerResponse: return "BadServerResponse"
-    case NSURLErrorUserCancelledAuthentication: return "UserCancelledAuthentication"
-    case NSURLErrorUserAuthenticationRequired: return "UserAuthenticationRequired"
-    case NSURLErrorZeroByteResource: return "ZeroByteResource"
-    case NSURLErrorCannotDecodeRawData: return "CannotDecodeRawData"
-    case NSURLErrorCannotDecodeContentData: return "CannotDecodeContentData"
-    case NSURLErrorCannotParseResponse: return "CannotParseResponse"
-    case NSURLErrorAppTransportSecurityRequiresSecureConnection: return "ATSRequiresSecure"
-    case NSURLErrorFileDoesNotExist: return "FileDoesNotExist"
-    case NSURLErrorFileIsDirectory: return "FileIsDirectory"
-    case NSURLErrorNoPermissionsToReadFile: return "NoPermissionsToReadFile"
-    case NSURLErrorDataLengthExceedsMaximum: return "DataLengthExceedsMaximum"
-    case NSURLErrorFileOutsideSafeArea: return "FileOutsideSafeArea"
-    case NSURLErrorSecureConnectionFailed: return "SecureConnectionFailed"
-    case NSURLErrorServerCertificateHasBadDate: return "ServerCertificateHasBadDate"
-    case NSURLErrorServerCertificateUntrusted: return "ServerCertificateUntrusted"
-    case NSURLErrorServerCertificateHasUnknownRoot: return "ServerCertificateHasUnknownRoot"
-    case NSURLErrorServerCertificateNotYetValid: return "ServerCertificateNotYetValid"
-    case NSURLErrorClientCertificateRejected: return "ClientCertificateRejected"
-    case NSURLErrorClientCertificateRequired: return "ClientCertificateRequired"
-    case NSURLErrorCannotLoadFromNetwork: return "CannotLoadFromNetwork"
-    case NSURLErrorCannotCreateFile: return "CannotCreateFile"
-    case NSURLErrorCannotOpenFile: return "CannotOpenFile"
-    case NSURLErrorCannotCloseFile: return "CannotCloseFile"
-    case NSURLErrorCannotWriteToFile: return "CannotWriteToFile"
-    case NSURLErrorCannotRemoveFile: return "CannotRemoveFile"
-    case NSURLErrorCannotMoveFile: return "CannotMoveFile"
-    case NSURLErrorDownloadDecodingFailedMidStream: return "DownloadDecodingFailedMidStream"
-    case NSURLErrorDownloadDecodingFailedToComplete: return "DownloadDecodingFailedToComplete"
-    case NSURLErrorInternationalRoamingOff: return "InternationalRoamingOff"
-    case NSURLErrorCallIsActive: return "CallIsActive"
-    case NSURLErrorDataNotAllowed: return "DataNotAllowed"
-    case NSURLErrorRequestBodyStreamExhausted: return "RequestBodyStreamExhausted"
-    case NSURLErrorBackgroundSessionRequiresSharedContainer: return "BackgroundSessionRequiresSharedContainer"
-    case NSURLErrorBackgroundSessionInUseByAnotherProcess: return "BackgroundSessionInUseByAnotherProcess"
-    case NSURLErrorBackgroundSessionWasDisconnected: return "BackgroundSessionWasDisconnected"
-    default: return "code=\(code)"
-    }
-}
 
 enum MezonError: LocalizedError {
     case invalidResponse

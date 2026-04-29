@@ -7,6 +7,7 @@ final class NetworkBannerView: UIView {
 
     private var isShowing = false
     private var hideWorkItem: DispatchWorkItem?
+    private var observers: [NSObjectProtocol] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -14,6 +15,11 @@ final class NetworkBannerView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        hideWorkItem?.cancel()
+    }
 
     private func setup() {
         backgroundColor = UIColor(red: 63/255, green: 69/255, blue: 75/255, alpha: 0.89)
@@ -101,7 +107,7 @@ final class NetworkBannerView: UIView {
             banner.centerXAnchor.constraint(equalTo: window.centerXAnchor),
         ])
 
-        NotificationCenter.default.addObserver(
+        banner.observers.append(NotificationCenter.default.addObserver(
             forName: NetworkMonitor.statusDidChangeNotification,
             object: nil,
             queue: .main
@@ -114,23 +120,23 @@ final class NetworkBannerView: UIView {
                 banner.show()
                 banner.scheduleDeferredSync()
             }
-        }
+        })
 
-        NotificationCenter.default.addObserver(
+        banner.observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
             queue: .main
         ) { [weak banner] _ in
             banner?.syncBannerToMonitor()
-        }
+        })
 
-        NotificationCenter.default.addObserver(
+        banner.observers.append(NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak banner] _ in
             banner?.syncBannerToMonitor()
-        }
+        })
 
         if NetworkMonitor.shared.isConnected {
             banner.hide()

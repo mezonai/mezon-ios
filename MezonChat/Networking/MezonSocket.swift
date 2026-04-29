@@ -300,10 +300,13 @@ final class MezonSocket: NSObject {
     }
 
     private func decodeEnvelope(_ data: Data) {
-        do {
-            let envelope = try Mezon_Realtime_Envelope(serializedBytes: data)
+        if let envelope = try? Mezon_Realtime_Envelope(serializedBytes: data) {
             routeEnvelope(envelope)
-        } catch {
+            return
+        }
+        if let envelope = try? Mezon_Realtime_Envelope(jsonUTF8Data: data) {
+            routeEnvelope(envelope)
+            return
         }
     }
 

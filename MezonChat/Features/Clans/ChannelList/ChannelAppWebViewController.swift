@@ -317,12 +317,17 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let url = navigationAction.request.url else {
+        guard let targetURL = navigationAction.request.url else {
             decisionHandler(.cancel)
             return
         }
-        let scheme = url.scheme?.lowercased() ?? ""
-        if scheme == "https" || scheme == "http" || scheme == "about" || scheme == "blob" {
+        let scheme = targetURL.scheme?.lowercased() ?? ""
+        if scheme == "about" || scheme == "blob" {
+            decisionHandler(.allow)
+            return
+        }
+        if (scheme == "https" || scheme == "http"),
+           targetURL.host?.lowercased() == pageURL.host?.lowercased() {
             decisionHandler(.allow)
         } else {
             decisionHandler(.cancel)

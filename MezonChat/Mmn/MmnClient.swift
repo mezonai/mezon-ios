@@ -32,28 +32,21 @@ final class MmnClient: Sendable {
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
         baseURL = MezonConfig.mmnAPIURL
-        MmnDebugLog.line("client baseURL=\(baseURL.absoluteString)")
     }
 
     func getAccountByUserId(_ userId: String) async throws -> WalletDetail {
         let address = Self.addressFromUserId(userId)
-        MmnDebugLog.line("getAccountByUserId userId=\(userId) address=\(address)")
         let w: WalletDetail = try await jsonRPC(method: "account.getaccount", params: ["address": address])
-        MmnDebugLog.line("getAccount result balance=\(w.balance) decimals=\(w.decimals) nonce=\(w.nonce)")
         return w
     }
 
     func getCurrentNonce(address: String, tag: String = "pending") async throws -> MmnGetCurrentNonceResult {
-        MmnDebugLog.line("getCurrentNonce address=\(address) tag=\(tag)")
         let r: MmnGetCurrentNonceResult = try await jsonRPC(method: "account.getcurrentnonce", params: ["address": address, "tag": tag])
-        MmnDebugLog.line("getCurrentNonce result nonce=\(String(describing: r.nonce)) error=\(r.error ?? "nil")")
         return r
     }
 
     func addTx(signed: [String: Any]) async throws -> MmnAddTxResult {
-        MmnDebugLog.line("addTx submit…")
         let r: MmnAddTxResult = try await jsonRPC(method: "tx.addtx", params: signed)
-        MmnDebugLog.line("addTx result ok=\(String(describing: r.ok)) tx_hash=\(r.tx_hash ?? "nil") error=\(r.error ?? "nil")")
         return r
     }
 
@@ -85,32 +78,17 @@ final class MmnClient: Sendable {
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
         request.httpBody = bodyData
-        if method == "tx.addtx" {
-            MmnDebugLog.line("JSON-RPC method=\(method) bodySize=\(bodyData.count) bytes")
-        } else if let s = String(data: bodyData, encoding: .utf8) {
-            MmnDebugLog.line("JSON-RPC method=\(method) body=\(s)")
-        }
 
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            MmnDebugLog.line("JSON-RPC HTTP \(http.statusCode) data=\(String(data: data, encoding: .utf8) ?? "")")
             throw URLError(.badServerResponse)
-        }
-        if let raw = String(data: data, encoding: .utf8) {
-            if raw.count > 2000 {
-                MmnDebugLog.line("JSON-RPC response prefix=\(raw.prefix(2000))… (total \(raw.count) chars)")
-            } else {
-                MmnDebugLog.line("JSON-RPC response=\(raw)")
-            }
         }
         let rpc = try JSONDecoder().decode(RPCResponse<T>.self, from: data)
         if let err = rpc.error {
-            MmnDebugLog.line("JSON-RPC error code=\(String(describing: err.code)) message=\(err.message ?? "")")
             throw NSError(domain: "MmnClient", code: err.code ?? -1,
                           userInfo: [NSLocalizedDescriptionKey: err.message ?? "Unknown RPC error"])
         }
         guard let result = rpc.result else {
-            MmnDebugLog.line("JSON-RPC empty result")
             throw NSError(domain: "MmnClient", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "Empty RPC result"])
         }

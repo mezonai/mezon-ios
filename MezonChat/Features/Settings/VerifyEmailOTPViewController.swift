@@ -225,24 +225,20 @@ final class VerifyEmailOTPViewController: BaseViewController {
 
     private func handleVerify(_ otp: String) {
         setLoading(true)
-        print("[VerifyEmailOTP] Start verify. reqId=\(requestId), email=\(email), otpLength=\(otp.count)")
 
         Task { @MainActor in
             do {
                 guard let token = await context.getToken() else {
-                    print("[VerifyEmailOTP] Missing auth token")
                     setLoading(false)
                     isError = true
                     return
                 }
-                print("[VerifyEmailOTP] Got token. Calling confirmLinkEmailOTP API...")
 
                 try await context.account.network.confirmLinkEmailOTP(
                     reqId: requestId,
                     otpCode: otp,
                     token: token
                 )
-                print("[VerifyEmailOTP] confirmLinkEmailOTP success")
 
                 if var user = context.currentUser {
                     user.email = email
@@ -255,14 +251,7 @@ final class VerifyEmailOTPViewController: BaseViewController {
             } catch {
                 setLoading(false)
                 isError = true
-                if let mezonError = error as? MezonError,
-                   case .httpError(_, let msg) = mezonError {
-                    print("[VerifyEmailOTP] confirm HTTP error: \(msg)")
-                    showVerifyFailedToast()
-                } else {
-                    print("[VerifyEmailOTP] confirm unknown error: \(error)")
-                    showVerifyFailedToast()
-                }
+                showVerifyFailedToast()
             }
         }
     }

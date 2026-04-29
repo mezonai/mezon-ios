@@ -543,15 +543,15 @@ final class ChannelListViewController: ViewController {
         channelListNode.updateLayout(layout: layout, transition: transition)
     }
 
-    func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, onlineCount: Int = 0, isCommunity: Bool = false) {
+    func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         self.clanLogoURL = logoURL ?? ""
         guard clanId != self.clanId else {
-            channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
+            channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
             return
         }
         channelListNode.clearChannelApps()
         channelListNode.markClanSwitching()
-        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, onlineCount: onlineCount, isCommunity: isCommunity)
+        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
         load(clanId: clanId, clanName: clanName)
     }
 

@@ -8,6 +8,7 @@ final class SocketStatusBannerView: UIView {
 
     private var isShowing = false
     private var hideTimer: Foundation.Timer?
+    private var socketObserver: NSObjectProtocol?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -15,6 +16,13 @@ final class SocketStatusBannerView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let observer = socketObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        hideTimer?.invalidate()
+    }
 
     private func setup() {
         backgroundColor = UIColor(red: 63/255, green: 69/255, blue: 75/255, alpha: 0.89)
@@ -106,11 +114,12 @@ final class SocketStatusBannerView: UIView {
             banner.centerXAnchor.constraint(equalTo: window.centerXAnchor),
         ])
 
-        NotificationCenter.default.addObserver(
+        banner.socketObserver = NotificationCenter.default.addObserver(
             forName: .mezonSocketStatusChanged,
             object: nil,
             queue: .main
-        ) { notification in
+        ) { [weak banner] notification in
+            guard let banner else { return }
             let connected = notification.userInfo?["isConnected"] as? Bool ?? false
             if connected {
                 banner.showConnected()

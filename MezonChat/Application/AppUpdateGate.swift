@@ -20,12 +20,9 @@ enum AppUpdateGate {
         guard !didPresentUpdateSheet else { return }
         guard let mainWindow else { return }
         let localVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
-        print("[AppUpdateGate] Local version: \(localVersion)")
         guard let (remoteVersion, storeURL) = await fetchAppStoreVersion() else {
-            print("[AppUpdateGate] Remote version: (unavailable)")
             return
         }
-        print("[AppUpdateGate] Remote version: \(remoteVersion)")
         guard remoteVersion.compare(localVersion, options: .numeric) == .orderedDescending else { return }
         didPresentUpdateSheet = true
         let content = AppUpdateRequiredSheetViewController(storeURL: storeURL, remoteVersion: remoteVersion)

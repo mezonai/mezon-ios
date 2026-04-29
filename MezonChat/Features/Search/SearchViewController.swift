@@ -62,6 +62,7 @@ final class SearchViewController: ViewController {
 
     private var allChannels: [Mezon_Api_ChannelDescription] = []
     private var filteredChannels: [Mezon_Api_ChannelDescription] = []
+    private var filteredDMGroups: [Mezon_Api_ChannelDescription] = []
 
     private var searchMessages: [Mezon_Api_SearchMessageDocument] = []
     private var groupedMessages: [(channelId: String, channelLabel: String, messages: [Mezon_Api_SearchMessageDocument])] = []
@@ -87,6 +88,12 @@ final class SearchViewController: ViewController {
     private var isChannelScoped: Bool { scopedChannelId != nil }
 
     private var memberAvatarPrefetchWorkItem: DispatchWorkItem?
+
+    private func reloadSearchTable() {
+        UIView.performWithoutAnimation {
+            self.searchNode.tableNode.reloadData()
+        }
+    }
 
     init(clanId: Int64, context: AccountContext, channels: [Mezon_Api_ChannelDescription] = [], channelId: Int64? = nil, channelLabel: String? = nil, channelType: Int32 = 1, needsChannelMemberFilter: Bool = false) {
         self.clanId = clanId
@@ -141,7 +148,6 @@ final class SearchViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-        searchNode.tableNode.reloadData()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -176,6 +182,7 @@ final class SearchViewController: ViewController {
         } else {
             allChannels = initialChannels
         }
+        mergeDMChannelsIntoAllChannels()
 
         if needsChannelMemberFilter, let channelId = scopedChannelId {
             let cachedRecord = context.account.postbox.read { tx in
@@ -187,15 +194,25 @@ final class SearchViewController: ViewController {
         }
 
         filterMembersByChannel()
-        filteredChannels = allChannels.filter { $0.parentID == 0 }
+        filteredChannels = allChannels.filter { $0.parentID == 0 && Self.isServerChannelInChannelsTab($0) }
         updateTabCounts()
-        searchNode.tableNode.reloadData()
+        reloadSearchTable()
         schedulePrefetchMemberAvatars(filteredMembers)
 
         if needsChannelMemberFilter {
             fetchChannelMembersAndUsers()
-        } else if allMembers.isEmpty || (!isChannelScoped && allChannels.isEmpty) {
+        } else {
             fetchFromAPI()
+        }
+    }
+
+    private func mergeDMChannelsIntoAllChannels() {
+        let cachedDMs = context.account.postbox.getCachedDMChannelList()
+        guard !cachedDMs.isEmpty else { return }
+        var existingIds = Set(allChannels.map { $0.channelID })
+        for dm in cachedDMs where !existingIds.contains(dm.channelID) {
+            allChannels.append(dm)
+            existingIds.insert(dm.channelID)
         }
     }
 
@@ -221,13 +238,31 @@ final class SearchViewController: ViewController {
                 if allChannels.isEmpty || allChannels.count == initialChannels.count {
                     let channels = try await context.account.network.listChannelByUserId(token: token)
                     allChannels = channels.channeldesc
-                    filteredChannels = allChannels.filter { $0.parentID == 0 }
                 }
-                performSearch()
-                updateTabCounts()
-                await searchNode.tableNode.reloadData()
-            } catch {
+            } catch {}
+            await fetchDMAndGroupChannels()
+            performSearch()
+        }
+    }
+
+    private func fetchDMAndGroupChannels() async {
+        guard let token = await context.getToken() else { return }
+        var existingIds = Set(allChannels.map { $0.channelID })
+        do {
+            let dmChannels = try await context.account.network.listDirectMessageChannels(token: token)
+            for dm in dmChannels where !existingIds.contains(dm.channelID) {
+                allChannels.append(dm)
+                existingIds.insert(dm.channelID)
             }
+        } catch {
+        }
+        do {
+            let groupChannels = try await context.account.network.listGroupMessageChannels(token: token)
+            for g in groupChannels where !existingIds.contains(g.channelID) {
+                allChannels.append(g)
+                existingIds.insert(g.channelID)
+            }
+        } catch {
         }
     }
 
@@ -257,8 +292,6 @@ final class SearchViewController: ViewController {
                 channelMemberIds = Set(response.channelUsers.map { $0.userID })
                 filterMembersByChannel()
                 performSearch()
-                updateTabCounts()
-                await searchNode.tableNode.reloadData()
             } catch {
             }
         }
@@ -291,6 +324,23 @@ final class SearchViewController: ViewController {
         return users.filter { seen.insert($0.id).inserted }
     }
 
+    static func dmGroupDisplayName(for ch: Mezon_Api_ChannelDescription) -> String {
+        if !ch.channelLabel.isEmpty { return ch.channelLabel }
+        if let first = ch.displayNames.first, !first.isEmpty {
+            return ch.displayNames.joined(separator: ", ")
+        }
+        if let first = ch.usernames.first, !first.isEmpty {
+            return ch.usernames.joined(separator: ", ")
+        }
+        if !ch.creatorName.isEmpty { return "\(ch.creatorName)'s Group" }
+        return "Chat"
+    }
+
+    private static func isServerChannelInChannelsTab(_ ch: Mezon_Api_ChannelDescription) -> Bool {
+        ch.type != MezonConstants.ChannelType.dm.rawValue
+        && ch.type != MezonConstants.ChannelType.group.rawValue
+    }
+
     private func performSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
@@ -303,6 +353,7 @@ final class SearchViewController: ViewController {
 
         if query.isEmpty {
             filteredMembers = baseMemberList
+            filteredDMGroups = []
         } else {
             filteredMembers = baseMemberList.filter { user in
                 let nick = (clanNicks[user.id] ?? "").lowercased()
@@ -312,13 +363,21 @@ final class SearchViewController: ViewController {
             }.sorted { a, b in
                 scoreMember(a, query: query) > scoreMember(b, query: query)
             }
+            filteredDMGroups = allChannels.filter { ch in
+                guard ch.type == MezonConstants.ChannelType.group.rawValue else { return false }
+                let label = Self.dmGroupDisplayName(for: ch).lowercased()
+                return label.contains(query)
+            }
         }
 
         if query.isEmpty {
-            filteredChannels = allChannels.filter { $0.parentID == 0 }
+            filteredChannels = allChannels.filter { $0.parentID == 0 && Self.isServerChannelInChannelsTab($0) }
         } else {
             filteredChannels = allChannels.filter { ch in
-                ch.channelLabel.lowercased().contains(query)
+                guard ch.parentID == 0, Self.isServerChannelInChannelsTab(ch) else { return false }
+                if ch.channelLabel.lowercased().contains(query) { return true }
+                if ch.clanName.lowercased().contains(query) { return true }
+                return false
             }
         }
 
@@ -333,7 +392,7 @@ final class SearchViewController: ViewController {
         }
 
         updateTabCounts()
-        searchNode.tableNode.reloadData()
+        reloadSearchTable()
         schedulePrefetchMemberAvatars(filteredMembers)
     }
 
@@ -402,10 +461,12 @@ final class SearchViewController: ViewController {
 
                 var filters: [Mezon_Api_FilterParam] = []
 
-                var channelFilter = Mezon_Api_FilterParam()
-                channelFilter.fieldName = "channel_id"
-                channelFilter.fieldValue = scopedChannelId.map { "\($0)" } ?? "0"
-                filters.append(channelFilter)
+                if let scopedChannelId {
+                    var channelFilter = Mezon_Api_FilterParam()
+                    channelFilter.fieldName = "channel_id"
+                    channelFilter.fieldValue = "\(scopedChannelId)"
+                    filters.append(channelFilter)
+                }
 
                 var clanFilter = Mezon_Api_FilterParam()
                 clanFilter.fieldName = "clan_id"
@@ -444,7 +505,7 @@ final class SearchViewController: ViewController {
 
                 updateTabCounts()
                 if activeTab == .messages {
-                    await searchNode.tableNode.reloadData()
+                    self.reloadSearchTable()
                 }
             } catch {
                 isLoadingMessages = false
@@ -460,7 +521,7 @@ final class SearchViewController: ViewController {
 
     private func switchTab(_ tab: SearchTab) {
         activeTab = tab
-        searchNode.tableNode.reloadData()
+        reloadSearchTable()
         searchNode.tableNode.setContentOffset(.zero, animated: false)
 
         if activeTab == .messages && searchMessages.isEmpty && !searchQuery.isEmpty {
@@ -471,7 +532,7 @@ final class SearchViewController: ViewController {
     private func updateTabCounts() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         searchNode.tabBar.updateCounts(
-            members: filteredMembers.count,
+            members: filteredMembers.count + filteredDMGroups.count,
             channels: filteredChannels.count,
             messages: query.isEmpty ? nil : Int(messageTotalCount)
         )
@@ -514,7 +575,7 @@ final class SearchViewController: ViewController {
         messageCurrentPage = 0
         searchMessages = []
         fetchMessages()
-        searchNode.tableNode.reloadData()
+        reloadSearchTable()
         searchNode.searchBar.textField.becomeFirstResponder()
     }
 
@@ -772,9 +833,26 @@ extension SearchViewController: UITextFieldDelegate {
 
 extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
+    private var membersSectionCount: Int {
+        var count = 0
+        if !filteredDMGroups.isEmpty { count += 1 }
+        count += 1
+        return count
+    }
+
+    private var dmGroupSection: Int? {
+        filteredDMGroups.isEmpty ? nil : 0
+    }
+
+    private var membersSection: Int {
+        filteredDMGroups.isEmpty ? 0 : 1
+    }
+
     func numberOfSections(in tableNode: ASTableNode) -> Int {
         switch activeTab {
-        case .members, .channels:
+        case .members:
+            return membersSectionCount
+        case .channels:
             return 1
         case .messages:
             return groupedMessages.isEmpty ? 1 : groupedMessages.count
@@ -783,7 +861,12 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
         switch activeTab {
-        case .members:  return filteredMembers.isEmpty ? 1 : filteredMembers.count
+        case .members:
+            if section == dmGroupSection {
+                return filteredDMGroups.count
+            }
+            let totalItems = filteredMembers.count
+            return totalItems == 0 && filteredDMGroups.isEmpty ? 1 : totalItems
         case .channels: return filteredChannels.isEmpty ? 1 : filteredChannels.count
         case .messages:
             if groupedMessages.isEmpty { return 1 }
@@ -825,6 +908,13 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
         switch tab {
         case .members:
+            if indexPath.section == dmGroupSection {
+                let ch = filteredDMGroups[row]
+                let count = filteredDMGroups.count
+                let isFirst = row == 0
+                let isLast = row == count - 1
+                return { DMGroupSearchCellNode(channel: ch, isFirst: isFirst, isLast: isLast) }
+            }
             if filteredMembers.isEmpty {
                 return { SearchEmptyCellNode(text: "No members found") }
             }
@@ -871,6 +961,11 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
         switch activeTab {
         case .members:
+            if indexPath.section == dmGroupSection {
+                guard indexPath.row < filteredDMGroups.count else { return }
+                navigateToChannel(filteredDMGroups[indexPath.row])
+                return
+            }
             guard indexPath.row < filteredMembers.count else { return }
             if isPickingFilterUser {
                 selectFilterUser(filteredMembers[indexPath.row])
@@ -1492,9 +1587,11 @@ final class ChannelSearchCellNode: ASCellNode {
     private let hasClanName: Bool
 
     init(channel: Mezon_Api_ChannelDescription, isFirst: Bool = false, isLast: Bool = false) {
+        let isDMOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
         self.isFirst = isFirst
         self.isLast = isLast
-        self.hasClanName = !channel.clanName.isEmpty
+        self.hasClanName = !channel.clanName.isEmpty && !isDMOrGroup
         super.init()
         selectionStyle = .none
         let t = UIColor.theme
@@ -1504,30 +1601,54 @@ final class ChannelSearchCellNode: ASCellNode {
         cardNode.clipsToBounds = true
         addSubnode(cardNode)
 
-        let chType = ChannelType(rawValue: channel.type) ?? .unknown
-        let isThread = channel.parentID != 0
-
-        var iconName: String
-        if isThread {
-            iconName = channel.channelPrivate == 1
-                ? "Channel/channelThreadPrivate"
-                : "Channel/channelThread"
+        if isDMOrGroup {
+            let dmIcon = UIImage(systemName: channel.type == MezonConstants.ChannelType.group.rawValue ? "person.2.fill" : "person.fill")
+            iconImgNode.image = dmIcon?.withRenderingMode(.alwaysTemplate)
+            iconImgNode.tintColor = t.channelNormal
+            iconImgNode.contentMode = .scaleAspectFit
         } else {
-            iconName = chType.icon
-            if chType == .text && channel.channelPrivate == 1 {
-                iconName = "Channel/channelPrivate"
+            let chType = ChannelType(rawValue: channel.type) ?? .unknown
+            let isThread = channel.parentID != 0
+
+            var iconName: String
+            if isThread {
+                iconName = channel.channelPrivate == 1
+                    ? "Channel/channelThreadPrivate"
+                    : "Channel/channelThread"
+            } else {
+                iconName = chType.icon
+                if chType == .text && channel.channelPrivate == 1 {
+                    iconName = "Channel/channelPrivate"
+                }
             }
+
+            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            iconImgNode.image = image?.withRenderingMode(.alwaysTemplate)
+            iconImgNode.tintColor = t.channelNormal
+            iconImgNode.contentMode = .scaleAspectFit
         }
 
-        let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
-        iconImgNode.image = image?.withRenderingMode(.alwaysTemplate)
-        iconImgNode.tintColor = t.channelNormal
-        iconImgNode.contentMode = .scaleAspectFit
+        let displayLabel: String
+        if isDMOrGroup {
+            if !channel.channelLabel.isEmpty {
+                displayLabel = channel.channelLabel
+            } else if let first = channel.displayNames.first, !first.isEmpty {
+                displayLabel = channel.displayNames.joined(separator: ", ")
+            } else if let first = channel.usernames.first, !first.isEmpty {
+                displayLabel = channel.usernames.joined(separator: ", ")
+            } else if !channel.creatorName.isEmpty {
+                displayLabel = "\(channel.creatorName)'s Group"
+            } else {
+                displayLabel = "Chat"
+            }
+        } else {
+            displayLabel = channel.channelLabel
+        }
 
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
         nameNode.attributedText = NSAttributedString(
-            string: channel.channelLabel,
+            string: displayLabel,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
                 .foregroundColor: t.textStrong,
@@ -1824,5 +1945,120 @@ final class SearchFilterTooltipView: UIView {
             self.backgroundOverlay?.removeFromSuperview()
             self.removeFromSuperview()
         }
+    }
+}
+
+final class DMGroupSearchCellNode: ASCellNode {
+
+    private static let groupPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
+    private static let avatarSize: CGFloat = 40.sf
+    private static let margin: CGFloat = 12.sf
+    private static let padding: CGFloat = 16.sf
+    private static let cellHeight: CGFloat = 60.sh
+    private static let radius: CGFloat = 10.sf
+
+    private let avatarNode = ASNetworkImageNode()
+    private let groupIconNode = ASImageNode()
+    private let avatarBackplate = ASDisplayNode()
+    private let nameNode = ASTextNode2()
+    private let subtitleNode = ASTextNode2()
+    private let cardNode = ASDisplayNode()
+    private let isFirst: Bool
+    private let isLast: Bool
+    private let hasCustomAvatar: Bool
+
+    init(channel: Mezon_Api_ChannelDescription, isFirst: Bool = false, isLast: Bool = false) {
+        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
+        let avatarRaw = channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasAvatar = !avatarRaw.isEmpty && !avatarRaw.contains("avatar-group.png")
+        self.hasCustomAvatar = hasAvatar
+        self.isFirst = isFirst
+        self.isLast = isLast
+        super.init()
+        selectionStyle = .none
+        let t = UIColor.theme
+        backgroundColor = .clear
+
+        cardNode.backgroundColor = t.secondary
+        cardNode.clipsToBounds = true
+        addSubnode(cardNode)
+
+        avatarBackplate.cornerRadius = Self.avatarSize / 2
+        avatarBackplate.clipsToBounds = true
+
+        if hasAvatar {
+            avatarBackplate.backgroundColor = .clear
+            avatarNode.cornerRadius = Self.avatarSize / 2
+            avatarNode.clipsToBounds = true
+            avatarNode.contentMode = .scaleAspectFill
+            if let url = URL(string: ImgproxyURL.create(from: avatarRaw, width: 150, height: 150)) {
+                avatarNode.url = url
+            }
+            groupIconNode.isHidden = true
+        } else {
+            avatarBackplate.backgroundColor = Self.groupPlaceholderOrange
+            groupIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            groupIconNode.tintColor = .white
+            groupIconNode.contentMode = .scaleAspectFit
+            avatarNode.isHidden = true
+        }
+
+        let displayName = SearchViewController.dmGroupDisplayName(for: channel)
+        nameNode.maximumNumberOfLines = 1
+        nameNode.truncationMode = .byTruncatingTail
+        nameNode.attributedText = NSAttributedString(
+            string: displayName,
+            attributes: [.font: UIFont.systemFont(ofSize: 15.sf, weight: .medium), .foregroundColor: t.textStrong]
+        )
+
+        let memberCount = max(channel.usernames.count, channel.displayNames.count)
+        let subtitle = isGroup && memberCount > 0 ? "\(memberCount) members" : (isGroup ? "Group" : "Direct Message")
+        subtitleNode.maximumNumberOfLines = 1
+        subtitleNode.attributedText = NSAttributedString(
+            string: subtitle,
+            attributes: [.font: UIFont.systemFont(ofSize: 13.sf), .foregroundColor: t.textDisabled]
+        )
+
+        addSubnode(avatarBackplate)
+        addSubnode(avatarNode)
+        addSubnode(groupIconNode)
+        addSubnode(nameNode)
+        addSubnode(subtitleNode)
+    }
+
+    override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
+        CGSize(width: constrainedSize.width, height: Self.cellHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        let m = Self.margin
+        let p = Self.padding
+        let avatarSz = Self.avatarSize
+        let cardFrame = CGRect(x: m, y: 0, width: bounds.width - m * 2, height: bounds.height)
+        cardNode.frame = cardFrame
+        MemberSearchCellNode.applyCorners(to: cardNode, isFirst: isFirst, isLast: isLast)
+
+        let contentX = m + p
+        let avatarY = (bounds.height - avatarSz) / 2
+        let avatarFrame = CGRect(x: contentX, y: avatarY, width: avatarSz, height: avatarSz)
+        avatarBackplate.frame = avatarFrame
+        avatarNode.frame = avatarFrame
+
+        let iconSz: CGFloat = 20.sf
+        groupIconNode.frame = CGRect(
+            x: avatarFrame.midX - iconSz / 2,
+            y: avatarFrame.midY - iconSz / 2,
+            width: iconSz, height: iconSz
+        )
+
+        let textX = contentX + avatarSz + 12.sf
+        let textW = bounds.width - textX - m - p
+        let nameSize = nameNode.measure(CGSize(width: textW, height: 20))
+        let subSize = subtitleNode.measure(CGSize(width: textW, height: 18))
+        let totalH = nameSize.height + 2 + subSize.height
+        let textY = (bounds.height - totalH) / 2
+        nameNode.frame = CGRect(x: textX, y: textY, width: textW, height: nameSize.height)
+        subtitleNode.frame = CGRect(x: textX, y: textY + nameSize.height + 2, width: textW, height: subSize.height)
     }
 }

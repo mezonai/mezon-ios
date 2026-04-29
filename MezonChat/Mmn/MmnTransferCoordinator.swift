@@ -32,7 +32,6 @@ enum MmnTransferParse {
             extraAttribute: extra,
             receiverDisplayName: (rname?.isEmpty == false) ? rname : nil
         )
-        MmnDebugLog.line("QR transfer payload receiverId=\(rid ?? "nil") wallet=\(wa ?? "nil") amount=\(amount ?? "nil")")
         return p
     }
 }
@@ -62,10 +61,8 @@ enum MmnTransferCoordinator {
         MmnWalletStore.shared.bind(userId: userId)
         guard let zk = MmnWalletStore.shared.zkProofs,
               let ephemeral = MmnWalletStore.shared.ephemeralKeyPair() else {
-            MmnDebugLog.line("transfer fail: no cached zkProofs/ephemeralKey for userId=\(userId)")
             throw MmnTransferError.walletNotReady
         }
-        MmnDebugLog.line("transfer using cached zkProof.proof.len=\(zk.proof.count) eph.pub58.len=\(ephemeral.publicKeyBase58.count)")
         return (zk, ephemeral)
     }
 
@@ -75,13 +72,10 @@ enum MmnTransferCoordinator {
         amountInput: String,
         note: String
     ) async throws -> MmnAddTxResult {
-        MmnDebugLog.line("transfer begin amountInput=\"\(amountInput)\" noteLen=\(note.count)")
         guard let u = context.currentUser else {
-            MmnDebugLog.line("transfer fail: no current user")
             throw NSError(domain: "MmnTransfer", code: 1, userInfo: [NSLocalizedDescriptionKey: "No user"])
         }
         let senderUserId = u.id
-        MmnDebugLog.line("transfer sender id=\(senderUserId) username=\(u.username)")
         let (zk, ephemeral) = try loadCachedWalletCredentials(userId: senderUserId)
         let wallet = try await MmnClient.shared.getAccountByUserId(senderUserId)
         let isByAddress = payload.walletAddress != nil
@@ -91,17 +85,12 @@ enum MmnTransferCoordinator {
             return ""
         }()
         guard !recipientUserOrAddress.isEmpty else {
-            MmnDebugLog.line("transfer fail: missing recipient")
             throw NSError(domain: "MmnTransfer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Missing recipient"])
         }
-        MmnDebugLog.line("transfer isByAddress=\(isByAddress) recipientField=\(recipientUserOrAddress)")
         guard let scaled = MmnAmountScale.scaleToChainAmount(amountInput) else {
-            MmnDebugLog.line("transfer fail: invalid amount")
             throw NSError(domain: "MmnTransfer", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid amount"])
         }
-        MmnDebugLog.line("transfer scaledAmount=\(scaled) walletBalance=\(wallet.balance)")
         if !MmnAmountScale.hasEnoughBalance(walletBalance: wallet.balance, sendScaled: scaled) {
-            MmnDebugLog.line("transfer fail: insufficient balance")
             throw NSError(domain: "MmnTransfer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Insufficient balance"])
         }
         let senderAddr: String
@@ -113,14 +102,11 @@ enum MmnTransferCoordinator {
             senderAddr = MmnClient.addressFromUserId(senderUserId)
             recipientAddr = MmnClient.addressFromUserId(recipientUserOrAddress)
         }
-        MmnDebugLog.line("transfer senderAddr=\(senderAddr) recipientAddr=\(recipientAddr)")
         let nonceRes = try await MmnClient.shared.getCurrentNonce(address: senderAddr, tag: "pending")
         if let err = nonceRes.error, !err.isEmpty {
-            MmnDebugLog.line("transfer fail: nonce error=\(err)")
             throw NSError(domain: "MmnTransfer", code: 5, userInfo: [NSLocalizedDescriptionKey: err])
         }
         let n = nonceRes.nonce ?? 0
-        MmnDebugLog.line("transfer use nonce onChain=\(n) nextNonce=\(n + 1)")
         let extra: [String: String] = [
             "type": "transfer_token",
             "UserReceiverId": isByAddress ? recipientUserOrAddress : (payload.receiverUserId ?? recipientUserOrAddress),
@@ -144,9 +130,7 @@ enum MmnTransferCoordinator {
             zkProof: zk.proof,
             zkPub: zk.publicInput
         )
-        MmnDebugLog.line("transfer extraInfo=\(extraStr)")
         let body = try MmnTransactionSigner.buildSignedAddTxBody(tx: tx, signingKey: ephemeral.signingKey)
-        MmnDebugLog.line("transfer signing done, addTx…")
         let addResult = try await MmnClient.shared.addTx(signed: body)
         if addResult.ok == true {
             await MmnSendTokenLogMessage.sendAfterUserIdTransferIfNeeded(
@@ -170,7 +154,6 @@ enum MmnTransferCoordinator {
         giveCoffeeLock.lock()
         if isGiveCoffeeInFlight {
             giveCoffeeLock.unlock()
-            MmnDebugLog.line("giveCoffee rejected: in flight")
             throw MmnTransferError.giveCoffeeInProgress
         }
         isGiveCoffeeInFlight = true
@@ -181,32 +164,25 @@ enum MmnTransferCoordinator {
             giveCoffeeLock.unlock()
         }
 
-        MmnDebugLog.line("giveCoffee begin receiver=\(receiverUserId) ref=\(messageRefId) ch=\(messageChannelId) clan=\(messageClanId)")
         guard let u = context.currentUser else {
-            MmnDebugLog.line("giveCoffee fail: no current user")
             throw NSError(domain: "MmnTransfer", code: 1, userInfo: [NSLocalizedDescriptionKey: "No user"])
         }
         let senderUserId = u.id
         guard !receiverUserId.isEmpty, receiverUserId != senderUserId else {
-            MmnDebugLog.line("giveCoffee fail: bad receiver")
             throw NSError(domain: "MmnTransfer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid recipient"])
         }
         let (zk, ephemeral) = try loadCachedWalletCredentials(userId: senderUserId)
         let wallet = try await MmnClient.shared.getAccountByUserId(senderUserId)
         guard let scaled = MmnAmountScale.scaleToChainAmount(giveCoffeeAmountInput) else {
-            MmnDebugLog.line("giveCoffee fail: invalid amount")
             throw NSError(domain: "MmnTransfer", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid amount"])
         }
-        MmnDebugLog.line("giveCoffee walletBalance=\(wallet.balance) scaled=\(scaled)")
         if !MmnAmountScale.hasEnoughBalance(walletBalance: wallet.balance, sendScaled: scaled) {
-            MmnDebugLog.line("giveCoffee fail: insufficient balance")
             throw NSError(domain: "MmnTransfer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Insufficient balance"])
         }
         let senderAddr = MmnClient.addressFromUserId(senderUserId)
         let recipientAddr = MmnClient.addressFromUserId(receiverUserId)
         let nonceRes = try await MmnClient.shared.getCurrentNonce(address: senderAddr, tag: "pending")
         if let err = nonceRes.error, !err.isEmpty {
-            MmnDebugLog.line("giveCoffee fail: nonce err=\(err)")
             throw NSError(domain: "MmnTransfer", code: 5, userInfo: [NSLocalizedDescriptionKey: err])
         }
         let n = nonceRes.nonce ?? 0
@@ -235,7 +211,6 @@ enum MmnTransferCoordinator {
             zkProof: zk.proof,
             zkPub: zk.publicInput
         )
-        MmnDebugLog.line("giveCoffee extraInfo=\(extraStr)")
         let body = try MmnTransactionSigner.buildSignedAddTxBody(tx: tx, signingKey: ephemeral.signingKey)
         let addResult = try await MmnClient.shared.addTx(signed: body)
         if addResult.ok == true, let rec = Int64(receiverUserId) {
@@ -245,7 +220,6 @@ enum MmnTransferCoordinator {
                     receiverUserId: rec
                 )
             } catch {
-                MmnDebugLog.line("giveCoffee: sendTokenLogMessage \(error.localizedDescription)")
             }
         }
         return addResult

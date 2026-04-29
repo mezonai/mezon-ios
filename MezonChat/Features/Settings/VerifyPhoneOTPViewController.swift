@@ -225,24 +225,20 @@ final class VerifyPhoneOTPViewController: BaseViewController {
 
     private func handleVerify(_ otp: String) {
         setLoading(true)
-        print("[VerifyPhoneOTP] Start verify. reqId=\(requestId), phone=\(phoneNumber), otpLength=\(otp.count)")
 
         Task { @MainActor in
             do {
                 guard let token = await context.getToken() else {
-                    print("[VerifyPhoneOTP] Missing auth token")
                     setLoading(false)
                     isError = true
                     return
                 }
-                print("[VerifyPhoneOTP] Got token. Calling confirmLinkPhoneOTP API...")
 
                 try await context.account.network.confirmLinkPhoneOTP(
                     reqId: requestId,
                     otpCode: otp,
                     token: token
                 )
-                print("[VerifyPhoneOTP] confirmLinkPhoneOTP success")
 
                 if var user = context.currentUser {
                     user.phoneNumber = phoneNumber
@@ -255,14 +251,7 @@ final class VerifyPhoneOTPViewController: BaseViewController {
             } catch {
                 setLoading(false)
                 isError = true
-                if let mezonError = error as? MezonError,
-                   case .httpError(_, let msg) = mezonError {
-                    print("[VerifyPhoneOTP] confirm HTTP error: \(msg)")
-                    showVerifyFailedToast()
-                } else {
-                    print("[VerifyPhoneOTP] confirm unknown error: \(error)")
-                    showVerifyFailedToast()
-                }
+                showVerifyFailedToast()
             }
         }
     }

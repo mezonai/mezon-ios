@@ -3275,8 +3275,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         disposables.dispose()
         mentionDisposables.dispose()
-        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: Self.emojiListDidUpdateNotification, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
 
