@@ -374,6 +374,28 @@ final class MezonHTTPClient {
         )
     }
 
+    func createThreadChannelDesc(
+        clanId: Int64,
+        parentChannelId: Int64,
+        categoryId: Int64,
+        channelLabel: String,
+        channelPrivate: Int32,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_CreateChannelDescRequest()
+        req.clanID = clanId
+        req.parentID = parentChannelId
+        req.categoryID = categoryId
+        req.channelLabel = channelLabel
+        req.type = MezonConstants.ChannelType.thread.rawValue
+        req.channelPrivate = channelPrivate
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listFavoriteChannelIds(clanId: Int64, token: String) async throws -> [Int64] {
         var req = Mezon_Api_ListFavoriteChannelRequest()
         req.clanID = clanId

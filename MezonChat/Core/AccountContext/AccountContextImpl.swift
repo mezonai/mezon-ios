@@ -498,6 +498,26 @@ final class AccountContextImpl: AccountContext {
         )
     }
 
+    private func subscribeSocketRoomsForMergedChannel(_ channel: Mezon_Api_ChannelDescription) {
+        guard account.socket.isConnected else { return }
+        let clanId = channel.clanID
+        guard clanId != 0 else { return }
+        account.socket.joinClanChat(clanId: clanId)
+        let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
+        let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
+        account.socket.joinChannel(
+            clanId: clanId,
+            channelId: channel.channelID,
+            channelType: channelType,
+            isPublic: isPublic
+        )
+        NotificationCenter.default.post(
+            name: Notification.Name("MezonJoinedClanChatForBadges"),
+            object: nil,
+            userInfo: ["clanId": clanId]
+        )
+    }
+
     private static func shouldIncrementDmBadgeForSocketMessage(
         _ message: Mezon_Api_ChannelMessage,
         channelId: Int64,
@@ -741,6 +761,12 @@ final class AccountContextImpl: AccountContext {
                     "unpinnedMessageId": NSNumber(value: e.messageID),
                 ]
             )
+
+        case .userChannelAdded(let ev):
+            guard let myId = currentUserNumericId() else { break }
+            if let desc = engine.clanData.applyUserChannelAddedFromSocket(ev, currentUserNumericId: myId) {
+                subscribeSocketRoomsForMergedChannel(desc)
+            }
 
         default:
             break

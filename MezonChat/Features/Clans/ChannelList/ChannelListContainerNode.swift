@@ -1523,7 +1523,7 @@ final class ChannelListHeaderView: UIView {
         let mainStack = UIStackView(arrangedSubviews: [titleStack, infoRow, actionRow])
         mainStack.axis = .vertical
         mainStack.spacing = 4
-        mainStack.setCustomSpacing(8, after: titleStack)
+        mainStack.setCustomSpacing(2, after: titleStack)
         mainStack.setCustomSpacing(10, after: infoRow)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 

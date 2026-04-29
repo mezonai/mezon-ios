@@ -40,4 +40,31 @@ enum ReactionEmojiImageLoader {
         }
         return load(from: url, completion: completion)
     }
+
+    @discardableResult
+    static func loadEmojiBestEffort(
+        emojiId: String, imgproxyFitSide: Int, completion: @escaping (UIImage?) -> Void
+    ) -> URLSessionDataTask? {
+        guard let proxied = MezonConfig.emojiResourceURL(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide)
+        else {
+            if let direct = MezonConfig.emojiImageURL(emojiId: emojiId) {
+                return load(from: direct, completion: completion)
+            }
+            DispatchQueue.main.async { completion(nil) }
+            return nil
+        }
+        return load(from: proxied) { image in
+            if let image {
+                completion(image)
+                return
+            }
+            guard let direct = MezonConfig.emojiImageURL(emojiId: emojiId),
+                direct.absoluteString != proxied.absoluteString
+            else {
+                completion(nil)
+                return
+            }
+            _ = load(from: direct, completion: completion)
+        }
+    }
 }

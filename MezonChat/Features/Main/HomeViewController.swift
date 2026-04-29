@@ -130,7 +130,10 @@ final class HomeViewController: BaseViewController {
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
 
-        let clanLayout = layout.withUpdatedSize(CGSize(width: clanSidebarWidth, height: layout.size.height))
+        let clanOriginLayout = layout.withUpdatedSize(CGSize(width: clanSidebarWidth, height: layout.size.height))
+        let si = layout.safeInsets
+        let clanLayout = clanOriginLayout.withUpdatedSafeInsets(
+            UIEdgeInsets(top: si.top, left: 0, bottom: si.bottom, right: 0))
         clanListVC.containerLayoutUpdated(clanLayout, transition: transition)
 
         let channelWidth = max(0, layout.size.width - clanSidebarWidth)
