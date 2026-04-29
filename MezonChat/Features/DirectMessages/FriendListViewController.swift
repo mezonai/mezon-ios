@@ -30,6 +30,7 @@ final class FriendListViewController: ViewController {
     private var refreshTask: Task<Void, Never>?
     private var searchDebounceWorkItem: DispatchWorkItem?
     private var friendsUpdatedDisposable: Disposable?
+    private var lastStateSignature: String?
 
     private var friendListNode: FriendListContainerNode { displayNode as! FriendListContainerNode }
 
@@ -41,6 +42,8 @@ final class FriendListViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
+        syncFromGlobalFriendState()
+
         let interaction = FriendListInteraction(
             onBackTapped: { [weak self] in
                 self?.navigationController?.popViewController(animated: true)
@@ -175,6 +178,9 @@ final class FriendListViewController: ViewController {
             }
         }
         groups = groupByAlphabet(filteredFriends)
+        let signature = makeStateSignature()
+        guard signature != lastStateSignature else { return }
+        lastStateSignature = signature
         needsReloadPipe.putNext(())
     }
 
@@ -256,6 +262,28 @@ final class FriendListViewController: ViewController {
     }
 
     private func handleCallFriend(_ friend: Mezon_Api_Friend) {
+    }
+
+    private func makeStateSignature() -> String {
+        let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var parts: [String] = []
+        parts.reserveCapacity(groups.count + 3)
+        parts.append("rq:\(receivedRequestCount)")
+        parts.append("sq:\(sentRequestCount)")
+        parts.append("q:\(normalizedSearch)")
+
+        for group in groups {
+            let ids = group.friends.map { friend -> String in
+                let user = friend.user
+                if user.id != 0 {
+                    return "\(user.id)"
+                }
+                return user.username + "|" + user.displayName
+            }.joined(separator: ",")
+            parts.append("\(group.character):\(ids)")
+        }
+
+        return parts.joined(separator: ";")
     }
 
     private func showMemberProfile(_ friend: Mezon_Api_Friend) {
