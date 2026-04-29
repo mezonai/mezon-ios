@@ -134,13 +134,14 @@ final class ClanListContainerNode: ASDisplayNode {
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        view.layoutIfNeeded()
         let topY: CGFloat = 0
-        let contentWidth = layout.size.width
-        let containerHeight = (isNodeLoaded && view.bounds.height > 0) ? view.bounds.height : layout.size.height
+        let contentWidth = effectiveContentDimension(layoutSize: layout.size.width, viewDimension: view.bounds.width)
+        let containerHeight = effectiveContentDimension(layoutSize: layout.size.height, viewDimension: view.bounds.height)
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        gradientLayer.frame = CGRect(origin: .zero, size: CGSize(width: layout.size.width, height: containerHeight))
+        gradientLayer.frame = CGRect(origin: .zero, size: CGSize(width: contentWidth, height: containerHeight))
         CATransaction.commit()
 
         let logoTopPad: CGFloat = 0
@@ -164,6 +165,14 @@ final class ClanListContainerNode: ASDisplayNode {
             x: 0, y: topY + logoHeaderHeight, width: contentWidth,
             height: containerHeight - topY - logoHeaderHeight - layout.intrinsicInsets.bottom
         ))
+        collectionView.collectionViewLayout.invalidateLayout()
+    }
+
+    private func effectiveContentDimension(layoutSize: CGFloat, viewDimension: CGFloat) -> CGFloat {
+        if viewDimension > 0.5 {
+            return viewDimension
+        }
+        return max(1, layoutSize)
     }
 
     func applyTheme() {

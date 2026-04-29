@@ -447,6 +447,23 @@ enum L10n {
         static let searchThread = "threadList.searchThread"
         static let searchThreads = "threadList.searchThreads"
         static let createThreadSoon = "threadList.createThreadSoon"
+        static let createThreadTitle = "threadList.createThreadTitle"
+        static let createThreadNameLabel = "threadList.createThreadNameLabel"
+        static let createThreadNamePlaceholder = "threadList.createThreadNamePlaceholder"
+        static let createThreadPrivateTitle = "threadList.createThreadPrivateTitle"
+        static let createThreadPrivateSubtitle = "threadList.createThreadPrivateSubtitle"
+        static let createThreadSubmit = "threadList.createThreadSubmit"
+        static let createThreadCancel = "threadList.createThreadCancel"
+        static let createThreadNameInvalid = "threadList.createThreadNameInvalid"
+        static let createThreadFailed = "threadList.createThreadFailed"
+        static let createThreadSuccess = "threadList.createThreadSuccess"
+        static let createThreadInChannel = "threadList.createThreadInChannel"
+        static let createThreadPublicTitle = "threadList.createThreadPublicTitle"
+        static let createThreadPublicSubtitle = "threadList.createThreadPublicSubtitle"
+        static let createThreadBadgePublic = "threadList.createThreadBadgePublic"
+        static let createThreadBadgePrivate = "threadList.createThreadBadgePrivate"
+        static let createThreadFirstMessageSection = "threadList.createThreadFirstMessageSection"
+        static let createThreadFirstMessagePlaceholder = "threadList.createThreadFirstMessagePlaceholder"
     }
 
     enum Channel {
@@ -907,6 +924,23 @@ extension L10n {
         "threadList.searchThread": "search result",
         "threadList.searchThreads": "search results",
         "threadList.createThreadSoon": "Create thread is not available here yet.",
+        "threadList.createThreadTitle": "New thread",
+        "threadList.createThreadNameLabel": "Thread name",
+        "threadList.createThreadNamePlaceholder": "New thread",
+        "threadList.createThreadPrivateTitle": "Private thread",
+        "threadList.createThreadPrivateSubtitle": "Only people you invite can access this thread.",
+        "threadList.createThreadSubmit": "Create",
+        "threadList.createThreadCancel": "Cancel",
+        "threadList.createThreadNameInvalid": "Enter a name up to 64 characters.",
+        "threadList.createThreadFailed": "Could not create thread.",
+        "threadList.createThreadSuccess": "Thread created.",
+        "threadList.createThreadInChannel": "In #%@",
+        "threadList.createThreadPublicTitle": "Public thread",
+        "threadList.createThreadPublicSubtitle": "Anyone who can access this channel can find and join this thread.",
+        "threadList.createThreadBadgePublic": "PUBLIC",
+        "threadList.createThreadBadgePrivate": "PRIVATE",
+        "threadList.createThreadFirstMessageSection": "First message",
+        "threadList.createThreadFirstMessagePlaceholder": "Optional — use @ to mention someone",
 
         "channel.label":  "channel",
         "channel.thread": "Threads",
@@ -1437,6 +1471,23 @@ extension L10n {
         "threadList.searchThread": "kết quả",
         "threadList.searchThreads": "kết quả",
         "threadList.createThreadSoon": "Tạo chủ đề từ đây sẽ có trong bản cập nhật sau.",
+        "threadList.createThreadTitle": "Chủ đề mới",
+        "threadList.createThreadNameLabel": "Tên chủ đề",
+        "threadList.createThreadNamePlaceholder": "Chủ đề mới",
+        "threadList.createThreadPrivateTitle": "Chủ đề riêng tư",
+        "threadList.createThreadPrivateSubtitle": "Chỉ những người được mời mới vào được chủ đề này.",
+        "threadList.createThreadSubmit": "Tạo",
+        "threadList.createThreadCancel": "Hủy",
+        "threadList.createThreadNameInvalid": "Nhập tên không quá 64 ký tự.",
+        "threadList.createThreadFailed": "Không tạo được chủ đề.",
+        "threadList.createThreadSuccess": "Đã tạo chủ đề.",
+        "threadList.createThreadInChannel": "Trong #%@",
+        "threadList.createThreadPublicTitle": "Chủ đề công khai",
+        "threadList.createThreadPublicSubtitle": "Mọi người vào được kênh này đều có thể thấy và tham gia chủ đề.",
+        "threadList.createThreadBadgePublic": "CÔNG KHAI",
+        "threadList.createThreadBadgePrivate": "RIÊNG TƯ",
+        "threadList.createThreadFirstMessageSection": "Tin nhắn đầu",
+        "threadList.createThreadFirstMessagePlaceholder": "Tuỳ chọn — gõ @ để nhắc người khác",
 
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",

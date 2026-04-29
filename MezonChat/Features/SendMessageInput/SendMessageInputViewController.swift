@@ -90,6 +90,12 @@ final class SendMessageInputViewController: UIViewController {
     var onSent: (() -> Void)?
     var onError: ((String) -> Void)?
     var onHeightChanged: ((CGFloat) -> Void)?
+    var primarySendActionOverride: (() -> Void)?
+    var alwaysShowAttachToolbarWhileTyping: Bool = false
+    var hidesAdvanceComposerButton: Bool = false
+    var suppressStoredComposerDraftRestoreOnLoad: Bool = false
+    var skipsPersistingComposerDraftOnLifecycleEnd: Bool = false
+    var skipOptimisticPendingMessageOnSend: Bool = false
 
     var inputBarBottomConstraint: NSLayoutConstraint?
     private var previewHeightConstraint: NSLayoutConstraint?
@@ -413,7 +419,12 @@ final class SendMessageInputViewController: UIViewController {
         setupBindings()
         setupThemeObserver()
         applyTheme()
-        restoreComposerDraftAndAttachmentsForCurrentKey()
+        if suppressStoredComposerDraftRestoreOnLoad {
+            resetComposerVisualDraftState()
+            onHeightChanged?(totalHeight)
+        } else {
+            restoreComposerDraftAndAttachmentsForCurrentKey()
+        }
         loadClanMembers()
         bindMentionDataUpdates()
         reloadEmojiSuggestionList()
@@ -517,16 +528,43 @@ final class SendMessageInputViewController: UIViewController {
         loadClanMembers()
     }
 
-    func syncStoredDraftIdentity(channel newChannel: Mezon_Api_ChannelDescription, topicId newTopicId: Int64) {
+    func syncStoredDraftIdentity(
+        channel newChannel: Mezon_Api_ChannelDescription,
+        topicId newTopicId: Int64,
+        migrateDraftToNewChannelIdentity: Bool = false,
+        preserveComposerContentsDuringMigration: Bool = false
+    ) {
         guard newChannel.channelID != channel.channelID || newTopicId != topicId else { return }
+        let backupPickedImages = (migrateDraftToNewChannelIdentity && !preserveComposerContentsDuringMigration) ? pickedImages : []
+        let oldKey = draftStorageKey(for: channel, topicId: topicId)
+        let oldAttachmentCacheKey = cacheKey
         if viewIfLoaded?.window != nil {
             stashCurrentComposerDraftIfNeeded()
         }
+        let preservedDraft = migrateDraftToNewChannelIdentity ? Self.channelTextDraftCache[oldKey] : nil
+        let preservedAttachmentImages = migrateDraftToNewChannelIdentity ? Self.channelAttachmentCache[oldAttachmentCacheKey] : nil
         channel = newChannel
         topicId = newTopicId
+        if migrateDraftToNewChannelIdentity, let preservedDraft {
+            let newKey = draftStorageKey(for: channel, topicId: topicId)
+            Self.channelTextDraftCache[newKey] = preservedDraft
+        }
+        if migrateDraftToNewChannelIdentity, let imgs = preservedAttachmentImages, !imgs.isEmpty {
+            Self.channelAttachmentCache[cacheKey] = imgs
+        }
         rebindMentionForCurrentChannel()
+        if preserveComposerContentsDuringMigration && migrateDraftToNewChannelIdentity {
+            saveToCache()
+            return
+        }
         if viewIfLoaded?.window != nil {
             restoreComposerDraftAndAttachmentsForCurrentKey()
+        }
+        if migrateDraftToNewChannelIdentity, !backupPickedImages.isEmpty {
+            pickedImages = backupPickedImages
+            attachmentPreviewView.setImages(backupPickedImages)
+            saveToCache()
+            updatePreviewVisibility()
         }
     }
 
@@ -740,6 +778,13 @@ final class SendMessageInputViewController: UIViewController {
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
     }
 
+    func hasComposerSendPayload() -> Bool {
+        let trimmed = buildPlainTextFromAttributed().trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return true }
+        if !pickedImages.isEmpty || !pickedFiles.isEmpty { return true }
+        return false
+    }
+
     @objc private func clearReplyAction() {
         if editingDisplay != nil {
             clearEditingMessage()
@@ -751,7 +796,13 @@ final class SendMessageInputViewController: UIViewController {
     @objc private func openPhotoPickerAction() { openPhotoPicker() }
     @objc private func toggleAdvancePanelAction() { toggleAdvancePanel() }
     @objc private func toggleEmojiPickerAction() { toggleEmojiPicker() }
-    @objc private func sendAction() { send() }
+    @objc private func sendAction() {
+        if let primarySendActionOverride {
+            primarySendActionOverride()
+        } else {
+            send()
+        }
+    }
     @objc private func anonymousIndicatorTapped() {
         guard clanId != 0, !clanPreventAnonymous else { return }
         _ = AnonymousMessageStore.toggle(clanId: clanId)
@@ -1567,6 +1618,12 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func syncAttachControlsWithTypedText() {
+        if alwaysShowAttachToolbarWhileTyping {
+            if isAttachControlCollapsed {
+                expandAttachControls()
+            }
+            return
+        }
         let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if hasText {
             if !isAttachControlCollapsed {
@@ -1698,6 +1755,12 @@ final class SendMessageInputViewController: UIViewController {
         let advW = advanceButton.widthAnchor.constraint(equalToConstant: btnSize)
         advanceButtonWidthConstraint = advW
         advW.isActive = true
+        if hidesAdvanceComposerButton {
+            advanceButtonWidthConstraint?.constant = 0
+            advanceButton.alpha = 0
+            advanceButton.isHidden = true
+            advanceButton.isUserInteractionEnabled = false
+        }
 
         voiceRecordingOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(voiceRecordingOverlay)
@@ -1750,15 +1813,22 @@ final class SendMessageInputViewController: UIViewController {
 
         chevronButtonWidthConstraint?.constant = 0
         attachButtonWidthConstraint?.constant = btnSize
-        advanceButtonWidthConstraint?.constant = btnSize
+        advanceButtonWidthConstraint?.constant = hidesAdvanceComposerButton ? 0 : btnSize
 
         UIView.performWithoutAnimation {
             self.chevronButton.alpha = 0
             self.chevronButton.transform = .identity
             self.attachButton.alpha = 1
-            self.advanceButton.alpha = 1
             self.attachButton.transform = .identity
-            self.advanceButton.transform = .identity
+            if self.hidesAdvanceComposerButton {
+                self.advanceButton.alpha = 0
+                self.advanceButton.isHidden = true
+                self.advanceButton.transform = .identity
+            } else {
+                self.advanceButton.alpha = 1
+                self.advanceButton.isHidden = false
+                self.advanceButton.transform = .identity
+            }
             self.inputBarView.layoutIfNeeded()
         }
     }
@@ -3263,11 +3333,15 @@ final class SendMessageInputViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        stashCurrentComposerDraftIfNeeded()
+        if !skipsPersistingComposerDraftOnLifecycleEnd {
+            stashCurrentComposerDraftIfNeeded()
+        }
     }
 
     deinit {
-        stashCurrentComposerDraftIfNeeded()
+        if !skipsPersistingComposerDraftOnLifecycleEnd {
+            stashCurrentComposerDraftIfNeeded()
+        }
         voiceAudioRecorder?.stop()
         voiceRecordingOverlay.tearDown()
         if let u = voiceRecordingFileURL {
@@ -3768,10 +3842,10 @@ final class SendMessageInputViewController: UIViewController {
         let imagesToUpload = images
         let fileURLsToUpload = pickedFileURLs
         let filesToUpload = pickedFiles
-        if !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous {
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
-        if !isEdit, !filesToUpload.isEmpty, !sendAsAnonymous {
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !filesToUpload.isEmpty, !sendAsAnonymous {
             ParsedAttachment.pendingDocumentPlaceholders[localId] = filesToUpload.map { file in
                 ParsedAttachment(
                     url: "",
@@ -3905,7 +3979,7 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        if !isEdit, !sendAsAnonymous, let sender = context.currentUser {
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, let sender = context.currentUser {
             let referencesData: Data = {
                 guard let ref = replyRef else { return Data() }
                 var list = Mezon_Api_MessageRefList()
@@ -4061,7 +4135,7 @@ final class SendMessageInputViewController: UIViewController {
                         ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: key)
                     }
                 } else {
-                    _ = try await self.context.account.network.sendChannelMessage(
+                    let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
                         mode: mode,
@@ -4076,14 +4150,51 @@ final class SendMessageInputViewController: UIViewController {
                         topicId: self.topicId,
                         token: token
                     )
-                }
-                if !isEdit, !sendAsAnonymous {
-                    self.context.account.postbox.write { tx in
-                        let msgs = tx.getMessages(channelId: channelIdStr)
-                        let pendingStillExists = msgs.contains { $0.id == localId }
-                        if pendingStillExists {
-                            tx.markMessageSent(id: localId)
-                        } else {
+                    if !sendAsAnonymous {
+                        self.context.account.postbox.write { tx in
+                            guard ack.messageID != 0 else {
+                                let msgs = tx.getMessages(channelId: channelIdStr)
+                                if msgs.contains(where: { $0.id == localId }) {
+                                    tx.markMessageSent(id: localId)
+                                }
+                                return
+                            }
+                            guard let pending = tx.getMessageById(localId) else {
+                                return
+                            }
+                            let attachmentsJSON: Data = {
+                                guard !uploadedAttachments.isEmpty else { return pending.attachmentsJSON }
+                                var list = Mezon_Api_MessageAttachmentList()
+                                list.attachments = uploadedAttachments
+                                return (try? list.serializedData()) ?? pending.attachmentsJSON
+                            }()
+                            let createdAt: Date = ack.createTimeSeconds > 0
+                                ? Date(timeIntervalSince1970: TimeInterval(ack.createTimeSeconds))
+                                : pending.createdAt
+                            let editedAt: Date? = ack.updateTimeSeconds > ack.createTimeSeconds && ack.updateTimeSeconds > 0
+                                ? Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
+                                : nil
+                            let merged = MessageRecord(
+                                id: "\(ack.messageID)",
+                                channelId: pending.channelId,
+                                clanId: pending.clanId,
+                                senderId: pending.senderId,
+                                content: pending.content,
+                                createdAt: createdAt,
+                                editedAt: editedAt,
+                                isDeleted: pending.isDeleted,
+                                code: ack.code,
+                                senderDisplayName: pending.senderDisplayName,
+                                senderAvatarURL: pending.senderAvatarURL,
+                                sendingState: .sent,
+                                attachmentsJSON: attachmentsJSON,
+                                reactionsJSON: pending.reactionsJSON,
+                                referencesData: pending.referencesData,
+                                mentionsJSON: pending.mentionsJSON
+                            )
+                            tx.replaceMessage(pendingId: localId, with: merged)
+                        }
+                        if ack.messageID != 0 {
                             ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                             ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                         }

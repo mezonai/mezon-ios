@@ -53,13 +53,26 @@ final class ChannelDetailViewController: ViewController {
             channel.type == MezonConstants.ChannelType.thread.rawValue
             ? channel.parentID
             : channel.channelID
+        let composerSurface = Self.surfaceChannelForThreadComposer(from: channel)
         let vc = ThreadListViewController(
             context: context,
             clanId: clanId,
             parentChannelId: parentId,
-            parentChannelLabel: channel.channelLabel
+            parentCategoryId: channel.categoryID,
+            parentChannelLabel: channel.channelLabel,
+            composerParentChannel: composerSurface
         )
         navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private static func surfaceChannelForThreadComposer(from channel: Mezon_Api_ChannelDescription)
+        -> Mezon_Api_ChannelDescription {
+        guard channel.type == MezonConstants.ChannelType.thread.rawValue else { return channel }
+        var d = channel
+        d.channelID = channel.parentID
+        d.parentID = 0
+        d.type = MezonConstants.ChannelType.forum.rawValue
+        return d
     }
 
     private func openChannelSearch() {

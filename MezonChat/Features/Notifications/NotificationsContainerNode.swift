@@ -33,7 +33,7 @@ enum NotificationItem {
 
     var content: String {
         switch self {
-        case .notification(let n): return n.content
+        case .notification(let n): return n.previewText
         case .topic(let t):
 
             let msgText: String

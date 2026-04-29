@@ -454,6 +454,19 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
+    }
+
+    @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
+        guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard gid == clanId, clanId != 0 else { return }
+        if let p = readValidatedChannelCache(clanId: clanId) {
+            applyChannelCachePayload(channels: p.channels, meta: p.meta)
+        } else if NetworkMonitor.shared.isConnected {
+            fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+        }
+        persistSelectedChannel()
+        needsReloadPipe.putNext(())
     }
 
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {

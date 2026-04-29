@@ -301,7 +301,6 @@ final class ReactionPillNode: ASDisplayNode {
     private var pendingImage: UIImage?
     private var imageTask: URLSessionDataTask?
     private var retryCount = 0
-    private var currentURL: URL?
     private static let maxRetries = 2
     private static let emojiSize: CGFloat = 20
     private static let pillHeight: CGFloat = 28
@@ -331,10 +330,13 @@ final class ReactionPillNode: ASDisplayNode {
         addSubnode(emojiImageNode)
 
         let fallbackText = !reaction.emoji.isEmpty ? reaction.emoji : "?"
+        emojiFallbackNode.maximumNumberOfLines = 1
+        emojiFallbackNode.truncationMode = .byClipping
         emojiFallbackNode.attributedText = NSAttributedString(
             string: fallbackText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 16.sf),
+                .foregroundColor: t.textStrong,
             ]
         )
         addSubnode(emojiFallbackNode)
@@ -348,11 +350,11 @@ final class ReactionPillNode: ASDisplayNode {
         )
         addSubnode(countNode)
 
-        let url = MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100)
-        currentURL = url
-        if let url = url {
+        if MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100) != nil
+            || MezonConfig.emojiImageURL(emojiId: reaction.emojiId) != nil
+        {
             emojiFallbackNode.isHidden = true
-            loadEmojiImage(url: url)
+            loadEmojiImage()
         } else {
             emojiImageNode.isHidden = true
         }
@@ -377,6 +379,9 @@ final class ReactionPillNode: ASDisplayNode {
     }
 
     func update(reaction: ParsedReaction) {
+        let priorEmojiId = emojiId
+        emojiId = reaction.emojiId
+
         let t = UIColor.theme
         countNode.attributedText = NSAttributedString(
             string: "\(reaction.count)",
@@ -395,10 +400,35 @@ final class ReactionPillNode: ASDisplayNode {
             borderColor = nil
         }
 
-        if emojiImageNode.isHidden, let url = currentURL {
-            retryCount = 0
-            emojiFallbackNode.isHidden = true
-            loadEmojiImage(url: url)
+        let fallbackText = !reaction.emoji.isEmpty ? reaction.emoji : "?"
+        emojiFallbackNode.attributedText = NSAttributedString(
+            string: fallbackText,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 16.sf),
+                .foregroundColor: t.textStrong,
+            ]
+        )
+
+        let hasLoadURL =
+            MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100) != nil
+            || MezonConfig.emojiImageURL(emojiId: reaction.emojiId) != nil
+
+        if hasLoadURL {
+            if priorEmojiId != reaction.emojiId {
+                retryCount = 0
+                imageTask?.cancel()
+                pendingImage = nil
+                if emojiImageNode.isNodeLoaded {
+                    (emojiImageNode.view as? UIImageView)?.image = nil
+                }
+                emojiFallbackNode.isHidden = true
+                emojiImageNode.isHidden = false
+                loadEmojiImage()
+            }
+        } else {
+            imageTask?.cancel()
+            emojiImageNode.isHidden = true
+            emojiFallbackNode.isHidden = false
         }
 
         setNeedsLayout()
@@ -410,9 +440,11 @@ final class ReactionPillNode: ASDisplayNode {
         return CGSize(width: width, height: Self.pillHeight.sh)
     }
 
-    private func loadEmojiImage(url: URL) {
+    private func loadEmojiImage() {
         imageTask?.cancel()
-        imageTask = ReactionEmojiImageLoader.load(from: url) { [weak self] image in
+        imageTask = ReactionEmojiImageLoader.loadEmojiBestEffort(
+            emojiId: emojiId, imgproxyFitSide: 100
+        ) { [weak self] image in
             guard let self else { return }
             if let image {
                 self.retryCount = 0
@@ -424,7 +456,7 @@ final class ReactionPillNode: ASDisplayNode {
                 let delay = Double(self.retryCount) * 2.0
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     guard let self else { return }
-                    self.loadEmojiImage(url: url)
+                    self.loadEmojiImage()
                 }
             } else {
                 self.emojiImageNode.isHidden = true

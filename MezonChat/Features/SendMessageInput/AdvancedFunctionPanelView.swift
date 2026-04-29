@@ -59,7 +59,11 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
     private var actionItems: [AdvancedFunctionItem] = []
     private var gridHeightConstraint: NSLayoutConstraint?
 
-    static func defaultActionItems(anonymousOn: Bool, includeAnonymous: Bool) -> [AdvancedFunctionItem] {
+    static func defaultActionItems(
+        anonymousOn: Bool,
+        includeAnonymous: Bool,
+        includeCreateThread: Bool = false
+    ) -> [AdvancedFunctionItem] {
         var items: [AdvancedFunctionItem] = []
         if !anonymousOn {
             items.append(AdvancedFunctionItem(id: "location", label: "Location", systemIcon: "location.fill",
@@ -71,6 +75,14 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
             AdvancedFunctionItem(id: "buzz", label: "Buzz", systemIcon: "megaphone.fill",
                                  backgroundColor: UIColor(red: 0.83, green: 0.40, blue: 0.48, alpha: 1)),
         ])
+        if includeCreateThread {
+            items.append(AdvancedFunctionItem(
+                id: "create_thread",
+                label: L(L10n.MessageAction.createThread),
+                systemIcon: "bubble.left.and.bubble.right.fill",
+                backgroundColor: UIColor(red: 0.45, green: 0.52, blue: 0.92, alpha: 1)
+            ))
+        }
         if includeAnonymous {
             let anonLabel = anonymousOn ? "Anonymous\nOn" : "Anonymous"
             items.append(AdvancedFunctionItem(id: "anonymous", label: anonLabel, systemIcon: "Chat/AnonymousIcon",
@@ -88,7 +100,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
-        actionItems = Self.defaultActionItems(anonymousOn: false, includeAnonymous: true)
+        actionItems = Self.defaultActionItems(anonymousOn: false, includeAnonymous: true, includeCreateThread: false)
         setupLayout()
         setupGrid()
         setupGestures()

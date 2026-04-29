@@ -6,7 +6,9 @@ final class ThreadListViewController: ViewController {
     private let context: AccountContext
     private let clanId: Int64
     private let parentChannelId: Int64
+    private let parentCategoryId: Int64
     private let parentChannelLabel: String
+    private let composerParentChannel: Mezon_Api_ChannelDescription
 
     private let headerBar = UIView()
     private let backButton = UIButton(type: .system)
@@ -38,12 +40,16 @@ final class ThreadListViewController: ViewController {
         context: AccountContext,
         clanId: Int64,
         parentChannelId: Int64,
-        parentChannelLabel: String
+        parentCategoryId: Int64,
+        parentChannelLabel: String,
+        composerParentChannel: Mezon_Api_ChannelDescription
     ) {
         self.context = context
         self.clanId = clanId
         self.parentChannelId = parentChannelId
+        self.parentCategoryId = parentCategoryId
         self.parentChannelLabel = parentChannelLabel
+        self.composerParentChannel = composerParentChannel
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -250,7 +256,36 @@ final class ThreadListViewController: ViewController {
     }
 
     @objc private func createThreadTapped() {
-        Toast.info(L(L10n.ThreadList.createThreadSoon))
+        let form = CreateThreadFormViewController(
+            context: context,
+            clanId: clanId,
+            parentChannelId: parentChannelId,
+            parentCategoryId: parentCategoryId,
+            parentChannelLabel: parentChannelLabel,
+            composerParentChannel: composerParentChannel,
+            onComplete: { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success(let channel):
+                    Toast.success(L(L10n.ThreadList.createThreadSuccess))
+                    fetchThreadsFromNetwork(showSpinner: false)
+                    context.currentClanId = clanId
+                    let vc = ChatViewController(clanId: clanId, channel: channel, context: context)
+                    navigationController?.pushViewController(vc, animated: true)
+                case .failure:
+                    break
+                }
+            }
+        )
+        let nav = UINavigationController(rootViewController: form)
+        nav.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sheet = nav.sheetPresentationController {
+                sheet.detents = [.large()]
+                sheet.prefersGrabberVisible = true
+            }
+        }
+        present(nav, animated: true)
     }
 
     @objc private func pulledToRefresh() {

@@ -60,6 +60,37 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         layoutWebAndChrome(layout: layout, transition: transition)
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let layout = currentlyAppliedLayout else { return }
+        layoutWebAndChrome(layout: layout, transition: .immediate, synchronizeChromePresence: true)
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        guard let layout = currentlyAppliedLayout else { return }
+        layoutWebAndChrome(layout: layout, transition: .immediate, synchronizeChromePresence: true)
+    }
+
+    private func chromeLayoutInsets(layout: ContainerViewLayout) -> (top: CGFloat, left: CGFloat, right: CGFloat, bottom: CGFloat) {
+        view.layoutIfNeeded()
+        let kit = view.safeAreaInsets
+        let lt = layout.safeInsets
+
+        func pick(_ ui: CGFloat, _ legacy: CGFloat) -> CGFloat {
+            if ui > 0.5 { return ui }
+            return legacy
+        }
+
+        let top = pick(kit.top, lt.top)
+        let left = pick(kit.left, lt.left)
+        let right = pick(kit.right, lt.right)
+        let baselineBottom = max(pick(kit.bottom, lt.bottom), layout.safeInsets.bottom)
+        let bottom = max(baselineBottom, layout.inputHeight ?? 0)
+
+        return (top, left, right, bottom)
+    }
+
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         guard isViewLoaded else { return }
@@ -124,29 +155,49 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
 
     private func applyChromeVisibilityLayout(animated: Bool) {
         guard let layout = currentlyAppliedLayout else { return }
-        let transition: ContainedViewLayoutTransition =
-            animated ? .animated(duration: 0.28, curve: .easeInOut) : .immediate
-        layoutWebAndChrome(layout: layout, transition: transition)
+        layoutWebAndChrome(
+            layout: layout,
+            transition: .immediate,
+            synchronizeChromePresence: false)
+        let apply = { [weak self] in
+            self?.applyChromeHeaderVisualPresence()
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.28,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut]) {
+                    apply()
+                    self.view.layoutIfNeeded()
+            }
+        } else {
+            apply()
+        }
     }
 
-    private func layoutWebAndChrome(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+    private func layoutWebAndChrome(
+        layout: ContainerViewLayout,
+        transition: ContainedViewLayoutTransition,
+        synchronizeChromePresence: Bool = true
+    ) {
         guard isViewLoaded else { return }
         installSubviewsIfNeeded()
         guard headerBar.superview != nil else { return }
-        let headerH = chromeHeaderExpanded ? chromeHeaderHeight() : 0
-        let top = layout.safeInsets.top
-        let left = layout.safeInsets.left
-        let right = layout.safeInsets.right
-        let bottom = max(layout.safeInsets.bottom, layout.inputHeight ?? 0)
-        let innerWidth = max(0, layout.size.width - left - right)
-        let headerFrame = CGRect(x: left, y: top, width: innerWidth, height: headerH)
-        let webTop = top + headerH
-        let webHeight = max(1, layout.size.height - webTop - bottom)
-        let webFrame = CGRect(x: left, y: webTop, width: innerWidth, height: webHeight)
-        transition.updateFrame(view: headerBar, frame: headerFrame)
+        let (top, left, right, bottom) = chromeLayoutInsets(layout: layout)
+        let contentHeight = view.bounds.height > 1 ? view.bounds.height : layout.size.height
+        let totalWidth = view.bounds.width > 1 ? view.bounds.width : layout.size.width
+        let innerWidth = max(0, totalWidth - left - right)
+        let headerFullH = chromeHeaderHeight()
+        let webHeight = max(1, contentHeight - top - bottom)
+        let webFrame = CGRect(x: left, y: top, width: innerWidth, height: webHeight)
+        let expandedHeaderFrame = CGRect(x: left, y: top, width: innerWidth, height: headerFullH)
+
+        transition.updateFrame(view: headerBar, frame: expandedHeaderFrame)
+
         if let wv = webView {
             transition.updateFrame(view: wv, frame: webFrame)
         }
+
         let revealSize: CGFloat = 44
         let revealFrame = CGRect(
             x: left + (innerWidth - revealSize) / 2,
@@ -155,13 +206,30 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
             height: revealSize)
         transition.updateFrame(view: revealChromeButton, frame: revealFrame)
         revealChromeButton.isHidden = chromeHeaderExpanded
-        if let wv = webView {
-            view.bringSubviewToFront(wv)
-        }
+        view.bringSubviewToFront(webView ?? headerBar)
         if chromeHeaderExpanded {
             view.bringSubviewToFront(headerBar)
         } else {
             view.bringSubviewToFront(revealChromeButton)
+        }
+
+        if synchronizeChromePresence {
+            UIView.performWithoutAnimation {
+                self.applyChromeHeaderVisualPresence()
+            }
+        }
+    }
+
+    private func applyChromeHeaderVisualPresence() {
+        let h = chromeHeaderHeight()
+        if chromeHeaderExpanded {
+            headerBar.alpha = 1
+            headerBar.transform = .identity
+            headerBar.isUserInteractionEnabled = true
+        } else {
+            headerBar.alpha = 0
+            headerBar.transform = CGAffineTransform(translationX: 0, y: -h)
+            headerBar.isUserInteractionEnabled = false
         }
     }
 

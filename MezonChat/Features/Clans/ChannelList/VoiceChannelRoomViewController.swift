@@ -1173,7 +1173,7 @@ private extension UIViewController {
     }
 }
 
-final class VoiceChannelRoomViewController: ViewController {
+final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedPiPHost {
 
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
@@ -1198,7 +1198,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private var audioRouteObserver: NSObjectProtocol?
 
     private var participantRows: [String: VoiceParticipantRowView] = [:]
-    fileprivate var screenSharePiPHostRetain: AnyObject?
+    private var screenSharePiPHostRetain: AnyObject?
 
     private var callPiPController: AVPictureInPictureController?
     private var callPiPSourceView: UIView?
@@ -2326,11 +2326,14 @@ final class VoiceChannelRoomViewController: ViewController {
         return false
     }
 
-    fileprivate func screenShareExpandedDidDismiss() {
+    func screenShareExpandedDidDismiss() {
         isScreenShareExpandedPresented = false
+        if #available(iOS 15.0, *), callPiPController == nil, liveKitBridge != nil {
+            setupCallPiP()
+        }
     }
 
-    fileprivate func noteScreenShareExpandedSessionEnded() {
+    func noteScreenShareExpandedSessionEnded() {
         screenShareExpandedSourceParticipantKey = nil
         screenShareExpandedSourceTrack = nil
         screenShareExpandedPresentedAt = nil
@@ -2357,7 +2360,7 @@ final class VoiceChannelRoomViewController: ViewController {
         }
     }
 
-    fileprivate func dismissScreenShareExpandedIfSourceShareEnded() {
+    func dismissScreenShareExpandedIfSourceShareEnded() {
         guard let key = screenShareExpandedSourceParticipantKey else { return }
         guard let bridge = liveKitBridge, let room = bridge.room else { return }
         guard let p = participant(forSourceParticipantKey: key, room: room) else {
@@ -2783,9 +2786,7 @@ final class VoiceChannelRoomViewController: ViewController {
             guard pip.isPictureInPicturePossible else {
                 return
             }
-            guard !pip.isPictureInPictureActive else {
-                return
-            }
+            guard !pip.isPictureInPictureActive else { return }
             pip.startPictureInPicture()
         }
     }
@@ -3717,6 +3718,7 @@ final class VoiceChannelRoomViewController: ViewController {
     private func presentScreenShareExpanded(track: VideoTrack, displayName: String, sourceParticipantKey: String) {
         tearDownScreenSharePresentationAndPiP()
         guard #available(iOS 15.0, *) else { return }
+        tearDownCallPiP()
         screenShareExpandedPresentedAt = Date()
         screenShareExpandedSourceParticipantKey = sourceParticipantKey
         screenShareExpandedSourceTrack = track
@@ -3737,7 +3739,7 @@ final class VoiceChannelRoomViewController: ViewController {
         UIViewController.attemptRotationToDeviceOrientation()
     }
 
-    fileprivate func restoreOrientationLockAfterScreenShareDetailIfNeeded() {
+    func restoreOrientationLockAfterScreenShareDetailIfNeeded() {
         guard didUnlockOrientationForScreenShareDetail else { return }
         didUnlockOrientationForScreenShareDetail = false
         lockOrientation = true
@@ -3803,28 +3805,36 @@ final class VoiceChannelRoomViewController: ViewController {
 
     private func tearDownScreenSharePresentationAndPiP() {
         noteScreenShareExpandedSessionEnded()
+        var didTearDownExpanded = false
         if #available(iOS 15.0, *) {
             if let (presenter, expanded) = findScreenShareExpandedPresenter() {
                 isScreenShareExpandedPresented = false
                 expanded.tearDownForVoiceRoomLeaving()
                 presenter.dismiss(animated: false)
+                didTearDownExpanded = true
             } else if let expanded = presentedViewController as? ScreenShareExpandedViewController {
                 isScreenShareExpandedPresented = false
                 expanded.tearDownForVoiceRoomLeaving()
                 dismiss(animated: false)
+                didTearDownExpanded = true
             } else if let expanded = findScreenShareExpandedViewControllerInKeyWindowHierarchy() {
                 isScreenShareExpandedPresented = false
                 expanded.tearDownForVoiceRoomLeaving()
                 expanded.dismiss(animated: false)
+                didTearDownExpanded = true
             }
             if let retained = screenSharePiPHostRetain as? ScreenShareExpandedViewController {
                 retained.tearDownForVoiceRoomLeaving()
+                didTearDownExpanded = true
             }
         }
         screenSharePiPHostRetain = nil
+        if didTearDownExpanded, #available(iOS 15.0, *), callPiPController == nil, liveKitBridge != nil {
+            setupCallPiP()
+        }
     }
 
-    fileprivate func retainScreenSharePiPHost(_ vc: AnyObject) {
+    func retainScreenSharePiPHost(_ vc: AnyObject) {
         if #available(iOS 15.0, *) {
             if let old = screenSharePiPHostRetain as? ScreenShareExpandedViewController, old !== vc {
                 old.tearDownForVoiceRoomLeaving()
@@ -3833,7 +3843,7 @@ final class VoiceChannelRoomViewController: ViewController {
         screenSharePiPHostRetain = vc
     }
 
-    fileprivate func releaseScreenSharePiPHost(_ vc: AnyObject) {
+    func releaseScreenSharePiPHost(_ vc: AnyObject) {
         guard screenSharePiPHostRetain === vc else { return }
         screenSharePiPHostRetain = nil
     }
@@ -3887,248 +3897,6 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
             return
         }
         completionHandler(true)
-    }
-}
-
-@available(iOS 15.0, *)
-private final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewController, AVPictureInPictureControllerDelegate, UIScrollViewDelegate {
-
-    weak var pipHost: VoiceChannelRoomViewController?
-
-    private let shareTrack: VideoTrack
-    private let personName: String
-    private let videoView = VideoView()
-    private var pipController: AVPictureInPictureController?
-    private var didAutoDismissForPiP = false
-    private var screenShareFocusPollTimer: Foundation.Timer?
-
-    private let scrollView = UIScrollView()
-    private let videoContainer = UIView()
-
-    private let dismissDetailButton = UIButton(type: .system)
-
-    private var scrollTopConstraint: NSLayoutConstraint!
-    private var scrollLeadingConstraint: NSLayoutConstraint!
-    private var scrollTrailingConstraint: NSLayoutConstraint!
-    private var scrollBottomConstraint: NSLayoutConstraint!
-    private var dismissDetailTopConstraint: NSLayoutConstraint!
-    private var dismissDetailTrailingConstraint: NSLayoutConstraint!
-
-    init(track: VideoTrack, displayName: String) {
-        self.shareTrack = track
-        self.personName = displayName
-        super.init(nibName: nil, bundle: nil)
-        modalPresentationStyle = .fullScreen
-        preferredContentSize = CGSize(width: 1920, height: 1080)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func voiceRoomHostForDismiss() -> VoiceChannelRoomViewController? {
-        pipHost ?? presentingViewController as? VoiceChannelRoomViewController
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = .black
-
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.delegate = self
-        scrollView.minimumZoomScale = 1.0
-        scrollView.maximumZoomScale = 5.0
-        scrollView.bouncesZoom = true
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.showsHorizontalScrollIndicator = false
-
-        videoContainer.translatesAutoresizingMaskIntoConstraints = false
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.layoutMode = .fit
-        videoView.mirrorMode = .off
-        videoView.isPinchToZoomEnabled = false
-
-        view.addSubview(scrollView)
-        scrollView.addSubview(videoContainer)
-        videoContainer.addSubview(videoView)
-
-        scrollTopConstraint = scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 0)
-        scrollLeadingConstraint = scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 0)
-        scrollTrailingConstraint = scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: 0)
-        scrollBottomConstraint = scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 0)
-
-        NSLayoutConstraint.activate([
-            scrollTopConstraint,
-            scrollLeadingConstraint,
-            scrollTrailingConstraint,
-            scrollBottomConstraint,
-
-            videoContainer.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            videoContainer.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            videoContainer.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            videoContainer.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            videoContainer.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
-            videoContainer.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
-
-            videoView.topAnchor.constraint(equalTo: videoContainer.topAnchor),
-            videoView.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: videoContainer.trailingAnchor),
-            videoView.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor),
-        ])
-
-        let dismissCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-        dismissDetailButton.translatesAutoresizingMaskIntoConstraints = false
-        dismissDetailButton.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: dismissCfg), for: .normal)
-        dismissDetailButton.tintColor = .white
-        dismissDetailButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        dismissDetailButton.layer.cornerRadius = 22
-        dismissDetailButton.accessibilityLabel = NSLocalizedString("voiceChannel.closeScreenShare", tableName: nil, bundle: .main, value: "Close screen share", comment: "")
-        dismissDetailButton.addTarget(self, action: #selector(closeScreenShareTapped), for: .touchUpInside)
-        view.addSubview(dismissDetailButton)
-
-        dismissDetailTopConstraint = dismissDetailButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
-        dismissDetailTrailingConstraint = dismissDetailButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12)
-        NSLayoutConstraint.activate([
-            dismissDetailTopConstraint,
-            dismissDetailTrailingConstraint,
-            dismissDetailButton.widthAnchor.constraint(equalToConstant: 44),
-            dismissDetailButton.heightAnchor.constraint(equalToConstant: 44),
-        ])
-
-        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
-        doubleTap.numberOfTapsRequired = 2
-        scrollView.addGestureRecognizer(doubleTap)
-
-        videoView.track = shareTrack
-        applyScreenShareLayoutForCurrentBounds()
-    }
-
-    private func applyScreenShareLayoutForCurrentBounds() {
-        let landscape = view.bounds.width > view.bounds.height
-        let margin: CGFloat = landscape ? 20 : 0
-        videoView.layoutMode = .fit
-        scrollTopConstraint.constant = margin
-        scrollLeadingConstraint.constant = margin
-        scrollTrailingConstraint.constant = -margin
-        scrollBottomConstraint.constant = -margin
-        dismissDetailTopConstraint.constant = 12 + margin
-        dismissDetailTrailingConstraint.constant = -(12 + margin)
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        applyScreenShareLayoutForCurrentBounds()
-        view.bringSubviewToFront(dismissDetailButton)
-    }
-
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        .allButUpsideDown
-    }
-
-    override var shouldAutorotate: Bool {
-        true
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        UIViewController.attemptRotationToDeviceOrientation()
-        if #available(iOS 16.0, *) {
-            setNeedsUpdateOfSupportedInterfaceOrientations()
-        }
-        screenShareFocusPollTimer?.invalidate()
-        let timer = Foundation.Timer(timeInterval: 0.65, repeats: true) { [weak self] (_: Foundation.Timer) in
-            self?.voiceRoomHostForDismiss()?.dismissScreenShareExpandedIfSourceShareEnded()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        screenShareFocusPollTimer = timer
-    }
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        screenShareFocusPollTimer?.invalidate()
-        screenShareFocusPollTimer = nil
-        if isBeingDismissed, !didAutoDismissForPiP {
-            pipHost?.noteScreenShareExpandedSessionEnded()
-        }
-        if isBeingDismissed || isMovingFromParent {
-            pipHost?.screenShareExpandedDidDismiss()
-        }
-        if isBeingDismissed {
-            pipHost?.restoreOrientationLockAfterScreenShareDetailIfNeeded()
-        }
-    }
-
-    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        super.viewWillTransition(to: size, with: coordinator)
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-            guard let self else { return }
-            if self.scrollView.zoomScale > self.scrollView.minimumZoomScale {
-                self.scrollView.setZoomScale(self.scrollView.minimumZoomScale, animated: false)
-            }
-            self.applyScreenShareLayoutForCurrentBounds()
-        }
-    }
-
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        videoContainer
-    }
-
-    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-        if scrollView.zoomScale > scrollView.minimumZoomScale {
-            scrollView.setZoomScale(scrollView.minimumZoomScale, animated: true)
-        } else {
-            let point = gesture.location(in: videoContainer)
-            let zoomRect = CGRect(
-                x: point.x - 50,
-                y: point.y - 50,
-                width: 100,
-                height: 100
-            )
-            scrollView.zoom(to: zoomRect, animated: true)
-        }
-    }
-
-    deinit {
-        screenShareFocusPollTimer?.invalidate()
-        videoView.track = nil
-        pipController?.delegate = nil
-        pipController = nil
-    }
-
-    fileprivate func tearDownForVoiceRoomLeaving() {
-        screenShareFocusPollTimer?.invalidate()
-        screenShareFocusPollTimer = nil
-        pipController?.stopPictureInPicture()
-        videoView.track = nil
-        pipController?.delegate = nil
-        pipController = nil
-    }
-
-    @objc private func closeScreenShareTapped() {
-        screenShareFocusPollTimer?.invalidate()
-        screenShareFocusPollTimer = nil
-        pipController?.stopPictureInPicture()
-        pipHost?.releaseScreenSharePiPHost(self)
-        dismiss(animated: true)
-    }
-
-    func pictureInPictureController(
-        _ pictureInPictureController: AVPictureInPictureController,
-        failedToStartPictureInPictureWithError error: Error
-    ) {
-    }
-
-    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        guard !didAutoDismissForPiP else { return }
-        didAutoDismissForPiP = true
-        pipHost?.retainScreenSharePiPHost(self)
-        dismiss(animated: true)
-    }
-
-    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        videoView.track = nil
-        pipController?.delegate = nil
-        pipController = nil
-        pipHost?.releaseScreenSharePiPHost(self)
-        pipHost?.noteScreenShareExpandedSessionEnded()
     }
 }
 

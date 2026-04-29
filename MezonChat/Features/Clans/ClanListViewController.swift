@@ -43,6 +43,7 @@ final class ClanListViewController: ViewController {
     private var processedMentionIds = Set<String>()
 
     private var debouncedUnreadDmFetchWorkItem: DispatchWorkItem?
+    private var clanSidebarLastLayoutSize: CGSize = .zero
 
     var onLogoTapped: (() -> Void)?
     var onClanSelected: (() -> Void)?
@@ -145,7 +146,17 @@ final class ClanListViewController: ViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
+        view.layoutIfNeeded()
         clanListNode.updateLayout(layout: layout, transition: transition)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let layout = currentlyAppliedLayout else { return }
+        let sz = view.bounds.size
+        guard sz != clanSidebarLastLayoutSize else { return }
+        clanSidebarLastLayoutSize = sz
+        clanListNode.updateLayout(layout: layout, transition: .immediate)
     }
 
     @objc private func handleThemeChange() { clanListNode.applyTheme() }

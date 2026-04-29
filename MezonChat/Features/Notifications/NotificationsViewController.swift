@@ -173,6 +173,7 @@ final class NotificationsViewController: ViewController {
         var channel = Mezon_Api_ChannelDescription()
         switch item {
         case .notification(let record):
+            guard record.clanID != 0, record.channelID != 0 else { return }
             channel.clanID = record.clanID
             channel.channelID = record.channelID
             channel.type = record.channelType
@@ -184,6 +185,7 @@ final class NotificationsViewController: ViewController {
             }
             self.navigationController?.pushViewController(vc, animated: true)
         case .topic(let record):
+            guard record.clanID != 0, record.channelID != 0 else { return }
             channel.clanID = record.clanID
             channel.channelID = record.channelID
             channel.channelLabel = "Topic Discussion"

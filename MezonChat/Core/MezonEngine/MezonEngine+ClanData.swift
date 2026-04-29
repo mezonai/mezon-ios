@@ -1,6 +1,39 @@
 import Foundation
 import SwiftProtobuf
 
+enum ChannelPreferenceListCodec {
+    static func decode(_ data: Data) -> [Mezon_Api_ChannelDescription] {
+        guard data.count >= 4 else { return [] }
+        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result: [Mezon_Api_ChannelDescription] = []
+        var offset = 4
+        for _ in 0..<count {
+            guard offset + 4 <= data.count else { break }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            offset += 4
+            guard offset + Int(len) <= data.count else { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+                result.append(m)
+            }
+            offset += Int(len)
+        }
+        return result
+    }
+
+    static func encode(_ channels: [Mezon_Api_ChannelDescription]) -> Data? {
+        var result = Data()
+        var count = UInt32(channels.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for ch in channels {
+            guard let d = try? ch.serializedData() else { continue }
+            var len = UInt32(d.count)
+            result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+            result.append(d)
+        }
+        return result
+    }
+}
+
 enum EStateFriend: Int32 {
     case friend = 0
     case otherPending = 1
@@ -306,6 +339,58 @@ extension MezonEngine {
                 return d.type
             }
             return MezonConstants.ChannelType.channel.rawValue
+        }
+
+        @discardableResult
+        func applyUserChannelAddedFromSocket(_ event: Mezon_Realtime_UserChannelAdded, currentUserNumericId myId: Int64) -> Mezon_Api_ChannelDescription? {
+            guard event.hasChannelDesc else { return nil }
+            guard event.users.contains(where: { $0.userID == myId }) else { return nil }
+
+            var ch = event.channelDesc
+            if event.clanID != 0 && ch.clanID == 0 {
+                ch.clanID = event.clanID
+            }
+            if event.active != 0 {
+                ch.active = event.active
+            } else {
+                ch.active = 1
+            }
+
+            upsertAllChannelsByUserCache(ch)
+            if ch.clanID != 0 {
+                mergeIntoClanChannelListPreferenceIfPresent(clanId: ch.clanID, channel: ch)
+            }
+
+            NotificationCenter.default.post(
+                name: .mezonUserChannelAddedFromSocket,
+                object: nil,
+                userInfo: ["clanId": ch.clanID, "channelId": ch.channelID]
+            )
+            return ch
+        }
+
+        private func upsertAllChannelsByUserCache(_ ch: Mezon_Api_ChannelDescription) {
+            var list = getAllChannelsByUser() ?? Mezon_Api_ChannelDescList()
+            if let idx = list.channeldesc.firstIndex(where: { $0.channelID == ch.channelID }) {
+                list.channeldesc[idx] = ch
+            } else {
+                list.channeldesc.append(ch)
+            }
+            guard let data = try? list.serializedData() else { return }
+            postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+        }
+
+        private func mergeIntoClanChannelListPreferenceIfPresent(clanId: Int64, channel: Mezon_Api_ChannelDescription) {
+            guard let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)), !blob.isEmpty else { return }
+            var arr = ChannelPreferenceListCodec.decode(blob)
+            guard !arr.isEmpty, arr.allSatisfy({ $0.clanID == 0 || $0.clanID == clanId }) else { return }
+            if let idx = arr.firstIndex(where: { $0.channelID == channel.channelID }) {
+                arr[idx] = channel
+            } else {
+                arr.append(channel)
+            }
+            guard let data = ChannelPreferenceListCodec.encode(arr) else { return }
+            postbox.setPreferenceData(key: PreferencesKeys.channelList(clanId: clanId), value: data)
         }
 
         func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
