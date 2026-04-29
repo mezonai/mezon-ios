@@ -44,7 +44,7 @@ enum MessageAction: CaseIterable {
 
     var iconImageName: String? {
         switch self {
-        case .giveACoffee:      return "Chat/IconGift"
+        case .giveACoffee:      return "Chat/GiveCoffeeIcon"
         case .reply:            return "Chat/IconArrowLeftUp"
         case .forwardMessage:   return "Chat/IconArrowRightUp"
         case .forwardAll:       return "Chat/IconForwardAll"
@@ -642,9 +642,11 @@ private final class MessageActionSheetNode: ASDisplayNode {
         let textColor = action.isDestructive ? UIColor.systemRed : t.textStrong
         let iconTint = action.isDestructive ? UIColor.systemRed : t.textStrong
 
+        let useOriginalIconColor = action == .giveACoffee
         var iconImage: UIImage?
         if let assetName = action.iconImageName {
-            iconImage = UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate)
+            iconImage = UIImage(named: assetName)?
+                .withRenderingMode(useOriginalIconColor ? .alwaysOriginal : .alwaysTemplate)
         } else if let sfName = action.sfSymbolName {
             let config = UIImage.SymbolConfiguration(pointSize: isWarning ? 14 : 20, weight: .medium)
             iconImage = UIImage(systemName: sfName, withConfiguration: config)
@@ -671,7 +673,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
                 height: innerIconSize
             ))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = iconTint
+            iconView.tintColor = useOriginalIconColor ? nil : iconTint
             iconView.image = iconImage
             circleView.addSubview(iconView)
 
@@ -680,7 +682,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let iconX: CGFloat = 16
             let iconView = UIImageView(frame: CGRect(x: iconX, y: y + (height - iconSize) / 2, width: iconSize, height: iconSize))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = iconTint
+            iconView.tintColor = useOriginalIconColor ? nil : iconTint
             iconView.image = iconImage
             parent.addSubview(iconView)
 

@@ -32,9 +32,9 @@ enum ClanAction: CaseIterable {
 
     var iconName: String? {
         switch self {
-        case .invite: return "person.badge.plus"
-        case .notifications: return "bell.fill"
-        case .settings: return "gearshape.fill"
+        case .invite: return "ClanSetting/InviteIcon"
+        case .notifications: return "ClanSetting/BellIcon"
+        case .settings: return "Profile/SettingIcon"
         case .markAsRead: return nil
         case .createEvent: return nil
         case .createCategory: return nil
@@ -505,7 +505,20 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         iconBg.layer.borderColor = UIColor.theme.border.withAlphaComponent(0.6).cgColor
         let iconView = UIImageView()
         if let name = action.iconName {
-            iconView.image = UIImage(systemName: name)
+            if name.contains("/") {
+                let needsOriginalRendering =
+                    name == "ClanSetting/InviteIcon"
+                    || name == "ClanSetting/BellIcon"
+                    || name == "Profile/SettingIcon"
+
+                let loadedImage = UIImage(named: name, in: Bundle.main, compatibleWith: nil)
+                iconView.image = needsOriginalRendering
+                    ? loadedImage?.withRenderingMode(.alwaysOriginal)
+                    : loadedImage?.withRenderingMode(.alwaysTemplate)
+            } else {
+                // SF Symbols fallback.
+                iconView.image = UIImage(systemName: name)
+            }
         }
         iconView.contentMode = .scaleAspectFit
         iconView.tintColor = UIColor.theme.textStrong
