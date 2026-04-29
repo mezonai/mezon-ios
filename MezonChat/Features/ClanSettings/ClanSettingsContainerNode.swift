@@ -75,12 +75,12 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
         let settingsActions: [SettingAction] = [
             .init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview"),
-            .init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/AuditLog"),
-            .init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/Intergration"),
+            .init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon"),
+            .init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon"),
             .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji"),
-            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/Stickers"),
-            .init(title: L(L10n.ClanSetting.soundEffect), icon: "Channel/channelVoice"),
-            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/CommunityIcon"),
+            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon"),
+            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon"),
+            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon"),
         ]
         let settingsGroup = createGroup(actions: settingsActions)
         stackView.addArrangedSubview(settingsGroup)
@@ -91,8 +91,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.setCustomSpacing(10.sh, after: userMgmtHeader)
 
         let userActions: [SettingAction] = [
-            .init(title: L(L10n.Clan.members), icon: "ClanSetting/Members"),
-            .init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/Roles"),
+            .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon"),
+            .init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon"),
             .init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite"),
         ]
         let userGroup = createGroup(actions: userActions)
@@ -270,9 +270,25 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         let v = UIView()
         v.heightAnchor.constraint(equalToConstant: 60.sh).isActive = true
 
-        let icon = UIImageView(
-            image: UIImage(named: action.icon)?.withRenderingMode(.alwaysOriginal))
-        icon.tintColor = .mezonTextPrimary
+        let iconAssetName = action.icon.split(separator: "/").last.map(String.init) ?? action.icon
+        let needsOriginalRendering = action.icon == "ClanSetting/Overview"
+            || action.icon == "ClanSetting/emoji"
+            || action.icon == "ClanSetting/Invite"
+            || action.icon == "ClanSetting/ActivityLogIcon"
+            || action.icon == "ClanSetting/GamingIcon"
+            || action.icon == "ClanSetting/StickerIcon"
+            || action.icon == "ClanSetting/SoundEffectIcon"
+            || action.icon == "ClanSetting/EnableCommunityIcon"
+            || action.icon == "ClanSetting/MemberIcon"
+            || action.icon == "ClanSetting/RolesIcon"
+        let loadedImage = UIImage(named: action.icon) ?? UIImage(named: iconAssetName)
+        let iconImage = needsOriginalRendering
+            ? loadedImage?.withRenderingMode(.alwaysOriginal)
+            : loadedImage?.withRenderingMode(.alwaysTemplate)
+        let icon = UIImageView(image: iconImage)
+        if !needsOriginalRendering {
+            icon.tintColor = .mezonTextPrimary
+        }
         icon.contentMode = .scaleAspectFit
         v.addSubview(icon)
 

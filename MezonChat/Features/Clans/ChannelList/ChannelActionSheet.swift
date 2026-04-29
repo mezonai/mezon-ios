@@ -299,10 +299,16 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         let icon = UIImageView()
         if let iconName = action.icon {
-            icon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysOriginal)
+            guard let base = UIImage(named: iconName) else { return v }
+            if action.isDestructive {
+                icon.image = base.withRenderingMode(.alwaysTemplate)
+                icon.tintColor = .mezonError
+            } else {
+                icon.image = base.withRenderingMode(.alwaysOriginal)
+                icon.tintColor = nil
+            }
         }
         icon.contentMode = .scaleAspectFit
-        icon.tintColor = action.isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(icon)
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

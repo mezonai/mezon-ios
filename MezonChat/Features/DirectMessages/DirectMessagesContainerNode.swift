@@ -95,28 +95,26 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
         titleLabel.textColor = UIColor.theme.textStrong
 
-        if #available(iOS 15.0, *) {
-            var addCfg = UIButton.Configuration.filled()
-            addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
-            addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
-            addCfg.baseForegroundColor = UIColor.theme.textStrong
-            addCfg.baseBackgroundColor = UIColor.theme.primary
-            addCfg.cornerStyle = .capsule
-            addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
-            addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-                var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
-            }
-            addFriendButton.configuration = addCfg
+        let addFriendImage = UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
+            .withRenderingMode(.alwaysOriginal)
+        if let addFriendImage {
+            let targetSize = CGSize(width: 12.sf, height: 12.sf)
+            let resized = resizedIconImage(addFriendImage, targetSize: targetSize)
+            addFriendButton.setImage(resized, for: .normal)
         } else {
-            addFriendButton.setImage(UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf)), for: .normal)
-            addFriendButton.setTitle(" \(L(L10n.DirectMessage.addFriend))", for: .normal)
-            addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
-            addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-            addFriendButton.tintColor = UIColor.theme.textStrong
-            addFriendButton.backgroundColor = UIColor.theme.primary
-            addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
-            addFriendButton.layer.cornerRadius = 16
+            addFriendButton.setImage(nil, for: .normal)
         }
+        addFriendButton.setTitle(" \(L(L10n.DirectMessage.addFriend))", for: .normal)
+        addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
+        addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        addFriendButton.tintColor = nil
+        addFriendButton.imageView?.tintColor = nil
+        addFriendButton.backgroundColor = UIColor.theme.primary
+        addFriendButton.contentHorizontalAlignment = .center
+        addFriendButton.contentVerticalAlignment = .center
+        addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
+        addFriendButton.imageView?.contentMode = .scaleAspectFit
+        addFriendButton.layer.cornerRadius = 16
         addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
 
         if #available(iOS 15.0, *) {
@@ -209,22 +207,18 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         guard isNodeLoaded else { return }
 
-        if #available(iOS 15.0, *) {
-            var addCfg = UIButton.Configuration.filled()
-            addCfg.image = UIImage(systemName: "person.badge.plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf))
-            addCfg.title = " \(L(L10n.DirectMessage.addFriend))"
-            addCfg.baseForegroundColor = UIColor.theme.textStrong
-            addCfg.baseBackgroundColor = UIColor.theme.primary
-            addCfg.cornerStyle = .capsule
-            addCfg.contentInsets = NSDirectionalEdgeInsets(top: 6.sh, leading: 10.sw, bottom: 6.sh, trailing: 10.sw)
-            addCfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
-                var a = a; a.font = .systemFont(ofSize: 12.sf, weight: .medium); return a
-            }
-            addFriendButton.configuration = addCfg
+        addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        addFriendButton.backgroundColor = UIColor.theme.primary
+        addFriendButton.tintColor = nil
+        addFriendButton.imageView?.tintColor = nil
+        let addFriendImage = UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
+            .withRenderingMode(.alwaysOriginal)
+        if let addFriendImage {
+            let targetSize = CGSize(width: 12.sf, height: 12.sf)
+            let resized = resizedIconImage(addFriendImage, targetSize: targetSize)
+            addFriendButton.setImage(resized, for: .normal)
         } else {
-            addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-            addFriendButton.tintColor = UIColor.theme.textStrong
-            addFriendButton.backgroundColor = UIColor.theme.primary
+            addFriendButton.setImage(nil, for: .normal)
         }
 
         if #available(iOS 15.0, *) {
@@ -248,6 +242,17 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     func endRefreshing() {
         refreshControl.endRefreshing()
+    }
+}
+
+private extension DirectMessagesContainerNode {
+    func resizedIconImage(_ image: UIImage, targetSize: CGSize) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let rendered = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+
+        return rendered.withRenderingMode(.alwaysOriginal)
     }
 }
 

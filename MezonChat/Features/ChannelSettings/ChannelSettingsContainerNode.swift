@@ -216,9 +216,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         v.backgroundColor = .clear
 
         let iconView = UIImageView()
-        iconView.image = UIImage(named: icon)?.withRenderingMode(isDestructive ? .alwaysTemplate : .alwaysOriginal)
+        iconView.image = UIImage(named: icon)?.withRenderingMode(.alwaysTemplate)
         iconView.contentMode = .scaleAspectFit
-        iconView.tintColor = isDestructive ? .mezonError : UIColor.theme.textStrong
+        if isDestructive {
+            iconView.tintColor = .mezonError
+        } else {
+            iconView.tintColor = .mezonTextPrimary
+        }
         v.addSubview(iconView)
         iconView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([

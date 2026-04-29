@@ -92,10 +92,14 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
         iconWrapNode.cornerRadius = 20.swh
         iconWrapNode.clipsToBounds = true
 
-        let img = UIImage(named: iconAsset)?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
-        iconNode.image = img
-        iconNode.tintColor = UIColor.theme.textStrong
+        if !iconAsset.isEmpty, let assetImage = UIImage(named: iconAsset) {
+            iconNode.image = assetImage.withRenderingMode(.alwaysOriginal)
+            iconNode.tintColor = .clear
+        } else {
+            let symbol = UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
+            iconNode.image = symbol
+            iconNode.tintColor = UIColor.theme.textStrong
+        }
         iconNode.contentMode = .scaleAspectFit
 
         let para = NSMutableParagraphStyle()
@@ -455,12 +459,12 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
             title: L(L10n.ClanInviteSheet.share)
         )
         copyButton = ClanInviteActionButtonNode(
-            iconAsset: "Invite/LinkIcon",
+            iconAsset: "ClanSetting/Invite",
             fallbackSystemIcon: "link",
             title: L(L10n.ClanInviteSheet.copy)
         )
         qrButton = ClanInviteActionButtonNode(
-            iconAsset: "",
+            iconAsset: "Channel/QR",
             fallbackSystemIcon: "qrcode",
             title: L(L10n.ClanInviteSheet.qrCode)
         )

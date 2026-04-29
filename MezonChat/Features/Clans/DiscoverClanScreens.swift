@@ -242,7 +242,11 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
 
     private let addFriendHeaderButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(named: "Notifications/addfriend")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        btn.setImage(
+            UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
+                .withRenderingMode(.alwaysOriginal),
+            for: .normal
+        )
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
         btn.clipsToBounds = true
@@ -426,7 +430,6 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         qrHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         addFriendHeaderButton.backgroundColor = t.tertiary
         addFriendHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
-        addFriendHeaderButton.tintColor = t.textStrong
         statusLabel.textColor = t.textDisabled
         loadingIndicator.color = t.textStrong
     }

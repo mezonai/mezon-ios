@@ -329,8 +329,7 @@ final class SendMessageInputViewController: UIViewController {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-            iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-            iv.image = UIImage(systemName: "mic.fill")
+        iv.image = UIImage(named: "Chat/MicrophoneIcon")?.withRenderingMode(.alwaysTemplate)
         iv.setContentHuggingPriority(.required, for: .horizontal)
         iv.setContentHuggingPriority(.required, for: .vertical)
         return iv
@@ -3221,6 +3220,7 @@ final class SendMessageInputViewController: UIViewController {
         advanceButton.backgroundColor = t.tertiary
         advanceButton.tintColor = t.textStrong
         voiceButton.backgroundColor = t.tertiary
+        voiceButton.tintColor = t.textStrong
         voiceMicImageView.tintColor = t.textStrong
         voiceRecordingOverlay.applyTheme()
         chevronButton.backgroundColor = t.tertiary

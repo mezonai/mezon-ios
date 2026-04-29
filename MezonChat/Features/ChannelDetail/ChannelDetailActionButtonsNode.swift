@@ -53,10 +53,10 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             threadsButtonNode, icon: "text.bubble", assetName: "Channel/channelThread", label: threadsLabel,
             text: L(L10n.Channel.thread))
         setupButton(
-            muteButtonNode, icon: "bell.fill", assetName: nil, label: muteLabel,
+            muteButtonNode, icon: "bell.fill", assetName: "ClanSetting/BellIcon", label: muteLabel,
             text: L(L10n.ChannelAction.mute))
         setupButton(
-            settingsButtonNode, icon: "gearshape.fill", assetName: nil, label: settingsLabel,
+            settingsButtonNode, icon: "gearshape.fill", assetName: "Profile/SettingIcon", label: settingsLabel,
             text: L(L10n.Common.settings))
 
         threadsButtonNode.isHidden = !showThreads
@@ -183,8 +183,8 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         let pairs: [(ASButtonNode, ASTextNode2, String, String?)] = [
             (searchButtonNode, searchLabel, "magnifyingglass", "Channel/Search"),
             (threadsButtonNode, threadsLabel, "text.bubble", "Channel/channelThread"),
-            (muteButtonNode, muteLabel, "bell.fill", nil),
-            (settingsButtonNode, settingsLabel, "gearshape.fill", nil),
+            (muteButtonNode, muteLabel, "bell.fill", "ClanSetting/BellIcon"),
+            (settingsButtonNode, settingsLabel, "gearshape.fill", "Profile/SettingIcon"),
         ]
         for (button, label, iconName, assetName) in pairs {
             button.backgroundColor = t.secondary
