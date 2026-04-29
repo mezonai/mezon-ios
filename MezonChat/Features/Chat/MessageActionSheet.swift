@@ -5,6 +5,7 @@ enum MessageAction: CaseIterable {
     case giveACoffee
     case reply
     case forwardMessage
+    case forwardAll
     case createThread
     case copyText
     case markUnread
@@ -24,6 +25,7 @@ enum MessageAction: CaseIterable {
         case .giveACoffee:      return L(L10n.MessageAction.giveACoffee)
         case .reply:            return L(L10n.MessageAction.reply)
         case .forwardMessage:   return L(L10n.MessageAction.forwardMessage)
+        case .forwardAll:       return L(L10n.MessageAction.forwardAll)
         case .createThread:     return L(L10n.MessageAction.createThread)
         case .copyText:         return L(L10n.MessageAction.copyText)
         case .markUnread:       return L(L10n.MessageAction.markUnread)
@@ -45,6 +47,7 @@ enum MessageAction: CaseIterable {
         case .giveACoffee:      return "Chat/IconGift"
         case .reply:            return "Chat/IconArrowLeftUp"
         case .forwardMessage:   return "Chat/IconArrowRightUp"
+        case .forwardAll:       return "Chat/IconForwardAll"
         case .createThread:     return nil
         case .copyText:         return "Chat/IconCopy"
         case .markUnread:       return "Chat/IconMarkUnread"
@@ -84,7 +87,7 @@ enum MessageAction: CaseIterable {
 
     var group: Group {
         switch self {
-        case .giveACoffee, .reply, .forwardMessage, .createThread, .resend, .editMessage, .forward:
+        case .giveACoffee, .reply, .forwardMessage, .forwardAll, .createThread, .resend, .editMessage, .forward:
             return .frequent
         case .copyText, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
             return .normal
@@ -99,6 +102,7 @@ final class MessageActionSheetController: ViewController {
     private let display: ChatMessageDisplay
     private let isOwnMessage: Bool
     private let canShowDeleteMessage: Bool
+    private let forwardAllAvailable: Bool
     private let onAction: (MessageAction) -> Void
     var onDismiss: (() -> Void)?
     var onEmojiReaction: ((String, String) -> Void)?
@@ -108,10 +112,17 @@ final class MessageActionSheetController: ViewController {
         return displayNode as! MessageActionSheetNode
     }
 
-    init(display: ChatMessageDisplay, isOwnMessage: Bool, canShowDeleteMessage: Bool, onAction: @escaping (MessageAction) -> Void) {
+    init(
+        display: ChatMessageDisplay,
+        isOwnMessage: Bool,
+        canShowDeleteMessage: Bool,
+        forwardAllAvailable: Bool = false,
+        onAction: @escaping (MessageAction) -> Void
+    ) {
         self.display = display
         self.isOwnMessage = isOwnMessage
         self.canShowDeleteMessage = canShowDeleteMessage
+        self.forwardAllAvailable = forwardAllAvailable
         self.onAction = onAction
 
         super.init(navigationBarPresentationData: nil)
@@ -123,7 +134,12 @@ final class MessageActionSheetController: ViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        let actions = Self.availableActions(display: display, isOwnMessage: isOwnMessage, canShowDeleteMessage: canShowDeleteMessage)
+        let actions = Self.availableActions(
+            display: display,
+            isOwnMessage: isOwnMessage,
+            canShowDeleteMessage: canShowDeleteMessage,
+            forwardAllAvailable: forwardAllAvailable
+        )
         let quickReactions = Self.includeQuickReactions(for: display)
         self.displayNode = MessageActionSheetNode(
             messageActions: actions,
@@ -191,7 +207,12 @@ final class MessageActionSheetController: ViewController {
         return true
     }
 
-    private static func availableActions(display: ChatMessageDisplay, isOwnMessage: Bool, canShowDeleteMessage: Bool) -> [MessageAction] {
+    private static func availableActions(
+        display: ChatMessageDisplay,
+        isOwnMessage: Bool,
+        canShowDeleteMessage: Bool,
+        forwardAllAvailable: Bool
+    ) -> [MessageAction] {
         if display.isFailed {
             return [.resend, .deleteMessage]
         }
@@ -209,7 +230,12 @@ final class MessageActionSheetController: ViewController {
             actions.append(.editMessage)
         }
 
-        actions.append(.forwardMessage)
+        if Self.canForwardMessage(display: display) {
+            actions.append(.forwardMessage)
+            if forwardAllAvailable {
+                actions.append(.forwardAll)
+            }
+        }
         actions.append(.createThread)
 
         if hasText {
@@ -236,6 +262,16 @@ final class MessageActionSheetController: ViewController {
         }
 
         return actions
+    }
+
+    private static func canForwardMessage(display: ChatMessageDisplay) -> Bool {
+        if display.isFailed { return false }
+        if display.message.id.hasPrefix("pending-") { return false }
+        if display.isSystemMessage { return false }
+        if display.isCallLog { return false }
+        if display.message.isDeleted { return false }
+        if display.isPollMessage { return false }
+        return true
     }
 
     private static func canEditMessage(display: ChatMessageDisplay) -> Bool {
