@@ -1,5 +1,4 @@
 import AsyncDisplayKit
-import UIKit
 import SwiftProtobuf
 
 struct FriendListInteraction {
@@ -19,25 +18,25 @@ final class FriendListContainerNode: ASDisplayNode {
         return gl
     }()
 
-    private let headerView = UIView()
-    private let backButton = UIButton(type: .system)
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let addFriendButton = UIButton(type: .system)
+    private let headerNode = ASDisplayNode()
+    private let backButtonNode = ASButtonNode()
+    private let titleNode = ASTextNode()
+    private let subtitleNode = ASTextNode()
+    private let addFriendButtonNode = ASButtonNode()
 
-    private let searchContainerView = UIView()
-    private let searchIconView = UIImageView()
+    private let searchContainerNode = ASDisplayNode()
+    private let searchIconNode = ASImageNode()
     private let searchTextField = UITextField()
 
-    private let requestPillView = UIView()
-    private let requestIconView = UIImageView()
-    private let requestTitleLabel = UILabel()
-    private let requestCountLabel = UILabel()
-    private let requestChevron = UIImageView()
+    private let requestPillNode = ASDisplayNode()
+    private let requestIconNode = ASImageNode()
+    private let requestTitleNode = ASTextNode()
+    private let requestCountNode = ASTextNode()
+    private let requestChevronNode = ASImageNode()
 
     private let tableNode: ASTableNode
 
-    private let emptyLabel = UILabel()
+    private let emptyNode = ASTextNode()
 
     private var currentGroups: [FriendAlphabetGroup] = []
     private var friendRequestReceivedCount: Int = 0
@@ -49,6 +48,23 @@ final class FriendListContainerNode: ASDisplayNode {
     private let disposables = DisposableSet()
     private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
     private var previousLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
+    private var hasReceivedInitialState: Bool = false
+
+    private let centeredParagraphStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        return style
+    }()
+
+    private func makeSymbolImage(name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight? = nil) -> UIImage? {
+        let config: UIImage.SymbolConfiguration
+        if let weight {
+            config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+        } else {
+            config = UIImage.SymbolConfiguration(pointSize: pointSize)
+        }
+        return UIImage(systemName: name, withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
+    }
 
     init(signal: Signal<FriendListState, NoError>, interaction: FriendListInteraction) {
         tableNode = ASTableNode(style: .plain)
@@ -58,6 +74,7 @@ final class FriendListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
+                self.hasReceivedInitialState = true
                 self.currentGroups = newState.groups
                 self.friendRequestReceivedCount = newState.receivedRequestCount
                 self.friendRequestSentCount = newState.sentRequestCount
@@ -86,48 +103,65 @@ final class FriendListContainerNode: ASDisplayNode {
         if validLayout != nil {
             applyLayout(transition: .immediate)
         }
-        updateContent()
+        if hasReceivedInitialState {
+            updateContent()
+        } else {
+            tableNode.isHidden = true
+            requestPillNode.isHidden = true
+            emptyNode.isHidden = true
+            subtitleNode.isHidden = true
+        }
     }
 
     private func setupHeader() {
         let t = UIColor.theme
-        let chevronImg = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold))
-        backButton.setImage(chevronImg, for: .normal)
-        backButton.tintColor = t.textStrong
-        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+        let chevronImg = makeSymbolImage(name: "chevron.left", pointSize: 16.sf, weight: .semibold)
+        backButtonNode.setImage(chevronImg, for: .normal)
+        backButtonNode.tintColor = t.textStrong
+        backButtonNode.imageNode.contentMode = .scaleAspectFit
+        backButtonNode.addTarget(self, action: #selector(backTapped), forControlEvents: .touchUpInside)
 
-        titleLabel.text = L(L10n.FriendList.title)
-        titleLabel.font = .systemFont(ofSize: 17.sf, weight: .semibold)
-        titleLabel.textColor = t.textStrong
-        titleLabel.textAlignment = .center
+        titleNode.attributedText = NSAttributedString(
+            string: L(L10n.FriendList.title),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 17.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
+                .paragraphStyle: centeredParagraphStyle
+            ]
+        )
+        titleNode.maximumNumberOfLines = 1
+        titleNode.truncationMode = .byTruncatingTail
 
-        subtitleLabel.font = .systemFont(ofSize: 12.sf)
-        subtitleLabel.textColor = t.textDisabled
-        subtitleLabel.textAlignment = .center
+        subtitleNode.maximumNumberOfLines = 1
+        subtitleNode.truncationMode = .byTruncatingTail
 
-        addFriendButton.setTitle(L(L10n.FriendList.addFriend), for: .normal)
-        addFriendButton.titleLabel?.font = .systemFont(ofSize: 13.sf, weight: .medium)
-        addFriendButton.tintColor = UIColor(red: 0.45, green: 0.55, blue: 1.0, alpha: 1.0)
-        addFriendButton.setTitleColor(UIColor(red: 0.45, green: 0.55, blue: 1.0, alpha: 1.0), for: .normal)
-        addFriendButton.addTarget(self, action: #selector(addFriendTapped), for: .touchUpInside)
+        addFriendButtonNode.setTitle(
+            L(L10n.FriendList.addFriend),
+            with: .systemFont(ofSize: 13.sf, weight: .medium),
+            with: UIColor(red: 0.45, green: 0.55, blue: 1.0, alpha: 1.0),
+            for: .normal
+        )
+        addFriendButtonNode.tintColor = UIColor(red: 0.45, green: 0.55, blue: 1.0, alpha: 1.0)
+        addFriendButtonNode.contentHorizontalAlignment = .right
+        addFriendButtonNode.addTarget(self, action: #selector(addFriendTapped), forControlEvents: .touchUpInside)
 
-        headerView.addSubview(backButton)
-        headerView.addSubview(titleLabel)
-        headerView.addSubview(subtitleLabel)
-        headerView.addSubview(addFriendButton)
-        view.addSubview(headerView)
+        addSubnode(headerNode)
+        headerNode.addSubnode(backButtonNode)
+        headerNode.addSubnode(titleNode)
+        headerNode.addSubnode(subtitleNode)
+        headerNode.addSubnode(addFriendButtonNode)
     }
 
     private func setupSearch() {
         let t = UIColor.theme
-        searchContainerView.backgroundColor = t.secondary
-        searchContainerView.layer.cornerRadius = 28.sf
-        searchContainerView.clipsToBounds = true
+        searchContainerNode.backgroundColor = t.secondary
+        searchContainerNode.cornerRadius = 28.sf
+        searchContainerNode.clipsToBounds = true
 
-        let searchImg = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
-        searchIconView.image = searchImg
-        searchIconView.tintColor = t.textDisabled
-        searchIconView.contentMode = .scaleAspectFit
+        let searchImg = makeSymbolImage(name: "magnifyingglass", pointSize: 14.sf)
+        searchIconNode.image = searchImg
+        searchIconNode.tintColor = t.textDisabled
+        searchIconNode.contentMode = .scaleAspectFit
 
         searchTextField.placeholder = L(L10n.FriendList.searchPlaceholder)
         searchTextField.font = .systemFont(ofSize: 14.sf)
@@ -142,44 +176,53 @@ final class FriendListContainerNode: ASDisplayNode {
         )
         searchTextField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
 
-        searchContainerView.addSubview(searchIconView)
-        searchContainerView.addSubview(searchTextField)
-        view.addSubview(searchContainerView)
+        addSubnode(searchContainerNode)
+        searchContainerNode.addSubnode(searchIconNode)
+        searchContainerNode.view.addSubview(searchTextField)
     }
 
     private func setupRequestPill() {
         let t = UIColor.theme
-        requestPillView.backgroundColor = t.secondary
-        requestPillView.layer.cornerRadius = 12.sf
-        requestPillView.clipsToBounds = true
+        requestPillNode.backgroundColor = t.secondary
+        requestPillNode.cornerRadius = 12.sf
+        requestPillNode.clipsToBounds = true
 
-        let paperPlaneImg = UIImage(systemName: "paperplane.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 20.sf))
-        requestIconView.image = paperPlaneImg
-        requestIconView.tintColor = t.textStrong
-        requestIconView.contentMode = .scaleAspectFit
+        let paperPlaneImg = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
+        requestIconNode.image = paperPlaneImg
+        requestIconNode.tintColor = t.textStrong
+        requestIconNode.contentMode = .scaleAspectFit
 
-        requestTitleLabel.text = L(L10n.FriendList.friendRequest)
-        requestTitleLabel.font = .systemFont(ofSize: 13.sf)
-        requestTitleLabel.textColor = t.text
+        requestTitleNode.attributedText = NSAttributedString(
+            string: L(L10n.FriendList.friendRequest),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf),
+                .foregroundColor: t.text
+            ]
+        )
 
-        requestCountLabel.font = .systemFont(ofSize: 13.sf)
-        requestCountLabel.textColor = t.text
+        requestCountNode.attributedText = NSAttributedString(
+            string: "",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf),
+                .foregroundColor: t.text
+            ]
+        )
 
-        let chevronImg = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf, weight: .medium))
-        requestChevron.image = chevronImg
-        requestChevron.tintColor = t.textDisabled
-        requestChevron.contentMode = .scaleAspectFit
+        let chevronImg = makeSymbolImage(name: "chevron.right", pointSize: 12.sf, weight: .medium)
+        requestChevronNode.image = chevronImg
+        requestChevronNode.tintColor = t.textDisabled
+        requestChevronNode.contentMode = .scaleAspectFit
 
-        requestPillView.addSubview(requestIconView)
-        requestPillView.addSubview(requestTitleLabel)
-        requestPillView.addSubview(requestCountLabel)
-        requestPillView.addSubview(requestChevron)
+        requestPillNode.addSubnode(requestIconNode)
+        requestPillNode.addSubnode(requestTitleNode)
+        requestPillNode.addSubnode(requestCountNode)
+        requestPillNode.addSubnode(requestChevronNode)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(requestPillTapped))
-        requestPillView.addGestureRecognizer(tap)
-        requestPillView.isUserInteractionEnabled = true
+        requestPillNode.view.addGestureRecognizer(tap)
+        requestPillNode.isUserInteractionEnabled = true
 
-        view.addSubview(requestPillView)
+        addSubnode(requestPillNode)
     }
 
     private func setupTable() {
@@ -193,12 +236,15 @@ final class FriendListContainerNode: ASDisplayNode {
     }
 
     private func setupEmptyState() {
-        emptyLabel.text = L(L10n.FriendList.noResults)
-        emptyLabel.font = .systemFont(ofSize: 14.sf)
-        emptyLabel.textColor = UIColor.theme.textDisabled
-        emptyLabel.textAlignment = .left
-        emptyLabel.isHidden = true
-        view.addSubview(emptyLabel)
+        emptyNode.attributedText = NSAttributedString(
+            string: L(L10n.FriendList.noResults),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf),
+                .foregroundColor: UIColor.theme.textDisabled
+            ]
+        )
+        emptyNode.isHidden = true
+        addSubnode(emptyNode)
     }
 
     private func updateContent() {
@@ -206,13 +252,26 @@ final class FriendListContainerNode: ASDisplayNode {
 
         let isEmpty = currentGroups.isEmpty
         tableNode.isHidden = isEmpty
-        emptyLabel.isHidden = !isEmpty || !isSearching
-        requestPillView.isHidden = false
+        emptyNode.isHidden = !isEmpty || !isSearching
+        requestPillNode.isHidden = false
 
-        subtitleLabel.isHidden = totalFriendCount == 0
-        subtitleLabel.text = "\(totalFriendCount) " + L(L10n.FriendList.friendCount)
+        subtitleNode.isHidden = totalFriendCount == 0
+        subtitleNode.attributedText = NSAttributedString(
+            string: "\(totalFriendCount) " + L(L10n.FriendList.friendCount),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf),
+                .foregroundColor: UIColor.theme.textDisabled,
+                .paragraphStyle: centeredParagraphStyle
+            ]
+        )
 
-        requestCountLabel.text = "\(friendRequestReceivedCount) " + L(L10n.FriendList.received) + " • " + "\(friendRequestSentCount) " + L(L10n.FriendList.sent)
+        requestCountNode.attributedText = NSAttributedString(
+            string: "\(friendRequestReceivedCount) " + L(L10n.FriendList.received) + " • " + "\(friendRequestSentCount) " + L(L10n.FriendList.sent),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf),
+                .foregroundColor: UIColor.theme.text
+            ]
+        )
 
         if validLayout != nil {
             applyLayout(transition: .immediate)
@@ -242,62 +301,61 @@ final class FriendListContainerNode: ASDisplayNode {
         let headerH: CGFloat = 52.sh
         let headerY = safeTop
 
-        transition.updateFrame(view: headerView, frame: CGRect(x: 0, y: headerY, width: size.width, height: headerH))
+        transition.updateFrame(node: headerNode, frame: CGRect(x: 0, y: headerY, width: size.width, height: headerH))
         let backSize: CGFloat = 36.swh
-        transition.updateFrame(view: backButton, frame: CGRect(x: sideInset - 8.sw, y: (headerH - backSize) / 2, width: backSize, height: backSize))
+        transition.updateFrame(node: backButtonNode, frame: CGRect(x: sideInset - 8.sw, y: (headerH - backSize) / 2, width: backSize, height: backSize))
 
         let headerContentW = size.width - (backSize + sideInset) * 2
         let headerSideInset = backSize + sideInset
         let titleH: CGFloat = 22.sh
         let subH: CGFloat = 18.sh
         
-        if subtitleLabel.isHidden {
+        if subtitleNode.isHidden {
             let titleY = (headerH - titleH) / 2
-            transition.updateFrame(view: titleLabel, frame: CGRect(x: headerSideInset, y: titleY, width: headerContentW, height: titleH))
+            transition.updateFrame(node: titleNode, frame: CGRect(x: headerSideInset, y: titleY, width: headerContentW, height: titleH))
         } else {
             let titleY = (headerH - titleH - subH) / 2
-            transition.updateFrame(view: titleLabel, frame: CGRect(x: headerSideInset, y: titleY, width: headerContentW, height: titleH))
-            transition.updateFrame(view: subtitleLabel, frame: CGRect(x: headerSideInset, y: titleY + titleH, width: headerContentW, height: subH))
+            transition.updateFrame(node: titleNode, frame: CGRect(x: headerSideInset, y: titleY, width: headerContentW, height: titleH))
+            transition.updateFrame(node: subtitleNode, frame: CGRect(x: headerSideInset, y: titleY + titleH, width: headerContentW, height: subH))
         }
 
-        addFriendButton.sizeToFit()
-        let addW = addFriendButton.frame.width + 16.sw
+        let addW = addFriendButtonNode.calculateSizeThatFits(CGSize(width: 200.sw, height: 32.sh)).width + 16.sw
         let addH: CGFloat = 32.sh
-        transition.updateFrame(view: addFriendButton, frame: CGRect(x: size.width - sideInset - addW, y: (headerH - addH) / 2, width: addW, height: addH))
+        transition.updateFrame(node: addFriendButtonNode, frame: CGRect(x: size.width - sideInset - addW, y: (headerH - addH) / 2, width: addW, height: addH))
 
         let searchY = headerY + headerH + 8.sh
         let searchH: CGFloat = 56.sh
-        transition.updateFrame(view: searchContainerView, frame: CGRect(x: sideInset, y: searchY, width: size.width - sideInset * 2, height: searchH))
+        transition.updateFrame(node: searchContainerNode, frame: CGRect(x: sideInset, y: searchY, width: size.width - sideInset * 2, height: searchH))
 
         let iconSize: CGFloat = 18.swh
         let iconX: CGFloat = 12.sw
-        transition.updateFrame(view: searchIconView, frame: CGRect(x: iconX, y: (searchH - iconSize) / 2, width: iconSize, height: iconSize))
+        transition.updateFrame(node: searchIconNode, frame: CGRect(x: iconX, y: (searchH - iconSize) / 2, width: iconSize, height: iconSize))
         transition.updateFrame(view: searchTextField, frame: CGRect(x: iconX + iconSize + 8.sw, y: 0, width: size.width - sideInset * 2 - iconX - iconSize - 20.sw, height: searchH))
 
         var contentY = searchY + searchH + 16.sh
         
-        if !emptyLabel.isHidden {
+        if !emptyNode.isHidden {
             let emptyH: CGFloat = 30.sh
-            transition.updateFrame(view: emptyLabel, frame: CGRect(x: sideInset, y: contentY, width: size.width - sideInset * 2, height: emptyH))
+            transition.updateFrame(node: emptyNode, frame: CGRect(x: sideInset, y: contentY, width: size.width - sideInset * 2, height: emptyH))
             contentY += emptyH + 8.sh
         }
         
-        if !requestPillView.isHidden {
+        if !requestPillNode.isHidden {
             let pillH: CGFloat = 56.sh
-            transition.updateFrame(view: requestPillView, frame: CGRect(x: sideInset, y: contentY, width: size.width - sideInset * 2, height: pillH))
+            transition.updateFrame(node: requestPillNode, frame: CGRect(x: sideInset, y: contentY, width: size.width - sideInset * 2, height: pillH))
             
             let pillInset: CGFloat = 14.sw
             let reqIconSize: CGFloat = 30.swh
-            transition.updateFrame(view: requestIconView, frame: CGRect(x: pillInset, y: (pillH - reqIconSize) / 2, width: reqIconSize, height: reqIconSize))
+            transition.updateFrame(node: requestIconNode, frame: CGRect(x: pillInset, y: (pillH - reqIconSize) / 2, width: reqIconSize, height: reqIconSize))
 
             let chevW: CGFloat = 16.swh
             let chevX = size.width - sideInset * 2 - pillInset - chevW
-            transition.updateFrame(view: requestChevron, frame: CGRect(x: chevX, y: (pillH - chevW) / 2, width: chevW, height: chevW))
+            transition.updateFrame(node: requestChevronNode, frame: CGRect(x: chevX, y: (pillH - chevW) / 2, width: chevW, height: chevW))
 
             let textX = pillInset + reqIconSize + 12.sw
             let textW = chevX - textX - 8.sw
-            transition.updateFrame(view: requestTitleLabel, frame: CGRect(x: textX, y: 8.sh, width: textW, height: 22.sh))
-            transition.updateFrame(view: requestCountLabel, frame: CGRect(x: textX, y: 28.sh, width: textW, height: 18.sh))
+            transition.updateFrame(node: requestTitleNode, frame: CGRect(x: textX, y: 8.sh, width: textW, height: 22.sh))
+            transition.updateFrame(node: requestCountNode, frame: CGRect(x: textX, y: 28.sh, width: textW, height: 18.sh))
 
             contentY += pillH + 8.sh
         }
@@ -315,18 +373,39 @@ final class FriendListContainerNode: ASDisplayNode {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
 
-        backButton.tintColor = t.textStrong
-        titleLabel.textColor = t.textStrong
-        subtitleLabel.textColor = t.textDisabled
-        searchContainerView.backgroundColor = t.secondary
-        searchIconView.tintColor = t.textDisabled
+        backButtonNode.setImage(makeSymbolImage(name: "chevron.left", pointSize: 16.sf, weight: .semibold), for: .normal)
+        backButtonNode.tintColor = t.textStrong
+        titleNode.attributedText = NSAttributedString(
+            string: L(L10n.FriendList.title),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 17.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
+                .paragraphStyle: centeredParagraphStyle
+            ]
+        )
+        searchContainerNode.backgroundColor = t.secondary
+        searchIconNode.image = makeSymbolImage(name: "magnifyingglass", pointSize: 14.sf)
+        searchIconNode.tintColor = t.textDisabled
         searchTextField.textColor = t.textStrong
-        requestPillView.backgroundColor = t.secondary
-        requestIconView.tintColor = t.textStrong
-        requestTitleLabel.textColor = t.text
-        requestCountLabel.textColor = t.text
-        requestChevron.tintColor = t.textDisabled
-        emptyLabel.textColor = t.textDisabled
+        requestPillNode.backgroundColor = t.secondary
+        requestIconNode.image = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
+        requestIconNode.tintColor = t.textStrong
+        requestChevronNode.image = makeSymbolImage(name: "chevron.right", pointSize: 12.sf, weight: .medium)
+        requestChevronNode.tintColor = t.textDisabled
+        requestTitleNode.attributedText = NSAttributedString(
+            string: L(L10n.FriendList.friendRequest),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf),
+                .foregroundColor: t.text
+            ]
+        )
+        emptyNode.attributedText = NSAttributedString(
+            string: L(L10n.FriendList.noResults),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf),
+                .foregroundColor: t.textDisabled
+            ]
+        )
 
         guard isNodeLoaded else { return }
         tableNode.reloadData()
@@ -623,7 +702,7 @@ final class FriendListItemNode: ASCellNode {
     }
 
     @objc private func callTapped() {
-        interaction.onCallFriend(friend)
+        Toast.comingSoonLine(L(L10n.Common.comingSoon))
     }
 
     @objc private func messageTapped() {
