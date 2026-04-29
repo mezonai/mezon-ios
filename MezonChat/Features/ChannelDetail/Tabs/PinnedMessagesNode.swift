@@ -241,7 +241,7 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 }
 
-extension PinnedMessagesNode: @MainActor ASTableDataSource {
+extension PinnedMessagesNode: ASTableDataSource {
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
         if pinsLoadStarted, !pinsFetchCompleted { return 1 }
         guard pinsFetchCompleted else { return 0 }
@@ -273,7 +273,7 @@ extension PinnedMessagesNode: @MainActor ASTableDataSource {
     }
 }
 
-extension PinnedMessagesNode: @MainActor ASTableDelegate {
+extension PinnedMessagesNode: ASTableDelegate {
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: true)
         guard pinsFetchCompleted, !pinnedMessages.isEmpty, indexPath.row < pinnedMessages.count else {

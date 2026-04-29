@@ -388,6 +388,16 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum Forward {
+        static let screenTitle            = "forward.screenTitle"
+        static let success                = "forward.success"
+        static let attachmentsSingular    = "forward.attachmentsSingular"
+        static let attachmentsPlural      = "forward.attachmentsPlural"
+        static let moreBundledMessages    = "forward.moreBundledMessages"
+        static let previewPlaceholder     = "forward.previewPlaceholder"
+        static let commentTooLong        = "forward.commentTooLong"
+    }
+
     enum Sharing {
         static let title                 = "sharing.title"
         static let suggestionsSection    = "sharing.suggestionsSection"
@@ -528,6 +538,7 @@ enum L10n {
         static let giveACoffee        = "messageAction.giveACoffee"
         static let giveCoffeeSuccess  = "messageAction.giveCoffeeSuccess"
         static let forwardMessage   = "messageAction.forwardMessage"
+        static let forwardAll       = "messageAction.forwardAll"
         static let createThread     = "messageAction.createThread"
         static let markUnread       = "messageAction.markUnread"
         static let topicDiscussion  = "messageAction.topicDiscussion"
@@ -855,6 +866,14 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+        "forward.screenTitle": "Forward to",
+        "forward.success": "Messages forwarded",
+        "forward.attachmentsSingular": "attachment",
+        "forward.attachmentsPlural": "attachments",
+        "forward.moreBundledMessages": "more messages included",
+        "forward.previewPlaceholder": "Message preview",
+        "forward.commentTooLong": "Comment is too long",
+
         "sharing.title":                    "Share",
         "sharing.suggestionsSection":       "Suggestions",
         "sharing.searchPlaceholderAll":     "Select a channel or user",
@@ -986,6 +1005,7 @@ extension L10n {
         "messageAction.giveACoffee": "Give A Coffee",
         "messageAction.giveCoffeeSuccess": "Coffee sent",
         "messageAction.forwardMessage": "Forward Message",
+        "messageAction.forwardAll": "Forward all nearby",
         "messageAction.createThread": "Create Thread",
         "messageAction.markUnread": "Mark Unread",
         "messageAction.topicDiscussion": "Topic Discussion",
@@ -1386,6 +1406,14 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+        "forward.screenTitle": "Chuyển tiếp tới",
+        "forward.success": "Đã chuyển tiếp tin nhắn",
+        "forward.attachmentsSingular": "đính kèm",
+        "forward.attachmentsPlural": "đính kèm",
+        "forward.moreBundledMessages": "tin nhắn khác được gộp",
+        "forward.previewPlaceholder": "Xem trước tin nhắn",
+        "forward.commentTooLong": "Nội dung nhập quá dài",
+
         "sharing.title":                    "Chia sẻ",
         "sharing.suggestionsSection":       "Gợi ý",
         "sharing.searchPlaceholderAll":     "Chọn kênh hoặc người dùng",
@@ -1516,6 +1544,7 @@ extension L10n {
         "messageAction.giveACoffee": "Tặng cà phê",
         "messageAction.giveCoffeeSuccess": "Đã tặng cà phê",
         "messageAction.forwardMessage": "Chuyển tiếp tin nhắn",
+        "messageAction.forwardAll": "Chuyển tiếp nhiều tin gần nhau",
         "messageAction.createThread": "Tạo chủ đề",
         "messageAction.markUnread": "Đánh dấu chưa đọc",
         "messageAction.topicDiscussion": "Thảo luận chủ đề",
