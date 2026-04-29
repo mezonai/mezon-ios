@@ -300,6 +300,9 @@ final class ReactionPillNode: ASDisplayNode {
 
     private var pendingImage: UIImage?
     private var imageTask: URLSessionDataTask?
+    private var retryCount = 0
+    private var currentURL: URL?
+    private static let maxRetries = 2
     private static let emojiSize: CGFloat = 20
     private static let pillHeight: CGFloat = 28
 
@@ -346,6 +349,7 @@ final class ReactionPillNode: ASDisplayNode {
         addSubnode(countNode)
 
         let url = MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100)
+        currentURL = url
         if let url = url {
             emojiFallbackNode.isHidden = true
             loadEmojiImage(url: url)
@@ -390,6 +394,13 @@ final class ReactionPillNode: ASDisplayNode {
             borderWidth = 0
             borderColor = nil
         }
+
+        if emojiImageNode.isHidden, let url = currentURL {
+            retryCount = 0
+            emojiFallbackNode.isHidden = true
+            loadEmojiImage(url: url)
+        }
+
         setNeedsLayout()
     }
 
@@ -404,9 +415,17 @@ final class ReactionPillNode: ASDisplayNode {
         imageTask = ReactionEmojiImageLoader.load(from: url) { [weak self] image in
             guard let self else { return }
             if let image {
+                self.retryCount = 0
                 self.applyImage(image)
                 self.emojiImageNode.isHidden = false
                 self.emojiFallbackNode.isHidden = true
+            } else if self.retryCount < Self.maxRetries {
+                self.retryCount += 1
+                let delay = Double(self.retryCount) * 2.0
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { return }
+                    self.loadEmojiImage(url: url)
+                }
             } else {
                 self.emojiImageNode.isHidden = true
                 self.emojiFallbackNode.isHidden = false

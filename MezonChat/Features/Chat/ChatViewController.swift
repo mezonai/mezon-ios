@@ -630,7 +630,7 @@ final class ChatViewController: ViewController {
 
         let bottomInset = layout.intrinsicInsets.bottom
         let rawInputH = layout.inputHeight ?? (isKeyboardVisible ? trackedKeyboardHeight : 0)
-        var rawKeyboardOffset = max(rawInputH - bottomInset, 0)
+        let rawKeyboardOffset = max(rawInputH - bottomInset, 0)
         var keyboardOffset = rawKeyboardOffset
 
         if !isKeyboardVisible && keyboardOffset > 0 {
@@ -2778,7 +2778,7 @@ final class ChatViewController: ViewController {
                     token: token, isVk: isVk, channelId: cid, clanId: gid,
                     channels: channels, fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
                 )
-            case .hashtag(let cid, let clanIdOpt, let label, let ctype, let cpriv, let age):
+            case .hashtag(let cid, let clanIdOpt, let label, let ctype, _, _):
                 if ctype != nil { return token }
                 guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
                 let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
@@ -3164,10 +3164,12 @@ final class ChatViewController: ViewController {
         let display = displayWithLivePinState(display)
         let isOwn = isSenderCurrentUser(senderId: display.message.senderId, currentUserId: context.currentUser?.id)
         let canDelete = messageActionCanShowDelete(for: display, isOwn: isOwn)
+        let fwdCluster = forwardClusterAvailable(for: display)
         let controller = MessageActionSheetController(
             display: display,
             isOwnMessage: isOwn,
-            canShowDeleteMessage: canDelete
+            canShowDeleteMessage: canDelete,
+            forwardAllAvailable: fwdCluster
         ) { [weak self] action in
             self?.handleMessageAction(action, display: display)
         }
@@ -3184,6 +3186,65 @@ final class ChatViewController: ViewController {
         activeActionSheet = controller
         self.presentInGlobalOverlay(controller)
         controller.animateIn()
+    }
+
+    private func forwardClusterAvailable(for display: ChatMessageDisplay) -> Bool {
+        if topicId != 0 { return false }
+        if display.isPollMessage { return false }
+        guard let idx = messages.firstIndex(where: { $0.id == display.id }) else { return false }
+        if idx == 0 { return false }
+        if idx >= messages.count - 1 { return false }
+        let cur = messages[idx]
+        let next = messages[idx + 1]
+        guard cur.message.senderId == next.message.senderId else { return false }
+        let diff = next.message.createdAt.timeIntervalSince(cur.message.createdAt)
+        return diff >= 0 && diff <= 600
+    }
+
+    private func forwardDisplaysAdjacentNewer(from display: ChatMessageDisplay) -> [ChatMessageDisplay] {
+        guard let idx = messages.firstIndex(where: { $0.id == display.id }) else { return [display] }
+        var out: [ChatMessageDisplay] = [display]
+        let anchorSender = display.message.senderId
+        let gap: TimeInterval = 600
+        var i = idx + 1
+        while i < messages.count {
+            let cur = messages[i]
+            let prevBubble = messages[i - 1]
+            guard cur.message.senderId == anchorSender else { break }
+            let step = cur.message.createdAt.timeIntervalSince(prevBubble.message.createdAt)
+            if step > gap || step < 0 { break }
+            out.append(cur)
+            i += 1
+        }
+        return out
+    }
+
+    private func recordsForForward(selected: ChatMessageDisplay, includeAdjacentNewer: Bool) -> [MessageRecord] {
+        let displays: [ChatMessageDisplay] = includeAdjacentNewer
+            ? forwardDisplaysAdjacentNewer(from: selected)
+            : [selected]
+        let ids = displays.map(\.id)
+        return context.account.postbox.read { tx in
+            ids.compactMap { tx.getMessageById($0) }
+        }
+    }
+
+    private func presentForwardMessage(for display: ChatMessageDisplay, includeAdjacentNewer: Bool) {
+        let records = recordsForForward(selected: display, includeAdjacentNewer: includeAdjacentNewer)
+        guard !records.isEmpty else {
+            Toast.error(L(L10n.Sharing.errorTitle))
+            return
+        }
+        let vc = ForwardMessageViewController(
+            context: context,
+            messagesToForward: records,
+            forwardFromChannelID: channel.channelID
+        )
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(vc, animated: true)
     }
 
     private func dismissMessageHighlight(for messageId: String) {
@@ -3358,7 +3419,9 @@ final class ChatViewController: ViewController {
         case .unpinMessage:
             showUnpinMessageConfirm(display: display)
         case .forward, .forwardMessage:
-            showMessageActionComingSoon(.forwardMessage)
+            presentForwardMessage(for: display, includeAdjacentNewer: false)
+        case .forwardAll:
+            presentForwardMessage(for: display, includeAdjacentNewer: true)
         case .resend:
             let msgId = display.message.id
             let text = display.parsedContent.text
