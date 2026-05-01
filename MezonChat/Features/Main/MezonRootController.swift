@@ -422,7 +422,7 @@ final class MezonRootController: NavigationController {
                     }
                     return
                 }
-                self.context.account.postbox.setPreferenceData(
+                self.context.account.postbox.setPreferenceDataSync(
                     key: PreferencesKeys.channelList(clanId: clanId),
                     value: self.encodeChannelList(channels)
                 )

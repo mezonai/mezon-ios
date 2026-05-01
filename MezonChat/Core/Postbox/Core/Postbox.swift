@@ -389,6 +389,12 @@ final class Postbox {
 
     func setPreference<T: PostboxCoding>(key: String, value: T?) { setSetting(key: key, value: value) }
     func setPreferenceData(key: String, value: Data?)             { setSettingData(key: key, value: value) }
+    func setPreferenceDataSync(key: String, value: Data?) {
+        queue.sync { [self] in
+            settingsTable.set(key: key, value: value)
+            settingsTable.beforeCommit()
+        }
+    }
     func getPreference<T: PostboxCoding>(key: String, type: T.Type) -> T? { getSetting(key: key, type: type) }
     func getPreferenceData(key: String) -> Data?                  { getSettingData(key: key) }
 

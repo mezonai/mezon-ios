@@ -90,6 +90,36 @@ final class ChannelAppCellNode: ASCellNode {
 }
 
 
+final class ChannelAppLoadingCellNode: ASCellNode {
+
+    private let spinner: ASDisplayNode
+
+    override init() {
+        spinner = ASDisplayNode(viewBlock: {
+            let v = UIActivityIndicatorView(style: .medium)
+            v.color = UIColor.theme.textDisabled
+            v.startAnimating()
+            return v
+        })
+        super.init()
+        automaticallyManagesSubnodes = true
+        backgroundColor = .clear
+        selectionStyle = .none
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        spinner.style.preferredSize = CGSize(width: 44.swh, height: 44.swh)
+        let centered = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
+        let insetSpec = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 8.sh, left: 12.sw, bottom: 8.sh, right: 12.sw),
+            child: centered
+        )
+        insetSpec.style.height = ASDimensionMake(84.sh)
+        return insetSpec
+    }
+}
+
+
 final class ChannelAppHorizontalCellNode: ASCellNode {
 
     private let scrollNode: ASScrollNode
@@ -264,5 +294,63 @@ extension Mezon_Api_ChannelAppResponse {
         items.append(URLQueryItem(name: "data", value: webAppData))
         comp.queryItems = items
         return comp.url
+    }
+
+    static func channelAppsPreservingPreviousLabels(
+        newApps: [Mezon_Api_ChannelAppResponse],
+        previousApps: [Mezon_Api_ChannelAppResponse]
+    ) -> [Mezon_Api_ChannelAppResponse] {
+        guard !previousApps.isEmpty else { return newApps }
+        var byChannel: [Int64: Mezon_Api_ChannelAppResponse] = [:]
+        var byApp: [Int64: Mezon_Api_ChannelAppResponse] = [:]
+        var byId: [Int64: Mezon_Api_ChannelAppResponse] = [:]
+        for a in previousApps {
+            if a.channelID != 0 { byChannel[a.channelID] = a }
+            if a.appID != 0 { byApp[a.appID] = a }
+            if a.id != 0 { byId[a.id] = a }
+        }
+        return newApps.map { app in
+            let prev: Mezon_Api_ChannelAppResponse?
+            if app.channelID != 0, let p = byChannel[app.channelID] {
+                prev = p
+            } else if app.appID != 0, let p = byApp[app.appID] {
+                prev = p
+            } else if app.id != 0, let p = byId[app.id] {
+                prev = p
+            } else {
+                prev = nil
+            }
+            guard let prev else { return app }
+            var out = app
+            if out.appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !prev.appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                out.appName = prev.appName
+            }
+            if out.appLogo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !prev.appLogo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                out.appLogo = prev.appLogo
+            }
+            if out.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !prev.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                out.appURL = prev.appURL
+            }
+            return out
+        }
+    }
+}
+
+extension Mezon_Api_ListChannelAppsResponse {
+    static func decodeChannelApps(_ data: Data) -> [Mezon_Api_ChannelAppResponse] {
+        guard !data.isEmpty else { return [] }
+        if let resp = try? Mezon_Api_ListChannelAppsResponse(serializedBytes: data) {
+            return resp.channelApps
+        }
+        return []
+    }
+
+    static func encodeChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) -> Data {
+        var r = Mezon_Api_ListChannelAppsResponse()
+        r.channelApps = apps
+        return (try? r.serializedData()) ?? Data()
     }
 }

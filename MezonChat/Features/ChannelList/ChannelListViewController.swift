@@ -392,7 +392,6 @@ final class ChannelListViewController: ViewController {
     private(set) var clanName: String = ""
     private(set) var clanLogoURL: String = ""
 
-
     private var channelListCategoryDescs: [Mezon_Api_CategoryDesc] = []
 
     private var channelListFavoriteIds: Set<Int64> = []
@@ -446,6 +445,7 @@ final class ChannelListViewController: ViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         channelListNode.applyTheme()
+        preloadChannelAppsFromPersistedClan()
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
@@ -455,6 +455,21 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
+    }
+
+    private func preloadChannelAppsFromPersistedClan() {
+        let id = persistedSelectedClanId()
+        guard id != 0 else { return }
+        restoreCachedChannelApps(clanId: id)
+    }
+
+    private func persistedSelectedClanId() -> Int64 {
+        let udValue = UserDefaults.standard.integer(forKey: "mezon_selectedClanId")
+        if udValue != 0 { return Int64(udValue) }
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), data.count >= 8 {
+            return data.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+        }
+        return 0
     }
 
     @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
@@ -542,7 +557,7 @@ final class ChannelListViewController: ViewController {
             let cats = applyBuiltCategoriesPreservingCollapse(built)
             categories = cats
             categoriesPipe.putNext(cats)
-            context.account.postbox.setPreferenceData(
+            context.account.postbox.setPreferenceDataSync(
                 key: PreferencesKeys.channelList(clanId: clanId),
                 value: encodeChannelList(updated)
             )
@@ -560,9 +575,16 @@ final class ChannelListViewController: ViewController {
         self.clanLogoURL = logoURL ?? ""
         guard clanId != self.clanId else {
             channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+            if clanId != 0 && !channelListNode.hasDisplayedChannelApps {
+                restoreCachedChannelApps(clanId: clanId)
+            }
             return
         }
-        channelListNode.clearChannelApps()
+        if clanId != 0 {
+            restoreCachedChannelApps(clanId: clanId)
+        } else {
+            channelListNode.clearChannelApps()
+        }
         channelListNode.markClanSwitching()
         channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
         load(clanId: clanId, clanName: clanName)
@@ -840,9 +862,12 @@ final class ChannelListViewController: ViewController {
         categories = []
 
         let pendingCache = readValidatedChannelCache(clanId: clanId)
-        restoreCachedChannelApps(clanId: clanId)
         if let p = pendingCache {
             applyChannelCachePayload(channels: p.channels, meta: p.meta)
+        }
+        restoreCachedChannelApps(clanId: clanId)
+        if clanId == 0 || !NetworkMonitor.shared.isConnected {
+            channelListNode.setChannelAppsLoadingIndicator(false)
         }
         isLoading = pendingCache == nil && NetworkMonitor.shared.isConnected
         needsReloadPipe.putNext(())
@@ -855,12 +880,14 @@ final class ChannelListViewController: ViewController {
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
             isLoading = false
+            channelListNode.setChannelAppsLoadingIndicator(false)
             needsReloadPipe.putNext(())
             return
         }
         guard NetworkMonitor.shared.isConnected else {
             isLoading = false
             isLoadingPipe.putNext(false)
+            channelListNode.setChannelAppsLoadingIndicator(false)
             needsReloadPipe.putNext(())
             return
         }
@@ -883,6 +910,7 @@ final class ChannelListViewController: ViewController {
                         self.channelsLoadedPromise.set(true)
                         self.channelListNode.endRefreshing()
                         self.isLoadingPipe.putNext(false)
+                        self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                         self.needsReloadPipe.putNext(())
                         return
                     }
@@ -902,17 +930,19 @@ final class ChannelListViewController: ViewController {
                     self.persistSelectedChannel()
                     self.categoriesPipe.putNext(cats)
                     self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
-                    self.context.account.postbox.setPreferenceData(
+                    self.context.account.postbox.setPreferenceDataSync(
                         key: PreferencesKeys.channelList(clanId: clanId),
                         value: self.encodeChannelList(channels)
                     )
-                    self.context.account.postbox.setPreferenceData(
+                    self.context.account.postbox.setPreferenceDataSync(
                         key: PreferencesKeys.channelListMeta(clanId: clanId),
                         value: self.encodeChannelListMeta(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
                     )
+                    self.persistFavoriteChannelIds(favoriteIds, clanId: clanId)
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
+                    self.channelListNode.setChannelAppsLoadingIndicator(false)
                     if !self.allChannels.isEmpty {
                         self.channelsLoadedPromise.set(true)
                     }
@@ -1289,30 +1319,39 @@ final class ChannelListViewController: ViewController {
         return true
     }
 
-    private func fetchChannelApps(allowEmptyOverwrite: Bool = false) {
+    private func fetchChannelApps(allowEmptyOverwrite _: Bool = false) {
         guard clanId != 0 else { return }
         let clanId = self.clanId
         Task { @MainActor [weak self] in
+            defer {
+                if let self, self.clanId == clanId {
+                    self.channelListNode.setChannelAppsLoadingIndicator(false)
+                }
+            }
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
+            guard self.clanId == clanId else { return }
+
+            let key = PreferencesKeys.channelApps(clanId: clanId)
+            let cachedData = self.context.account.postbox.getPreferenceData(key: key)
+            let hasNonEmptyCache: Bool = {
+                guard let cachedData, !cachedData.isEmpty else { return false }
+                return !self.decodeChannelApps(cachedData).isEmpty
+            }()
+            if !hasNonEmptyCache && !self.channelListNode.hasDisplayedChannelApps {
+                self.channelListNode.setChannelAppsLoadingIndicator(true)
+            }
+
             do {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanId, token: token)
                 guard self.clanId == clanId else { return }
-                let key = PreferencesKeys.channelApps(clanId: clanId)
-                let hasListableApps = apps.contains { $0.hasListableChannelAppContent }
-                if !hasListableApps, !allowEmptyOverwrite {
-                    if self.channelListNode.hasDisplayedChannelApps { return }
-                    if let data = self.context.account.postbox.getPreferenceData(key: key) {
-                        let cached = self.decodeChannelApps(data)
-                        if !cached.isEmpty, self.cachedChannelAppsMatchClan(cached, clanId: clanId) {
-                            return
-                        }
-                    }
+                if apps.isEmpty && hasNonEmptyCache {
+                    return
                 }
                 self.channelListNode.updateChannelApps(apps)
                 let encoded = self.encodeChannelApps(apps)
-                if self.context.account.postbox.getPreferenceData(key: key) != encoded {
-                    self.context.account.postbox.setPreferenceData(key: key, value: encoded)
+                if cachedData != encoded {
+                    self.context.account.postbox.setPreferenceDataSync(key: key, value: encoded)
                 }
             } catch {
             }
@@ -1320,27 +1359,52 @@ final class ChannelListViewController: ViewController {
     }
 
     private func restoreCachedChannelApps(clanId: Int64) {
-        guard let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelApps(clanId: clanId)) else { return }
+        let key = PreferencesKeys.channelApps(clanId: clanId)
+        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else {
+            if !channelListNode.hasDisplayedChannelApps {
+                channelListNode.updateChannelApps([])
+            }
+            return
+        }
         let apps = decodeChannelApps(data)
-        guard !apps.isEmpty, cachedChannelAppsMatchClan(apps, clanId: clanId) else { return }
+        if apps.isEmpty {
+            if !channelListNode.hasDisplayedChannelApps {
+                channelListNode.updateChannelApps([])
+            }
+            return
+        }
+        guard cachedChannelAppsMatchClan(apps, clanId: clanId) else {
+            channelListNode.updateChannelApps([])
+            return
+        }
+        channelListNode.updateChannelApps(apps)
+    }
+
+    private func refreshChannelAppsLabelsFromChannelList() {
+        guard clanId != 0 else { return }
+        let key = PreferencesKeys.channelApps(clanId: clanId)
+        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else { return }
+        let apps = decodeChannelApps(data)
+        if apps.isEmpty { return }
         channelListNode.updateChannelApps(apps)
     }
 
     private func encodeChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) -> Data {
-        var result = Data()
-        var count = UInt32(apps.count)
-        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
-        for app in apps {
-            if let d = try? app.serializedData() {
-                var len = UInt32(d.count)
-                result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
-                result.append(d)
-            }
-        }
-        return result
+        var r = Mezon_Api_ListChannelAppsResponse()
+        r.channelApps = apps
+        return (try? r.serializedData()) ?? Data()
     }
 
     private func decodeChannelApps(_ data: Data) -> [Mezon_Api_ChannelAppResponse] {
+        if data.isEmpty { return [] }
+        do {
+            return try Mezon_Api_ListChannelAppsResponse(serializedBytes: data).channelApps
+        } catch {
+            return decodeChannelAppsLegacy(data)
+        }
+    }
+
+    private func decodeChannelAppsLegacy(_ data: Data) -> [Mezon_Api_ChannelAppResponse] {
         guard data.count >= 4 else { return [] }
         let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
         var result: [Mezon_Api_ChannelAppResponse] = []
@@ -1358,6 +1422,22 @@ final class ChannelListViewController: ViewController {
         return result
     }
 
+    private func persistFavoriteChannelIds(_ ids: Set<Int64>, clanId: Int64) {
+        var resp = Mezon_Api_ListFavoriteChannelResponse()
+        resp.channelIds = Array(ids)
+        if let data = try? resp.serializedData() {
+            context.account.postbox.setPreferenceDataSync(key: PreferencesKeys.favoriteChannelIds(clanId: clanId), value: data)
+        }
+    }
+
+    private func resolvedFavoriteChannelIds(clanId: Int64, meta: ChannelListCachedMeta?) -> Set<Int64> {
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.favoriteChannelIds(clanId: clanId)),
+           let r = try? Mezon_Api_ListFavoriteChannelResponse(serializedBytes: data) {
+            return Set(r.channelIds)
+        }
+        return meta?.favoriteIds ?? []
+    }
+
     private func cachedChannelsMatchClan(_ channels: [Mezon_Api_ChannelDescription], clanId: Int64) -> Bool {
         for ch in channels where ch.clanID != 0 && ch.clanID != clanId {
             return false
@@ -1369,14 +1449,19 @@ final class ChannelListViewController: ViewController {
         guard let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) else { return nil }
         let channels = decodeChannelList(data)
         guard !channels.isEmpty, cachedChannelsMatchClan(channels, clanId: clanId) else { return nil }
-        let meta: ChannelListCachedMeta?
+        let metaFromBlob: ChannelListCachedMeta?
         if let metaData = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelListMeta(clanId: clanId)),
            let m = decodeChannelListMeta(metaData) {
-            meta = m
+            metaFromBlob = m
         } else {
-            meta = nil
+            metaFromBlob = nil
         }
-        return (channels, meta)
+        let favIds = resolvedFavoriteChannelIds(clanId: clanId, meta: metaFromBlob)
+        let merged = ChannelListCachedMeta(
+            categoryDescs: metaFromBlob?.categoryDescs ?? [],
+            favoriteIds: favIds
+        )
+        return (channels, merged)
     }
 
     private func applyChannelCachePayload(channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?) {
@@ -1399,6 +1484,7 @@ final class ChannelListViewController: ViewController {
         channelsLoadedPromise.set(true)
         categoriesPipe.putNext(categories)
         persistSelectedChannel()
+        refreshChannelAppsLabelsFromChannelList()
     }
 
     private struct ChannelListCachedMeta {

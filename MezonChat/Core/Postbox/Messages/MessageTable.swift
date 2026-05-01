@@ -114,7 +114,13 @@ final class MessageTable: Table {
     }
 
     func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
-        if let cached = cache[channelId] { return cached }
+        if let cached = cache[channelId] {
+            let filtered = cached.filter { $0.channelId == channelId && !$0.isDeleted }
+            if filtered.count != cached.count {
+                cache[channelId] = filtered
+            }
+            return filtered
+        }
 
         let rows = db.query(
             """
@@ -132,7 +138,7 @@ final class MessageTable: Table {
             }
         ) { stmt in self.readMessageRow(stmt) }
 
-        let result = rows.compactMap { $0 }
+        let result = rows.compactMap { $0 }.filter { $0.channelId == channelId }
         cache[channelId] = result
         return result
     }
@@ -173,7 +179,8 @@ final class MessageTable: Table {
     }
 
     func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
-        cache[channelId] = messages.sorted { $0.createdAt < $1.createdAt }
+        let belonging = messages.filter { $0.channelId == channelId }
+        cache[channelId] = belonging.sorted { $0.createdAt < $1.createdAt }
         pendingWrites.insert(channelId)
         db.run("DELETE FROM messages WHERE channel_id = ?") {
             sqlite3_bind_text($0, 1, channelId, -1, nil)

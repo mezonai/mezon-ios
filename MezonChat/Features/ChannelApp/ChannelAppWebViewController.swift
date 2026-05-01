@@ -16,6 +16,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     private let titleLabel = UILabel()
     private let headerSeparator = UIView()
     private let revealChromeButton = UIButton(type: .system)
+    private var revealChromeCenterOverride: CGPoint?
 
     private var chromeHeaderExpanded = true
     private var chromeAutoHideTask: Task<Void, Never>?
@@ -199,9 +200,17 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         }
 
         let revealSize: CGFloat = 44
+        let defaultRevealCenter = CGPoint(
+            x: left + innerWidth - 4 - revealSize / 2,
+            y: top + chromeHeaderHeight() / 2)
+        let revealCenterRaw = revealChromeCenterOverride ?? defaultRevealCenter
+        let revealCenter = clampRevealChromeCenter(revealCenterRaw, layout: layout, revealSize: revealSize)
+        if revealChromeCenterOverride != nil {
+            revealChromeCenterOverride = revealCenter
+        }
         let revealFrame = CGRect(
-            x: left + (innerWidth - revealSize) / 2,
-            y: top + 8,
+            x: revealCenter.x - revealSize / 2,
+            y: revealCenter.y - revealSize / 2,
             width: revealSize,
             height: revealSize)
         transition.updateFrame(view: revealChromeButton, frame: revealFrame)
@@ -290,10 +299,43 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         revealChromeButton.layer.cornerRadius = 22
         revealChromeButton.clipsToBounds = true
         revealChromeButton.isHidden = true
-        revealChromeButton.addTarget(self, action: #selector(revealChromeTapped), for: .touchUpInside)
         revealChromeButton.accessibilityLabel = "Show toolbar"
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(revealChromePanned(_:)))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(revealChromeTapped))
+        tap.require(toFail: pan)
+        revealChromeButton.addGestureRecognizer(pan)
+        revealChromeButton.addGestureRecognizer(tap)
         view.addSubview(revealChromeButton)
         styleRevealChromeButton()
+    }
+
+    private func clampRevealChromeCenter(_ center: CGPoint, layout: ContainerViewLayout, revealSize: CGFloat) -> CGPoint {
+        let (chromeTop, left, right, bottom) = chromeLayoutInsets(layout: layout)
+        let half = revealSize / 2
+        let minX = left + half
+        let maxX = max(minX, view.bounds.width - right - half)
+        let minY = chromeTop + half
+        let maxY = max(minY, view.bounds.height - bottom - half)
+        return CGPoint(x: min(max(center.x, minX), maxX), y: min(max(center.y, minY), maxY))
+    }
+
+    @objc private func revealChromePanned(_ g: UIPanGestureRecognizer) {
+        guard g.view === revealChromeButton, let layout = currentlyAppliedLayout else { return }
+        switch g.state {
+        case .began, .changed:
+            break
+        default:
+            return
+        }
+        let t = g.translation(in: view)
+        g.setTranslation(.zero, in: view)
+        var c = revealChromeButton.center
+        c.x += t.x
+        c.y += t.y
+        let revealSize: CGFloat = 44
+        c = clampRevealChromeCenter(c, layout: layout, revealSize: revealSize)
+        revealChromeButton.center = c
+        revealChromeCenterOverride = c
     }
 
     private func styleRevealChromeButton() {

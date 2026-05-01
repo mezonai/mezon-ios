@@ -403,8 +403,8 @@ final class ClanListViewController: ViewController {
 
     func select(clan: Mezon_Api_ClanDesc) {
         onClanSelected?()
-        setSelectedClanId(clan.clanID)
         context.currentClanId = clan.clanID
+        setSelectedClanId(clan.clanID)
         context.account.socket.joinClanChat(clanId: clan.clanID)
         persistToPostbox()
         fetchClanData(clanId: clan.clanID)

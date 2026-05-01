@@ -12,12 +12,14 @@ final class MutableMessageHistoryView: MutablePostboxView {
 
     init(channelId: String, initial: [MessageRecord]) {
         self.channelId = channelId
-        self.messages  = initial
+        self.messages  = initial.filter { $0.channelId == channelId }
     }
 
     func replay(transaction: PostboxTransaction) -> Bool {
         guard transaction.updatedMessageChannelIds.contains(channelId) else { return false }
-        messages = transaction.messageTable.getMessages(channelId: channelId)
+        let next = transaction.messageTable.getMessages(channelId: channelId)
+            .filter { $0.channelId == channelId }
+        messages = next
         return true
     }
 

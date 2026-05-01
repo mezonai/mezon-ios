@@ -74,9 +74,12 @@ extension MezonEngine {
                 async let badgeResult = self.fetchBadgeCount(clanId: clanId, token: token)
                 async let notifResult = self.fetchDefaultNotification(clanId: clanId, token: token)
                 async let catNotifResult = self.fetchCategoryNotification(clanId: clanId, token: token)
+                async let channelAppsCacheResult = self.fetchChannelAppsCache(clanId: clanId, token: token)
+                async let favoriteChannelsCacheResult = self.fetchFavoriteChannelsCache(clanId: clanId, token: token)
                 _ = await (
                     usersResult, rolesResult, eventsResult, userPermsResult, allPermsResult,
-                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult
+                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult,
+                    channelAppsCacheResult, favoriteChannelsCacheResult
                 )
             }
         }
@@ -93,6 +96,13 @@ extension MezonEngine {
                     }
                 }
 
+                let existingPref = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId))
+                let existingMembers = postbox.read { tx in tx.getClanMembers(clanId: clanId) }
+                let hasExistingCache = (existingPref?.isEmpty == false) || !existingMembers.isEmpty
+                if !response.cursor.isEmpty && hasExistingCache {
+                    return
+                }
+
                 let members = response.clanUsers.map { ClanMemberRecord(from: $0) }
 
                 postbox.write { tx in
@@ -103,7 +113,7 @@ extension MezonEngine {
                     tx.updateClanMembers(members, clanId: clanId)
                 }
                 if let data = try? response.serializedData() {
-                    postbox.setPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
                 }
 
                 clanUsersUpdated.putNext(clanId)
@@ -203,12 +213,46 @@ extension MezonEngine {
             }
         }
 
+        private func fetchChannelAppsCache(clanId: Int64, token: String) async {
+            do {
+                let apps = try await network.listChannelApps(clanId: clanId, token: token)
+                let cacheKey = PreferencesKeys.channelApps(clanId: clanId)
+                let previousData = postbox.getPreferenceData(key: cacheKey)
+                let previousNonEmpty: Bool = {
+                    guard let previousData, !previousData.isEmpty else { return false }
+                    return !Mezon_Api_ListChannelAppsResponse.decodeChannelApps(previousData).isEmpty
+                }()
+                if apps.isEmpty && previousNonEmpty {
+                    return
+                }
+                let data = Mezon_Api_ListChannelAppsResponse.encodeChannelApps(apps)
+                if previousData != data {
+                    postbox.setPreferenceDataSync(key: cacheKey, value: data)
+                }
+            } catch {
+            }
+        }
+
+        private func fetchFavoriteChannelsCache(clanId: Int64, token: String) async {
+            do {
+                let ids = try await network.listFavoriteChannelIds(clanId: clanId, token: token)
+                var resp = Mezon_Api_ListFavoriteChannelResponse()
+                resp.channelIds = ids
+                if let data = try? resp.serializedData() {
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.favoriteChannelIds(clanId: clanId), value: data)
+                }
+            } catch {
+            }
+        }
 
         func getClanUsers(clanId: Int64) -> Mezon_Api_ClanUserList? {
             if let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)),
                let cached = try? Mezon_Api_ClanUserList(serializedBytes: data),
                !cached.clanUsers.isEmpty {
-                return cached
+                let tag = cached.clanID
+                if tag == 0 || tag == clanId {
+                    return cached
+                }
             }
             let rows = postbox.read { $0.getClanMembers(clanId: clanId) }
             guard !rows.isEmpty else { return nil }
@@ -390,7 +434,7 @@ extension MezonEngine {
                 arr.append(channel)
             }
             guard let data = ChannelPreferenceListCodec.encode(arr) else { return }
-            postbox.setPreferenceData(key: PreferencesKeys.channelList(clanId: clanId), value: data)
+            postbox.setPreferenceDataSync(key: PreferencesKeys.channelList(clanId: clanId), value: data)
         }
 
         func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {

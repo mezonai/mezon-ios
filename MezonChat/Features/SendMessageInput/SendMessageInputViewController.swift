@@ -533,7 +533,10 @@ final class SendMessageInputViewController: UIViewController {
         migrateDraftToNewChannelIdentity: Bool = false,
         preserveComposerContentsDuringMigration: Bool = false
     ) {
-        guard newChannel.channelID != channel.channelID || newTopicId != topicId else { return }
+        guard newChannel.channelID != channel.channelID || newTopicId != topicId else {
+            channel = newChannel
+            return
+        }
         let backupPickedImages = (migrateDraftToNewChannelIdentity && !preserveComposerContentsDuringMigration) ? pickedImages : []
         let oldKey = draftStorageKey(for: channel, topicId: topicId)
         let oldAttachmentCacheKey = cacheKey
@@ -767,6 +770,7 @@ final class SendMessageInputViewController: UIViewController {
         let plainText = buildPlainTextFromAttributed()
         let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
+        ensureChannelMetadataResolvedFromPostboxIfNeeded()
         if let edit = editingDisplay, let mid = Int64(edit.message.id) {
             let hasKeptRemote = !editingRemoteImageAttachments.isEmpty || !editingRemoteFileAttachments.isEmpty
             guard !trimmed.isEmpty || hasAttachments || hasKeptRemote else { return }
@@ -775,6 +779,19 @@ final class SendMessageInputViewController: UIViewController {
         }
         guard !trimmed.isEmpty || hasAttachments else { return }
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
+    }
+
+    private func ensureChannelMetadataResolvedFromPostboxIfNeeded() {
+        guard channel.type == 0, channel.channelID != 0 else { return }
+        if clanId == 0 {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID), cached.type != 0 {
+                channel = cached
+            }
+        } else {
+            if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID), cached.type != 0 {
+                channel = cached
+            }
+        }
     }
 
     func hasComposerSendPayload() -> Bool {

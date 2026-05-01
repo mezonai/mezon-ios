@@ -341,6 +341,20 @@ final class SearchViewController: ViewController {
         && ch.type != MezonConstants.ChannelType.group.rawValue
     }
 
+    private func parentChannelLabel(forParentId parentId: Int64) -> String {
+        allChannels.first(where: { $0.channelID == parentId })?.channelLabel ?? ""
+    }
+
+    private func channelTabRowMatchesQuery(_ ch: Mezon_Api_ChannelDescription, query: String) -> Bool {
+        if ch.channelLabel.lowercased().contains(query) { return true }
+        if ch.clanName.lowercased().contains(query) { return true }
+        if ch.type == MezonConstants.ChannelType.thread.rawValue, ch.parentID != 0 {
+            let parentLabel = parentChannelLabel(forParentId: ch.parentID).lowercased()
+            if parentLabel.contains(query) { return true }
+        }
+        return false
+    }
+
     private func performSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
@@ -374,10 +388,12 @@ final class SearchViewController: ViewController {
             filteredChannels = allChannels.filter { $0.parentID == 0 && Self.isServerChannelInChannelsTab($0) }
         } else {
             filteredChannels = allChannels.filter { ch in
-                guard ch.parentID == 0, Self.isServerChannelInChannelsTab(ch) else { return false }
-                if ch.channelLabel.lowercased().contains(query) { return true }
-                if ch.clanName.lowercased().contains(query) { return true }
-                return false
+                guard Self.isServerChannelInChannelsTab(ch) else { return false }
+                if ch.parentID == 0 {
+                    return channelTabRowMatchesQuery(ch, query: query)
+                }
+                guard ch.type == MezonConstants.ChannelType.thread.rawValue else { return false }
+                return channelTabRowMatchesQuery(ch, query: query)
             }
         }
 
