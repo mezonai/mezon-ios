@@ -965,7 +965,7 @@ final class ChatViewController: ViewController {
         } else {
             restorePinnedStateFromPostboxIfNeeded()
             let cachedMessages = context.account.postbox.read { tx in
-                tx.getMessages(channelId: channelIdStr)
+                tx.getMessages(channelId: channelIdStr).filter { $0.channelId == channelIdStr }
             }
             let hasCache = !cachedMessages.isEmpty
             if !hasCache && NetworkMonitor.shared.isConnected {
@@ -980,6 +980,7 @@ final class ChatViewController: ViewController {
                     .start(next: { [weak self] view in
                         guard let self else { return }
                         guard view.channelId == channelIdStr else { return }
+                        guard self.storageChannelId == channelIdStr else { return }
                         let rows = view.messages.filter { $0.channelId == channelIdStr }
                         let displays = self.buildDisplayMessages(from: rows)
                         self.setMessages(displays)
@@ -1061,6 +1062,7 @@ final class ChatViewController: ViewController {
             try? await Task.sleep(nanoseconds: 500_000_000)
             if self.tryResolveLabelFromPostbox() { return }
 
+            let typeWasUnknown = self.channel.type == 0
             do {
                 if self.clanId == 0 {
                     let channels = try await self.context.account.network.listDirectMessageChannels(token: token)
@@ -1068,6 +1070,7 @@ final class ChatViewController: ViewController {
                         self.channel = found
                         self.setChannelLabel(found.channelLabel)
                         self.syncChannelToComposer()
+                        if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
                         return
                     }
                 }
@@ -1078,6 +1081,7 @@ final class ChatViewController: ViewController {
                         self.setChannelLabel(found.channelLabel)
                     }
                     self.syncChannelToComposer()
+                    if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
                 }
             } catch {
             }
@@ -1085,6 +1089,7 @@ final class ChatViewController: ViewController {
     }
 
     private func tryResolveLabelFromPostbox() -> Bool {
+        let typeWasUnknown = channel.type == 0
         if clanId == 0 {
             if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
                 channel = cached
@@ -1092,6 +1097,7 @@ final class ChatViewController: ViewController {
                     setChannelLabel(cached.channelLabel)
                 }
                 syncChannelToComposer()
+                if typeWasUnknown && cached.type != 0 { rejoinChatIfChannelMetadataChanged() }
                 return !cached.channelLabel.isEmpty && cached.type != 0
             }
         } else {
@@ -1101,10 +1107,16 @@ final class ChatViewController: ViewController {
                     setChannelLabel(cached.channelLabel)
                 }
                 syncChannelToComposer()
+                if typeWasUnknown && cached.type != 0 { rejoinChatIfChannelMetadataChanged() }
                 return !cached.channelLabel.isEmpty && cached.type != 0
             }
         }
         return false
+    }
+
+    private func rejoinChatIfChannelMetadataChanged() {
+        guard context.account.socket.isConnected else { return }
+        joinChat()
     }
 
     private func syncChannelToComposer() {
@@ -1154,6 +1166,9 @@ final class ChatViewController: ViewController {
         hasMarkedAsRead = false
         if !messages.isEmpty {
             markChannelAsRead()
+        }
+        if context.account.socket.isConnected {
+            joinChat()
         }
     }
 

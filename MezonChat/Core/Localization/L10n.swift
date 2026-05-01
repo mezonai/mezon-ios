@@ -342,6 +342,7 @@ enum L10n {
         static let verified = "discover.verified"
         static let joinClan = "discover.joinClan"
         static let noCommunities = "discover.noCommunities"
+        static let noMatchingCommunities = "discover.noMatchingCommunities"
         static let loadFailed = "discover.loadFailed"
     }
 
@@ -846,6 +847,7 @@ extension L10n {
         "discover.verified": "Verified",
         "discover.joinClan": "Join Clan",
         "discover.noCommunities": "No communities to show.",
+        "discover.noMatchingCommunities": "No matching communities.",
         "discover.loadFailed": "Could not load communities. Pull to try again.",
         "discover.detail.howChatty": "How chatty?",
         "discover.detail.clanCreated": "Clan created",
@@ -1146,6 +1148,13 @@ extension L10n {
         "profileSetting.noClanJoinClan": "Join a clan",
         "profileSetting.directMessageIcon": "Direct Message Icon",
 
+        "qrScanner.title": "Scan QR Code",
+        "qrScanner.cameraPermissionTitle": "Camera Access Required",
+        "qrScanner.cameraPermissionMessage":
+            "Please allow camera access in Settings to scan QR codes.",
+        "qrScanner.gallery": "Gallery",
+        "qrScanner.invalidQR": "Invalid QR code",
+        "qrScanner.loginConfirm": "Do you want to log in with %@?",
         "qrScanner.joinGroup": "Join Group",
         "qrScanner.transferTo": "Transfer to user: %@",
         "qrScanner.processing": "Processing...",
@@ -1403,6 +1412,7 @@ extension L10n {
         "discover.verified": "Đã xác minh",
         "discover.joinClan": "Tham gia Clan",
         "discover.noCommunities": "Không có cộng đồng để hiển thị.",
+        "discover.noMatchingCommunities": "Không có cộng đồng trùng khớp.",
         "discover.loadFailed": "Không tải được danh sách. Kéo để thử lại.",
         "discover.detail.howChatty": "Độ sôi nổi?",
         "discover.detail.clanCreated": "Ngày tạo clan",

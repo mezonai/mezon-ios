@@ -52,6 +52,30 @@ final class HomeViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         discoverEmptyOverlayVC.hostNavigationController = navigationController
+        syncMainColumnZOrder()
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        guard parent is TabBarController else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.parent is TabBarController else { return }
+            self.syncMainColumnZOrder()
+            self.resyncNestedSidebarAndChannelDisplayNodes()
+        }
+    }
+
+    private func syncMainColumnZOrder() {
+        if discoverEmptyOverlayVC.view.isHidden {
+            view.bringSubviewToFront(channelListVC.view)
+        } else {
+            view.bringSubviewToFront(discoverEmptyOverlayVC.view)
+        }
+    }
+
+    private func resyncNestedSidebarAndChannelDisplayNodes() {
+        clanListVC.displayNode.recursivelyEnsureDisplaySynchronously(true)
+        channelListVC.displayNode.recursivelyEnsureDisplaySynchronously(true)
     }
 
     @objc private func handleHomeThemeChange() {
@@ -118,13 +142,16 @@ final class HomeViewController: BaseViewController {
         alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
     }
 
+    private func channelSidebarMemberCount(clanId: Int64) -> Int {
+        context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
+    }
+
     private func applyInitialClanSelection() {
-        guard let id = clanListVC.selectedClanId,
-              let clan = clanListVC.clans.first(where: { $0.clanID == id }) else { return }
+        guard let id = clanListVC.selectedClanId, id != 0 else { return }
         context.currentClanId = id
-        let users = context.engine.clanData.getClanUsers(clanId: id)?.clanUsers ?? []
-        let memberCount = users.count
-        channelListVC.configure(clanId: id, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner, memberCount: memberCount, isCommunity: clan.isCommunity)
+        let clan = clanListVC.clans.first(where: { $0.clanID == id })
+        let memberCount = channelSidebarMemberCount(clanId: id)
+        channelListVC.configure(clanId: id, clanName: clan?.clanName ?? "", logoURL: clan?.logo, bannerURL: clan?.banner, memberCount: memberCount, isCommunity: clan?.isCommunity ?? false)
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -193,6 +220,8 @@ final class HomeViewController: BaseViewController {
                     self.discoverEmptyOverlayVC.view.isHidden = !show
                     if show {
                         self.view.bringSubviewToFront(self.discoverEmptyOverlayVC.view)
+                    } else {
+                        self.view.bringSubviewToFront(self.channelListVC.view)
                     }
                 })
         )
@@ -255,20 +284,22 @@ final class HomeViewController: BaseViewController {
                 .start(next: { [weak self] clanId in
                     guard let self else { return }
                     guard let clanId, clanId != 0 else {
+                        self.context.currentClanId = 0
                         self.channelListVC.configure(clanId: 0, clanName: "", logoURL: nil, bannerURL: nil, memberCount: 0, isCommunity: false)
                         return
                     }
+                    self.context.currentClanId = clanId
                     let clan = self.clanListVC.clans.first(where: { $0.clanID == clanId })
-                    let users = self.context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers ?? []
-                    let memberCount = users.count
+                    let memberCount = self.channelSidebarMemberCount(clanId: clanId)
                     self.channelListVC.configure(clanId: clanId, clanName: clan?.clanName ?? "", logoURL: clan?.logo, bannerURL: clan?.banner, memberCount: memberCount, isCommunity: clan?.isCommunity ?? false)
                 })
         )
         disposables.add(
             (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue)
                 .start(next: { [weak self] clanId in
-                    guard let self, clanId == self.channelListVC.clanId else { return }
-                    let memberCount = self.context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
+                    guard let self else { return }
+                    guard clanId != 0, clanId == self.context.currentClanId, clanId == self.channelListVC.clanId else { return }
+                    let memberCount = self.channelSidebarMemberCount(clanId: clanId)
                     self.channelListVC.updateMemberCount(memberCount)
                 })
         )

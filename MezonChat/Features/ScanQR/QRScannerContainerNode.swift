@@ -19,10 +19,18 @@ final class QRScannerContainerNode: ASDisplayNode {
     private let myQRCodeCardNode = ASButtonNode()
     private let fakeQRImageNode = ASImageNode()
 
+    private let cameraPermissionGateContainer = ASDisplayNode()
+    private let cameraPermissionIconNode = ASImageNode()
+    private let cameraPermissionTitleNode = ASTextNode()
+    private let cameraPermissionMessageNode = ASTextNode()
+    private let cameraPermissionSettingsButton = ASButtonNode()
+    private var showsCameraPermissionGate = false
+
     var onCloseTapped: (() -> Void)?
     var onFlashTapped: (() -> Void)?
     var onGalleryTapped: (() -> Void)?
     var onMyQRCodeTapped: (() -> Void)?
+    var onCameraPermissionSettingsTapped: (() -> Void)?
 
     override init() {
         super.init()
@@ -82,8 +90,49 @@ final class QRScannerContainerNode: ASDisplayNode {
         fakeQRImageNode.contentMode = .scaleAspectFit
         
         myQRCodeCardNode.addSubnode(fakeQRImageNode)
+
+        cameraPermissionGateContainer.backgroundColor = UIColor.black.withAlphaComponent(0.88)
+        cameraPermissionIconNode.image = UIImage(systemName: "camera.slash.fill")?.withTintColor(.white, renderingMode: .alwaysTemplate)
+        cameraPermissionIconNode.contentMode = .scaleAspectFit
+
+        let gateTitlePara = NSMutableParagraphStyle()
+        gateTitlePara.alignment = .center
+        cameraPermissionTitleNode.attributedText = NSAttributedString(
+            string: L(L10n.QRScanner.cameraPermissionTitle),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 18, weight: .bold),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: gateTitlePara,
+            ])
+
+        let gateMsgPara = NSMutableParagraphStyle()
+        gateMsgPara.alignment = .center
+        cameraPermissionMessageNode.attributedText = NSAttributedString(
+            string: L(L10n.QRScanner.cameraPermissionMessage),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.9),
+                .paragraphStyle: gateMsgPara,
+            ])
+
+        cameraPermissionSettingsButton.setTitle(
+            L(L10n.Common.settings),
+            with: .systemFont(ofSize: 16, weight: .semibold),
+            with: .black,
+            for: .normal
+        )
+        cameraPermissionSettingsButton.backgroundColor = .white
+        cameraPermissionSettingsButton.cornerRadius = 12
+        cameraPermissionSettingsButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 24, bottom: 0, right: 24)
+
+        cameraPermissionGateContainer.addSubnode(cameraPermissionIconNode)
+        cameraPermissionGateContainer.addSubnode(cameraPermissionTitleNode)
+        cameraPermissionGateContainer.addSubnode(cameraPermissionMessageNode)
+        cameraPermissionGateContainer.addSubnode(cameraPermissionSettingsButton)
+        cameraPermissionGateContainer.isHidden = true
         
         self.addSubnode(scannerOverlay)
+        self.addSubnode(cameraPermissionGateContainer)
         self.addSubnode(closeButton)
         self.addSubnode(flashButton)
         self.addSubnode(mezonLogoIcon)
@@ -104,6 +153,14 @@ final class QRScannerContainerNode: ASDisplayNode {
         flashButton.addTarget(self, action: #selector(toggleFlash), forControlEvents: .touchUpInside)
         galleryButton.addTarget(self, action: #selector(openGallery), forControlEvents: .touchUpInside)
         myQRCodeCardNode.addTarget(self, action: #selector(myQRCodeTapped), forControlEvents: .touchUpInside)
+        cameraPermissionSettingsButton.addTarget(self, action: #selector(cameraPermissionSettingsTapped), forControlEvents: .touchUpInside)
+    }
+
+    func setCameraPermissionGateVisible(_ visible: Bool) {
+        guard showsCameraPermissionGate != visible else { return }
+        showsCameraPermissionGate = visible
+        cameraPermissionGateContainer.isHidden = !visible
+        flashButton.isHidden = visible
     }
 
     func updateFlashButton(isOn: Bool) {
@@ -162,6 +219,37 @@ final class QRScannerContainerNode: ASDisplayNode {
         let qrHeight = qrWidth
         let dummyQRX: CGFloat = 16
         transition.updateFrame(node: fakeQRImageNode, frame: CGRect(x: dummyQRX, y: 16, width: qrWidth, height: qrHeight))
+
+        if showsCameraPermissionGate {
+            transition.updateFrame(node: cameraPermissionGateContainer, frame: CGRect(origin: .zero, size: size))
+            let maxTextWidth = size.width - 48
+            let iconSide: CGFloat = 56
+            let iconY = size.height * 0.32
+            transition.updateFrame(
+                node: cameraPermissionIconNode,
+                frame: CGRect(x: (size.width - iconSide) / 2, y: iconY, width: iconSide, height: iconSide))
+
+            let titleSize = cameraPermissionTitleNode.calculateSizeThatFits(
+                CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude))
+            let titleY = iconY + iconSide + 20
+            transition.updateFrame(
+                node: cameraPermissionTitleNode,
+                frame: CGRect(x: 24, y: titleY, width: size.width - 48, height: titleSize.height))
+
+            let msgSize = cameraPermissionMessageNode.calculateSizeThatFits(
+                CGSize(width: maxTextWidth, height: .greatestFiniteMagnitude))
+            let msgY = titleY + titleSize.height + 12
+            transition.updateFrame(
+                node: cameraPermissionMessageNode,
+                frame: CGRect(x: 24, y: msgY, width: size.width - 48, height: msgSize.height))
+
+            let btnW = min(maxTextWidth, 280)
+            let btnH: CGFloat = 48
+            let btnY = msgY + msgSize.height + 28
+            transition.updateFrame(
+                node: cameraPermissionSettingsButton,
+                frame: CGRect(x: (size.width - btnW) / 2, y: btnY, width: btnW, height: btnH))
+        }
 
         updateScannerMask(size: size, scanRect: scanRect)
     }
@@ -232,6 +320,10 @@ final class QRScannerContainerNode: ASDisplayNode {
 
     @objc private func myQRCodeTapped() {
         onMyQRCodeTapped?()
+    }
+
+    @objc private func cameraPermissionSettingsTapped() {
+        onCameraPermissionSettingsTapped?()
     }
 }
 

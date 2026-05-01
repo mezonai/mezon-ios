@@ -25,8 +25,9 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var currentHeaderH: CGFloat = 120
     private var hasClanBanner: Bool = false
     private var channelApps: [Mezon_Api_ChannelAppResponse] = []
+    private var channelAppsLoading = false
     private var isChannelAppsExpanded = true
-    private var hasChannelAppsSection: Bool { !channelApps.isEmpty }
+    private var channelAppsStripeVisible: Bool { channelAppsLoading || !channelApps.isEmpty }
     private let compactViewThreshold = 3
     private var isCompactView: Bool { channelApps.count <= compactViewThreshold }
     private lazy var gradientLayer: CAGradientLayer = {
@@ -177,7 +178,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
 
-        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
         let prevCatSections = committedSectionCount - sectionOffset
         let newCatSections = expectedAfter - sectionOffset
         let canPatch = prevCatSections == newCatSections
@@ -407,7 +408,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
 
-        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
 
         var rowCountChanged = false
         for s in 0..<new.categories.count {
@@ -484,7 +485,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
-        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
         guard let s = firstCategoryIndexContainingListChannel(channelId) else { return nil }
         let rows = rowsForSection(s)
         guard let r = rows.firstIndex(where: { row in
@@ -630,16 +631,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         return byChannel.values.sorted { $0.channelID < $1.channelID }
     }
 
-    private func appsSectionRowCount(apps: [Mezon_Api_ChannelAppResponse], expanded: Bool) -> Int {
-        guard !apps.isEmpty else { return 0 }
-        if apps.count <= compactViewThreshold {
-            return expanded ? apps.count : 0
-        }
-        return 1
-    }
-
     private func reloadChannelAppsSectionOnly() {
-        guard hasChannelAppsSection else { return }
+        guard channelAppsStripeVisible else { return }
         guard tableNode.numberOfSections > 0 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -667,7 +660,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func categoryIndex(forSection section: Int) -> Int {
-        let offset = hasChannelAppsSection ? 1 : 0
+        let offset = channelAppsStripeVisible ? 1 : 0
         return section - offset
     }
 
@@ -676,7 +669,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private var loadingPlaceholderTableSection: Int {
-        hasChannelAppsSection ? 1 : 0
+        channelAppsStripeVisible ? 1 : 0
     }
 
     private func isLoadingPlaceholderTableSection(_ section: Int) -> Bool {
@@ -684,7 +677,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private var totalSections: Int {
-        let appsSections = hasChannelAppsSection ? 1 : 0
+        let appsSections = channelAppsStripeVisible ? 1 : 0
         if channelListLoadingPlaceholderVisible {
             return appsSections + 1
         }
@@ -693,6 +686,36 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     var hasDisplayedChannelApps: Bool { !channelApps.isEmpty }
+
+    func setChannelAppsLoadingIndicator(_ loading: Bool) {
+        guard channelAppsLoading != loading else { return }
+        let beforeHad = channelAppsStripeVisible
+        channelAppsLoading = loading
+        let afterHad = channelAppsStripeVisible
+        cachedRows = [:]
+        cachedHeaders = [:]
+        if !beforeHad && afterHad {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tableNode.performBatch(animated: false) {
+                self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+            }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+            CATransaction.commit()
+            committedSectionCount = totalSections
+        } else if beforeHad && !afterHad {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tableNode.performBatch(animated: false) {
+                self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+            }
+            tableNode.waitUntilAllUpdatesAreProcessed()
+            CATransaction.commit()
+            committedSectionCount = totalSections
+        } else if beforeHad && afterHad {
+            reloadChannelAppsSectionOnly()
+        }
+    }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         if layer.maskedCorners != [.layerMinXMinYCorner] {
@@ -751,14 +774,17 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func markClanSwitching() {
         isClanSwitching = true
+        memberCount = 0
+        headerUIView.clearMemberSubtitleStaleText()
     }
 
     func clearChannelApps() {
-        let hadSection = !channelApps.isEmpty
+        let hadStripe = channelAppsStripeVisible
         channelApps = []
+        channelAppsLoading = false
         cachedRows = [:]
         cachedHeaders = [:]
-        guard hadSection else {
+        guard hadStripe else {
             committedSectionCount = totalSections
             return
         }
@@ -820,11 +846,13 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
         let filtered = Self.normalizeChannelAppsList(apps.filter { $0.hasListableChannelAppContent })
-        if channelAppsUIEqual(channelApps, filtered) { return }
+        let beforeHadStripe = channelAppsStripeVisible
+        channelAppsLoading = false
+        if channelAppsUIEqual(channelApps, filtered), beforeHadStripe == (!filtered.isEmpty) { return }
 
-        let beforeHad = hasChannelAppsSection
+        let beforeHad = beforeHadStripe
         channelApps = filtered
-        let afterHad = hasChannelAppsSection
+        let afterHad = channelAppsStripeVisible
 
         cachedRows = [:]
         cachedHeaders = [:]
@@ -914,7 +942,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func reloadSelectionRows(previous: Int64?, current: Int64?) {
         var paths: [IndexPath] = []
-        let sectionOffset = hasChannelAppsSection ? 1 : 0
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
         for s in 0..<state.categories.count {
             let rows = rowsForSection(s)
             for (r, row) in rows.enumerated() {
@@ -1020,7 +1048,10 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
-        if hasChannelAppsSection && section == 0 {
+        if channelAppsStripeVisible && section == 0 {
+            if channelAppsLoading && channelApps.isEmpty {
+                return isChannelAppsExpanded ? 1 : 0
+            }
             if isCompactView {
                 return isChannelAppsExpanded ? channelApps.count : 0
             } else {
@@ -1035,7 +1066,10 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
-        if hasChannelAppsSection && indexPath.section == 0 {
+        if channelAppsStripeVisible && indexPath.section == 0 {
+            if channelAppsLoading && channelApps.isEmpty {
+                return { ChannelAppLoadingCellNode() }
+            }
             if isCompactView {
                 guard indexPath.row < channelApps.count else { return { ASCellNode() } }
                 let app = channelApps[indexPath.row]
@@ -1090,7 +1124,7 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        if hasChannelAppsSection && section == 0 {
+        if channelAppsStripeVisible && section == 0 {
             if isCompactView {
                 let header = cachedHeaders[section] ?? CategorySectionHeaderView()
                 header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
@@ -1115,7 +1149,7 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if hasChannelAppsSection && section == 0 {
+        if channelAppsStripeVisible && section == 0 {
             return isCompactView ? 32.sh : 0
         }
         if isLoadingPlaceholderTableSection(section) {
@@ -1138,7 +1172,8 @@ extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: false)
-        if hasChannelAppsSection && indexPath.section == 0 {
+        if channelAppsStripeVisible && indexPath.section == 0 {
+            guard !channelAppsLoading else { return }
             if isCompactView, indexPath.row < channelApps.count {
                 interaction.onSelectChannelApp?(channelApps[indexPath.row])
             }
@@ -1582,12 +1617,19 @@ final class ChannelListHeaderView: UIView {
         onQRTapped?()
     }
 
+    func clearMemberSubtitleStaleText() {
+        memberCountLabel.text = ""
+        memberCountLabel.isHidden = true
+        communityDot.isHidden = true
+    }
+
     func configure(title: String, memberCount: Int = 0, isCommunity: Bool = false) {
         titleLabel.text = title
         if memberCount > 0 {
             memberCountLabel.text = memberCount == 1 ? "\(memberCount) Member" : "\(memberCount) Members"
             memberCountLabel.isHidden = false
         } else {
+            memberCountLabel.text = ""
             memberCountLabel.isHidden = true
         }
         communityDot.isHidden = !isCommunity || memberCount <= 0
@@ -1601,6 +1643,7 @@ final class ChannelListHeaderView: UIView {
             memberCountLabel.isHidden = false
             communityDot.isHidden = communityLabel.isHidden
         } else {
+            memberCountLabel.text = ""
             memberCountLabel.isHidden = true
             communityDot.isHidden = true
         }

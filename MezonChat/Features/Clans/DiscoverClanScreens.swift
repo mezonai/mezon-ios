@@ -394,7 +394,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
             tableView.topAnchor.constraint(equalTo: headerContainer.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
         ])
 
         applyThemeFully()
@@ -457,6 +457,12 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
             tableView.backgroundView = statusBackgroundHost
             return
         }
+        if filtered.isEmpty {
+            statusLabel.text = L(L10n.Discover.noMatchingCommunities)
+            statusLabel.isHidden = false
+            tableView.backgroundView = statusBackgroundHost
+            return
+        }
         statusLabel.text = nil
         statusLabel.isHidden = true
         tableView.backgroundView = nil
@@ -487,6 +493,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
             }
         }
         tableView.reloadData()
+        updateStatusBackgroundVisibility()
     }
 
     @objc private func pullRefresh() {

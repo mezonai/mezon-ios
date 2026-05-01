@@ -44,6 +44,10 @@ final class QRScannerViewController: ViewController {
         scannerNode.onMyQRCodeTapped = { [weak self] in
             self?.navigateToMyQRCode()
         }
+
+        scannerNode.onCameraPermissionSettingsTapped = { [weak self] in
+            self?.openAppSettingsForCamera()
+        }
     }
     
     override func viewDidLoad() {
@@ -53,6 +57,7 @@ final class QRScannerViewController: ViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        resumeCameraIfAuthorizedAfterSettings()
         if captureSession?.isRunning == false {
             captureSession?.startRunning()
         }
@@ -75,34 +80,56 @@ final class QRScannerViewController: ViewController {
     private func checkCameraPermission() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
+            applyCameraPermissionGateVisible(false)
             setupCamera()
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                if granted {
-                    DispatchQueue.main.async { self?.setupCamera() }
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    if granted {
+                        self.applyCameraPermissionGateVisible(false)
+                        self.setupCamera()
+                    } else {
+                        self.applyCameraPermissionGateVisible(true)
+                    }
                 }
             }
         case .denied, .restricted:
-            showPermissionAlert()
+            applyCameraPermissionGateVisible(true)
         @unknown default:
             break
         }
     }
-    
-    private func showPermissionAlert() {
-        let alert = UIAlertController(title: L(L10n.QRScanner.cameraPermissionTitle), message: L(L10n.QRScanner.cameraPermissionMessage), preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel, handler: { [weak self] _ in
-            self?.closeTapped()
-        }))
-        alert.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default, handler: { _ in
-            if let url = URL(string: UIApplication.openSettingsURLString) {
-                UIApplication.shared.open(url)
-            }
-        }))
-        present(alert, animated: true)
+
+    private func resumeCameraIfAuthorizedAfterSettings() {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        guard captureSession == nil else { return }
+        setupCamera()
+    }
+
+    private func openAppSettingsForCamera() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    private func applyCameraPermissionGateVisible(_ visible: Bool) {
+        scannerNode.setCameraPermissionGateVisible(visible)
+        refreshScannerLayoutForPermissionGate()
+    }
+
+    private func refreshScannerLayoutForPermissionGate() {
+        guard let layout = currentlyAppliedLayout else { return }
+        scannerNode.updateLayout(
+            size: layout.size,
+            safeInsets: layout.safeInsets,
+            intrinsicInsets: layout.intrinsicInsets,
+            transition: .immediate
+        )
     }
     
     private func setupCamera() {
+        guard captureSession == nil else { return }
+        applyCameraPermissionGateVisible(false)
         let session = AVCaptureSession()
         guard let device = AVCaptureDevice.default(for: .video) else { return }
         guard let input = try? AVCaptureDeviceInput(device: device) else { return }
