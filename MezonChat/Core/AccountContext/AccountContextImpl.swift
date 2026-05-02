@@ -237,6 +237,7 @@ final class AccountContextImpl: AccountContext {
             Task { try? await engine.auth.sessionLogout(session: s, deviceId: deviceId, platform: "ios") }
         }
         SessionStore.clear()
+        MandatoryUsernamePendingStore.clearPending()
         MmnWalletStore.shared.clear()
         SessionRefreshManager.shared.reset()
         session = nil
@@ -361,7 +362,7 @@ final class AccountContextImpl: AccountContext {
             avatarURL: nil, status: .online, customStatus: nil, bio: nil
         ))
         applyCachedAccountIfAvailable()
-        setLoggedIn(true)
+        setLoggedIn(!saved.created)
         account.network.updateBaseURL(from: saved)
 
         SessionRefreshManager.shared.refreshOnAppLaunch(
@@ -369,7 +370,10 @@ final class AccountContextImpl: AccountContext {
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
-                self.applySession(merged, user: self.currentUser, connectSocket: true)
+                self.applySession(merged, user: self.currentUser, connectSocket: !merged.created)
+                if let s = self.session {
+                    self.setLoggedIn(!s.created)
+                }
                 self.registerFCMTokenIfNeeded()
                 self.markSessionReady()
             },
@@ -715,7 +719,10 @@ final class AccountContextImpl: AccountContext {
             handleSocketNotification(noti)
 
         case .webRTC(let msg):
-            WebRTCCallManager.shared.handleSignalingMessage(msg)
+            WebRTCCallManager.shared.handleSignalingMessage(msg, currentUserId: currentUserNumericId() ?? 0)
+
+        case .incomingCallPush(let push):
+            WebRTCCallManager.shared.handleIncomingCallPush(push, currentUserId: currentUserNumericId() ?? 0)
 
         case .customStatus(let e):
             applyIncomingCustomStatusEvent(e)

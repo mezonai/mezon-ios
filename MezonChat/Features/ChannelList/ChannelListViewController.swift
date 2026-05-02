@@ -538,32 +538,46 @@ final class ChannelListViewController: ViewController {
     @MainActor
     private func applyChannelBadgeCounts(clanId: Int64) async {
         guard clanId != 0 else { return }
-        guard let token = await context.getToken() else { return }
-        do {
-            let rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
-                .channeldesc
-            guard !rows.isEmpty else { return }
-            var updated = allChannels
-            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
-            guard !channelListRowsVisuallyEqual(allChannels, updated) else { return }
-            allChannels = updated
-            let storedCollapsed = loadCollapsedCategoryIds()
-            let built = buildChannelCategories(
-                updated,
-                categoryDescs: channelListCategoryDescs,
-                favoriteChannelIds: channelListFavoriteIds,
-                collapsedIds: storedCollapsed
-            )
-            let cats = applyBuiltCategoriesPreservingCollapse(built)
-            categories = cats
-            categoriesPipe.putNext(cats)
-            context.account.postbox.setPreferenceDataSync(
-                key: PreferencesKeys.channelList(clanId: clanId),
-                value: encodeChannelList(updated)
-            )
-            needsReloadPipe.putNext(())
-        } catch {
+        guard clanId == self.clanId else { return }
+        let token = await context.getToken()
+        guard clanId == self.clanId else { return }
+        let rows: [Mezon_Api_ChannelDescription]
+        if context.account.socket.isConnected {
+            do {
+                rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: clanId)
+            } catch {
+                guard let token else { return }
+                do {
+                    rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
+                } catch { return }
+            }
+        } else {
+            guard let token else { return }
+            do {
+                rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
+            } catch { return }
         }
+        guard clanId == self.clanId else { return }
+        guard !rows.isEmpty else { return }
+        var updated = allChannels
+        ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
+        guard !channelListRowsVisuallyEqual(allChannels, updated) else { return }
+        allChannels = updated
+        let storedCollapsed = loadCollapsedCategoryIds()
+        let built = buildChannelCategories(
+            updated,
+            categoryDescs: channelListCategoryDescs,
+            favoriteChannelIds: channelListFavoriteIds,
+            collapsedIds: storedCollapsed
+        )
+        let cats = applyBuiltCategoriesPreservingCollapse(built)
+        categories = cats
+        categoriesPipe.putNext(cats)
+        context.account.postbox.setPreferenceDataSync(
+            key: PreferencesKeys.channelList(clanId: clanId),
+            value: encodeChannelList(updated)
+        )
+        needsReloadPipe.putNext(())
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -912,6 +926,9 @@ final class ChannelListViewController: ViewController {
                         self.isLoadingPipe.putNext(false)
                         self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                         self.needsReloadPipe.putNext(())
+                        Task { @MainActor [weak self] in
+                            await self?.applyChannelBadgeCounts(clanId: clanId)
+                        }
                         return
                     }
                     self.channelListCategoryDescs = categoryDescs
@@ -939,6 +956,9 @@ final class ChannelListViewController: ViewController {
                         value: self.encodeChannelListMeta(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
                     )
                     self.persistFavoriteChannelIds(favoriteIds, clanId: clanId)
+                    Task { @MainActor [weak self] in
+                        await self?.applyChannelBadgeCounts(clanId: clanId)
+                    }
                 case .failure(let msg):
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
@@ -1264,17 +1284,8 @@ final class ChannelListViewController: ViewController {
                     let channels = try await channelsTask
                     let categoryDescs = await categoriesTask
                     let favoriteIds = Set(await favoritesTask)
-                    var mergedChannels = channels
-                    do {
-                        let rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
-                            .channeldesc
-                        if !rows.isEmpty {
-                            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &mergedChannels, badgeRows: rows)
-                        }
-                    } catch {
-                    }
                     subscriber.putNext(ChannelListFetchPayload(
-                        channels: mergedChannels,
+                        channels: channels,
                         categoryDescs: categoryDescs,
                         favoriteChannelIds: favoriteIds
                     ))

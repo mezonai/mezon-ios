@@ -302,6 +302,17 @@ enum L10n {
         static let sendOtpError   = "otpVerify.sendOtpError"
     }
 
+    enum UpdateUsername {
+        static let enterUsername = "updateUsername.enterUsername"
+        static let usernamePlaceholder = "updateUsername.usernamePlaceholder"
+        static let yourName = "updateUsername.yourName"
+        static let usernamePreview = "updateUsername.usernamePreview"
+        static let update = "updateUsername.update"
+        static let errorDuplicate = "updateUsername.errorDuplicate"
+        static let skipUpdateQuestion = "updateUsername.skipUpdateQuestion"
+        static let skipUpdateBack = "updateUsername.skipUpdateBack"
+    }
+
     enum Clan {
         static let createClan     = "clan.createClan"
         static let joinClanTitle   = "clan.joinClanTitle"
@@ -809,6 +820,15 @@ extension L10n {
         "otpVerify.changePhone":       "Change Phone",
         "otpVerify.resendFailed":      "Failed to resend OTP. Please try again.",
         "otpVerify.sendOtpError":      "Failed to receive OTP. Please try again.",
+
+        "updateUsername.enterUsername": "Enter Mezon name",
+        "updateUsername.usernamePlaceholder": "Please use your actual name to make it easier for people to identify you.",
+        "updateUsername.yourName": "Your name...",
+        "updateUsername.usernamePreview": "Username: %@",
+        "updateUsername.update": "Update",
+        "updateUsername.errorDuplicate": "There's an issue or the name already exists, please choose another one.",
+        "updateUsername.skipUpdateQuestion": "Want to sign in again with your phone number?",
+        "updateUsername.skipUpdateBack": "Return to login with phone number",
 
         "clan.createClan":  "Create Clan",
         "clan.joinClanTitle": "Join a clan",
@@ -1374,6 +1394,15 @@ extension L10n {
         "otpVerify.changePhone":       "Đổi số điện thoại",
         "otpVerify.resendFailed":      "Không thể gửi lại OTP. Vui lòng thử lại.",
         "otpVerify.sendOtpError":      "Không thể gửi mã OTP. Vui lòng thử lại.",
+
+        "updateUsername.enterUsername": "Nhập tên Mezon",
+        "updateUsername.usernamePlaceholder": "Hãy dùng tên thật để mọi người dễ nhận ra bạn",
+        "updateUsername.yourName": "Tên của bạn...",
+        "updateUsername.usernamePreview": "Tên người dùng: %@",
+        "updateUsername.update": "Cập nhật",
+        "updateUsername.errorDuplicate": "Có sự cố hoặc tên đã tồn tại, vui lòng chọn tên khác.",
+        "updateUsername.skipUpdateQuestion": "Muốn đăng nhập lại với số điện thoại của bạn?",
+        "updateUsername.skipUpdateBack": "Quay lại đăng nhập với số điện thoại",
 
         "clan.createClan":  "Tạo Clan",
         "clan.joinClanTitle": "Tham gia clan",

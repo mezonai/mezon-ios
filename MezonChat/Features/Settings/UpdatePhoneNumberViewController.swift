@@ -315,7 +315,7 @@ final class UpdatePhoneNumberViewController: BaseViewController {
         if cleaned.isEmpty { return false }
         if prefix == "+84" {
             let p = cleaned.hasPrefix("0") ? String(cleaned.dropFirst()) : cleaned
-            return p.range(of: "^(3|5|7|8|9)[0-9]{8}$", options: .regularExpression) != nil
+            return p.count == 9 && p.allSatisfy { $0.isNumber }
         }
         return cleaned.count >= 7 && cleaned.allSatisfy { $0.isNumber }
     }

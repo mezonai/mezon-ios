@@ -27,6 +27,7 @@ struct ChatInteraction {
     let onHeaderTapped: () -> Void
     let onSearchTapped: () -> Void
     let onCallTapped: (() -> Void)?
+    let onVideoCallTapped: (() -> Void)?
     let onHistoryTapped: () -> Void
     let onMenuTapped: () -> Void
     let onScrolledNearTop: () -> Void
@@ -96,6 +97,7 @@ final class ChatContainerNode: ASDisplayNode {
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
         headerNode.onCallTapped = { interaction.onCallTapped?() }
+        headerNode.onVideoCallTapped = { interaction.onVideoCallTapped?() }
         addSubnode(headerNode)
         addSubnode(listView)
         addSubnode(skeletonNode)

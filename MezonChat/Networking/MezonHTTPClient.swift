@@ -74,6 +74,20 @@ final class MezonHTTPClient {
         protoBaseURL = url
     }
 
+    func resetProtoBaseURLToDefault() {
+        protoBaseURL = MezonConfig.protoBaseURL
+    }
+
+    func updateUsername(username: String, token: String) async throws -> Mezon_Api_Session {
+        var req = Mezon_Api_UpdateUsernameRequest()
+        req.username = username
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateUsername",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private func stripDefaultPort(_ urlString: String) -> String {
         guard var components = URLComponents(string: urlString) else { return urlString }
         let isHTTPS = components.scheme?.lowercased() == "https"

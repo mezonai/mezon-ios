@@ -18,6 +18,10 @@ enum MezonConfig {
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
 
+    static var webRTCIceServerURL: String { env.webRTCIceServerURL }
+    static var webRTCIceUsername: String { env.webRTCIceUsername }
+    static var webRTCIceCredential: String { env.webRTCIceCredential }
+
     static var chatWebAppBaseURL: String {
         if let raw = Self.infoPlistString("MEZON_CHAT_WEB_BASE_URL"), !raw.isEmpty {
             return raw.trimmingCharacters(in: CharacterSet(charactersIn: "/"))

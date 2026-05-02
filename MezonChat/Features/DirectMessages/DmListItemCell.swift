@@ -225,13 +225,22 @@ final class DmListItemCell: UITableViewCell {
     }
 
     private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
-        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+        let original = url.absoluteString
+        let proxied = ImgproxyURL.create(from: original, width: 150, height: 150)
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) ?? ImageCache.shared.cachedImage(forURL: original) {
             avatarView.image = cached
             return
         }
-        imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
-            self?.avatarView.image = image
+        imageTask?.cancel()
+        imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            if let image {
+                self?.avatarView.image = image
+                return
+            }
+            guard !original.isEmpty, original != proxied else { return }
+            self?.imageTask = ImageCache.shared.loadImage(urlString: original) { [weak self] im in
+                self?.avatarView.image = im
+            }
         }
     }
 

@@ -172,4 +172,25 @@ enum MezonEnvironment {
         case .prod: return Secrets.prodMeetWebSocketURL
         }
     }
+
+    var webRTCIceServerURL: String {
+        switch self {
+        case .dev: return Secrets.devWebRTCIceServerURL
+        case .prod: return Secrets.prodWebRTCIceServerURL
+        }
+    }
+
+    var webRTCIceUsername: String {
+        switch self {
+        case .dev: return Secrets.devWebRTCIceUsername
+        case .prod: return Secrets.prodWebRTCIceUsername
+        }
+    }
+
+    var webRTCIceCredential: String {
+        switch self {
+        case .dev: return Secrets.devWebRTCIceCredential
+        case .prod: return Secrets.prodWebRTCIceCredential
+        }
+    }
 }

@@ -1,13 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-enum WebRTCSignalingType: Int32 {
-    case offer = 1
-    case answer = 2
-    case iceCandidate = 3
-    case hangUp = 4
-}
-
 enum SocketEvent {
     case messageReceived(Mezon_Api_ChannelMessage)
     case typing(Mezon_Realtime_MessageTypingEvent)
@@ -44,6 +37,7 @@ enum SocketEvent {
     case streamingJoined(Mezon_Realtime_StreamingJoinedEvent)
     case streamingLeaved(Mezon_Realtime_StreamingLeavedEvent)
     case webRTC(Mezon_Realtime_WebrtcSignalingFwd)
+    case incomingCallPush(Mezon_Realtime_IncomingCallPush)
 
     case customStatus(Mezon_Realtime_CustomStatusEvent)
     case userStatus(Mezon_Realtime_UserStatusEvent)
@@ -96,8 +90,11 @@ final class MezonSocket: NSObject {
 
     var tokenProvider: (() async throws -> String)?
 
-    private var nextListDataSocketCid: Int32 = 1
-    private var pendingDataSocketCallbacks: [Int32: (Mezon_Realtime_ListDataSocket) -> Void] = [:]
+    private static let rpcIdListChannelBadgeCount = "ListChannelBadgeCount"
+    private static let rpcIdListClanBadgeCount = "ListClanBadgeCount"
+
+    private var nextRpcCorrelationId: Int32 = 1
+    private var pendingRpcCallbacks: [Int32: (Mezon_Api_Rpc) -> Void] = [:]
     private var reconnectWorkItem: DispatchWorkItem?
 
     private override init() { super.init() }
@@ -135,7 +132,7 @@ final class MezonSocket: NSObject {
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
-        pendingDataSocketCallbacks.removeAll()
+        pendingRpcCallbacks.removeAll()
     }
 
     func reconnectFromForeground() {
@@ -152,6 +149,7 @@ final class MezonSocket: NSObject {
     private func cleanupForReconnect() {
         isConnected = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
+        pendingRpcCallbacks.removeAll()
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -380,6 +378,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.streamingLeaved(m))
         case .webrtcSignalingFwd(let m):
             eventPipe.putNext(.webRTC(m))
+        case .incomingCallPush(let m):
+            eventPipe.putNext(.incomingCallPush(m))
         case .customStatusEvent(let m):
             eventPipe.putNext(.customStatus(m))
         case .userStatusEvent(let m):
@@ -422,9 +422,9 @@ final class MezonSocket: NSObject {
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()
             send(pong)
-        case .listDataSocket(let m):
+        case .rpc(let m):
             let cid = envelope.cid
-            if let cb = pendingDataSocketCallbacks.removeValue(forKey: cid) {
+            if cid != 0, let cb = pendingRpcCallbacks.removeValue(forKey: cid) {
                 cb(m)
             }
         default:
@@ -432,29 +432,31 @@ final class MezonSocket: NSObject {
         }
     }
 
-    func listDataSocket(_ request: Mezon_Realtime_ListDataSocket) async throws -> Mezon_Realtime_ListDataSocket {
-        return try await withCheckedThrowingContinuation { continuation in
-            let id = nextListDataSocketCid
-            nextListDataSocketCid &+= 1
-            if nextListDataSocketCid == 0 { nextListDataSocketCid = 1 }
+    private func sendRpcAwaitResponse(rpcId: String, payload: String) async throws -> Mezon_Api_Rpc {
+        try await withCheckedThrowingContinuation { continuation in
+            let id = nextRpcCorrelationId
+            nextRpcCorrelationId &+= 1
+            if nextRpcCorrelationId == 0 { nextRpcCorrelationId = 1 }
             var resumed = false
-            pendingDataSocketCallbacks[id] = { [weak self] response in
+            pendingRpcCallbacks[id] = { rpc in
                 guard !resumed else { return }
                 resumed = true
-                self?.pendingDataSocketCallbacks.removeValue(forKey: id)
-                continuation.resume(returning: response)
+                continuation.resume(returning: rpc)
             }
+            var rpcMsg = Mezon_Api_Rpc()
+            rpcMsg.id = rpcId
+            rpcMsg.payload = payload
             var envelope = Mezon_Realtime_Envelope()
             envelope.cid = id
-            envelope.listDataSocket = request
+            envelope.rpc = rpcMsg
             send(envelope)
 
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !resumed else { return }
                 resumed = true
-                self?.pendingDataSocketCallbacks.removeValue(forKey: id)
-                continuation.resume(throwing: MezonError.socketError("listDataSocket timeout for \(request.apiName)"))
+                self?.pendingRpcCallbacks.removeValue(forKey: id)
+                continuation.resume(throwing: MezonError.socketError("rpc timeout \(rpcId)"))
             }
         }
     }
@@ -501,14 +503,14 @@ final class MezonSocket: NSObject {
 
     func forwardWebrtcSignaling(
         receiverId: Int64,
-        dataType: WebRTCSignalingType,
+        dataType: Int32,
         jsonData: String,
         channelId: Int64,
         callerId: Int64
     ) {
         var fwd = Mezon_Realtime_WebrtcSignalingFwd()
         fwd.receiverID = receiverId
-        fwd.dataType = dataType.rawValue
+        fwd.dataType = dataType
         fwd.jsonData = jsonData
         fwd.channelID = channelId
         fwd.callerID = callerId
@@ -537,25 +539,27 @@ final class MezonSocket: NSObject {
         guard isConnected else {
             throw MezonError.socketError("Socket not connected")
         }
-        var socketReq = Mezon_Realtime_ListDataSocket()
-        socketReq.apiName = "ListChannelBadgeCount"
-        var inner = Mezon_Api_ListChannelBadgeCountRequest()
-        inner.clanID = clanId
-        socketReq.listChannelBadgeCountReq = inner
-        let response = try await listDataSocket(socketReq)
-        guard response.hasChannelBadgeCount else { return [] }
-        return response.channelBadgeCount.channeldesc
+        var req = Mezon_Api_ListChannelBadgeCountRequest()
+        req.clanID = clanId
+        let payload = try req.jsonString()
+        let rpcOut = try await sendRpcAwaitResponse(rpcId: Self.rpcIdListChannelBadgeCount, payload: payload)
+        if rpcOut.payload.isEmpty {
+            return []
+        }
+        let parsed = try Mezon_Api_ListChannelBadgeCountResponse(jsonString: rpcOut.payload)
+        return parsed.channeldesc
     }
 
     func fetchListClanBadgeCount() async throws -> [Mezon_Api_ClanBadgeCount] {
         guard isConnected else {
             throw MezonError.socketError("Socket not connected")
         }
-        var socketReq = Mezon_Realtime_ListDataSocket()
-        socketReq.apiName = "ListClanBadgeCount"
-        let response = try await listDataSocket(socketReq)
-        guard response.hasClanBadgeCount else { return [] }
-        return response.clanBadgeCount.listBadge
+        let rpcOut = try await sendRpcAwaitResponse(rpcId: Self.rpcIdListClanBadgeCount, payload: "{}")
+        if rpcOut.payload.isEmpty {
+            return []
+        }
+        let parsed = try Mezon_Api_ListClanBadgeCountResponse(jsonString: rpcOut.payload)
+        return parsed.listBadge
     }
 }
 

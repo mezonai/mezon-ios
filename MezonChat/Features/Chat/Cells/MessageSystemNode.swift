@@ -12,6 +12,7 @@ final class MessageSystemNode: ASDisplayNode {
     private var cachedTotalSize: CGSize = .zero
 
     private static let iconSize: CGFloat = 20
+    private static let welcomeIconSize: CGFloat = 24
     private static let hPadding: CGFloat = 12
     private static let vPadding: CGFloat = 8
     private static let iconTextGap: CGFloat = 8
@@ -116,13 +117,20 @@ final class MessageSystemNode: ASDisplayNode {
         }
     }
 
+    private func iconColumnWidth() -> CGFloat {
+        MezonConstants.MessageCode(rawValue: display.messageCode) == .welcome
+            ? Self.welcomeIconSize
+            : Self.iconSize
+    }
+
     func measureSize(width: CGFloat) -> CGSize {
-        let contentW = width - Self.hPadding * 2 - Self.iconSize - Self.iconTextGap
+        let iconW = iconColumnWidth()
+        let contentW = width - Self.hPadding * 2 - iconW - Self.iconTextGap
         cachedTextSize = textNode.measure(CGSize(width: contentW, height: .greatestFiniteMagnitude))
         cachedTimeSize = timeNode.measure(CGSize(width: contentW, height: 20))
 
         let textBlockH = cachedTextSize.height + Self.timeGap + cachedTimeSize.height
-        let minH = max(textBlockH, Self.iconSize)
+        let minH = max(textBlockH, iconW)
         let totalH = Self.vPadding + minH + Self.vPadding
         cachedTotalSize = CGSize(width: width, height: totalH)
         return cachedTotalSize
@@ -130,7 +138,7 @@ final class MessageSystemNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        let iconSz = Self.iconSize
+        let iconSz = iconColumnWidth()
         let iconX = Self.hPadding
         let textX = iconX + iconSz + Self.iconTextGap
 
@@ -155,8 +163,9 @@ final class MessageSystemNode: ASDisplayNode {
 
         switch mc {
         case .welcome:
-            iconImage = UIImage(systemName: "hand.wave.fill", withConfiguration: config)
-            iconColor = theme.text
+            iconImage = UIImage(named: "AuditLog")?.withRenderingMode(.alwaysTemplate)
+                ?? UIImage(systemName: "arrow.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+            iconColor = theme.textSuccess
         case .createThread:
             iconImage = UIImage(systemName: "number", withConfiguration: config)
             iconColor = theme.text

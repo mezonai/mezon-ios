@@ -4237,12 +4237,61 @@ final class SendMessageInputViewController: UIViewController {
     }
 
 
-    private func sendChannelMessageWithAttachments(text: String, attachments: [Mezon_Api_MessageAttachment]) {
+    func sendWaveWelcome(replyingTo display: ChatMessageDisplay) {
         if editingDisplay != nil {
             clearEditingMessage()
         }
-        let replyRef = buildReplyRef()
-        let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
+        let urls = MezonConstants.waveStickerURLs
+        guard !urls.isEmpty else { return }
+        let ts = Int64(display.message.createdAt.timeIntervalSince1970)
+        let idx = Int(abs(ts) % Int64(urls.count))
+        var att = Mezon_Api_MessageAttachment()
+        att.url = urls[idx]
+        att.filetype = "image/gif"
+        att.filename = MezonConstants.waveStickerFilename
+        att.size = MezonConstants.waveStickerAttachmentSize
+        att.width = MezonConstants.waveStickerWidth
+        att.height = MezonConstants.waveStickerHeight
+        let refs: [Mezon_Api_MessageRef]
+        if channel.type == MezonConstants.ChannelType.dm.rawValue {
+            refs = []
+        } else {
+            refs = [Self.buildWaveReplyRef(for: display)]
+        }
+        sendChannelMessageWithAttachments(text: "", attachments: [att], explicitReferences: refs)
+    }
+
+    private static func buildWaveReplyRef(for display: ChatMessageDisplay) -> Mezon_Api_MessageRef {
+        var ref = Mezon_Api_MessageRef()
+        ref.messageID = 0
+        ref.messageRefID = Int64(display.message.id) ?? 0
+        ref.refType = 0
+        ref.messageSenderID = Int64(display.message.senderId) ?? 0
+        ref.messageSenderUsername = MezonConstants.waveSenderDisplayName
+        ref.messageSenderClanNick = MezonConstants.waveSenderDisplayName
+        ref.messageSenderDisplayName = MezonConstants.waveSenderDisplayName
+        ref.messageSenderAvatar = MezonConstants.waveSenderAvatarURL
+        ref.hasAttachment_p = !display.attachments.isEmpty
+        ref.content = display.replyRefSourceContent
+        return ref
+    }
+
+    private func sendChannelMessageWithAttachments(
+        text: String,
+        attachments: [Mezon_Api_MessageAttachment],
+        explicitReferences: [Mezon_Api_MessageRef]? = nil
+    ) {
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
+        let references: [Mezon_Api_MessageRef]
+        if let explicitReferences {
+            references = explicitReferences
+        } else {
+            let replyRef = buildReplyRef()
+            references = replyRef.map { [$0] } ?? []
+            clearReply()
+        }
         let contentStr: String
         if text.isEmpty {
             contentStr = "{}"
@@ -4270,7 +4319,6 @@ final class SendMessageInputViewController: UIViewController {
         let isPublic = channel.channelPrivate == 0
         let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
 
-        clearReply()
         onSent?()
 
         Task { @MainActor in

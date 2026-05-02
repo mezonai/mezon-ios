@@ -9,6 +9,7 @@ final class ChatHeaderNode: ASDisplayNode {
     private let titleNode = ASTextNode2()
     private let subtitleNode = ASTextNode2()
     private let callButtonNode = ASButtonNode()
+    private let videoCallButtonNode = ASButtonNode()
     private let searchButtonNode = ASButtonNode()
     private let separatorNode = ASDisplayNode()
 
@@ -18,6 +19,7 @@ final class ChatHeaderNode: ASDisplayNode {
     var onHeaderTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onCallTapped: (() -> Void)?
+    var onVideoCallTapped: (() -> Void)?
 
     override init() {
         super.init()
@@ -37,6 +39,13 @@ final class ChatHeaderNode: ASDisplayNode {
         )
         callButtonNode.addTarget(self, action: #selector(callPressed), forControlEvents: .touchUpInside)
         callButtonNode.isHidden = true
+
+        videoCallButtonNode.setImage(
+            UIImage(systemName: "video.fill")?.withRenderingMode(.alwaysTemplate),
+            for: .normal
+        )
+        videoCallButtonNode.addTarget(self, action: #selector(videoCallPressed), forControlEvents: .touchUpInside)
+        videoCallButtonNode.isHidden = true
 
         searchButtonNode.setImage(
             UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate),
@@ -106,10 +115,13 @@ final class ChatHeaderNode: ASDisplayNode {
 
         if isDM {
             channelIconNode.isHidden = true
-            callButtonNode.isHidden = true
+            let showCall = channelType == MezonConstants.ChannelType.dm.rawValue
+            callButtonNode.isHidden = !showCall
+            videoCallButtonNode.isHidden = !showCall
         } else {
             channelIconNode.isHidden = false
             callButtonNode.isHidden = true
+            videoCallButtonNode.isHidden = true
             let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
             channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
             channelIconNode.tintColor = t.textStrong
@@ -123,6 +135,7 @@ final class ChatHeaderNode: ASDisplayNode {
         let t = UIColor.theme
         backButtonNode.tintColor = t.textStrong
         callButtonNode.tintColor = t.textStrong
+        videoCallButtonNode.tintColor = t.textStrong
         searchButtonNode.tintColor = t.textStrong
         channelIconNode.tintColor = t.textStrong
         separatorNode.backgroundColor = t.border
@@ -162,10 +175,15 @@ final class ChatHeaderNode: ASDisplayNode {
         onCallTapped?()
     }
 
+    @objc private func videoCallPressed() {
+        onVideoCallTapped?()
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         backButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         channelIconNode.style.preferredSize = CGSize(width: 16.swh, height: 16.swh)
         callButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
+        videoCallButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         searchButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         titleNode.style.flexShrink = 1
         subtitleNode.style.flexShrink = 1
@@ -196,6 +214,7 @@ final class ChatHeaderNode: ASDisplayNode {
         var rowChildren: [ASLayoutElement] = [backButtonNode, titleContainerNode]
         if isDM && !callButtonNode.isHidden {
             rowChildren.append(callButtonNode)
+            rowChildren.append(videoCallButtonNode)
         }
         rowChildren.append(searchButtonNode)
 

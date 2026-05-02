@@ -35,4 +35,6 @@ extension Notification.Name {
     static let mezonAccountCurrentUserDidChange = Notification.Name("mezon.account.currentUserDidChange")
     static let mezonChannelPinsNeedRefresh = Notification.Name("mezon.channel.pinsNeedRefresh")
     static let mezonUserChannelAddedFromSocket = Notification.Name("mezon.channels.userChannelAddedFromSocket")
+    static let mezonIncomingPeerCall = Notification.Name("mezon.call.incomingPeer")
+    static let mezonVoIPTokenDidUpdate = Notification.Name("mezon.voip.tokenUpdated")
 }

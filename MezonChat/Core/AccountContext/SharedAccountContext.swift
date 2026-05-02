@@ -77,6 +77,7 @@ final class SharedAccountContextImpl: SharedAccountContext {
     func makeLoginController(context: AccountContext) -> NavigationController {
         let nav = NavigationController(mode: .single, theme: MezonRootController.makeNavTheme(theme: .light))
         nav.setViewControllers([WelcomeController(context: context)], animated: false)
+        nav.interactivePopGestureRecognizer?.isEnabled = false
         return nav
     }
 }
