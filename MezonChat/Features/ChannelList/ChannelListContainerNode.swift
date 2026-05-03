@@ -24,7 +24,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let headerHMin: CGFloat = 120
     private var currentHeaderH: CGFloat = 120
     private var hasClanBanner: Bool = false
-    private var channelApps: [Mezon_Api_ChannelAppResponse] = []
+    private var channelApps: [Mezon_Api_ChannelAppResponse]
+
     private var channelAppsLoading = false
     private var isChannelAppsExpanded = true
     private var channelAppsStripeVisible: Bool { channelAppsLoading || !channelApps.isEmpty }
@@ -90,9 +91,16 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     var voiceMemberResolver: ((String) -> VoiceMemberDisplay?)?
 
-    init(signal: Signal<ChannelListState, NoError>, interaction: ChannelListInteraction) {
+    init(
+        signal: Signal<ChannelListState, NoError>,
+        interaction: ChannelListInteraction,
+        initialChannelApps: [Mezon_Api_ChannelAppResponse] = []
+    ) {
         tableNode = ASTableNode(style: .plain)
         self.interaction = interaction
+        self.channelApps = Self.normalizeChannelAppsList(
+            initialChannelApps.filter { $0.hasListableChannelAppContent }
+        )
         super.init()
         backgroundColor = UIColor.theme.secondary
         

@@ -522,6 +522,15 @@ final class MezonHTTPClient {
         )
     }
 
+    func listUserActivity(token: String) async throws -> Mezon_Api_ListUserActivity {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListActivity",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func listClanDescs(token: String) async throws -> [Mezon_Api_ClanDesc] {
         var req = Mezon_Api_ListClanDescRequest()
         req.limit = 100

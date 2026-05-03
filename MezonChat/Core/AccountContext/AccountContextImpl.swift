@@ -861,11 +861,13 @@ final class AccountContextImpl: AccountContext {
             guard let nt = newTrim, !nt.isEmpty else { return false }
             return nt == prevTrim
         }()
+        let trimmedLogo = api.logo.trimmingCharacters(in: .whitespacesAndNewlines)
         return User(
             id: "\(u.id)",
             username: u.username.isEmpty ? "me" : u.username,
             displayName: u.displayName.isEmpty ? u.username : u.displayName,
             avatarURL: u.avatarURL.isEmpty ? nil : URL(string: u.avatarURL),
+            accountLogoURL: trimmedLogo.isEmpty ? nil : trimmedLogo,
             status: presence,
             customStatus: newCustom,
             customStatusTimeReset: newCustom == nil ? nil : (sameCustomText ? prev?.customStatusTimeReset : nil),

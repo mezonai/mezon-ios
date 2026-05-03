@@ -358,7 +358,13 @@ final class HomeViewController: BaseViewController {
                         parentName = self.channelListVC.allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
                     }
                     let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context, parentName: parentName)
-                    self.navigationController?.pushViewController(chatVC, animated: true)
+                    if let nav = self.navigationController as? NavigationController {
+                        nav.pushViewController(
+                            chatVC, animated: true,
+                            stackPushAnimationDuration: NavigationController.channelListToChatPushAnimationDuration)
+                    } else {
+                        self.navigationController?.pushViewController(chatVC, animated: true)
+                    }
                 })
         )
     }

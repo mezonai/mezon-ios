@@ -6,8 +6,11 @@ struct DirectMessagesState {
     var isLoading: Bool
     var errorMessage: String?
     var incomingFriendRequestCount: Int
+    var messageActivityRows: [DmMessageActivityItem]
 
-    static let empty = DirectMessagesState(directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil, incomingFriendRequestCount: 0)
+    static let empty = DirectMessagesState(
+        directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil,
+        incomingFriendRequestCount: 0, messageActivityRows: [])
 }
 
 final class DirectMessagesViewController: ViewController {
@@ -25,6 +28,7 @@ final class DirectMessagesViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
     private(set) var incomingFriendRequestCount: Int = 0
+    private var userActivities: [Mezon_Api_UserActivity] = []
 
     private var directMessagesNode: DirectMessagesContainerNode { displayNode as! DirectMessagesContainerNode }
 
@@ -57,6 +61,9 @@ final class DirectMessagesViewController: ViewController {
             },
             onRefresh: { [weak self] in
                 self?.refreshDirectMessages()
+            },
+            onSelectMessageActivity: { [weak self] item in
+                self?.openDirectMessageFromActivity(item)
             }
         )
         displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction, context: context)
@@ -71,6 +78,9 @@ final class DirectMessagesViewController: ViewController {
                 bottomInset: layout.intrinsicInsets.bottom,
                 transition: .immediate
             )
+        }
+        if isNodeLoaded {
+            directMessagesNode.resetMessageActivityStripScroll(animated: false)
         }
         fetchDirectMessages()
         syncIncomingFriendRequestCount()
@@ -88,6 +98,7 @@ final class DirectMessagesViewController: ViewController {
         friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] _ in
                 self?.syncIncomingFriendRequestCount()
+                self?.needsReloadPipe.putNext(())
             })
         syncIncomingFriendRequestCount()
     }
@@ -330,7 +341,9 @@ final class DirectMessagesViewController: ViewController {
             guard let self else { return }
             await self.context.waitForSessionReady()
             guard let token = await self.context.getToken() else { return }
+            self.fetchDirectMessages()
             await self.context.engine.friendsData.refreshFromNetwork(token: token)
+            await self.fetchUserActivities(token: token)
         }
     }
     
@@ -344,6 +357,117 @@ final class DirectMessagesViewController: ViewController {
             let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
             return t1 > t2
         }
+    }
+
+    private func fetchUserActivities(token: String) async {
+        do {
+            let res = try await context.account.network.listUserActivity(token: token)
+            userActivities = res.activities
+            needsReloadPipe.putNext(())
+        } catch {
+            userActivities = []
+            needsReloadPipe.putNext(())
+        }
+    }
+
+    private func openDirectMessageFromActivity(_ item: DmMessageActivityItem) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            let targetUserId = item.userId
+            let dmChannels = try? await self.context.account.network.listDirectMessageChannels(token: token)
+            if let existing = dmChannels?.first(where: { ch in
+                ch.type == MezonConstants.ChannelType.dm.rawValue
+                    && ch.userIds.count == 1
+                    && ch.userIds.contains(targetUserId)
+            }) {
+                let chatVC = ChatViewController(clanId: 0, channel: existing, context: self.context, parentName: nil)
+                self.navigationController?.pushViewController(chatVC, animated: true)
+                return
+            }
+            do {
+                let channel = try await self.context.account.network.createDirectMessage(
+                    userId: targetUserId,
+                    token: token
+                )
+                var next = self.directMessages
+                if !next.contains(where: { $0.channelID == channel.channelID }) {
+                    next.insert(channel, at: 0)
+                    self.setDirectMessages(Self.sortDmChannels(next))
+                    self.persistDmChannelListToPostbox()
+                }
+                let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
+                self.navigationController?.pushViewController(chatVC, animated: true)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private static func buildMessageActivityRows(
+        activities: [Mezon_Api_UserActivity],
+        friends: [Mezon_Api_Friend],
+        directMessages: [Mezon_Api_ChannelDescription],
+        myUserId: Int64
+    ) -> [DmMessageActivityItem] {
+        var profileById: [Int64: (displayName: String, username: String, avatar: String)] = [:]
+        for f in friends {
+            guard f.hasUser, f.user.id != 0 else { continue }
+            guard f.state != EStateFriend.block.rawValue else { continue }
+            let u = f.user
+            let disp = u.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = disp.isEmpty ? u.username : disp
+            profileById[u.id] = (displayName: name, username: u.username, avatar: u.avatarURL)
+        }
+        for ch in directMessages {
+            guard ch.type == MezonConstants.ChannelType.dm.rawValue, ch.userIds.count == 1 else { continue }
+            let uid = ch.userIds[0]
+            if profileById[uid] != nil { continue }
+            let label = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let dispName = ch.displayNames.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let un = ch.usernames.first ?? ""
+            let av = ch.avatars.first ?? ""
+            let display: String
+            if !label.isEmpty {
+                display = label
+            } else if !dispName.isEmpty {
+                display = dispName
+            } else {
+                display = un
+            }
+            profileById[uid] = (displayName: display, username: un, avatar: av)
+        }
+        var actByUser: [Int64: Mezon_Api_UserActivity] = [:]
+        for a in activities {
+            actByUser[a.userID] = a
+        }
+        var rows: [DmMessageActivityItem] = []
+        for (uid, prof) in profileById where uid != myUserId {
+            guard let act = actByUser[uid] else { continue }
+            let desc = act.activityDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            let actName = act.activityName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let subtitle: String
+            if !desc.isEmpty, !actName.isEmpty {
+                subtitle = "\(actName) - \(desc)"
+            } else if !actName.isEmpty {
+                subtitle = actName
+            } else {
+                subtitle = desc
+            }
+            let trimmedSub = subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedSub.isEmpty else { continue }
+            rows.append(DmMessageActivityItem(
+                userId: uid,
+                displayName: prof.displayName,
+                username: prof.username,
+                avatarURL: prof.avatar,
+                activitySubtitle: trimmedSub
+            ))
+        }
+        rows.sort {
+            $0.resolvedDisplayName.localizedCaseInsensitiveCompare($1.resolvedDisplayName) == .orderedAscending
+        }
+        return rows
     }
 
     private func applyDmListFromCache() {
@@ -368,6 +492,7 @@ final class DirectMessagesViewController: ViewController {
             guard let self else { return }
             defer { self.setIsLoading(false) }
             guard let token = await self.context.getToken() else { return }
+            await self.fetchUserActivities(token: token)
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 do {
@@ -415,6 +540,7 @@ final class DirectMessagesViewController: ViewController {
             } catch {
                 self.applyDmListFromCache()
             }
+            await self.fetchUserActivities(token: token)
         }
     }
 
@@ -433,7 +559,20 @@ final class DirectMessagesViewController: ViewController {
     }
 
     var currentState: DirectMessagesState {
-        DirectMessagesState(directMessages: directMessages, isEmpty: isEmpty, isLoading: isLoading, errorMessage: errorMessage, incomingFriendRequestCount: incomingFriendRequestCount)
+        let rows = Self.buildMessageActivityRows(
+            activities: userActivities,
+            friends: context.engine.friendsData.allFriends(),
+            directMessages: directMessages,
+            myUserId: Int64(context.currentUser?.id ?? "") ?? 0
+        )
+        return DirectMessagesState(
+            directMessages: directMessages,
+            isEmpty: isEmpty,
+            isLoading: isLoading,
+            errorMessage: errorMessage,
+            incomingFriendRequestCount: incomingFriendRequestCount,
+            messageActivityRows: rows
+        )
     }
 
     func stateSignal() -> Signal<DirectMessagesState, NoError> {

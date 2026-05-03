@@ -47,6 +47,8 @@ final class ClanListContainerNode: ASDisplayNode {
     private var state: ClanListState = .empty
     private let interaction: ClanListInteraction
     private let disposables = DisposableSet()
+    private var sidebarLogoLoadTask: URLSessionDataTask?
+    private var sidebarLogoDisplaySource: String?
 
     init(signal: Signal<ClanListState, NoError>, interaction: ClanListInteraction) {
         let layout = UICollectionViewFlowLayout()
@@ -65,7 +67,12 @@ final class ClanListContainerNode: ASDisplayNode {
                 let prevDMCount = self.state.unreadDMs.count
                 let prevDMBadges = self.state.unreadDMs.map { $0.countMessUnread }
                 let prevClanBadges = self.state.clans.map { $0.badgeCount }
+                let prevAccountLogo = self.state.accountLogoURL
                 self.state = newState
+
+                if prevAccountLogo != newState.accountLogoURL {
+                    self.applySidebarAccountLogo(urlString: newState.accountLogoURL)
+                }
 
                 let hasClanSection = self.collectionView.numberOfSections > 1
                 let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
@@ -103,7 +110,10 @@ final class ClanListContainerNode: ASDisplayNode {
         )
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        sidebarLogoLoadTask?.cancel()
+        disposables.dispose()
+    }
 
     override func didLoad() {
         super.didLoad()
@@ -173,6 +183,29 @@ final class ClanListContainerNode: ASDisplayNode {
             return viewDimension
         }
         return max(1, layoutSize)
+    }
+
+    private func applySidebarAccountLogo(urlString: String?) {
+        sidebarLogoLoadTask?.cancel()
+        sidebarLogoLoadTask = nil
+        let trimmed = urlString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, URL(string: trimmed) != nil else {
+            sidebarLogoDisplaySource = nil
+            logoImageView.image = UIImage(named: "NewMezonLogo")
+            return
+        }
+        sidebarLogoDisplaySource = trimmed
+        let proxied = ImgproxyURL.create(from: trimmed, width: 150, height: 150)
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+            logoImageView.image = cached
+            return
+        }
+        logoImageView.image = UIImage(named: "NewMezonLogo")
+        sidebarLogoLoadTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            guard let self else { return }
+            guard self.sidebarLogoDisplaySource == trimmed else { return }
+            self.logoImageView.image = image ?? UIImage(named: "NewMezonLogo")
+        }
     }
 
     func focusDiscoverIfNoClans() {

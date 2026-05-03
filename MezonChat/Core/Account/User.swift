@@ -5,6 +5,7 @@ struct User: Identifiable, Equatable, Codable, Hashable {
     let username: String
     let displayName: String
     let avatarURL: URL?
+    var accountLogoURL: String?
     var status: OnlineStatus
     var customStatus: String?
     var customStatusTimeReset: Int32?
@@ -20,6 +21,7 @@ struct User: Identifiable, Equatable, Codable, Hashable {
         username: String,
         displayName: String,
         avatarURL: URL? = nil,
+        accountLogoURL: String? = nil,
         status: OnlineStatus = .offline,
         customStatus: String? = nil,
         customStatusTimeReset: Int32? = nil,
@@ -34,6 +36,7 @@ struct User: Identifiable, Equatable, Codable, Hashable {
         self.username    = username
         self.displayName = displayName
         self.avatarURL   = avatarURL
+        self.accountLogoURL = accountLogoURL
         self.status       = status
         self.customStatus = customStatus
         self.customStatusTimeReset = customStatusTimeReset

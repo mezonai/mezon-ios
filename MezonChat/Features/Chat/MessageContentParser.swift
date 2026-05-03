@@ -129,9 +129,29 @@ enum MessageContentParser {
         items.compactMap { item in
             guard let s = intValue(item["s"]),
                   let e = intValue(item["e"]),
-                  let emojiId = stringValue(item["emojiid"]) else { return nil }
+                  let emojiId = emojiIdFromEjItem(item) else { return nil }
             return ContentToken(start: s, end: e, kind: .emoji(emojiId: emojiId))
         }
+    }
+
+    private static func emojiIdFromEjItem(_ item: [String: Any]) -> String? {
+        if let s = item["emojiid"] as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, t != "0" else { return nil }
+            return t
+        }
+        if let s = item["emojiId"] as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, t != "0" else { return nil }
+            return t
+        }
+        if let n = item["emojiid"] as? Int, n != 0 { return "\(n)" }
+        if let n = item["emojiId"] as? Int, n != 0 { return "\(n)" }
+        if let n = item["emojiid"] as? Int64, n != 0 { return "\(n)" }
+        if let n = item["emojiId"] as? Int64, n != 0 { return "\(n)" }
+        if let n = item["emojiid"] as? Double, n != 0 { return String(Int(n)) }
+        if let n = item["emojiId"] as? Double, n != 0 { return String(Int(n)) }
+        return nil
     }
 
     private static func parseMentions(_ items: [[String: Any]]) -> [ContentToken] {

@@ -145,6 +145,8 @@ public protocol NavigationDetailsPlaceholderNode: ASDisplayNode {
 }
 
 open class NavigationController: UINavigationController, ContainableController, UIGestureRecognizerDelegate {
+    public static let channelListToChatPushAnimationDuration: Double = 0.2
+
     public var isOpaqueWhenInOverlay: Bool = true
     public var blocksBackgroundWhenInOverlay: Bool = true
     public var updateTransitionWhenPresentedAsModal: ((CGFloat, ContainedViewLayoutTransition) -> Void)?
@@ -214,6 +216,8 @@ open class NavigationController: UINavigationController, ContainableController, 
     private var validStatusBarHidden: Bool?
 
     private var ignoreInputHeight: Bool = false
+    private var pendingStackPushAnimationDuration: Double?
+
     private var currentStatusBarExternalHidden: Bool = false
 
     private var scheduledLayoutTransitionRequestId: Int = 0
@@ -1489,6 +1493,18 @@ open class NavigationController: UINavigationController, ContainableController, 
         self.setViewControllers(controllers, animated: animated, completion: completion)
     }
 
+    public func pushViewController(
+        _ controller: ViewController,
+        animated: Bool,
+        stackPushAnimationDuration: Double,
+        completion: @escaping () -> Void = {}
+    ) {
+        self.pendingStackPushAnimationDuration = stackPushAnimationDuration
+        var controllers = self.viewControllers
+        controllers.append(controller)
+        self.setViewControllers(controllers, animated: animated, completion: completion)
+    }
+
     open override func pushViewController(_ viewController: UIViewController, animated: Bool) {
         var controllers = self.viewControllers
         controllers.append(viewController)
@@ -1645,13 +1661,30 @@ open class NavigationController: UINavigationController, ContainableController, 
             }
         }
 
+        let previousStackCount = self._viewControllers.count
+        let pushAnimationOverride = self.pendingStackPushAnimationDuration
+        self.pendingStackPushAnimationDuration = nil
+
         self._viewControllers = viewControllers.map { controller in
             let controller = controller as! ViewController
             controller.navigation_setNavigationController(self)
             return controller
         }
         if let layout = self.validLayout {
-            self.updateContainers(layout: layout, transition: animated ? .animated(duration: 0.5, curve: .spring) : .immediate, completion: { [weak self] in
+            let nextCount = self._viewControllers.count
+            let transition: ContainedViewLayoutTransition
+            if animated {
+                let duration: Double
+                if nextCount > previousStackCount, let o = pushAnimationOverride {
+                    duration = o
+                } else {
+                    duration = 0.2
+                }
+                transition = .animated(duration: duration, curve: .spring)
+            } else {
+                transition = .immediate
+            }
+            self.updateContainers(layout: layout, transition: transition, completion: { [weak self] in
                 self?.notifyAccessibilityScreenChanged()
                 completion()
             })

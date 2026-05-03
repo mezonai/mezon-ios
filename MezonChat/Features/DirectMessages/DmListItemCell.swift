@@ -84,6 +84,7 @@ final class DmListItemCell: UITableViewCell {
     }()
 
     private var imageTask: URLSessionDataTask?
+    private var avatarLoadGeneration: UInt = 0
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -94,7 +95,9 @@ final class DmListItemCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        avatarLoadGeneration += 1
         imageTask?.cancel()
+        imageTask = nil
         avatarView.image = nil
         avatarPlaceholder.isHidden = true
         groupIconView.isHidden = true
@@ -188,8 +191,11 @@ final class DmListItemCell: UITableViewCell {
                let url = URL(string: channel.channelAvatar) {
                 avatarView.backgroundColor = .clear
                 groupIconView.isHidden = true
-                loadImage(url: url)
+                loadImage(url: url, useInitialFallback: false)
             } else {
+                avatarLoadGeneration += 1
+                imageTask?.cancel()
+                imageTask = nil
                 avatarView.backgroundColor = Self.groupDmListPlaceholderOrange
                 groupIconView.tintColor = .white
                 groupIconView.isHidden = false
@@ -202,8 +208,11 @@ final class DmListItemCell: UITableViewCell {
             if let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
                 avatarPlaceholder.isHidden = true
                 avatarView.backgroundColor = .clear
-                loadImage(url: url)
+                loadImage(url: url, useInitialFallback: true)
             } else {
+                avatarLoadGeneration += 1
+                imageTask?.cancel()
+                imageTask = nil
                 avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
                 avatarPlaceholder.isHidden = false
                 avatarPlaceholder.text = String(displayName.prefix(1)).uppercased()
@@ -224,22 +233,28 @@ final class DmListItemCell: UITableViewCell {
         }
     }
 
-    private func loadImage(url: URL) {
-        let original = url.absoluteString
-        let proxied = ImgproxyURL.create(from: original, width: 150, height: 150)
-        if let cached = ImageCache.shared.cachedImage(forURL: proxied) ?? ImageCache.shared.cachedImage(forURL: original) {
+    private func loadImage(url: URL, useInitialFallback: Bool) {
+        imageTask?.cancel()
+        imageTask = nil
+        avatarLoadGeneration += 1
+        let gen = avatarLoadGeneration
+        let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+            guard gen == avatarLoadGeneration else { return }
             avatarView.image = cached
             return
         }
-        imageTask?.cancel()
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            guard let self, gen == self.avatarLoadGeneration else { return }
             if let image {
-                self?.avatarView.image = image
-                return
-            }
-            guard !original.isEmpty, original != proxied else { return }
-            self?.imageTask = ImageCache.shared.loadImage(urlString: original) { [weak self] im in
-                self?.avatarView.image = im
+                self.avatarView.image = image
+            } else if useInitialFallback {
+                self.avatarView.image = nil
+                self.avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
+                self.avatarPlaceholder.isHidden = false
+                self.avatarPlaceholder.text = String((self.nameLabel.text ?? "U").prefix(1)).uppercased()
+            } else {
+                self.avatarView.image = nil
             }
         }
     }
