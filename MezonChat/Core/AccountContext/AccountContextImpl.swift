@@ -178,6 +178,11 @@ final class AccountContextImpl: AccountContext {
     var currentClanId: Int64 = 0
     var currentChannel: Mezon_Api_ChannelDescription?
 
+    func clearPersistedSelectedChannelPreference(forClanId clanId: Int64) {
+        guard clanId != 0 else { return }
+        account.postbox.setPreferenceDataSync(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: nil)
+    }
+
     init(
         sharedContext: SharedAccountContextImpl,
         account: Account,

@@ -90,11 +90,6 @@ final class MezonSocket: NSObject {
 
     var tokenProvider: (() async throws -> String)?
 
-    private static let rpcIdListChannelBadgeCount = "ListChannelBadgeCount"
-    private static let rpcIdListClanBadgeCount = "ListClanBadgeCount"
-
-    private var nextRpcCorrelationId: Int32 = 1
-    private var pendingRpcCallbacks: [Int32: (Mezon_Api_Rpc) -> Void] = [:]
     private var reconnectWorkItem: DispatchWorkItem?
 
     private override init() { super.init() }
@@ -132,7 +127,6 @@ final class MezonSocket: NSObject {
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
-        pendingRpcCallbacks.removeAll()
     }
 
     func reconnectFromForeground() {
@@ -149,7 +143,6 @@ final class MezonSocket: NSObject {
     private func cleanupForReconnect() {
         isConnected = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
-        pendingRpcCallbacks.removeAll()
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -422,42 +415,10 @@ final class MezonSocket: NSObject {
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()
             send(pong)
-        case .rpc(let m):
-            let cid = envelope.cid
-            if cid != 0, let cb = pendingRpcCallbacks.removeValue(forKey: cid) {
-                cb(m)
-            }
+        case .rpc(_):
+            break
         default:
             break
-        }
-    }
-
-    private func sendRpcAwaitResponse(rpcId: String, payload: String) async throws -> Mezon_Api_Rpc {
-        try await withCheckedThrowingContinuation { continuation in
-            let id = nextRpcCorrelationId
-            nextRpcCorrelationId &+= 1
-            if nextRpcCorrelationId == 0 { nextRpcCorrelationId = 1 }
-            var resumed = false
-            pendingRpcCallbacks[id] = { rpc in
-                guard !resumed else { return }
-                resumed = true
-                continuation.resume(returning: rpc)
-            }
-            var rpcMsg = Mezon_Api_Rpc()
-            rpcMsg.id = rpcId
-            rpcMsg.payload = payload
-            var envelope = Mezon_Realtime_Envelope()
-            envelope.cid = id
-            envelope.rpc = rpcMsg
-            send(envelope)
-
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 10_000_000_000)
-                guard !resumed else { return }
-                resumed = true
-                self?.pendingRpcCallbacks.removeValue(forKey: id)
-                continuation.resume(throwing: MezonError.socketError("rpc timeout \(rpcId)"))
-            }
         }
     }
 
@@ -533,33 +494,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.incomingCallPush = push
         send(envelope)
-    }
-
-    func fetchListChannelBadgeCount(clanId: Int64) async throws -> [Mezon_Api_ChannelDescription] {
-        guard isConnected else {
-            throw MezonError.socketError("Socket not connected")
-        }
-        var req = Mezon_Api_ListChannelBadgeCountRequest()
-        req.clanID = clanId
-        let payload = try req.jsonString()
-        let rpcOut = try await sendRpcAwaitResponse(rpcId: Self.rpcIdListChannelBadgeCount, payload: payload)
-        if rpcOut.payload.isEmpty {
-            return []
-        }
-        let parsed = try Mezon_Api_ListChannelBadgeCountResponse(jsonString: rpcOut.payload)
-        return parsed.channeldesc
-    }
-
-    func fetchListClanBadgeCount() async throws -> [Mezon_Api_ClanBadgeCount] {
-        guard isConnected else {
-            throw MezonError.socketError("Socket not connected")
-        }
-        let rpcOut = try await sendRpcAwaitResponse(rpcId: Self.rpcIdListClanBadgeCount, payload: "{}")
-        if rpcOut.payload.isEmpty {
-            return []
-        }
-        let parsed = try Mezon_Api_ListClanBadgeCountResponse(jsonString: rpcOut.payload)
-        return parsed.listBadge
     }
 }
 

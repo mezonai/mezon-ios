@@ -67,6 +67,9 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let disposables = DisposableSet()
     private var isClanSwitching = false
 
+    private var latestCoalescedChannelListState: ChannelListState?
+    private var channelListStateApplyScheduled = false
+
     private var clanLogoURL: String = ""
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
@@ -100,50 +103,74 @@ final class ChannelListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
-                let prevState = self.state
-
-                if let msg = newState.errorMessage, msg != prevState.errorMessage {
-
-                }
-
-                let wasClanSwitching = self.isClanSwitching
-                self.isClanSwitching = false
-                self.state = newState
-                self.threadLookup = buildThreadLookup(newState.allChannels)
-                self.cachedRows = [:]
-
-                let prevCats = prevState.categories
-                let newCats = newState.categories
-                let loadingPHNow = newState.isLoading && newState.categories.isEmpty
-                let loadingPHWas = prevState.isLoading && prevState.categories.isEmpty
-                let loadingPlaceholderToggled = loadingPHNow != loadingPHWas
-                let structureChanged = loadingPlaceholderToggled
-                    || prevCats.count != newCats.count
-                    || zip(prevCats, newCats).contains(where: {
-                        $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.channels.count != $1.channels.count
-                            || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
-                    })
-
-                if wasClanSwitching {
-                    self.cachedHeaders = [:]
-                    self.applyCrossfadeReload()
-                } else if structureChanged {
-                    self.cachedHeaders = [:]
-                    self.applyBatchStructureUpdate(prev: prevState, new: newState)
-                } else if !newCats.isEmpty {
-                    self.applyRowDiff(prev: prevState, new: newState)
-                }
-
-                if !newState.isLoading,
-                   let selectedId = newState.selectedChannelId,
-                   selectedId != prevState.selectedChannelId,
-                   let catIdx = self.firstCategoryIndexContainingListChannel(selectedId),
-                   self.state.categories[catIdx].id != ChannelCategory.favoritesCategoryId {
-                    self.scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
-                }
-                self.refreshNewUnreadButton()
+                self.latestCoalescedChannelListState = newState
+                self.scheduleApplyCoalescedChannelListState()
             })
         )
+    }
+
+    private func scheduleApplyCoalescedChannelListState() {
+        guard !channelListStateApplyScheduled else { return }
+        channelListStateApplyScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.drainOneCoalescedChannelListState()
+        }
+    }
+
+    private func drainOneCoalescedChannelListState() {
+        channelListStateApplyScheduled = false
+        guard let newState = latestCoalescedChannelListState else { return }
+        latestCoalescedChannelListState = nil
+        applyChannelListStateTransition(to: newState)
+        if latestCoalescedChannelListState != nil {
+            scheduleApplyCoalescedChannelListState()
+        }
+    }
+
+    private func applyChannelListStateTransition(to newState: ChannelListState) {
+        let prevState = state
+
+        if let msg = newState.errorMessage, msg != prevState.errorMessage {
+
+        }
+
+        let wasClanSwitching = isClanSwitching
+        isClanSwitching = false
+        state = newState
+        threadLookup = buildThreadLookup(newState.allChannels)
+        cachedRows = [:]
+
+        let prevCats = prevState.categories
+        let newCats = newState.categories
+        let loadingPHNow = newState.isLoading && newState.categories.isEmpty
+        let loadingPHWas = prevState.isLoading && prevState.categories.isEmpty
+        let loadingPlaceholderToggled = loadingPHNow != loadingPHWas
+        let structureChanged = loadingPlaceholderToggled
+            || prevCats.count != newCats.count
+            || zip(prevCats, newCats).contains(where: {
+                $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.channels.count != $1.channels.count
+                    || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
+            })
+
+        if wasClanSwitching {
+            cachedHeaders = [:]
+            applyCrossfadeReload()
+        } else if structureChanged {
+            cachedHeaders = [:]
+            applyBatchStructureUpdate(prev: prevState, new: newState)
+        } else if !newCats.isEmpty {
+            applyRowDiff(prev: prevState, new: newState)
+        }
+
+        if !wasClanSwitching,
+           !newState.isLoading,
+           let selectedId = newState.selectedChannelId,
+           selectedId != prevState.selectedChannelId,
+           let catIdx = firstCategoryIndexContainingListChannel(selectedId),
+           state.categories[catIdx].id != ChannelCategory.favoritesCategoryId {
+            scrollToChannel(channelId: selectedId, animated: true)
+        }
+        refreshNewUnreadButton()
     }
 
     private func safeReloadData() {
@@ -266,6 +293,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         let filteredDelete = rowsToDelete.filter { !sectionsToReload.contains($0.section) }
         var seenReload = Set<IndexPath>()
         let filteredReload = rowsToReload.filter { !sectionsToReload.contains($0.section) && seenReload.insert($0).inserted }
+        let (selectionReloadPaths, fullReloadPaths) = splitReloadPathsSelectionVsFull(
+            filteredReload, prev: prev, new: new)
 
         let hasChanges = !sectionsToReload.isEmpty || !filteredInsert.isEmpty
             || !filteredDelete.isEmpty || !filteredReload.isEmpty
@@ -292,8 +321,17 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
             tableNode.waitUntilAllUpdatesAreProcessed()
 
-            if !filteredReload.isEmpty {
-                let validReloads = filteredReload.filter { ip in
+            if !selectionReloadPaths.isEmpty {
+                let validSel = selectionReloadPaths.filter { ip in
+                    ip.section < self.tableNode.numberOfSections
+                        && ip.row < self.tableNode.numberOfRows(inSection: ip.section)
+                }
+                if !validSel.isEmpty {
+                    applyInPlaceListSelection(paths: validSel, new: new)
+                }
+            }
+            if !fullReloadPaths.isEmpty {
+                let validReloads = fullReloadPaths.filter { ip in
                     ip.section < self.tableNode.numberOfSections
                         && ip.row < self.tableNode.numberOfRows(inSection: ip.section)
                 }
@@ -334,6 +372,137 @@ final class ChannelListContainerNode: ASDisplayNode {
             prevSelected: prevSelected, newSelected: newSelected,
             prevVoice: prevVoice, newVoice: newVoice
         )
+    }
+
+    private func channelItemChangeIsSelectionOnly(
+        _ o: Mezon_Api_ChannelDescription,
+        _ n: Mezon_Api_ChannelDescription,
+        prevSelected: Int64?,
+        newSelected: Int64?
+    ) -> Bool {
+        guard o.channelID == n.channelID else { return false }
+        if o.channelLabel != n.channelLabel { return false }
+        if o.type != n.type { return false }
+        if o.channelPrivate != n.channelPrivate { return false }
+        if o.ageRestricted != n.ageRestricted { return false }
+        if o.countMessUnread != n.countMessUnread { return false }
+        if Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n) { return false }
+        return (o.channelID == prevSelected) != (n.channelID == newSelected)
+    }
+
+    private func threadItemChangeIsSelectionOnly(
+        _ o: Mezon_Api_ChannelDescription,
+        _ n: Mezon_Api_ChannelDescription,
+        prevSelected: Int64?,
+        newSelected: Int64?
+    ) -> Bool {
+        guard o.channelID == n.channelID else { return false }
+        if o.channelLabel != n.channelLabel { return false }
+        if o.countMessUnread != n.countMessUnread { return false }
+        if Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n) { return false }
+        return (o.channelID == prevSelected) != (n.channelID == newSelected)
+    }
+
+    private func listRowChangeIsSelectionOnly(
+        old: ChannelListRow,
+        new: ChannelListRow,
+        prevSelected: Int64?,
+        newSelected: Int64?,
+        prevVoice: [Int64: [String]],
+        newVoice: [Int64: [String]]
+    ) -> Bool {
+        switch (old, new) {
+        case let (.channel(o, _), .channel(n, _)):
+            guard o.channelID == n.channelID else { return false }
+            if Self.voiceChannelTypes.contains(o.type) {
+                let oActive = !(prevVoice[o.channelID] ?? []).isEmpty
+                let nActive = !(newVoice[n.channelID] ?? []).isEmpty
+                if oActive != nActive { return false }
+            }
+            return channelItemChangeIsSelectionOnly(
+                o, n, prevSelected: prevSelected, newSelected: newSelected)
+        case let (.thread(o, oLast, _), .thread(n, nLast, _)):
+            guard oLast == nLast else { return false }
+            return threadItemChangeIsSelectionOnly(
+                o, n, prevSelected: prevSelected, newSelected: newSelected)
+        default:
+            return false
+        }
+    }
+
+    private func splitReloadPathsSelectionVsFull(
+        _ paths: [IndexPath],
+        prev: ChannelListState,
+        new: ChannelListState
+    ) -> ([IndexPath], [IndexPath]) {
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        var selectionPaths: [IndexPath] = []
+        var fullPaths: [IndexPath] = []
+        for ip in paths {
+            guard ip.section >= sectionOffset else {
+                fullPaths.append(ip)
+                continue
+            }
+            let catIdx = ip.section - sectionOffset
+            guard catIdx >= 0,
+                catIdx < prev.categories.count,
+                catIdx < new.categories.count
+            else {
+                fullPaths.append(ip)
+                continue
+            }
+            let oldRows = computeRows(for: prev, categoryIndex: catIdx)
+            let newRows = rowsForSection(catIdx)
+            guard ip.row < oldRows.count, ip.row < newRows.count else {
+                fullPaths.append(ip)
+                continue
+            }
+            let oldRow = oldRows[ip.row]
+            let newRow = newRows[ip.row]
+            if Self.rowDiffKey(oldRow) != Self.rowDiffKey(newRow) {
+                fullPaths.append(ip)
+                continue
+            }
+            if listRowChangeIsSelectionOnly(
+                old: oldRow,
+                new: newRow,
+                prevSelected: prev.selectedChannelId,
+                newSelected: new.selectedChannelId,
+                prevVoice: prev.voiceUsersByChannel,
+                newVoice: new.voiceUsersByChannel
+            ) {
+                selectionPaths.append(ip)
+            } else {
+                fullPaths.append(ip)
+            }
+        }
+        return (selectionPaths, fullPaths)
+    }
+
+    private func applyInPlaceListSelection(paths: [IndexPath], new: ChannelListState) {
+        guard !paths.isEmpty else { return }
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for ip in paths {
+            guard ip.section >= sectionOffset else { continue }
+            let catIdx = ip.section - sectionOffset
+            guard catIdx >= 0, catIdx < new.categories.count else { continue }
+            let newRows = rowsForSection(catIdx)
+            guard ip.row >= 0, ip.row < newRows.count else { continue }
+            guard let cellNode = tableNode.nodeForRow(at: ip) else { continue }
+            switch newRows[ip.row] {
+            case .channel(let ch, _):
+                let selected = new.selectedChannelId == ch.channelID
+                (cellNode as? ChannelItemCellNode)?.applyListSelectionState(selected: selected)
+            case .thread(let ch, _, _):
+                let selected = new.selectedChannelId == ch.channelID
+                (cellNode as? ThreadItemCellNode)?.applyListSelectionState(selected: selected)
+            default:
+                break
+            }
+        }
+        CATransaction.commit()
     }
 
     private func channelListRowVisuallyChanged(
@@ -430,20 +599,21 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
 
-        var paths: [IndexPath] = []
+        var selectionPaths: [IndexPath] = []
+        var reloadPaths: [IndexPath] = []
         for s in 0..<new.categories.count {
             let oldRows = computeRows(for: prev, categoryIndex: s)
             let newRows = rowsForSection(s)
 
             for r in 0..<newRows.count {
                 guard r < oldRows.count else {
-                    paths.append(IndexPath(row: r, section: s + sectionOffset))
+                    reloadPaths.append(IndexPath(row: r, section: s + sectionOffset))
                     continue
                 }
                 let oldRow = oldRows[r]
                 let newRow = newRows[r]
                 if Self.rowDiffKey(oldRow) != Self.rowDiffKey(newRow) {
-                    paths.append(IndexPath(row: r, section: s + sectionOffset))
+                    reloadPaths.append(IndexPath(row: r, section: s + sectionOffset))
                     continue
                 }
                 if channelListRowVisuallyChanged(
@@ -454,16 +624,31 @@ final class ChannelListContainerNode: ASDisplayNode {
                     prevVoice: prev.voiceUsersByChannel,
                     newVoice: new.voiceUsersByChannel
                 ) {
-                    paths.append(IndexPath(row: r, section: s + sectionOffset))
+                    let ip = IndexPath(row: r, section: s + sectionOffset)
+                    if listRowChangeIsSelectionOnly(
+                        old: oldRow,
+                        new: newRow,
+                        prevSelected: prev.selectedChannelId,
+                        newSelected: new.selectedChannelId,
+                        prevVoice: prev.voiceUsersByChannel,
+                        newVoice: new.voiceUsersByChannel
+                    ) {
+                        selectionPaths.append(ip)
+                    } else {
+                        reloadPaths.append(ip)
+                    }
                 }
             }
         }
 
-        guard !paths.isEmpty else { return }
+        if !selectionPaths.isEmpty {
+            applyInPlaceListSelection(paths: selectionPaths, new: new)
+        }
+        guard !reloadPaths.isEmpty else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            self.tableNode.reloadRows(at: paths, with: .none)
+            self.tableNode.reloadRows(at: reloadPaths, with: .none)
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
@@ -637,7 +822,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            self.tableNode.reloadSections(IndexSet(integer: 0), with: .none)
+            self.tableNode.performBatch(animated: false) {
+                self.tableNode.reloadSections(IndexSet(integer: 0), with: .none)
+            }
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
@@ -697,19 +884,23 @@ final class ChannelListContainerNode: ASDisplayNode {
         if !beforeHad && afterHad {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            tableNode.performBatch(animated: false) {
-                self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
-            tableNode.waitUntilAllUpdatesAreProcessed()
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            tableNode.performBatch(animated: false) {
-                self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
-            tableNode.waitUntilAllUpdatesAreProcessed()
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && afterHad {
@@ -860,19 +1051,23 @@ final class ChannelListContainerNode: ASDisplayNode {
         if !beforeHad && afterHad {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            tableNode.performBatch(animated: false) {
-                self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
-            tableNode.waitUntilAllUpdatesAreProcessed()
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            tableNode.performBatch(animated: false) {
-                self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
-            tableNode.waitUntilAllUpdatesAreProcessed()
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && afterHad {
@@ -914,9 +1109,54 @@ final class ChannelListContainerNode: ASDisplayNode {
         tableNode.view.refreshControl?.endRefreshing()
     }
 
+    private func channelAppsSectionRowCount() -> Int {
+        guard channelAppsStripeVisible else { return 0 }
+        if channelAppsLoading && channelApps.isEmpty {
+            return isChannelAppsExpanded ? 1 : 0
+        }
+        if isCompactView {
+            return isChannelAppsExpanded ? channelApps.count : 0
+        }
+        return isChannelAppsExpanded ? 1 : 0
+    }
+
     private func toggleChannelAppsExpand() {
+        guard channelAppsStripeVisible else { return }
+        let oldCount = channelAppsSectionRowCount()
         isChannelAppsExpanded.toggle()
-        scheduleReload()
+        let newCount = channelAppsSectionRowCount()
+        guard oldCount != newCount else { return }
+        guard tableNode.numberOfSections > 0,
+            tableNode.numberOfRows(inSection: 0) == oldCount
+        else {
+            scheduleReload()
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.performBatch(animated: false) {
+                if newCount == 0 && oldCount > 0 {
+                    let paths = (0..<oldCount).map { IndexPath(row: $0, section: 0) }
+                        .sorted { $0.row > $1.row }
+                    self.tableNode.deleteRows(at: paths, with: .none)
+                } else if oldCount == 0 && newCount > 0 {
+                    let paths = (0..<newCount).map { IndexPath(row: $0, section: 0) }
+                    self.tableNode.insertRows(at: paths, with: .none)
+                } else {
+                    let del = (0..<oldCount).map { IndexPath(row: $0, section: 0) }
+                        .sorted { $0.row > $1.row }
+                    let ins = (0..<newCount).map { IndexPath(row: $0, section: 0) }
+                    self.tableNode.deleteRows(at: del, with: .none)
+                    self.tableNode.insertRows(at: ins, with: .none)
+                }
+            }
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        CATransaction.commit()
+        if isCompactView, let header = cachedHeaders[0] {
+            header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
+        }
     }
 
     func applyTheme() {
@@ -939,23 +1179,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         newUnreadButton.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
         scheduleReload()
     }
-
-    private func reloadSelectionRows(previous: Int64?, current: Int64?) {
-        var paths: [IndexPath] = []
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
-        for s in 0..<state.categories.count {
-            let rows = rowsForSection(s)
-            for (r, row) in rows.enumerated() {
-                let chId = row.channelDesc.channelID
-                if chId == previous || chId == current {
-                    paths.append(IndexPath(row: r, section: s + sectionOffset))
-                }
-            }
-        }
-        guard !paths.isEmpty else { return }
-        tableNode.reloadRows(at: paths, with: .none)
-    }
-
 
     private static let voiceChannelTypes: Set<Int32> = [
         MezonConstants.ChannelType.mezonVoice.rawValue,
@@ -1068,7 +1291,7 @@ extension ChannelListContainerNode: ASTableDataSource {
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
         if channelAppsStripeVisible && indexPath.section == 0 {
             if channelAppsLoading && channelApps.isEmpty {
-                return { ChannelAppLoadingCellNode() }
+                return { ChannelAppSkeletonCellNode() }
             }
             if isCompactView {
                 guard indexPath.row < channelApps.count else { return { ASCellNode() } }

@@ -124,10 +124,14 @@ final class ClanListViewController: ViewController {
 
     @MainActor
     private func refreshClanSidebarBadgesFromSocket() async {
-        guard context.account.socket.isConnected else { return }
+        guard let token = await context.getToken() else {
+            return
+        }
         do {
-            let rows = try await context.account.socket.fetchListClanBadgeCount()
-            guard !rows.isEmpty else { return }
+            let rows = try await context.account.network.listClanBadgeCount(token: token).listBadge
+            guard !rows.isEmpty else {
+                return
+            }
             var next = clans
             ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
             setClans(next)
@@ -148,6 +152,10 @@ final class ClanListViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         view.layoutIfNeeded()
         clanListNode.updateLayout(layout: layout, transition: transition)
+    }
+
+    func focusDiscoverInSidebar() {
+        clanListNode.focusDiscoverIfNoClans()
     }
 
     override func viewDidLayoutSubviews() {

@@ -34,6 +34,21 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         return true
     }
 
+    func applicationWillTerminate(_ application: UIApplication) {
+        clearPersistedSelectedChannelForCurrentClanOnExit()
+    }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        clearPersistedSelectedChannelForCurrentClanOnExit()
+    }
+
+    private func clearPersistedSelectedChannelForCurrentClanOnExit() {
+        guard let ctx = accountContext else { return }
+        let id = ctx.currentClanId
+        guard id != 0 else { return }
+        ctx.clearPersistedSelectedChannelPreference(forClanId: id)
+    }
+
     @objc private func handleVoIPTokenDidUpdate() {
         registerFcmDeviceWithBackendIfPossible()
     }
@@ -388,6 +403,7 @@ extension Notification.Name {
     static let mezonDidReceiveSharedContent = Notification.Name("MezonDidReceiveSharedContent")
     static let mezonVoicePresenceChanged = Notification.Name("MezonVoicePresenceChanged")
     static let mezonAlignHomeAfterCrossClanVoice = Notification.Name("MezonAlignHomeAfterCrossClanVoice")
+    static let mezonAlignChannelListAfterSearchJump = Notification.Name("MezonAlignChannelListAfterSearchJump")
 }
 
 extension AppDelegate: MessagingDelegate {

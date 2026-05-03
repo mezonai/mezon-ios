@@ -29,6 +29,7 @@ protocol AccountContext: AnyObject {
     func updatePresenceStatus(_ status: User.OnlineStatus) async throws
     func fetchCurrentUserStatus() async
     func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws
+    func clearPersistedSelectedChannelPreference(forClanId clanId: Int64)
 }
 
 extension Notification.Name {

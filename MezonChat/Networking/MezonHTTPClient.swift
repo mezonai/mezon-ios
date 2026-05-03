@@ -500,6 +500,15 @@ final class MezonHTTPClient {
         )
     }
 
+    func listClanBadgeCount(token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanBadgeCount",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func createDirectMessage(userId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
         var req = Mezon_Api_CreateChannelDescRequest()
         req.clanID = 0

@@ -330,7 +330,12 @@ final class ChatContainerNode: ASDisplayNode {
                         channelLabel: state.channelLabel,
                         channelType: state.channelType,
                         isPrivate: state.isPrivate,
-                        isAgeRestricted: state.isAgeRestricted
+                        isAgeRestricted: state.isAgeRestricted,
+                        isDM: state.isDM,
+                        dmPeerUsername: state.dmPeerUsername,
+                        dmPeerDisplayName: state.dmPeerDisplayName,
+                        dmAvatarURL: state.dmAvatarURL,
+                        dmGroupAvatarURL: state.dmGroupAvatarURL
                     ))
                     didInsertWelcomeHero = true
                 } else {

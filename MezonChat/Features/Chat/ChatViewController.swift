@@ -214,6 +214,11 @@ struct ChatState {
     var channelType: Int32
     var isPrivate: Bool
     var isAgeRestricted: Bool
+    var isDM: Bool
+    var dmPeerUsername: String
+    var dmPeerDisplayName: String
+    var dmAvatarURL: String
+    var dmGroupAvatarURL: String
     var hasMoreOlder: Bool
     var hasMoreNewer: Bool
     var isLoadingMore: Bool
@@ -227,6 +232,7 @@ struct ChatState {
 
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
+        isDM: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -1496,6 +1502,11 @@ final class ChatViewController: ViewController {
             channelType: channel.type,
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
+            isDM: clanId == 0,
+            dmPeerUsername: channel.usernames.first ?? "",
+            dmPeerDisplayName: channel.displayNames.first ?? "",
+            dmAvatarURL: channel.avatars.first ?? "",
+            dmGroupAvatarURL: channel.channelAvatar,
             hasMoreOlder: hasMoreOlder,
             hasMoreNewer: hasMoreNewer,
             isLoadingMore: isLoadingMore,

@@ -626,8 +626,11 @@ final class SearchViewController: ViewController {
     }
 
     private func navigateToChannel(_ channel: Mezon_Api_ChannelDescription) {
-        let targetClanId = channel.clanID
+        let targetClanId = effectiveClanId(for: channel)
         context.currentClanId = targetClanId
+        persistSelectedChannelForSearchJump(channel)
+        context.currentChannel = channel
+        ActiveChannelTracker.currentChannelId = channel.channelID
         var parentName: String?
         if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
             parentName =
@@ -636,19 +639,30 @@ final class SearchViewController: ViewController {
         let chatVC = ChatViewController(
             clanId: targetClanId, channel: channel, context: context, parentName: parentName)
         navigationController?.pushViewController(chatVC, animated: true)
+        alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channel.channelID)
     }
 
     private func navigateToMessage(_ doc: Mezon_Api_SearchMessageDocument) {
         guard let channelId = Int64(doc.channelID) else { return }
-        let targetClanId = Int64(doc.clanID) ?? clanId
+        let docClanId = Int64(doc.clanID) ?? clanId
 
-        var channel = Mezon_Api_ChannelDescription()
-        channel.channelID = channelId
-        channel.channelLabel = doc.channelLabel
-        channel.type = doc.channelType
-        channel.clanID = targetClanId
+        let channel: Mezon_Api_ChannelDescription
+        if let full = allChannels.first(where: { $0.channelID == channelId }) {
+            channel = full
+        } else {
+            var minimal = Mezon_Api_ChannelDescription()
+            minimal.channelID = channelId
+            minimal.channelLabel = doc.channelLabel
+            minimal.type = doc.channelType
+            minimal.clanID = docClanId
+            channel = minimal
+        }
 
+        let targetClanId = effectiveClanId(for: channel)
         context.currentClanId = targetClanId
+        persistSelectedChannelForSearchJump(channel)
+        context.currentChannel = channel
+        ActiveChannelTracker.currentChannelId = channelId
         var parentName: String?
         if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
             parentName =
@@ -658,6 +672,23 @@ final class SearchViewController: ViewController {
             clanId: targetClanId, channel: channel, context: context, parentName: parentName)
         chatVC.pendingJumpToMessageId = doc.messageID
         navigationController?.pushViewController(chatVC, animated: true)
+        alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channelId)
+    }
+
+    private func persistSelectedChannelForSearchJump(_ channel: Mezon_Api_ChannelDescription) {
+        let cid = effectiveClanId(for: channel)
+        guard cid != 0 else { return }
+        context.account.postbox.setPreferenceData(
+            key: PreferencesKeys.selectedChannelId(clanId: cid),
+            value: encodeChannelIdPreference(channel.channelID))
+    }
+
+    private func alignChannelListSidebarAfterSearchJump(clanId: Int64, channelId: Int64) {
+        guard clanId != 0, channelId != 0 else { return }
+        NotificationCenter.default.post(
+            name: .mezonAlignChannelListAfterSearchJump,
+            object: nil,
+            userInfo: ["clanId": NSNumber(value: clanId), "channelId": NSNumber(value: channelId)])
     }
 
     private func effectiveClanId(for channel: Mezon_Api_ChannelDescription) -> Int64 {

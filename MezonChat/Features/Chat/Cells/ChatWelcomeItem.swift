@@ -7,15 +7,35 @@ final class ChatWelcomeItem: ListViewItem {
     let channelType: Int32
     let isPrivate: Bool
     let isAgeRestricted: Bool
+    let isDM: Bool
+    let dmPeerUsername: String
+    let dmPeerDisplayName: String
+    let dmAvatarURL: String
+    let dmGroupAvatarURL: String
 
     var selectable: Bool { false }
-    var approximateHeight: CGFloat { 160 }
+    var approximateHeight: CGFloat { 128 }
 
-    init(channelLabel: String, channelType: Int32, isPrivate: Bool, isAgeRestricted: Bool) {
+    init(
+        channelLabel: String,
+        channelType: Int32,
+        isPrivate: Bool,
+        isAgeRestricted: Bool,
+        isDM: Bool,
+        dmPeerUsername: String,
+        dmPeerDisplayName: String,
+        dmAvatarURL: String,
+        dmGroupAvatarURL: String
+    ) {
         self.channelLabel = channelLabel
         self.channelType = channelType
         self.isPrivate = isPrivate
         self.isAgeRestricted = isAgeRestricted
+        self.isDM = isDM
+        self.dmPeerUsername = dmPeerUsername
+        self.dmPeerDisplayName = dmPeerDisplayName
+        self.dmAvatarURL = dmAvatarURL
+        self.dmGroupAvatarURL = dmGroupAvatarURL
     }
 
     func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
@@ -76,7 +96,12 @@ final class ChatWelcomeItemNode: ListViewItemNode {
                 channelLabel: item.channelLabel,
                 channelType: item.channelType,
                 isPrivate: item.isPrivate,
-                isAgeRestricted: item.isAgeRestricted
+                isAgeRestricted: item.isAgeRestricted,
+                isDM: item.isDM,
+                dmPeerUsername: item.dmPeerUsername,
+                dmPeerDisplayName: item.dmPeerDisplayName,
+                dmAvatarURL: item.dmAvatarURL,
+                dmGroupAvatarURL: item.dmGroupAvatarURL
             )
 
             let measuredSize = node.measureSize(width: width)

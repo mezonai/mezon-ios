@@ -10,7 +10,9 @@ struct ChannelListState: Equatable {
     var errorMessage: String?
     var voiceUsersByChannel: [Int64: [String]] = [:]
 
-    static let empty = ChannelListState(categories: [], allChannels: [], selectedChannelId: nil, isLoading: false, errorMessage: nil)
+    static let empty = ChannelListState(
+        categories: [], allChannels: [], selectedChannelId: nil,
+        isLoading: false, errorMessage: nil)
 
     static func == (lhs: ChannelListState, rhs: ChannelListState) -> Bool {
         guard lhs.isLoading == rhs.isLoading
@@ -480,7 +482,7 @@ final class ChannelListViewController: ViewController {
         } else if NetworkMonitor.shared.isConnected {
             fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
         }
-        persistSelectedChannel()
+        syncSelectedChannelFromStoredPreferences()
         needsReloadPipe.putNext(())
     }
 
@@ -541,21 +543,12 @@ final class ChannelListViewController: ViewController {
         guard clanId == self.clanId else { return }
         let token = await context.getToken()
         guard clanId == self.clanId else { return }
+        guard let token else { return }
         let rows: [Mezon_Api_ChannelDescription]
-        if context.account.socket.isConnected {
-            do {
-                rows = try await context.account.socket.fetchListChannelBadgeCount(clanId: clanId)
-            } catch {
-                guard let token else { return }
-                do {
-                    rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
-                } catch { return }
-            }
-        } else {
-            guard let token else { return }
-            do {
-                rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
-            } catch { return }
+        do {
+            rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
+        } catch {
+            return
         }
         guard clanId == self.clanId else { return }
         guard !rows.isEmpty else { return }
@@ -594,6 +587,12 @@ final class ChannelListViewController: ViewController {
             }
             return
         }
+        let previousClanId = self.clanId
+        if previousClanId != 0 {
+            context.clearPersistedSelectedChannelPreference(forClanId: previousClanId)
+        }
+        setSelectedChannelId(nil)
+        setSelectedChannel(nil)
         if clanId != 0 {
             restoreCachedChannelApps(clanId: clanId)
         } else {
@@ -875,6 +874,8 @@ final class ChannelListViewController: ViewController {
         allChannels = []
         categories = []
 
+        restoreSelectionFromPostboxForCurrentClanOnly()
+
         let pendingCache = readValidatedChannelCache(clanId: clanId)
         if let p = pendingCache {
             applyChannelCachePayload(channels: p.channels, meta: p.meta)
@@ -944,7 +945,7 @@ final class ChannelListViewController: ViewController {
                     let cats = self.applyBuiltCategoriesPreservingCollapse(built)
                     self.categories = cats
                     self.channelsLoadedPromise.set(true)
-                    self.persistSelectedChannel()
+                    self.syncSelectedChannelFromStoredPreferences()
                     self.categoriesPipe.putNext(cats)
                     self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                     self.context.account.postbox.setPreferenceDataSync(
@@ -1312,10 +1313,33 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private func persistSelectedChannel() {
-        if let data = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId)), data.count >= 8 {
-            setSelectedChannelId(data.withUnsafeBytes { $0.load(as: Int64.self).littleEndian })
+    private func restoreSelectionFromPostboxForCurrentClanOnly() {
+        guard clanId != 0 else {
+            setSelectedChannelId(nil)
+            setSelectedChannel(nil)
+            return
         }
+        setSelectedChannel(nil)
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId)), data.count >= 8 {
+            let id = data.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            setSelectedChannelId(id)
+        } else {
+            setSelectedChannelId(nil)
+        }
+    }
+
+    private func reconcileSelectionWithLoadedChannels() {
+        guard !allChannels.isEmpty else { return }
+        guard let sid = selectedChannelId, sid != 0 else { return }
+        if !allChannels.contains(where: { $0.channelID == sid }) {
+            setSelectedChannelId(nil)
+            setSelectedChannel(nil)
+        }
+    }
+
+    private func syncSelectedChannelFromStoredPreferences() {
+        restoreSelectionFromPostboxForCurrentClanOnly()
+        reconcileSelectionWithLoadedChannels()
     }
 
     private func encodeChannelId(_ id: Int64) -> Data {
@@ -1494,7 +1518,7 @@ final class ChannelListViewController: ViewController {
         categories = applyBuiltCategoriesPreservingCollapse(built)
         channelsLoadedPromise.set(true)
         categoriesPipe.putNext(categories)
-        persistSelectedChannel()
+        syncSelectedChannelFromStoredPreferences()
         refreshChannelAppsLabelsFromChannelList()
     }
 

@@ -508,6 +508,14 @@ enum L10n {
         static let privacyFooter        = "channel.setting.privacyFooter"
     }
 
+    enum ChatWelcome {
+        static let welcomeToChannel = "chatWelcome.welcomeToChannel"
+        static let startOfChannel = "chatWelcome.startOfChannel"
+        static let privateChannel = "chatWelcome.privateChannel"
+        static let beginningOfDM = "chatWelcome.beginningOfDM"
+        static let welcomeToGroup = "chatWelcome.welcomeToGroup"
+    }
+
     enum ChannelMessages {
         static let emptyMessages  = "channelMessages.emptyMessages"
         static let todayAt        = "channelMessages.todayAt"
@@ -1012,6 +1020,12 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
         "channelMessages.pollUnsupported": "Polls aren’t supported in the app yet.",
         "channelMessages.pollComingSoon": "Coming soon.",
+
+        "chatWelcome.welcomeToChannel": "Welcome to #%@",
+        "chatWelcome.startOfChannel": "This is the start of the #%@ %@ channel",
+        "chatWelcome.privateChannel": "private",
+        "chatWelcome.beginningOfDM": "This is the very beginning of your legendary conversation with %@",
+        "chatWelcome.welcomeToGroup": "Welcome to the beginning of the %@ group.",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -1585,6 +1599,12 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
         "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
         "channelMessages.pollComingSoon": "Sắp có.",
+
+        "chatWelcome.welcomeToChannel": "Chào mừng đến với #%@",
+        "chatWelcome.startOfChannel": "Đây là nơi bắt đầu của kênh #%@ %@",
+        "chatWelcome.privateChannel": "riêng tư",
+        "chatWelcome.beginningOfDM": "Đây là nơi bắt đầu cuộc trò chuyện của bạn và %@",
+        "chatWelcome.welcomeToGroup": "Chào mừng bạn đến với nhóm %@.",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",

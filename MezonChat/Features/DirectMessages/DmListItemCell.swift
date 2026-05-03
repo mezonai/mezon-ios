@@ -286,7 +286,7 @@ final class DmListItemCell: UITableViewCell {
             if Self.isRNEmptyMessageContent(payload) {
                 preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
             } else {
-                preview = Self.dmPreviewBody(from: payload)
+                preview = Self.dmPreviewBody(from: payload, channelId: channel.channelID)
             }
         } else if msg.content.isEmpty {
             preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
@@ -310,7 +310,7 @@ final class DmListItemCell: UITableViewCell {
         if isGroup {
             return L(L10n.DirectMessage.groupCreated)
         }
-        return "[\(L(L10n.DirectMessage.previewFile))]"
+        return ""
     }
 
 
@@ -383,7 +383,7 @@ final class DmListItemCell: UITableViewCell {
         return raw.replacingOccurrences(of: "\\/", with: "/")
     }
 
-    private static func dmPreviewBody(from content: [String: Any]) -> String {
+    private static func dmPreviewBody(from content: [String: Any], channelId: Int64) -> String {
         let t = messageTextT(from: content)
 
         if let embed = firstEmbed(in: content) {
@@ -395,7 +395,7 @@ final class DmListItemCell: UITableViewCell {
                fields.contains(where: { ($0["value"] as? String) == shareContactFieldValue }) {
                 return "[\(L(L10n.DirectMessage.previewContact))]"
             }
-            return "[\(L(L10n.DirectMessage.previewFile))]"
+            return ""
         }
 
         if isGoogleMapsLink(t) {
@@ -407,7 +407,7 @@ final class DmListItemCell: UITableViewCell {
         if !t.isEmpty {
             return t
         }
-        return "[\(L(L10n.DirectMessage.previewFile))]"
+        return ""
     }
 
     private static func textContainsURL(_ text: String) -> Bool {
