@@ -26,6 +26,9 @@ packages:
   LiveKit:
     url: https://github.com/livekit/client-sdk-swift
     from: "2.12.1"
+  LiveKitWebRTC:
+    url: https://github.com/livekit/webrtc-xcframework.git
+    exactVersion: "137.7151.12"
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf
     from: "1.28.0"
@@ -68,6 +71,8 @@ targets:
     dependencies:
       - package: LiveKit
         product: LiveKit
+      - package: LiveKitWebRTC
+        product: LiveKitWebRTC
       - package: SwiftProtobuf
         product: SwiftProtobuf
       - target: NotificationService
@@ -79,6 +84,7 @@ targets:
     resources:
       - path: MezonChat/Resources/Assets.xcassets
       - path: MezonChat/Resources/Images.xcassets
+      - path: MezonChat/Resources/Sounds
     preBuildScripts:
       - name: Validate Secrets.swift
         script: |
@@ -103,7 +109,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.92"
+        MARKETING_VERSION: "1.2.93"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
@@ -200,7 +206,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
         PRODUCT_NAME: MezonSharing
-        MARKETING_VERSION: "1.2.92"
+        MARKETING_VERSION: "1.2.93"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic

@@ -722,8 +722,9 @@ final class MessageBubbleNode: ASDisplayNode {
             avatarPlaceholderNode.isHidden = true
             let proxyURL = ImgproxyURL.create(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
+                || ImageCache.shared.memoryImage(forKey: urlString) != nil
             avatarImageNode.reset()
-            avatarImageNode.setSignal(remoteAvatarSignal(url: proxyURL), attemptSynchronously: hasMem)
+            avatarImageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()

@@ -130,6 +130,26 @@ final class ChannelItemCellNode: ASCellNode {
         isUserInteractionEnabled = true
     }
 
+    func applyListSelectionState(selected: Bool) {
+        let t = UIColor.theme
+        let isVoiceType = Self.voiceTypes.contains(channel.type)
+        let isUnread = !isVoiceType && (
+            channel.countMessUnread > 0
+                || (channel.hasLastSentMessage
+                    && channel.lastSeenMessage.timestampSeconds
+                        < channel.lastSentMessage.timestampSeconds))
+        unreadDot.isHidden = !(isUnread && !selected)
+        selectionNode.isHidden = !selected
+        let theme = ThemeManager.shared.current
+        let isLight =
+            theme == .light
+            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
+        selectionNode.backgroundColor =
+            selected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
+        selectionNode.cornerRadius = 16.swh
+        setNeedsLayout()
+    }
+
     override func didLoad() {
         super.didLoad()
         let lp = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))

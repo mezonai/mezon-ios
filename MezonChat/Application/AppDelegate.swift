@@ -22,6 +22,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         MezonEnvironment.current = .prod
+        CallKitManager.shared.configure()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
 
         DispatchQueue.main.async {
             FirebaseApp.configure()
@@ -30,6 +32,45 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
 
         return true
+    }
+
+    func applicationWillTerminate(_ application: UIApplication) {
+        clearPersistedSelectedChannelForCurrentClanOnExit()
+    }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        clearPersistedSelectedChannelForCurrentClanOnExit()
+    }
+
+    private func clearPersistedSelectedChannelForCurrentClanOnExit() {
+        guard let ctx = accountContext else { return }
+        let id = ctx.currentClanId
+        guard id != 0 else { return }
+        ctx.clearPersistedSelectedChannelPreference(forClanId: id)
+    }
+
+    @objc private func handleVoIPTokenDidUpdate() {
+        registerFcmDeviceWithBackendIfPossible()
+    }
+
+    private func registerFcmDeviceWithBackendIfPossible() {
+        Task { @MainActor in
+            guard let context = self.accountContext else { return }
+            guard let authToken = await context.getToken() else { return }
+            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+            let voipToken = CallKitManager.shared.voipToken ?? ""
+            Messaging.messaging().token { fcmToken, _ in
+                guard let fcmToken else { return }
+                Task { @MainActor in
+                    do {
+                        _ = try await context.account.network.registFcmDeviceToken(
+                            fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
+                        )
+                    } catch {
+                    }
+                }
+            }
+        }
     }
 
     func application(
@@ -145,11 +186,22 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         } else {
             self.rootController = nil
             mainWindow.viewController = sharedContext.makeLoginController(context: context)
+            installMandatoryUsernameStackIfNeeded(context: context, mainWindow: mainWindow)
         }
         DispatchQueue.main.async {
             ThemeManager.shared.applyStatusBarStyle()
         }
         AppUpdateGate.scheduleVersionCheckIfNeeded(mainWindow: mainWindow)
+    }
+
+    private func installMandatoryUsernameStackIfNeeded(context: AccountContext, mainWindow: Window1) {
+        guard let session = context.session else { return }
+        guard MandatoryUsernamePendingStore.isPending else { return }
+        guard let nav = mainWindow.viewController as? NavigationController else { return }
+        let loginVC = LoginViewController(context: context)
+        let stub = OTPContext(reqId: "", target: "", type: .sms)
+        let updateVC = UpdateUsernameViewController(pendingSession: session, context: context, otpContext: stub)
+        nav.setViewControllers([loginVC, updateVC], animated: false)
     }
 
     private func requestNotificationPermission() {
@@ -351,23 +403,12 @@ extension Notification.Name {
     static let mezonDidReceiveSharedContent = Notification.Name("MezonDidReceiveSharedContent")
     static let mezonVoicePresenceChanged = Notification.Name("MezonVoicePresenceChanged")
     static let mezonAlignHomeAfterCrossClanVoice = Notification.Name("MezonAlignHomeAfterCrossClanVoice")
+    static let mezonAlignChannelListAfterSearchJump = Notification.Name("MezonAlignChannelListAfterSearchJump")
 }
 
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-        guard let fcmToken else { return }
-
-        Task { @MainActor in
-            guard let context = self.accountContext else { return }
-            guard let token = await context.getToken() else { return }
-            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-            let voipToken = CallKitManager.shared.voipToken ?? ""
-            do {
-                _ = try await context.account.network.registFcmDeviceToken(
-                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: token
-                )
-            } catch {
-            }
-        }
+        guard fcmToken != nil else { return }
+        registerFcmDeviceWithBackendIfPossible()
     }
 }

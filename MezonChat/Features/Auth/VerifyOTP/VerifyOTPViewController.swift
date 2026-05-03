@@ -255,9 +255,16 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
             let session = try await self.context.account.network.confirmAuthenticateOTP(reqId: currentReqId, otp: otpCode)
             SessionStore.save(session)
             self.context.account.network.updateBaseURL(from: session)
-            let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? otpContext.target, displayName: session.username ?? otpContext.target, avatarURL: nil, status: .online, bio: nil)
-            context.login(user: user, session: session)
-            MmnWalletPreloader.fetchAndPersistAfterLogin(session: session)
+            if session.created {
+                MandatoryUsernamePendingStore.setPending()
+                let vc = UpdateUsernameViewController(pendingSession: session, context: context, otpContext: otpContext)
+                navigationController?.pushViewController(vc, animated: true)
+            } else {
+                MandatoryUsernamePendingStore.clearPending()
+                let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? otpContext.target, displayName: session.username ?? otpContext.target, avatarURL: nil, status: .online, bio: nil)
+                context.login(user: user, session: session)
+                MmnWalletPreloader.fetchAndPersistAfterLogin(session: session)
+            }
         } catch {
             setErrorMessage(L(L10n.OTPVerify.otpNotMatch))
         }
@@ -311,7 +318,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
     }
 
     @objc private func changeLinkTapped() {
-        navigationController?.popToRootViewController(animated: true)
+        navigationController?.popViewController(animated: true)
     }
 
     private func updateAlternativeSection() {

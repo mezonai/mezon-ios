@@ -84,6 +84,7 @@ final class DmListItemCell: UITableViewCell {
     }()
 
     private var imageTask: URLSessionDataTask?
+    private var avatarLoadGeneration: UInt = 0
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -94,7 +95,9 @@ final class DmListItemCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        avatarLoadGeneration += 1
         imageTask?.cancel()
+        imageTask = nil
         avatarView.image = nil
         avatarPlaceholder.isHidden = true
         groupIconView.isHidden = true
@@ -188,8 +191,11 @@ final class DmListItemCell: UITableViewCell {
                let url = URL(string: channel.channelAvatar) {
                 avatarView.backgroundColor = .clear
                 groupIconView.isHidden = true
-                loadImage(url: url)
+                loadImage(url: url, useInitialFallback: false)
             } else {
+                avatarLoadGeneration += 1
+                imageTask?.cancel()
+                imageTask = nil
                 avatarView.backgroundColor = Self.groupDmListPlaceholderOrange
                 groupIconView.tintColor = .white
                 groupIconView.isHidden = false
@@ -202,8 +208,11 @@ final class DmListItemCell: UITableViewCell {
             if let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
                 avatarPlaceholder.isHidden = true
                 avatarView.backgroundColor = .clear
-                loadImage(url: url)
+                loadImage(url: url, useInitialFallback: true)
             } else {
+                avatarLoadGeneration += 1
+                imageTask?.cancel()
+                imageTask = nil
                 avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
                 avatarPlaceholder.isHidden = false
                 avatarPlaceholder.text = String(displayName.prefix(1)).uppercased()
@@ -224,14 +233,29 @@ final class DmListItemCell: UITableViewCell {
         }
     }
 
-    private func loadImage(url: URL) {
-        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
-        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+    private func loadImage(url: URL, useInitialFallback: Bool) {
+        imageTask?.cancel()
+        imageTask = nil
+        avatarLoadGeneration += 1
+        let gen = avatarLoadGeneration
+        let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+            guard gen == avatarLoadGeneration else { return }
             avatarView.image = cached
             return
         }
-        imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
-            self?.avatarView.image = image
+        imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            guard let self, gen == self.avatarLoadGeneration else { return }
+            if let image {
+                self.avatarView.image = image
+            } else if useInitialFallback {
+                self.avatarView.image = nil
+                self.avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
+                self.avatarPlaceholder.isHidden = false
+                self.avatarPlaceholder.text = String((self.nameLabel.text ?? "U").prefix(1)).uppercased()
+            } else {
+                self.avatarView.image = nil
+            }
         }
     }
 
@@ -277,7 +301,7 @@ final class DmListItemCell: UITableViewCell {
             if Self.isRNEmptyMessageContent(payload) {
                 preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
             } else {
-                preview = Self.dmPreviewBody(from: payload)
+                preview = Self.dmPreviewBody(from: payload, channelId: channel.channelID)
             }
         } else if msg.content.isEmpty {
             preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
@@ -301,7 +325,7 @@ final class DmListItemCell: UITableViewCell {
         if isGroup {
             return L(L10n.DirectMessage.groupCreated)
         }
-        return "[\(L(L10n.DirectMessage.previewFile))]"
+        return ""
     }
 
 
@@ -374,7 +398,7 @@ final class DmListItemCell: UITableViewCell {
         return raw.replacingOccurrences(of: "\\/", with: "/")
     }
 
-    private static func dmPreviewBody(from content: [String: Any]) -> String {
+    private static func dmPreviewBody(from content: [String: Any], channelId: Int64) -> String {
         let t = messageTextT(from: content)
 
         if let embed = firstEmbed(in: content) {
@@ -386,7 +410,7 @@ final class DmListItemCell: UITableViewCell {
                fields.contains(where: { ($0["value"] as? String) == shareContactFieldValue }) {
                 return "[\(L(L10n.DirectMessage.previewContact))]"
             }
-            return "[\(L(L10n.DirectMessage.previewFile))]"
+            return ""
         }
 
         if isGoogleMapsLink(t) {
@@ -398,7 +422,7 @@ final class DmListItemCell: UITableViewCell {
         if !t.isEmpty {
             return t
         }
-        return "[\(L(L10n.DirectMessage.previewFile))]"
+        return ""
     }
 
     private static func textContainsURL(_ text: String) -> Bool {

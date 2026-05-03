@@ -157,7 +157,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         let cleaned = phone.trimmingCharacters(in: .whitespaces)
         if prefix == "+84" {
             let p = cleaned.hasPrefix("0") ? String(cleaned.dropFirst()) : cleaned
-            return p.count == 9 && p.first.map { "3579".contains($0) } == true
+            return p.count == 9 && p.allSatisfy { $0.isNumber }
         }
         return cleaned.count >= 7 && cleaned.allSatisfy { $0.isNumber }
     }
@@ -227,6 +227,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     }
 
     func handleSessionReceived(_ session: MezonSession) {
+        MandatoryUsernamePendingStore.clearPending()
         SessionStore.save(session)
         self.context.account.network.updateBaseURL(from: session)
         let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? email, displayName: session.username ?? email, avatarURL: nil, status: .online, bio: nil)

@@ -154,6 +154,7 @@ struct ChatMessageDisplay: Identifiable {
     let showForwardHeader: Bool
     let messageCode: Int32
     let clanInviteLinkCode: String?
+    let replyRefSourceContent: String
     var isFailed: Bool { sendingState == .failed }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var isSendTokenLog: Bool { messageCode == MezonConstants.MessageCode.sendToken.rawValue }
@@ -213,6 +214,11 @@ struct ChatState {
     var channelType: Int32
     var isPrivate: Bool
     var isAgeRestricted: Bool
+    var isDM: Bool
+    var dmPeerUsername: String
+    var dmPeerDisplayName: String
+    var dmAvatarURL: String
+    var dmGroupAvatarURL: String
     var hasMoreOlder: Bool
     var hasMoreNewer: Bool
     var isLoadingMore: Bool
@@ -226,6 +232,7 @@ struct ChatState {
 
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
+        isDM: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -427,6 +434,9 @@ final class ChatViewController: ViewController {
             onCallTapped: { [weak self] in
                 self?.startCall()
             },
+            onVideoCallTapped: { [weak self] in
+                self?.startVideoCall()
+            },
             onHistoryTapped: { },
             onMenuTapped: { },
             onScrolledNearTop: { [weak self] in
@@ -565,7 +575,11 @@ final class ChatViewController: ViewController {
                 self.scrollToBottomIfNeeded()
             }
         }
-        displayNode = ChatContainerNode(signal: stateSignal(), interaction: interaction, isDM: clanId == 0)
+        displayNode = ChatContainerNode(
+            signal: stateSignal(),
+            interaction: interaction,
+            isDM: channel.type == MezonConstants.ChannelType.dm.rawValue
+        )
     }
 
     override func viewDidLoad() {
@@ -1488,6 +1502,11 @@ final class ChatViewController: ViewController {
             channelType: channel.type,
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
+            isDM: clanId == 0,
+            dmPeerUsername: channel.usernames.first ?? "",
+            dmPeerDisplayName: channel.displayNames.first ?? "",
+            dmAvatarURL: channel.avatars.first ?? "",
+            dmGroupAvatarURL: channel.channelAvatar,
             hasMoreOlder: hasMoreOlder,
             hasMoreNewer: hasMoreNewer,
             isLoadingMore: isLoadingMore,
@@ -1648,8 +1667,13 @@ final class ChatViewController: ViewController {
             let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
             let bodyEmpty = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let senderLabel = record.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let isWelcome = record.code == MezonConstants.MessageCode.welcome.rawValue
-                || (record.senderId == "0" && bodyEmpty && senderLabel == "system")
+            let isWelcome = record.senderId == "0" && bodyEmpty && senderLabel == "system"
+            let replyRefSourceContent: String = {
+                if let s = String(data: record.content, encoding: .utf8), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return s
+                }
+                return "{}"
+            }()
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
             let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
@@ -1671,7 +1695,8 @@ final class ChatViewController: ViewController {
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
                 isForward: isForward, showForwardHeader: false, messageCode: record.code,
-                clanInviteLinkCode: clanInviteLinkCode
+                clanInviteLinkCode: clanInviteLinkCode,
+                replyRefSourceContent: replyRefSourceContent
             )
         }
         return Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
@@ -1809,7 +1834,8 @@ final class ChatViewController: ViewController {
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
                 topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
                 isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode,
-                clanInviteLinkCode: d.clanInviteLinkCode
+                clanInviteLinkCode: d.clanInviteLinkCode,
+                replyRefSourceContent: d.replyRefSourceContent
             )
         }
     }
@@ -3170,7 +3196,8 @@ final class ChatViewController: ViewController {
             locationData: display.locationData, isMe: display.isMe, sendingState: display.sendingState,
             hasIncludeMention: display.hasIncludeMention, isForward: display.isForward,
             showForwardHeader: display.showForwardHeader, messageCode: display.messageCode,
-            clanInviteLinkCode: display.clanInviteLinkCode
+            clanInviteLinkCode: display.clanInviteLinkCode,
+            replyRefSourceContent: display.replyRefSourceContent
         )
     }
 
@@ -3686,11 +3713,8 @@ extension ChatViewController {
     }
 
     func startCall() {
-        let isDM = clanId == 0
-            || channel.type == MezonConstants.ChannelType.dm.rawValue
-            || channel.type == MezonConstants.ChannelType.group.rawValue
-        guard isDM else { return }
-
+        guard clanId == 0 else { return }
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return }
         guard let myUserId = Int64(context.currentUser?.id ?? "") else { return }
 
         let remoteUserId: Int64 = channel.userIds.first(where: { $0 != myUserId }) ?? 0
@@ -3698,13 +3722,34 @@ extension ChatViewController {
             return
         }
 
-        let callVC = CallViewController(
+        let callVC = PeerCallViewController(
             context: context,
             remoteUserName: channel.channelLabel,
             remoteAvatarURL: channel.avatars.first,
             remoteUserId: remoteUserId,
-            dmChannelId: channel.channelID,
-            isOutgoing: true
+            channelId: channel.channelID,
+            isVideo: false
+        )
+        present(callVC, animated: true)
+    }
+
+    func startVideoCall() {
+        guard clanId == 0 else { return }
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return }
+        guard let myUserId = Int64(context.currentUser?.id ?? "") else { return }
+
+        let remoteUserId: Int64 = channel.userIds.first(where: { $0 != myUserId }) ?? 0
+        guard remoteUserId != 0 else {
+            return
+        }
+
+        let callVC = PeerCallViewController(
+            context: context,
+            remoteUserName: channel.channelLabel,
+            remoteAvatarURL: channel.avatars.first,
+            remoteUserId: remoteUserId,
+            channelId: channel.channelID,
+            isVideo: true
         )
         present(callVC, animated: true)
     }

@@ -90,32 +90,46 @@ final class ChannelAppCellNode: ASCellNode {
 }
 
 
-final class ChannelAppLoadingCellNode: ASCellNode {
+final class ChannelAppSkeletonCellNode: ASCellNode {
 
-    private let spinner: ASDisplayNode
+    private let pillNodes: [ASDisplayNode]
 
     override init() {
-        spinner = ASDisplayNode(viewBlock: {
-            let v = UIActivityIndicatorView(style: .medium)
-            v.color = UIColor.theme.textDisabled
-            v.startAnimating()
-            return v
-        })
+        pillNodes = (0..<5).map { _ in
+            let n = ASDisplayNode()
+            n.isLayerBacked = true
+            n.cornerRadius = 12.swh
+            n.backgroundColor = UIColor.theme.secondaryLight
+            n.style.preferredSize = CGSize(width: 56.swh, height: 56.swh)
+            return n
+        }
         super.init()
         automaticallyManagesSubnodes = true
         backgroundColor = .clear
         selectionStyle = .none
+        for n in pillNodes {
+            addSubnode(n)
+        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        spinner.style.preferredSize = CGSize(width: 44.swh, height: 44.swh)
-        let centered = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
-        let insetSpec = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 8.sh, left: 12.sw, bottom: 8.sh, right: 12.sw),
-            child: centered
+        let row = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 12.sw,
+            justifyContent: .start,
+            alignItems: .center,
+            children: pillNodes
         )
-        insetSpec.style.height = ASDimensionMake(84.sh)
-        return insetSpec
+        let rowInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 12.sw, bottom: 0, right: 12.sw),
+            child: row
+        )
+        let cellInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 8.sh, left: 0, bottom: 8.sh, right: 0),
+            child: rowInset
+        )
+        cellInset.style.height = ASDimensionMake(84.sh)
+        return cellInset
     }
 }
 

@@ -7,6 +7,7 @@ struct DirectMessagesInteraction {
     let onSearchTapped: () -> Void
     let onBackTapped: () -> Void
     let onRefresh: () -> Void
+    let onSelectMessageActivity: (DmMessageActivityItem) -> Void
 }
 
 final class DirectMessagesContainerNode: ASDisplayNode {
@@ -17,6 +18,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let badgeLabel = UILabel()
     private let searchButton = UIButton(type: .system)
     private let tableView: UITableView
+    private let activityStrip = DmMessageActivityStripView()
+    private let activityTableHeaderWrapper = UIView()
 
     private var state: DirectMessagesState = .empty
     private let interaction: DirectMessagesInteraction
@@ -39,7 +42,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
                 self.state = newState
-                
+
+                self.activityStrip.setItems(newState.messageActivityRows)
+                if self.validLayout != nil {
+                    self.applyLayout(transition: .immediate)
+                }
+
                 if newState.incomingFriendRequestCount > 0 {
                     self.badgeLabel.text = "\(newState.incomingFriendRequestCount)"
                     self.badgeLabel.isHidden = false
@@ -132,12 +140,18 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         }
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
+        activityStrip.onSelect = { [weak self] item in
+            self?.interaction.onSelectMessageActivity(item)
+        }
 
         view.addSubview(headerView)
         view.addSubview(addFriendButton)
         view.addSubview(badgeLabel)
         view.addSubview(searchButton)
         view.addSubview(tableView)
+
+        activityTableHeaderWrapper.backgroundColor = .clear
+        activityStrip.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
         headerView.addSubview(titleLabel)
 
@@ -189,12 +203,27 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             transition.updateFrame(view: badgeLabel, frame: CGRect(x: bx, y: by, width: bw, height: bh))
         }
 
-        let tvTop = actionY + actionH + 8.sh
+        let belowActions = actionY + actionH + 8.sh
+        let tvTop = belowActions
         let tvHeight = size.height - tvTop - bottomInset
 
         transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: size.width, height: tvHeight))
+        syncActivityTableHeader(width: size.width)
+    }
 
-
+    private func syncActivityTableHeader(width: CGFloat) {
+        let stripH: CGFloat = state.messageActivityRows.isEmpty ? 0 : (50.sh + 8.sh)
+        guard stripH > 0.5, width > 0.5 else {
+            tableView.tableHeaderView = nil
+            return
+        }
+        if activityStrip.superview !== activityTableHeaderWrapper {
+            activityTableHeaderWrapper.addSubview(activityStrip)
+        }
+        activityTableHeaderWrapper.frame = CGRect(x: 0, y: 0, width: width, height: stripH)
+        activityStrip.frame = activityTableHeaderWrapper.bounds
+        tableView.tableHeaderView = activityTableHeaderWrapper
+        tableView.tableHeaderView = activityTableHeaderWrapper
     }
 
     func applyTheme() {
@@ -234,6 +263,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         }
 
         tableView.reloadData()
+        activityStrip.applyTheme()
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
@@ -242,6 +272,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     func endRefreshing() {
         refreshControl.endRefreshing()
+    }
+
+    func resetMessageActivityStripScroll(animated: Bool) {
+        activityStrip.resetScrollToStart(animated: animated)
     }
 }
 

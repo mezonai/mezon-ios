@@ -47,6 +47,8 @@ final class ClanListContainerNode: ASDisplayNode {
     private var state: ClanListState = .empty
     private let interaction: ClanListInteraction
     private let disposables = DisposableSet()
+    private var sidebarLogoLoadTask: URLSessionDataTask?
+    private var sidebarLogoDisplaySource: String?
 
     init(signal: Signal<ClanListState, NoError>, interaction: ClanListInteraction) {
         let layout = UICollectionViewFlowLayout()
@@ -65,7 +67,12 @@ final class ClanListContainerNode: ASDisplayNode {
                 let prevDMCount = self.state.unreadDMs.count
                 let prevDMBadges = self.state.unreadDMs.map { $0.countMessUnread }
                 let prevClanBadges = self.state.clans.map { $0.badgeCount }
+                let prevAccountLogo = self.state.accountLogoURL
                 self.state = newState
+
+                if prevAccountLogo != newState.accountLogoURL {
+                    self.applySidebarAccountLogo(urlString: newState.accountLogoURL)
+                }
 
                 let hasClanSection = self.collectionView.numberOfSections > 1
                 let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
@@ -103,7 +110,10 @@ final class ClanListContainerNode: ASDisplayNode {
         )
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        sidebarLogoLoadTask?.cancel()
+        disposables.dispose()
+    }
 
     override func didLoad() {
         super.didLoad()
@@ -175,6 +185,43 @@ final class ClanListContainerNode: ASDisplayNode {
         return max(1, layoutSize)
     }
 
+    private func applySidebarAccountLogo(urlString: String?) {
+        sidebarLogoLoadTask?.cancel()
+        sidebarLogoLoadTask = nil
+        let trimmed = urlString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, URL(string: trimmed) != nil else {
+            sidebarLogoDisplaySource = nil
+            logoImageView.image = UIImage(named: "NewMezonLogo")
+            return
+        }
+        sidebarLogoDisplaySource = trimmed
+        let proxied = ImgproxyURL.create(from: trimmed, width: 150, height: 150)
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+            logoImageView.image = cached
+            return
+        }
+        logoImageView.image = UIImage(named: "NewMezonLogo")
+        sidebarLogoLoadTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            guard let self else { return }
+            guard self.sidebarLogoDisplaySource == trimmed else { return }
+            self.logoImageView.image = image ?? UIImage(named: "NewMezonLogo")
+        }
+    }
+
+    func focusDiscoverIfNoClans() {
+        guard state.clans.isEmpty else { return }
+        let section = 1
+        guard collectionView.numberOfSections > section else { return }
+        let item = state.clans.count
+        let path = IndexPath(item: item, section: section)
+        guard item < collectionView.numberOfItems(inSection: section) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.collectionView.scrollToItem(at: path, at: .centeredVertically, animated: true)
+            self.collectionView.selectItem(at: path, animated: true, scrollPosition: .centeredVertically)
+        }
+    }
+
     func applyTheme() {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
@@ -220,7 +267,9 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         let clanIndex = indexPath.item
         guard clanIndex < state.clans.count else {
             if clanIndex == state.clans.count {
-                return collectionView.dequeueReusableCell(withReuseIdentifier: ClanJoinActionCell.reuseID, for: indexPath) as! ClanJoinActionCell
+                let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanJoinActionCell.reuseID, for: indexPath) as! ClanJoinActionCell
+                cell.applyDiscoveryFocus(state.clans.isEmpty)
+                return cell
             }
             return collectionView.dequeueReusableCell(withReuseIdentifier: ClanCreateActionCell.reuseID, for: indexPath) as! ClanCreateActionCell
         }
@@ -477,6 +526,8 @@ private final class ClanJoinActionCell: UICollectionViewCell {
         return iv
     }()
 
+    private var discoveryFocused = false
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -498,10 +549,25 @@ private final class ClanJoinActionCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    func applyDiscoveryFocus(_ focused: Bool) {
+        discoveryFocused = focused
+        refreshOuterAppearance()
+    }
+
+    private func refreshOuterAppearance() {
+        let t = UIColor.theme
+        outer.layer.borderWidth = 0
+        outer.layer.borderColor = nil
+        if discoveryFocused {
+            outer.backgroundColor = t.iconPrimary.withAlphaComponent(0.22)
+        } else {
+            outer.backgroundColor = t.primary.withAlphaComponent(0.2)
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        let t = UIColor.theme
-        outer.backgroundColor = t.primary.withAlphaComponent(0.2)
+        refreshOuterAppearance()
     }
 }
 

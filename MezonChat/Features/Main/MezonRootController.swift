@@ -93,9 +93,35 @@ final class MezonRootController: NavigationController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSharedContent(_:)), name: .mezonDidReceiveSharedContent, object: nil)
 
+        NotificationCenter.default.addObserver(self, selector: #selector(handleIncomingPeerCall(_:)), name: .mezonIncomingPeerCall, object: nil)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(evaluateMandatoryUsernamePendingIfNeeded), name: .mezonAccountCurrentUserDidChange, object: nil)
+
         bootstrapGlobalFriendState()
         processPendingNavigation()
         checkPendingSharedContentOnLaunch()
+
+        DispatchQueue.main.async { [weak self] in
+            self?.evaluateMandatoryUsernamePendingIfNeeded()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.evaluateMandatoryUsernamePendingIfNeeded()
+        }
+    }
+
+    @objc private func evaluateMandatoryUsernamePendingIfNeeded() {
+        guard context.isLoggedIn else { return }
+        guard let session = context.session else { return }
+        guard MandatoryUsernamePendingStore.isPending else { return }
+        guard !mandatoryUsernameModalAlreadyVisible() else { return }
+
+        let stub = OTPContext(reqId: "", target: "", type: .sms)
+        let updateVC = UpdateUsernameViewController(pendingSession: session, context: context, otpContext: stub)
+        pushViewController(updateVC, animated: true)
+    }
+
+    private func mandatoryUsernameModalAlreadyVisible() -> Bool {
+        viewControllers.contains(where: { $0 is UpdateUsernameViewController })
     }
 
     private func bootstrapGlobalFriendState() {
@@ -179,6 +205,38 @@ final class MezonRootController: NavigationController {
         if let tabBarVC = viewControllers.first(where: { $0 is TabBarController }) {
             popToViewController(tabBarVC, animated: false)
         }
+    }
+
+    @objc private func handleIncomingPeerCall(_ notification: Notification) {
+        guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else { return }
+        guard let myId = Int64(context.currentUser?.id ?? "") else { return }
+        guard payload.receiverId == myId || payload.receiverId == 0 else { return }
+        guard var top = mezonKeyWindowRootViewController() else { return }
+        while let presented = top.presentedViewController {
+            if presented is PeerCallViewController { return }
+            top = presented
+        }
+        var name = "Incoming call"
+        var avatar: String?
+        if let compressed = payload.resolvedCompressedOffer() {
+            let meta = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(compressed)
+            if let n = meta.name, !n.isEmpty { name = n }
+            avatar = meta.avatar
+        }
+        let vc = PeerCallViewController(context: context, incoming: payload, remoteDisplayName: name, remoteAvatarURL: avatar)
+        top.present(vc, animated: true)
+    }
+
+    private func mezonKeyWindowRootViewController() -> UIViewController? {
+        if let w = view.window, let r = w.rootViewController { return r }
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in scenes {
+            if let win = scene.windows.first(where: { $0.isKeyWindow }), let r = win.rootViewController { return r }
+        }
+        for scene in scenes {
+            if let win = scene.windows.first, let r = win.rootViewController { return r }
+        }
+        return nil
     }
 
     private func navigateToDM(channelIdStr: String, title: String?) {

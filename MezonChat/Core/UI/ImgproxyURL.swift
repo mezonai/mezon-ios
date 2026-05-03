@@ -53,6 +53,26 @@ enum ImgproxyURL {
         return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@webp"
     }
 
+    static func avatarProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
+        let s = sourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return s }
+        if s.contains("imgproxy.mezon") {
+            return s
+        }
+        guard s.hasPrefix("http://") || s.hasPrefix("https://") else {
+            return s
+        }
+        let ext = (s as NSString).pathExtension.lowercased()
+        if ext == "gif" {
+            return s
+        }
+        let w = max(1, width)
+        let h = max(1, height)
+        let processingOptions = "rs:fit:\(w):\(h):1/mb:2097152"
+        let encodedSource = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@webp"
+    }
+
 
     static func createEmoji(from sourceURL: String, width: Int, height: Int, resizeType: String = "fit") -> String {
         guard !sourceURL.isEmpty else { return sourceURL }

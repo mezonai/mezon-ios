@@ -293,27 +293,61 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
     }
 }
 
-func remoteAvatarSignal(url: String) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
-        guard !url.isEmpty else {
+        let orig = originalURL
+        let proxy = proxiedURL
+
+        guard !proxy.isEmpty || !orig.isEmpty else {
             subscriber.putCompletion()
             return EmptyDisposable
         }
 
         let cache = ImageCache.shared
-        if let cached = cache.memoryImage(forKey: url) {
-            subscriber.putNext(makeTransform(for: cached, resizeMode: .fill))
-            subscriber.putCompletion()
-            return EmptyDisposable
+        for key in [proxy, orig] where !key.isEmpty {
+            if let cached = cache.memoryImage(forKey: key) {
+                subscriber.putNext(makeTransform(for: cached, resizeMode: .fill))
+                subscriber.putCompletion()
+                return EmptyDisposable
+            }
         }
 
         let cancelled = Atomic<Bool>(value: false)
-        cache.loadAvatar(urlString: url) { image in
+
+        func emit(_ image: UIImage) {
             guard !cancelled.with({ $0 }) else { return }
-            if let image {
-                subscriber.putNext(makeTransform(for: image, resizeMode: .fill))
-            }
+            subscriber.putNext(makeTransform(for: image, resizeMode: .fill))
             subscriber.putCompletion()
+        }
+
+        func finishEmpty() {
+            guard !cancelled.with({ $0 }) else { return }
+            subscriber.putCompletion()
+        }
+
+        func load(_ url: String, onNil: @escaping () -> Void) {
+            guard !url.isEmpty else {
+                onNil()
+                return
+            }
+            cache.loadAvatar(urlString: url) { image in
+                guard !cancelled.with({ $0 }) else { return }
+                if let image {
+                    emit(image)
+                } else {
+                    onNil()
+                }
+            }
+        }
+
+        if proxy.isEmpty {
+            load(orig, onNil: finishEmpty)
+        } else if orig.isEmpty || proxy == orig {
+            load(proxy, onNil: finishEmpty)
+        } else {
+            load(proxy) {
+                load(orig, onNil: finishEmpty)
+            }
         }
 
         return ActionDisposable {

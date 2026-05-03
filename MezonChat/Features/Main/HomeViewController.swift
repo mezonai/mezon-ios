@@ -39,12 +39,22 @@ final class HomeViewController: BaseViewController {
             self?.applyInitialClanSelection()
         }
 
+        self.scrollToTopWithTabBar = { [weak self] in
+            guard let self else { return }
+            if self.clanListVC.discoverEmptyOverlayShouldShow {
+                self.focusDiscoverWhenNoClansFromTab()
+            } else {
+                self.scrollToTop?()
+            }
+        }
+
         NotificationCenter.default.addObserver(self, selector: #selector(handleHomeThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAlignHomeAfterCrossClanVoice(_:)), name: .mezonAlignHomeAfterCrossClanVoice, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAlignChannelListAfterSearchJump(_:)), name: .mezonAlignChannelListAfterSearchJump, object: nil)
 
         bindBadgeCountUpdates()
     }
@@ -53,6 +63,13 @@ final class HomeViewController: BaseViewController {
         super.viewWillAppear(animated)
         discoverEmptyOverlayVC.hostNavigationController = navigationController
         syncMainColumnZOrder()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if let tab = parent as? TabBarController, tab.selectedIndex == 0 {
+            presentDiscoverWhenNoClansIfNeeded()
+        }
     }
 
     override func didMove(toParent parent: UIViewController?) {
@@ -71,6 +88,23 @@ final class HomeViewController: BaseViewController {
         } else {
             view.bringSubviewToFront(discoverEmptyOverlayVC.view)
         }
+    }
+
+    private func focusDiscoverWhenNoClansFromTab() {
+        guard clanListVC.discoverEmptyOverlayShouldShow else { return }
+        discoverEmptyOverlayVC.reloadDiscoverList()
+        discoverEmptyOverlayVC.view.isHidden = false
+        view.bringSubviewToFront(discoverEmptyOverlayVC.view)
+        clanListVC.focusDiscoverInSidebar()
+        syncMainColumnZOrder()
+    }
+
+    private func presentDiscoverWhenNoClansIfNeeded() {
+        guard clanListVC.discoverEmptyOverlayShouldShow else { return }
+        discoverEmptyOverlayVC.view.isHidden = false
+        view.bringSubviewToFront(discoverEmptyOverlayVC.view)
+        clanListVC.focusDiscoverInSidebar()
+        syncMainColumnZOrder()
     }
 
     private func resyncNestedSidebarAndChannelDisplayNodes() {
@@ -139,6 +173,13 @@ final class HomeViewController: BaseViewController {
     @objc private func handleAlignHomeAfterCrossClanVoice(_ notification: Notification) {
         guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
         let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
+        alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
+    }
+
+    @objc private func handleAlignChannelListAfterSearchJump(_ notification: Notification) {
+        guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
+        let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
+        guard channelId != 0 else { return }
         alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
     }
 
@@ -220,6 +261,7 @@ final class HomeViewController: BaseViewController {
                     self.discoverEmptyOverlayVC.view.isHidden = !show
                     if show {
                         self.view.bringSubviewToFront(self.discoverEmptyOverlayVC.view)
+                        self.clanListVC.focusDiscoverInSidebar()
                     } else {
                         self.view.bringSubviewToFront(self.channelListVC.view)
                     }
@@ -316,7 +358,13 @@ final class HomeViewController: BaseViewController {
                         parentName = self.channelListVC.allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
                     }
                     let chatVC = ChatViewController(clanId: self.channelListVC.clanId, channel: channel, context: self.context, parentName: parentName)
-                    self.navigationController?.pushViewController(chatVC, animated: true)
+                    if let nav = self.navigationController as? NavigationController {
+                        nav.pushViewController(
+                            chatVC, animated: true,
+                            stackPushAnimationDuration: NavigationController.channelListToChatPushAnimationDuration)
+                    } else {
+                        self.navigationController?.pushViewController(chatVC, animated: true)
+                    }
                 })
         )
     }

@@ -335,6 +335,8 @@ final class PhoneInputComponent: Component {
     }
 
     final class View: UIView {
+        private static let prefixTextColor = UIColor(hex: 0x1c1c1e)
+
         private let container = UIView()
         private let prefixButton = UIButton(type: .system)
         private let separator = UIView()
@@ -350,11 +352,11 @@ final class PhoneInputComponent: Component {
 
             if #available(iOS 15.0, *) {
                 var cfg = UIButton.Configuration.plain()
-                cfg.baseForegroundColor = .mezonTextStrong
+                cfg.baseForegroundColor = Self.prefixTextColor
                 cfg.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 4)
                 prefixButton.configuration = cfg
             } else {
-                prefixButton.setTitleColor(.mezonTextStrong, for: .normal)
+                prefixButton.setTitleColor(Self.prefixTextColor, for: .normal)
                 prefixButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 4)
             }
             prefixButton.addTarget(self, action: #selector(prefixTap), for: .touchUpInside)
@@ -391,10 +393,11 @@ final class PhoneInputComponent: Component {
                     ? "🇯🇵 +81" : (component.prefix == "+1" ? "🇺🇸 +1" : component.prefix))
             if #available(iOS 15.0, *) {
                 prefixButton.configuration?.title = "\(prefixTitle)   "
+                prefixButton.configuration?.baseForegroundColor = Self.prefixTextColor
             } else {
                 prefixButton.setTitle("\(prefixTitle)   ", for: .normal)
+                prefixButton.setTitleColor(Self.prefixTextColor, for: .normal)
             }
-            prefixButton.titleLabel?.textColor = attrs.loginInputTextColor
             prefixButton.frame = CGRect(x: 0, y: 0, width: 100, height: size.height)
             separator.frame = CGRect(x: 84, y: 8, width: 1, height: size.height - 16)
             if textField.text != component.phone { textField.text = component.phone }

@@ -6,8 +6,9 @@ struct ClanListState {
     var selectedClanId: Int64?
     var isLoading: Bool
     var unreadDMs: [Mezon_Api_ChannelDescription]
+    var accountLogoURL: String?
 
-    static let empty = ClanListState(clans: [], selectedClanId: nil, isLoading: false, unreadDMs: [])
+    static let empty = ClanListState(clans: [], selectedClanId: nil, isLoading: false, unreadDMs: [], accountLogoURL: nil)
 }
 
 final class ClanListViewController: ViewController {
@@ -98,6 +99,13 @@ final class ClanListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleMezonQRSelectClan(_:)), name: .mezonQRSelectClan,
             object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleAccountCurrentUserDidChange),
+            name: .mezonAccountCurrentUserDidChange, object: nil)
+    }
+
+    @objc private func handleAccountCurrentUserDidChange() {
+        needsReloadPipe.putNext(())
     }
 
     @objc private func handleMezonQRSelectClan(_ notification: Notification) {
@@ -124,10 +132,14 @@ final class ClanListViewController: ViewController {
 
     @MainActor
     private func refreshClanSidebarBadgesFromSocket() async {
-        guard context.account.socket.isConnected else { return }
+        guard let token = await context.getToken() else {
+            return
+        }
         do {
-            let rows = try await context.account.socket.fetchListClanBadgeCount()
-            guard !rows.isEmpty else { return }
+            let rows = try await context.account.network.listClanBadgeCount(token: token).listBadge
+            guard !rows.isEmpty else {
+                return
+            }
             var next = clans
             ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
             setClans(next)
@@ -148,6 +160,10 @@ final class ClanListViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         view.layoutIfNeeded()
         clanListNode.updateLayout(layout: layout, transition: transition)
+    }
+
+    func focusDiscoverInSidebar() {
+        clanListNode.focusDiscoverIfNoClans()
     }
 
     override func viewDidLayoutSubviews() {
@@ -588,7 +604,13 @@ final class ClanListViewController: ViewController {
     }
 
     var currentState: ClanListState {
-        ClanListState(clans: clans, selectedClanId: selectedClanId, isLoading: isLoading, unreadDMs: unreadDMs)
+        ClanListState(
+            clans: clans,
+            selectedClanId: selectedClanId,
+            isLoading: isLoading,
+            unreadDMs: unreadDMs,
+            accountLogoURL: context.currentUser?.accountLogoURL
+        )
     }
 
     func stateSignal() -> Signal<ClanListState, NoError> {

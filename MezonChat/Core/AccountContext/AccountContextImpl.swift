@@ -178,6 +178,11 @@ final class AccountContextImpl: AccountContext {
     var currentClanId: Int64 = 0
     var currentChannel: Mezon_Api_ChannelDescription?
 
+    func clearPersistedSelectedChannelPreference(forClanId clanId: Int64) {
+        guard clanId != 0 else { return }
+        account.postbox.setPreferenceDataSync(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: nil)
+    }
+
     init(
         sharedContext: SharedAccountContextImpl,
         account: Account,
@@ -237,6 +242,7 @@ final class AccountContextImpl: AccountContext {
             Task { try? await engine.auth.sessionLogout(session: s, deviceId: deviceId, platform: "ios") }
         }
         SessionStore.clear()
+        MandatoryUsernamePendingStore.clearPending()
         MmnWalletStore.shared.clear()
         SessionRefreshManager.shared.reset()
         session = nil
@@ -361,7 +367,7 @@ final class AccountContextImpl: AccountContext {
             avatarURL: nil, status: .online, customStatus: nil, bio: nil
         ))
         applyCachedAccountIfAvailable()
-        setLoggedIn(true)
+        setLoggedIn(!saved.created)
         account.network.updateBaseURL(from: saved)
 
         SessionRefreshManager.shared.refreshOnAppLaunch(
@@ -369,7 +375,10 @@ final class AccountContextImpl: AccountContext {
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
-                self.applySession(merged, user: self.currentUser, connectSocket: true)
+                self.applySession(merged, user: self.currentUser, connectSocket: !merged.created)
+                if let s = self.session {
+                    self.setLoggedIn(!s.created)
+                }
                 self.registerFCMTokenIfNeeded()
                 self.markSessionReady()
             },
@@ -715,7 +724,10 @@ final class AccountContextImpl: AccountContext {
             handleSocketNotification(noti)
 
         case .webRTC(let msg):
-            WebRTCCallManager.shared.handleSignalingMessage(msg)
+            WebRTCCallManager.shared.handleSignalingMessage(msg, currentUserId: currentUserNumericId() ?? 0)
+
+        case .incomingCallPush(let push):
+            WebRTCCallManager.shared.handleIncomingCallPush(push, currentUserId: currentUserNumericId() ?? 0)
 
         case .customStatus(let e):
             applyIncomingCustomStatusEvent(e)
@@ -849,11 +861,13 @@ final class AccountContextImpl: AccountContext {
             guard let nt = newTrim, !nt.isEmpty else { return false }
             return nt == prevTrim
         }()
+        let trimmedLogo = api.logo.trimmingCharacters(in: .whitespacesAndNewlines)
         return User(
             id: "\(u.id)",
             username: u.username.isEmpty ? "me" : u.username,
             displayName: u.displayName.isEmpty ? u.username : u.displayName,
             avatarURL: u.avatarURL.isEmpty ? nil : URL(string: u.avatarURL),
+            accountLogoURL: trimmedLogo.isEmpty ? nil : trimmedLogo,
             status: presence,
             customStatus: newCustom,
             customStatusTimeReset: newCustom == nil ? nil : (sameCustomText ? prev?.customStatusTimeReset : nil),

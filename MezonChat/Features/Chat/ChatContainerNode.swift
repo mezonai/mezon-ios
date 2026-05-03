@@ -27,6 +27,7 @@ struct ChatInteraction {
     let onHeaderTapped: () -> Void
     let onSearchTapped: () -> Void
     let onCallTapped: (() -> Void)?
+    let onVideoCallTapped: (() -> Void)?
     let onHistoryTapped: () -> Void
     let onMenuTapped: () -> Void
     let onScrolledNearTop: () -> Void
@@ -96,6 +97,7 @@ final class ChatContainerNode: ASDisplayNode {
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
         headerNode.onCallTapped = { interaction.onCallTapped?() }
+        headerNode.onVideoCallTapped = { interaction.onVideoCallTapped?() }
         addSubnode(headerNode)
         addSubnode(listView)
         addSubnode(skeletonNode)
@@ -328,7 +330,12 @@ final class ChatContainerNode: ASDisplayNode {
                         channelLabel: state.channelLabel,
                         channelType: state.channelType,
                         isPrivate: state.isPrivate,
-                        isAgeRestricted: state.isAgeRestricted
+                        isAgeRestricted: state.isAgeRestricted,
+                        isDM: state.isDM,
+                        dmPeerUsername: state.dmPeerUsername,
+                        dmPeerDisplayName: state.dmPeerDisplayName,
+                        dmAvatarURL: state.dmAvatarURL,
+                        dmGroupAvatarURL: state.dmGroupAvatarURL
                     ))
                     didInsertWelcomeHero = true
                 } else {

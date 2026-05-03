@@ -302,6 +302,17 @@ enum L10n {
         static let sendOtpError   = "otpVerify.sendOtpError"
     }
 
+    enum UpdateUsername {
+        static let enterUsername = "updateUsername.enterUsername"
+        static let usernamePlaceholder = "updateUsername.usernamePlaceholder"
+        static let yourName = "updateUsername.yourName"
+        static let usernamePreview = "updateUsername.usernamePreview"
+        static let update = "updateUsername.update"
+        static let errorDuplicate = "updateUsername.errorDuplicate"
+        static let skipUpdateQuestion = "updateUsername.skipUpdateQuestion"
+        static let skipUpdateBack = "updateUsername.skipUpdateBack"
+    }
+
     enum Clan {
         static let createClan     = "clan.createClan"
         static let joinClanTitle   = "clan.joinClanTitle"
@@ -495,6 +506,14 @@ enum L10n {
         static let banList              = "channel.setting.banList"
         static let webhook              = "channel.setting.webhook"
         static let privacyFooter        = "channel.setting.privacyFooter"
+    }
+
+    enum ChatWelcome {
+        static let welcomeToChannel = "chatWelcome.welcomeToChannel"
+        static let startOfChannel = "chatWelcome.startOfChannel"
+        static let privateChannel = "chatWelcome.privateChannel"
+        static let beginningOfDM = "chatWelcome.beginningOfDM"
+        static let welcomeToGroup = "chatWelcome.welcomeToGroup"
     }
 
     enum ChannelMessages {
@@ -810,6 +829,15 @@ extension L10n {
         "otpVerify.resendFailed":      "Failed to resend OTP. Please try again.",
         "otpVerify.sendOtpError":      "Failed to receive OTP. Please try again.",
 
+        "updateUsername.enterUsername": "Enter Mezon name",
+        "updateUsername.usernamePlaceholder": "Please use your actual name to make it easier for people to identify you.",
+        "updateUsername.yourName": "Your name...",
+        "updateUsername.usernamePreview": "Username: %@",
+        "updateUsername.update": "Update",
+        "updateUsername.errorDuplicate": "There's an issue or the name already exists, please choose another one.",
+        "updateUsername.skipUpdateQuestion": "Want to sign in again with your phone number?",
+        "updateUsername.skipUpdateBack": "Return to login with phone number",
+
         "clan.createClan":  "Create Clan",
         "clan.joinClanTitle": "Join a clan",
         "clan.inviteInputPlaceholder": "Invite link or code",
@@ -992,6 +1020,12 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
         "channelMessages.pollUnsupported": "Polls aren’t supported in the app yet.",
         "channelMessages.pollComingSoon": "Coming soon.",
+
+        "chatWelcome.welcomeToChannel": "Welcome to #%@",
+        "chatWelcome.startOfChannel": "This is the start of the #%@ %@ channel",
+        "chatWelcome.privateChannel": "private",
+        "chatWelcome.beginningOfDM": "This is the very beginning of your legendary conversation with %@",
+        "chatWelcome.welcomeToGroup": "Welcome to the beginning of the %@ group.",
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
@@ -1375,6 +1409,15 @@ extension L10n {
         "otpVerify.resendFailed":      "Không thể gửi lại OTP. Vui lòng thử lại.",
         "otpVerify.sendOtpError":      "Không thể gửi mã OTP. Vui lòng thử lại.",
 
+        "updateUsername.enterUsername": "Nhập tên Mezon",
+        "updateUsername.usernamePlaceholder": "Hãy dùng tên thật để mọi người dễ nhận ra bạn",
+        "updateUsername.yourName": "Tên của bạn...",
+        "updateUsername.usernamePreview": "Tên người dùng: %@",
+        "updateUsername.update": "Cập nhật",
+        "updateUsername.errorDuplicate": "Có sự cố hoặc tên đã tồn tại, vui lòng chọn tên khác.",
+        "updateUsername.skipUpdateQuestion": "Muốn đăng nhập lại với số điện thoại của bạn?",
+        "updateUsername.skipUpdateBack": "Quay lại đăng nhập với số điện thoại",
+
         "clan.createClan":  "Tạo Clan",
         "clan.joinClanTitle": "Tham gia clan",
         "clan.inviteInputPlaceholder": "Liên kết hoặc mã mời",
@@ -1556,6 +1599,12 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
         "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
         "channelMessages.pollComingSoon": "Sắp có.",
+
+        "chatWelcome.welcomeToChannel": "Chào mừng đến với #%@",
+        "chatWelcome.startOfChannel": "Đây là nơi bắt đầu của kênh #%@ %@",
+        "chatWelcome.privateChannel": "riêng tư",
+        "chatWelcome.beginningOfDM": "Đây là nơi bắt đầu cuộc trò chuyện của bạn và %@",
+        "chatWelcome.welcomeToGroup": "Chào mừng bạn đến với nhóm %@.",
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",

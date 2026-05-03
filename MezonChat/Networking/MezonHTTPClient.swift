@@ -74,6 +74,20 @@ final class MezonHTTPClient {
         protoBaseURL = url
     }
 
+    func resetProtoBaseURLToDefault() {
+        protoBaseURL = MezonConfig.protoBaseURL
+    }
+
+    func updateUsername(username: String, token: String) async throws -> Mezon_Api_Session {
+        var req = Mezon_Api_UpdateUsernameRequest()
+        req.username = username
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateUsername",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private func stripDefaultPort(_ urlString: String) -> String {
         guard var components = URLComponents(string: urlString) else { return urlString }
         let isHTTPS = components.scheme?.lowercased() == "https"
@@ -486,6 +500,15 @@ final class MezonHTTPClient {
         )
     }
 
+    func listClanBadgeCount(token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanBadgeCount",
+            message: empty,
+            auth: .bearer(token)
+        )
+    }
+
     func createDirectMessage(userId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
         var req = Mezon_Api_CreateChannelDescRequest()
         req.clanID = 0
@@ -495,6 +518,15 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/CreateChannelDesc",
             message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listUserActivity(token: String) async throws -> Mezon_Api_ListUserActivity {
+        let empty = SwiftProtobuf.Google_Protobuf_Empty()
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListActivity",
+            message: empty,
             auth: .bearer(token)
         )
     }

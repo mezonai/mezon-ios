@@ -160,6 +160,22 @@ struct MezonSession: Codable {
         if let p = previous.idToken, !p.isEmpty { return withIdToken(p) }
         return self
     }
+
+    func mergedWithUsernameResponse(_ proto: Mezon_Api_Session, chosenUsername: String) -> MezonSession {
+        let partial = MezonSession.fromProto(proto)
+        return MezonSession(
+            token: partial.token.isEmpty ? token : partial.token,
+            refreshToken: partial.refreshToken.isEmpty ? refreshToken : partial.refreshToken,
+            expiresAt: partial.expiresAt,
+            created: false,
+            apiURL: partial.apiURL ?? apiURL,
+            wsURL: partial.wsURL ?? wsURL,
+            userId: partial.userId ?? userId,
+            username: chosenUsername,
+            idToken: partial.idToken ?? idToken,
+            isRemember: partial.isRemember ?? isRemember
+        )
+    }
 }
 
 struct OTPRequestResponse: Decodable {

@@ -204,6 +204,16 @@ final class MessageTextContentNode: ASDisplayNode {
         return found
     }
 
+    private static func minLayoutHeightForEmojiAttachments(_ attr: NSAttributedString) -> CGFloat {
+        var maxNeed: CGFloat = 0
+        attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length)) { value, _, _ in
+            guard let em = value as? EmojiTextAttachment else { return }
+            let b = em.bounds
+            maxNeed = max(maxNeed, max(0, -b.origin.y) + b.height)
+        }
+        return maxNeed
+    }
+
     private static func textSize(for attrText: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(size: CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
@@ -213,7 +223,9 @@ final class MessageTextContentNode: ASDisplayNode {
         textStorage.addLayoutManager(layoutManager)
         layoutManager.ensureLayout(for: textContainer)
         let rect = layoutManager.usedRect(for: textContainer)
-        return CGSize(width: min(ceil(rect.width), maxWidth), height: ceil(rect.height))
+        let emojiMinH = minLayoutHeightForEmojiAttachments(attrText)
+        let h = max(ceil(rect.height), ceil(emojiMinH))
+        return CGSize(width: min(ceil(rect.width), maxWidth), height: h)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -441,40 +453,30 @@ final class EmojiTextView: UIView {
 
         var index = 0
         attrText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attrText.length)) { value, range, _ in
-            guard value is EmojiTextAttachment, index < self.emojiOverlays.count else { return }
+            guard let emoji = value as? EmojiTextAttachment, index < self.emojiOverlays.count else { return }
             let glyphRange = textView.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
             var rect = textView.layoutManager.boundingRect(forGlyphRange: glyphRange, in: textView.textContainer)
-            rect.origin.x += inset.left
-            rect.origin.y += inset.top
+            if rect.width < 1 || rect.height < 1 {
+                let b = emoji.bounds
+                let w = max(b.width, 1)
+                let h = max(b.height, 1)
+                rect = CGRect(x: inset.left, y: inset.top + b.origin.y, width: w, height: h)
+            } else {
+                rect.origin.x += inset.left
+                rect.origin.y += inset.top
+            }
             self.emojiOverlays[index].frame = rect
             index += 1
         }
     }
 
     private func loadAnimatedEmoji(emojiId: String, imgproxyFitSide: Int, into imageView: UIImageView) {
-        guard let url = MezonConfig.emojiResourceURL(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) else { return }
-        let key = url.absoluteString
-
-        if let data = ImageCache.shared.cachedData(forKey: key),
-           let animated = UIImage.animatedImage(from: data) {
-            imageView.image = animated
-            setNeedsLayout()
-            return
-        }
-
-        if let cached = ImageCache.shared.image(forKey: key) {
-            imageView.image = cached
-            setNeedsLayout()
-        }
-
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data, !data.isEmpty else { return }
-            let animated = UIImage.animatedImage(from: data)
-            let display = animated ?? UIImage.decodeImage(from: data)
-            DispatchQueue.main.async { [weak self] in
-                imageView.image = display
+        ReactionEmojiImageLoader.loadEmojiBestEffort(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) { [weak self, weak imageView] image in
+            guard let imageView, imageView.superview != nil else { return }
+            if let image {
+                imageView.image = image
                 self?.setNeedsLayout()
             }
-        }.resume()
+        }
     }
 }

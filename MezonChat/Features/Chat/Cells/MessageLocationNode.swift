@@ -129,7 +129,8 @@ final class MessageLocationNode: ASDisplayNode {
             )
             let proxyURL = ImgproxyURL.create(from: urlString, width: 150, height: 150)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
-            avatarImageNode.setSignal(remoteAvatarSignal(url: proxyURL), attemptSynchronously: hasMem)
+                || ImageCache.shared.memoryImage(forKey: urlString) != nil
+            avatarImageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()
