@@ -408,7 +408,8 @@ final class DirectMessagesViewController: ViewController {
         activities: [Mezon_Api_UserActivity],
         friends: [Mezon_Api_Friend],
         directMessages: [Mezon_Api_ChannelDescription],
-        myUserId: Int64
+        myUserId: Int64,
+        postboxAvatarURL: (Int64) -> String?
     ) -> [DmMessageActivityItem] {
         var profileById: [Int64: (displayName: String, username: String, avatar: String)] = [:]
         for f in friends {
@@ -422,11 +423,11 @@ final class DirectMessagesViewController: ViewController {
         for ch in directMessages {
             guard ch.type == MezonConstants.ChannelType.dm.rawValue, ch.userIds.count == 1 else { continue }
             let uid = ch.userIds[0]
-            if profileById[uid] != nil { continue }
             let label = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
             let dispName = ch.displayNames.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let un = ch.usernames.first ?? ""
             let av = ch.avatars.first ?? ""
+            let avTrim = av.trimmingCharacters(in: .whitespacesAndNewlines)
             let display: String
             if !label.isEmpty {
                 display = label
@@ -435,7 +436,24 @@ final class DirectMessagesViewController: ViewController {
             } else {
                 display = un
             }
+            if var existing = profileById[uid] {
+                if existing.avatar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !avTrim.isEmpty {
+                    existing.avatar = av
+                    profileById[uid] = existing
+                }
+                continue
+            }
             profileById[uid] = (displayName: display, username: un, avatar: av)
+        }
+        for uid in profileById.keys {
+            guard var p = profileById[uid] else { continue }
+            if p.avatar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let pb = postboxAvatarURL(uid)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !pb.isEmpty
+            {
+                p.avatar = pb
+                profileById[uid] = p
+            }
         }
         var actByUser: [Int64: Mezon_Api_UserActivity] = [:]
         for a in activities {
@@ -563,7 +581,10 @@ final class DirectMessagesViewController: ViewController {
             activities: userActivities,
             friends: context.engine.friendsData.allFriends(),
             directMessages: directMessages,
-            myUserId: Int64(context.currentUser?.id ?? "") ?? 0
+            myUserId: Int64(context.currentUser?.id ?? "") ?? 0,
+            postboxAvatarURL: { uid in
+                context.account.postbox.read { $0.getProfile(userId: "\(uid)") }?.avatarUrl
+            }
         )
         return DirectMessagesState(
             directMessages: directMessages,

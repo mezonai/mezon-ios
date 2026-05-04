@@ -114,9 +114,14 @@ extension MessageRecord {
     static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?) -> MessageRecord {
         let fresh = MessageRecord(from: api)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
+        if prev.senderId != fresh.senderId { return fresh }
         let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
         let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+        let dn = api.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !dn.isEmpty || !un.isEmpty || !av.isEmpty { return fresh }
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,

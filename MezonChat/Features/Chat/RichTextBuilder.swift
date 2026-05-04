@@ -16,6 +16,7 @@ extension NSAttributedString.Key {
     static let mezonMention = NSAttributedString.Key("mezon.mention")
     static let mezonRoleMention = NSAttributedString.Key("mezon.roleMention")
     static let mezonHashtag = NSAttributedString.Key("mezon.hashtag")
+    static let mezonSystemAction = NSAttributedString.Key("mezon.systemAction")
 }
 
 enum RichTextSegment {

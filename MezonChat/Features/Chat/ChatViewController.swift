@@ -274,6 +274,7 @@ final class ChatViewController: ViewController {
     private(set) var parentChannelMeta: ChannelRecord?
     private var initialParentName: String?
     private(set) var lastSeenMessageId: String?
+    private var didStartParentChannelMetaView = false
 
     private lazy var locationManager: CLLocationManager = {
         let lm = CLLocationManager()
@@ -562,6 +563,22 @@ final class ChatViewController: ViewController {
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
                 self.navigationController?.pushViewController(vc, animated: true)
+            },
+            onSystemPinMessageTapped: { [weak self] display in
+                guard let self else { return }
+                guard let ref = display.replyRef, ref.messageRefID != 0 else { return }
+                self.jumpToMessage(id: "\(ref.messageRefID)")
+            },
+            onSystemThreadTapped: { [weak self] threadChannelId, threadTitle in
+                guard let self, threadChannelId != 0 else { return }
+                AppDelegate.navigateToChannel(
+                    channelId: "\(threadChannelId)",
+                    clanId: "\(self.clanId)",
+                    title: threadTitle.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                )
+            },
+            onSystemAllThreadsTapped: { [weak self] in
+                self?.openThreadListFromChat()
             },
             onMessagesReloaded: nil
         )
@@ -1008,17 +1025,7 @@ final class ChatViewController: ViewController {
                     self.channelMeta = view.record
                 })
         )
-        if channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0 {
-            stateDisposables.add(
-                (self.context.account.postbox.channelMetaView(channelId: channel.parentID)
-                    |> deliverOnMainQueue)
-                    .start(next: { [weak self] view in
-                        guard let self else { return }
-                        self.parentChannelMeta = view.record
-                        self.metadataOnlyPipe.putNext(())
-                    })
-            )
-        }
+        ensureParentChannelMetaSubscription()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1066,6 +1073,28 @@ final class ChatViewController: ViewController {
                 syncChannelToComposer()
             }
         }
+        ensureParentChannelMetaSubscription()
+    }
+
+    private func ensureParentChannelMetaSubscription() {
+        guard !didStartParentChannelMetaView else { return }
+        guard channel.type == MezonConstants.ChannelType.thread.rawValue, channel.parentID != 0 else { return }
+        didStartParentChannelMetaView = true
+        stateDisposables.add(
+            (self.context.account.postbox.channelMetaView(channelId: channel.parentID)
+                |> deliverOnMainQueue)
+                .start(next: { [weak self] view in
+                    guard let self else { return }
+                    self.parentChannelMeta = view.record
+                    self.metadataOnlyPipe.putNext(())
+                })
+        )
+    }
+
+    private func completeChannelHydrationAfterMetadataUpgrade() {
+        ensureParentChannelMetaSubscription()
+        fetchChannelMembers()
+        metadataOnlyPipe.putNext(())
     }
 
     private func resolveChannelLabelFromNetwork(token: String) {
@@ -1074,7 +1103,11 @@ final class ChatViewController: ViewController {
             guard let self else { return }
 
             try? await Task.sleep(nanoseconds: 500_000_000)
-            if self.tryResolveLabelFromPostbox() { return }
+            let fullyResolved = self.tryResolveLabelFromPostbox()
+            self.ensureParentChannelMetaSubscription()
+            self.fetchChannelMembers()
+            self.metadataOnlyPipe.putNext(())
+            if fullyResolved { return }
 
             let typeWasUnknown = self.channel.type == 0
             do {
@@ -1084,6 +1117,20 @@ final class ChatViewController: ViewController {
                         self.channel = found
                         self.setChannelLabel(found.channelLabel)
                         self.syncChannelToComposer()
+                        self.completeChannelHydrationAfterMetadataUpgrade()
+                        if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
+                        return
+                    }
+                }
+                if self.clanId != 0 {
+                    let descs = try await self.context.account.network.listChannelDescs(clanId: self.clanId, token: token)
+                    if let found = descs.first(where: { $0.channelID == self.channel.channelID }) {
+                        self.channel = found
+                        if !found.channelLabel.isEmpty {
+                            self.setChannelLabel(found.channelLabel)
+                        }
+                        self.syncChannelToComposer()
+                        self.completeChannelHydrationAfterMetadataUpgrade()
                         if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
                         return
                     }
@@ -1095,6 +1142,7 @@ final class ChatViewController: ViewController {
                         self.setChannelLabel(found.channelLabel)
                     }
                     self.syncChannelToComposer()
+                    self.completeChannelHydrationAfterMetadataUpgrade()
                     if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
                 }
             } catch {
@@ -2800,11 +2848,41 @@ final class ChatViewController: ViewController {
         navigationController?.pushViewController(topicVC, animated: true)
     }
 
+    private func openThreadListFromChat() {
+        let parentId: Int64 =
+            channel.type == MezonConstants.ChannelType.thread.rawValue
+            ? channel.parentID
+            : channel.channelID
+        let composerSurface: Mezon_Api_ChannelDescription = {
+            guard channel.type == MezonConstants.ChannelType.thread.rawValue else { return channel }
+            var d = channel
+            d.channelID = channel.parentID
+            d.parentID = 0
+            d.type = MezonConstants.ChannelType.forum.rawValue
+            return d
+        }()
+        let vc = ThreadListViewController(
+            context: context,
+            clanId: clanId,
+            parentChannelId: parentId,
+            parentCategoryId: channel.categoryID,
+            parentChannelLabel: channel.channelLabel,
+            composerParentChannel: composerSurface
+        )
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
     private func openChannelDetail() {
+        var ch = channel
+        let protoLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if protoLabel.isEmpty {
+            let fb = channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fb.isEmpty { ch.channelLabel = fb }
+        }
         let vc = ChannelDetailViewController(
             context: self.context,
             clanId: self.clanId,
-            channel: self.channel
+            channel: ch
         )
         self.navigationController?.pushViewController(vc, animated: true)
     }
@@ -2898,6 +2976,7 @@ final class ChatViewController: ViewController {
 
     private func resolveVoiceMemberForJoinVoice(userId: String, clanIdForMembers: Int64) -> VoiceMemberDisplay? {
         guard let uidInt = Int64(userId) else { return nil }
+        let profile = context.account.postbox.read { $0.getProfile(userId: userId) }
         let member = context.account.postbox.read {
             $0.getClanMembers(clanId: clanIdForMembers)
         }.first(where: { $0.userId == uidInt })
@@ -2912,20 +2991,16 @@ final class ChatViewController: ViewController {
             } else {
                 return nil
             }
-        } else if let profile = context.account.postbox.read({ $0.getProfile(userId: userId) }) {
-            name = profile.displayName ?? profile.username
+        } else if let profile {
+            name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
         } else {
             return nil
         }
         let avatar: String?
         if let m = member {
-            if !m.clanAvatar.isEmpty {
-                avatar = m.clanAvatar
-            } else {
-                avatar = context.account.postbox.read({ $0.getProfile(userId: userId) })?.avatarUrl
-            }
+            avatar = m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
         } else {
-            avatar = context.account.postbox.read({ $0.getProfile(userId: userId) })?.avatarUrl
+            avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
         return VoiceMemberDisplay(name: name, avatarURL: avatar)
     }

@@ -48,6 +48,9 @@ struct ChatInteraction {
     let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
     let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void
     let onSendTokenLogTapped: () -> Void
+    let onSystemPinMessageTapped: (ChatMessageDisplay) -> Void
+    let onSystemThreadTapped: (Int64, String?) -> Void
+    let onSystemAllThreadsTapped: () -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 

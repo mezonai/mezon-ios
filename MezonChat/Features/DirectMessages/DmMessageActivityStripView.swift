@@ -73,7 +73,9 @@ final class DmMessageActivityStripView: UIView {
         guard !items.isEmpty, collectionView.numberOfSections > 0,
               collectionView.numberOfItems(inSection: 0) > 0 else { return }
         collectionView.layoutIfNeeded()
-        collectionView.scrollToItem(at: IndexPath(item: 0, section: 0), at: .left, animated: animated)
+        let top = -collectionView.adjustedContentInset.top
+        let left = -collectionView.adjustedContentInset.left
+        collectionView.setContentOffset(CGPoint(x: left, y: top), animated: animated)
     }
 
     func setItems(_ rows: [DmMessageActivityItem]) {

@@ -715,6 +715,8 @@ final class SearchViewController: ViewController {
     private func resolveVoiceMember(uid: String, clanIdForChannel: Int64) -> VoiceMemberDisplay? {
         guard let uidInt = Int64(uid) else { return nil }
 
+        let profile = context.account.postbox.read { $0.getProfile(userId: uid) }
+
         let member = context.account.postbox.read {
             $0.getClanMembers(clanId: clanIdForChannel)
         }.first(where: { $0.userId == uidInt })
@@ -730,21 +732,17 @@ final class SearchViewController: ViewController {
             } else {
                 return nil
             }
-        } else if let profile = context.account.postbox.read({ $0.getProfile(userId: uid) }) {
-            name = profile.displayName ?? profile.username
+        } else if let profile {
+            name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
         } else {
             return nil
         }
 
         let avatar: String?
         if let m = member {
-            if !m.clanAvatar.isEmpty {
-                avatar = m.clanAvatar
-            } else {
-                avatar = context.account.postbox.read({ $0.getProfile(userId: uid) })?.avatarUrl
-            }
+            avatar = m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
         } else {
-            avatar = context.account.postbox.read({ $0.getProfile(userId: uid) })?.avatarUrl
+            avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
 
         return VoiceMemberDisplay(name: name, avatarURL: avatar)

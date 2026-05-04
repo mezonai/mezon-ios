@@ -37,21 +37,30 @@ final class MemberListNode: ASDisplayNode {
     private var didStartMemberLoading = false
 
     init(
-        context: AccountContext, clanId: Int64, channelId: Int64, channelType: Int32,
+        context: AccountContext, clanId: Int64, channelId: Int64,
         channelDescription: Mezon_Api_ChannelDescription
     ) {
         self.context = context
         self.clanId = clanId
         self.channelId = channelId
-        self.channelType = channelType
-        self.dmMemberLabelByUserId = Self.dmMemberLabels(from: channelDescription)
         let dm = MezonConstants.ChannelType.dm.rawValue
         let group = MezonConstants.ChannelType.group.rawValue
+        let thread = MezonConstants.ChannelType.thread.rawValue
+        let resolvedT = context.engine.clanData.resolvedListChannelUsersType(channelId: channelDescription.channelID)
+        let postboxType = context.account.postbox.getChannelDescription(channelId: channelDescription.channelID)?.1.type ?? 0
+        let effectiveType: Int32 = {
+            if channelDescription.type != 0 { return channelDescription.type }
+            if postboxType != 0 { return postboxType }
+            return resolvedT
+        }()
+        self.channelType = effectiveType
+        self.dmMemberLabelByUserId = Self.dmMemberLabels(from: channelDescription)
         self.useClanListWhenChannelUsersEmpty =
             clanId > 0
             && channelDescription.channelPrivate == 0
-            && channelDescription.type != dm
-            && channelDescription.type != group
+            && effectiveType != dm
+            && effectiveType != group
+            && effectiveType != thread
         super.init()
         self.automaticallyManagesSubnodes = true
 
@@ -452,9 +461,10 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         !member.clanNick.isEmpty
                         ? member.clanNick
                         : !member.displayName.isEmpty ? member.displayName : member.username
+                    let rowAvatar = member.resolvedAvatarURL(fallbackProfileAvatar: nil) ?? ""
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: member.clanAvatar, clanNick: member.clanNick,
+                        avatarUrl: rowAvatar, clanNick: member.clanNick,
                         clanAvatar: member.clanAvatar, roleColor: color, isOwner: isOwner)
                 }
             }
@@ -478,9 +488,10 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         !member.clanNick.isEmpty
                         ? member.clanNick
                         : !member.displayName.isEmpty ? member.displayName : member.username
+                    let rowAvatar = member.resolvedAvatarURL(fallbackProfileAvatar: nil) ?? ""
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: member.clanAvatar, clanNick: member.clanNick,
+                        avatarUrl: rowAvatar, clanNick: member.clanNick,
                         clanAvatar: member.clanAvatar, roleColor: nil, isOwner: isOwner)
                 }
             }
@@ -562,8 +573,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         u.id = member.userId
         u.username = member.username
         u.displayName = displayName(for: member)
-        if !member.clanAvatar.isEmpty {
-            u.avatarURL = member.clanAvatar
+        if let url = member.resolvedAvatarURL(fallbackProfileAvatar: nil) {
+            u.avatarURL = url
         }
         u.online = member.isOnline
         return u
