@@ -158,19 +158,14 @@ final class PollOptionRowNode: ASDisplayNode {
         let checkSize: CGFloat = 20
         let gap: CGFloat = 8
 
-        var contentWidth = maxWidth - hPad * 2
-
+        var availableWidth = maxWidth - hPad * 2
         if option.isSelected {
-            contentWidth -= (checkSize + gap)
+            availableWidth -= (checkSize + gap)
         }
 
-        let labelSize = labelNode.measure(CGSize(width: contentWidth * 0.6, height: .greatestFiniteMagnitude))
-        var rowHeight = max(Self.rowHeight, labelSize.height + vPad * 2)
-
-        if shouldShowResults {
-            let metaSize = metaNode.measure(CGSize(width: contentWidth * 0.4, height: .greatestFiniteMagnitude))
-            _ = metaSize
-        }
+        let labelMaxWidth = shouldShowResults ? availableWidth * 0.6 : availableWidth
+        let labelSize = labelNode.measure(CGSize(width: labelMaxWidth, height: .greatestFiniteMagnitude))
+        let rowHeight = max(Self.rowHeight, labelSize.height + vPad * 2)
 
         cachedSize = CGSize(width: maxWidth, height: rowHeight)
         return cachedSize
@@ -199,14 +194,19 @@ final class PollOptionRowNode: ASDisplayNode {
             fillNode.frame = fillFrame
         }
 
-        var contentX = hPad
-        let labelMeasured = labelNode.measure(CGSize(width: w - hPad * 2 - (option.isSelected ? checkSize + gap : 0), height: h))
+        var availableWidth = w - hPad * 2
+        let rightReserved: CGFloat = (option.isSelected ? checkSize + gap : 0)
+        availableWidth -= rightReserved
+
+        let labelMaxWidth = shouldShowResults ? availableWidth * 0.6 : availableWidth
+        let labelMeasured = labelNode.measure(CGSize(width: labelMaxWidth, height: h))
         let labelY = (h - labelMeasured.height) / 2
-        labelNode.frame = CGRect(x: contentX, y: labelY, width: labelMeasured.width, height: labelMeasured.height)
+        labelNode.frame = CGRect(x: hPad, y: labelY, width: labelMeasured.width, height: labelMeasured.height)
 
         if shouldShowResults {
-            let metaMeasured = metaNode.measure(CGSize(width: w * 0.4, height: h))
-            let metaX = contentX + labelMeasured.width + gap
+            let metaMaxWidth = availableWidth - labelMeasured.width - gap
+            let metaMeasured = metaNode.measure(CGSize(width: metaMaxWidth, height: h))
+            let metaX = w - hPad - rightReserved - metaMeasured.width
             let metaY = (h - metaMeasured.height) / 2
             metaNode.frame = CGRect(x: metaX, y: metaY, width: metaMeasured.width, height: metaMeasured.height)
         }
