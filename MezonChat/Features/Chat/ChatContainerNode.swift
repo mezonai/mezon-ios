@@ -51,7 +51,10 @@ struct ChatInteraction {
     let onSystemPinMessageTapped: (ChatMessageDisplay) -> Void
     let onSystemThreadTapped: (Int64, String?) -> Void
     let onSystemAllThreadsTapped: () -> Void
+    let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
+    let onOpenPollDetail: (_ messageId: String, _ channelId: String) -> Void
     var onMessagesReloaded: (() -> Void)?
+    var onMessageNeedsRelayout: ((String) -> Void)?
 }
 
 final class ChatContainerNode: ASDisplayNode {
@@ -59,6 +62,7 @@ final class ChatContainerNode: ASDisplayNode {
     let listView: ListView
 
     private let headerNode = ChatHeaderNode()
+    private var messageRelayoutVersions: [String: Int] = [:]
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingOlderNode = ASDisplayNode()
     private let jumpToPresentNode = ASButtonNode()
@@ -347,7 +351,8 @@ final class ChatContainerNode: ASDisplayNode {
             } else if display.isSystemMessage {
                 items.append(ChatSystemMessageItem(display: display, interaction: interaction))
             } else {
-                items.append(ChatMessageItem(display: display, interaction: interaction))
+                let version = self.messageRelayoutVersions[display.id] ?? 0
+                items.append(ChatMessageItem(display: display, interaction: interaction, relayoutVersion: version))
             }
             if let seenId = lastSeenId,
                display.id == seenId,
@@ -508,7 +513,16 @@ final class ChatContainerNode: ASDisplayNode {
             .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)"
+        let pollHash: String
+        if let pd = m.pollData {
+            let sortedCounts = pd.answerCounts.sorted(by: { $0.key < $1.key })
+            let countStrings = sortedCounts.map { "\($0.key):\($0.value)" }
+            let countJoined = countStrings.joined(separator: ",")
+            pollHash = "\(pd.totalVotes)|\(countJoined)"
+        } else {
+            pollHash = ""
+        }
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
@@ -620,5 +634,31 @@ final class ChatContainerNode: ASDisplayNode {
     override func layout() {
         super.layout()
         applyFrameLayout(transition: .immediate)
+    }
+
+    func forceUpdateItem(id: String) {
+        self.messageRelayoutVersions[id, default: 0] += 1
+        let items = buildItems(from: self.state)
+        guard let itemIdx = items.firstIndex(where: { ($0 as? ChatMessageItem)?.display.id == id }) else { return }
+        
+        let updateItem = ListViewUpdateItem(
+            index: itemIdx,
+            previousIndex: itemIdx,
+            item: items[itemIdx],
+            directionHint: nil
+        )
+        
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [updateItem],
+            options: [.AnimateInsertion],
+            scrollToItem: nil,
+            additionalScrollDistance: 0.0,
+            updateSizeAndInsets: nil,
+            stationaryItemRange: (itemIdx, items.count - 1),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
     }
 }

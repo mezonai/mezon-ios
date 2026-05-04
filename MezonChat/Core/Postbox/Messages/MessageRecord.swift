@@ -71,6 +71,9 @@ extension MessageRecord {
 
     init(from api: Mezon_Api_ChannelMessage) {
         let contentData = api.content.data(using: .utf8) ?? Data()
+        let parsedPoll = PollData.parse(from: contentData)
+        let isPoll = api.code == 18 || parsedPoll != nil
+        
         let createdAt   = Date(timeIntervalSince1970: TimeInterval(api.createTimeSeconds))
         let displayName: String = {
             let cn = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,9 +92,12 @@ extension MessageRecord {
             return nil
         }()
         let channelId = api.topicID != 0 ? "topic-\(api.topicID)" : "\(api.channelID)"
-        let editedAt: Date? = api.updateTimeSeconds > api.createTimeSeconds
-            ? Date(timeIntervalSince1970: TimeInterval(api.updateTimeSeconds))
-            : nil
+        let editedAt: Date? = {
+            if isPoll { return nil }
+            return api.updateTimeSeconds > api.createTimeSeconds
+                ? Date(timeIntervalSince1970: TimeInterval(api.updateTimeSeconds))
+                : nil
+        }()
         self.init(
             id:                "\(api.messageID)",
             channelId:         channelId,
@@ -128,14 +134,28 @@ extension MessageRecord {
         let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
         if !dn.isEmpty || !un.isEmpty || !av.isEmpty { return fresh }
+
+        let prevIsPoll = prev.code == 18 || PollData.parse(from: prev.content) != nil
+        let freshIsPoll = fresh.code == 18 || PollData.parse(from: fresh.content) != nil
+        let isLogicallyPoll = prevIsPoll || freshIsPoll
+
+        var effectiveContent = fresh.content
+        if isLogicallyPoll && !freshIsPoll {
+            effectiveContent = prev.content
+        } else if fresh.content.isEmpty {
+            effectiveContent = prev.content
+        }
+
+        let effectiveEditedAt: Date? = isLogicallyPoll ? nil : fresh.editedAt
+
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,
             clanId: fresh.clanId,
             senderId: fresh.senderId,
-            content: fresh.content,
+            content: effectiveContent,
             createdAt: fresh.createdAt,
-            editedAt: fresh.editedAt,
+            editedAt: effectiveEditedAt,
             isDeleted: fresh.isDeleted,
             code: fresh.code,
             senderDisplayName: prev.senderDisplayName,
