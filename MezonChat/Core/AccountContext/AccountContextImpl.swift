@@ -128,11 +128,27 @@ final class AccountContextImpl: AccountContext {
 
     func getToken() async -> String? {
         await waitForSessionReady()
+        return await resolvedBearerTokenAfterSessionReadyAssumingMarked()
+    }
 
+    func getTokenPreferringCachedSkipSessionReadyWait() async -> String? {
         if let inflight = activeRefreshTask {
             _ = await inflight.value
         }
+        let fromMemory = session
+        let fromDisk = SessionStore.load()
+        for cand in [fromMemory, fromDisk].compactMap({ $0 }) {
+            guard !cand.token.isEmpty else { continue }
+            if !cand.isExpired { return cand.token }
+        }
+        await waitForSessionReady()
+        return await resolvedBearerTokenAfterSessionReadyAssumingMarked()
+    }
 
+    private func resolvedBearerTokenAfterSessionReadyAssumingMarked() async -> String? {
+        if let inflight = activeRefreshTask {
+            _ = await inflight.value
+        }
         if let session, session.isExpired {
             let refreshed = await ensureRefreshed()
             if !refreshed {

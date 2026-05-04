@@ -98,6 +98,31 @@ final class SendMessageInputViewController: UIViewController {
     var skipOptimisticPendingMessageOnSend: Bool = false
 
     var inputBarBottomConstraint: NSLayoutConstraint?
+
+    func syncComposerBottomSafeInset(_ inset: CGFloat) {
+        let v = max(0, inset)
+        guard inputBarBottomConstraint?.constant != -v else { return }
+        inputBarBottomConstraint?.constant = -v
+    }
+
+    private func layoutSuperviewForComposerChange(
+        shouldAnimateSuperview: Bool,
+        duration: TimeInterval = 0.2,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        guard let host = view.superview else {
+            completion?(true)
+            return
+        }
+        let animateHost = shouldAnimateSuperview && !textView.isFirstResponder && duration > 0
+        if animateHost {
+            UIView.animate(withDuration: duration, animations: { host.layoutIfNeeded() }, completion: completion)
+        } else {
+            host.layoutIfNeeded()
+            completion?(true)
+        }
+    }
+
     private var previewHeightConstraint: NSLayoutConstraint?
     private var replyBannerHeightConstraint: NSLayoutConstraint?
 
@@ -1037,9 +1062,7 @@ final class SendMessageInputViewController: UIViewController {
             replyBannerHeightConstraint?.constant = targetH
             onHeightChanged?(totalHeight)
         }
-        UIView.animate(withDuration: 0.2) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: heightChanged, duration: 0.2)
     }
 
     private static func mapUTF16InDisplayToEditing(_ p: Int, endDeltas: [(end: Int, delta: Int)]) -> Int {
@@ -1624,11 +1647,9 @@ final class SendMessageInputViewController: UIViewController {
             previewHeightConstraint?.constant = targetH
             onHeightChanged?(totalHeight)
         }
-        UIView.animate(withDuration: 0.25, animations: {
-            self.view.superview?.layoutIfNeeded()
-        }, completion: { _ in
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: heightChanged, duration: 0.25) { _ in
             self.attachmentPreviewView.forceReload()
-        })
+        }
         updateSendVoiceToggle()
         syncAttachControlsWithTypedText()
     }
@@ -2724,18 +2745,14 @@ final class SendMessageInputViewController: UIViewController {
         let h = sv.preferredHeight
         mentionSuggestionHeightConstraint?.constant = h
         sv.isHidden = false
-        UIView.animate(withDuration: 0.15) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func hideMentionSuggestions() {
         guard let sv = mentionSuggestionView, !sv.isHidden else { return }
         mentionSuggestionHeightConstraint?.constant = 0
         sv.isHidden = true
-        UIView.animate(withDuration: 0.15) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func updateEmojiSuggestions() {
@@ -2771,18 +2788,14 @@ final class SendMessageInputViewController: UIViewController {
         let h = ev.preferredHeight
         emojiSuggestionHeightConstraint?.constant = h
         ev.isHidden = false
-        UIView.animate(withDuration: 0.15) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func hideEmojiSuggestions() {
         emojiSuggestionHeightConstraint?.constant = 0
         guard let ev = emojiSuggestionView, !ev.isHidden else { return }
         ev.isHidden = true
-        UIView.animate(withDuration: 0.15) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func updateHashtagSuggestions(keyword: String) {
@@ -2815,18 +2828,14 @@ final class SendMessageInputViewController: UIViewController {
         let h = hv.preferredHeight
         hashtagSuggestionHeightConstraint?.constant = h
         hv.isHidden = false
-        UIView.animate(withDuration: 0.15) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func hideHashtagSuggestions() {
         hashtagSuggestionHeightConstraint?.constant = 0
         guard let hv = hashtagSuggestionView, !hv.isHidden else { return }
         hv.isHidden = true
-        UIView.animate(withDuration: 0.15) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func insertMention(item: MentionSuggestionItem) {
@@ -4578,7 +4587,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         textViewHeightConstraint?.constant = Self.textViewMinHeight
         inputBarHeightConstraint?.constant = Self.textViewMinHeight + Self.inputBarPadding
         onHeightChanged?(totalHeight)
-        view.superview?.layoutIfNeeded()
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: false, duration: 0)
     }
 
     private func resolvedComposerFittingContentWidth() -> CGFloat {
@@ -4642,9 +4651,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         textViewHeightConstraint?.constant = newHeight
         inputBarHeightConstraint?.constant = newHeight + Self.inputBarPadding
         onHeightChanged?(totalHeight)
-        UIView.animate(withDuration: 0.2) {
-            self.view.superview?.layoutIfNeeded()
-        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: false, duration: 0)
     }
 }
 

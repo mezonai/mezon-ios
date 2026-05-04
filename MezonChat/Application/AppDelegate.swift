@@ -290,7 +290,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     }
 
     private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
-        let channelId = pushPayloadString(userInfo, keys: ["channel", "channel_id", "channelId"])
+        let channelId = pushPayloadString(userInfo, keys: [
+            "channel", "channel_id", "channelId", "channelID",
+            "message_channel_id", "messageChannelId", "target_channel_id", "targetChannelId",
+        ])
 
         var clanId: String?
         var isDM = false
@@ -306,7 +309,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
 
         if clanId == nil {
-            clanId = pushPayloadString(userInfo, keys: ["clan_id", "clanId", "clan"])
+            clanId = pushPayloadString(userInfo, keys: ["clan_id", "clanId", "clan", "guild_id", "guildId"])
         }
 
         if let c = clanId, let v = Int64(c), v == 0 {
@@ -338,7 +341,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         if !isViewingChannel {
             Toast.notification(title: title, message: body) {
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
+                        self.accountContext?.currentClanId = clanIdInt
+                    }
                     Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
                 }
             }

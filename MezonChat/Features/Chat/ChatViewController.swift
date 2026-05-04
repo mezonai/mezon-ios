@@ -623,8 +623,12 @@ final class ChatViewController: ViewController {
         guard !hasCompletedInitialFetch else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.context.waitForSessionReady()
-            guard let token = await self.context.getToken() else {
+            var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
+            if token == nil {
+                await self.context.waitForSessionReady()
+                token = await self.context.getToken()
+            }
+            guard let token else {
                 self.setIsLoading(false)
                 return
             }
@@ -659,8 +663,17 @@ final class ChatViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         lastLayout = layout
 
-        let bottomInset = layout.intrinsicInsets.bottom
-        let rawInputH = layout.inputHeight ?? (isKeyboardVisible ? trackedKeyboardHeight : 0)
+        let bottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
+        let layoutInputH = layout.inputHeight ?? 0
+        let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
+        let rawInputH: CGFloat
+        if layoutInputH > 1 {
+            rawInputH = layoutInputH
+        } else if (isKeyboardVisible || composerHasKeyboardFocus), trackedKeyboardHeight > 0.5 {
+            rawInputH = trackedKeyboardHeight
+        } else {
+            rawInputH = layoutInputH
+        }
         let rawKeyboardOffset = max(rawInputH - bottomInset, 0)
         var keyboardOffset = rawKeyboardOffset
 
@@ -700,16 +713,17 @@ final class ChatViewController: ViewController {
             x: 0,
             y: inputY,
             width: layout.size.width,
-            height: sendComposerH
+            height: sendComposerH + bottomInset
         )
-        transition.updateFrame(view: sendInputViewController.view, frame: inputFrame)
+        sendInputViewController.syncComposerBottomSafeInset(bottomInset)
+        transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
 
         emojiPicker.updateBottomInset(bottomInset)
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
         let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layout.size.width, height: stripH)
-        transition.updateFrame(view: remoteTypingStripView, frame: typingFrame)
+        transition.updateFrame(view: remoteTypingStripView, frame: typingFrame, beginWithCurrentState: true)
         remoteTypingLabel.frame = CGRect(
             x: 12,
             y: 0,
@@ -721,7 +735,10 @@ final class ChatViewController: ViewController {
         if bottomOffset > 0 && currentKeyboardOffset == 0 && !emojiPicker.wasJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
             let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
             if totalInputArea > previousTotalInputArea + 20 {
-                scrollToBottomIfNeeded()
+                let nonKeyboardBottom = max(emojiOffset, advanceOffset)
+                if nonKeyboardBottom > 0.5 || keyboardOffset < 0.5 {
+                    scrollToBottomIfNeeded()
+                }
             }
         }
         emojiPicker.clearJustDismissedFlag()
@@ -1037,8 +1054,12 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
-            await self.context.waitForSessionReady()
-            guard let token = await self.context.getToken() else {
+            var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
+            if token == nil {
+                await self.context.waitForSessionReady()
+                token = await self.context.getToken()
+            }
+            guard let token else {
                 self.setIsLoading(false)
                 return
             }
@@ -1232,6 +1253,31 @@ final class ChatViewController: ViewController {
         if context.account.socket.isConnected {
             joinChat()
         }
+    }
+
+    func applyMergedChannelDescriptionFromChannelListLoadIfNeeded(
+        _ full: Mezon_Api_ChannelDescription?,
+        parentChannelName: String? = nil
+    ) {
+        guard let full, full.channelID == channel.channelID else {
+            _ = tryResolveLabelFromPostbox()
+            ensureParentChannelMetaSubscription()
+            metadataOnlyPipe.putNext(())
+            return
+        }
+        let typeWasUnknown = channel.type == 0
+        channel = full
+        if !full.channelLabel.isEmpty {
+            setChannelLabel(full.channelLabel)
+        }
+        if let parentChannelName, !parentChannelName.isEmpty {
+            initialParentName = parentChannelName
+        }
+        sendInputViewController.channel = channel
+        syncChannelToComposer()
+        completeChannelHydrationAfterMetadataUpgrade()
+        if typeWasUnknown { rejoinChatIfChannelMetadataChanged() }
+        metadataOnlyPipe.putNext(())
     }
 
     private func markChannelAsRead() {
@@ -1648,10 +1694,57 @@ final class ChatViewController: ViewController {
         return false
     }
 
+    private func cachedSenderAvatarsBySenderId(senderIds: Set<String>) -> [String: String] {
+        var out: [String: String] = [:]
+        let clan = clanId
+        context.account.postbox.read { tx in
+            let memberByUserId: [Int64: ClanMemberRecord] = {
+                guard clan != 0 else { return [:] }
+                var d: [Int64: ClanMemberRecord] = [:]
+                for m in tx.getClanMembers(clanId: clan) {
+                    d[m.userId] = m
+                }
+                return d
+            }()
+            for sid in senderIds {
+                guard let uidInt = Int64(sid), uidInt != 0 else { continue }
+                let profile = tx.getProfile(userId: sid)
+                if clan != 0 {
+                    if let m = memberByUserId[uidInt],
+                       let r = m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl),
+                       !r.isEmpty {
+                        out[sid] = r
+                    } else if let av = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !av.isEmpty {
+                        out[sid] = av
+                    }
+                } else if let av = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !av.isEmpty {
+                    out[sid] = av
+                }
+            }
+        }
+        guard clanId != 0 else { return out }
+        for sid in senderIds {
+            guard out[sid] == nil, let uidInt = Int64(sid), uidInt != 0 else { continue }
+            if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+               let found = clanUsers.clanUsers.first(where: { $0.user.id == uidInt }) {
+                let u = Self.apiUserForMemberProfile(from: found)
+                let av = u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !av.isEmpty { out[sid] = av }
+            } else if let allUsers = context.engine.clanData.getAllUserClans(),
+                      let found = allUsers.users.first(where: { $0.id == uidInt }) {
+                let av = found.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !av.isEmpty { out[sid] = av }
+            }
+        }
+        return out
+    }
+
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
 
+        let senderIds = Set(validRecords.map(\.senderId))
+        let avatarBySenderId = cachedSenderAvatarsBySenderId(senderIds: senderIds)
 
         let currentUserRoleIds: Set<Int64> = {
             guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
@@ -1725,6 +1818,16 @@ final class ChatViewController: ViewController {
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
             let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
+            let trimmedStoredAvatar = record.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let mergedAvatar: String? = {
+                if !trimmedStoredAvatar.isEmpty { return trimmedStoredAvatar }
+                if isMe {
+                    let cur = context.currentUser?.avatarURL?.absoluteString
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !cur.isEmpty { return cur }
+                }
+                return avatarBySenderId[record.senderId]
+            }()
             let hasMention = Self.checkIncludeMention(
                 mentionsData: record.mentionsJSON,
                 referencesData: record.referencesData,
@@ -1734,11 +1837,11 @@ final class ChatViewController: ViewController {
             let isForward = Self.parseContentIsForward(from: record.content)
             let locationData = LocationData.parse(
                 from: record.content, code: record.code,
-                avatarURL: record.senderAvatarURL, senderName: record.senderDisplayName, isMe: isMe
+                avatarURL: mergedAvatar, senderName: record.senderDisplayName, isMe: isMe
             )
             let clanInviteLinkCode = ClanInviteLinkParser.firstInviteCode(in: content)
             return ChatMessageDisplay(
-                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
+                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: mergedAvatar,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
@@ -2393,28 +2496,10 @@ final class ChatViewController: ViewController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
-    }
-
-    private func layoutTransitionMatchingKeyboard(_ notification: Notification) -> ContainedViewLayoutTransition {
-        let rawDuration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0
-        let duration = rawDuration > 0.01 ? rawDuration : 0.25
-        let curveNumber = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 7
-        let curve: ContainedViewLayoutTransitionCurve
-        if curveNumber == 7 {
-            curve = .spring
-        } else if let ac = UIView.AnimationCurve(rawValue: Int(curveNumber)) {
-            switch ac {
-            case .linear:
-                curve = .linear
-            case .easeIn, .easeOut, .easeInOut:
-                curve = .easeInOut
-            @unknown default:
-                curve = .easeInOut
-            }
-        } else {
-            curve = .easeInOut
-        }
-        return .animated(duration: duration, curve: curve)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification, object: nil
+        )
     }
 
     private func runUIViewAnimationMatchingKeyboard(
@@ -2452,27 +2537,33 @@ final class ChatViewController: ViewController {
             trackedKeyboardHeight = frame.height
         }
 
-        let keyTransition = layoutTransitionMatchingKeyboard(notification)
-
-        switch emojiPicker.handleKeyboardWillShow() {
-        case .searchAbsorbed:
-            break
-        case .dismissedForKeyboard:
-            runUIViewAnimationMatchingKeyboard(notification) { self.view.layoutIfNeeded() }
-        case .unaffected:
-            break
-        }
+        _ = emojiPicker.handleKeyboardWillShow()
 
         if advancePanelCollapsedHeight > 0 {
             advancePanelCollapsedHeight = 0
             advancePanelHeightConstraint?.constant = 0
             advancePanelView.isHidden = true
             advancePanelView.resetToCollapsed()
-            runUIViewAnimationMatchingKeyboard(notification) { self.view.layoutIfNeeded() }
         }
 
-        if let layout = lastLayout {
-            containerLayoutUpdated(layout, transition: keyTransition)
+        runUIViewAnimationMatchingKeyboard(notification) { [weak self] in
+            guard let self, let layout = self.lastLayout else { return }
+            self.containerLayoutUpdated(layout, transition: .immediate)
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard sendInputViewController.view.findFirstResponder() != nil else { return }
+        guard let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+        let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
+        guard frame.minY < screen.maxY - 2 else { return }
+        trackedKeyboardHeight = frame.height
+        isKeyboardVisible = true
+        runUIViewAnimationMatchingKeyboard(notification) { [weak self] in
+            guard let self, let layout = self.lastLayout else { return }
+            self.containerLayoutUpdated(layout, transition: .immediate)
+            self.view.layoutIfNeeded()
         }
     }
 
@@ -2480,23 +2571,24 @@ final class ChatViewController: ViewController {
         isKeyboardVisible = false
         trackedKeyboardHeight = 0
 
-        let keyTransition = layoutTransitionMatchingKeyboard(notification)
-
         emojiPicker.handleKeyboardWillHide()
         if advancePanelCollapsedHeight > 0 && !advancePanelView.isHidden {
             advancePanelView.applySnapCollapsed()
         }
-
-        if let layout = lastLayout {
-            containerLayoutUpdated(layout, transition: keyTransition)
+        runUIViewAnimationMatchingKeyboard(notification) { [weak self] in
+            guard let self, let layout = self.lastLayout else { return }
+            self.containerLayoutUpdated(layout, transition: .immediate)
+            self.view.layoutIfNeeded()
         }
     }
 
-    private func updateInputBarHeight(_ newHeight: CGFloat) {
-        inputBarHeight = newHeight
-        if let layout = lastLayout {
-            containerLayoutUpdated(layout, transition: .animated(duration: 0.25, curve: .easeInOut))
-        }
+    private func updateInputBarHeight(_: CGFloat) {
+        guard let layout = lastLayout else { return }
+        let transition: ContainedViewLayoutTransition =
+            isKeyboardVisible || currentKeyboardOffset > 0.5
+            ? .immediate
+            : .animated(duration: 0.25, curve: .easeInOut)
+        containerLayoutUpdated(layout, transition: transition)
     }
 
     private func clanPreventsAnonymous() -> Bool {

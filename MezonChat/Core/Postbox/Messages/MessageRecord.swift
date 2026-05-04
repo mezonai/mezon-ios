@@ -115,6 +115,12 @@ extension MessageRecord {
         let fresh = MessageRecord(from: api)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
         if prev.senderId != fresh.senderId { return fresh }
+        let sameBodyForMerge = prev.content == fresh.content
+            && prev.attachmentsJSON == fresh.attachmentsJSON
+            && prev.referencesData == fresh.referencesData
+            && prev.mentionsJSON == fresh.mentionsJSON
+            && prev.code == fresh.code
+        if !sameBodyForMerge { return fresh }
         let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
         let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nick.isEmpty || !clanAv.isEmpty { return fresh }

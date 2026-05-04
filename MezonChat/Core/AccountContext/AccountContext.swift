@@ -23,6 +23,7 @@ protocol AccountContext: AnyObject {
     func recoverFromForeground()
     func waitForSessionReady() async
     func getToken() async -> String?
+    func getTokenPreferringCachedSkipSessionReadyWait() async -> String?
     func applyCurrentUser(_ user: User)
     func refreshAccountProfile() async
     func applyCachedAccountIfAvailable()

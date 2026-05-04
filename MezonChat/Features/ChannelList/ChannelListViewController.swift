@@ -154,15 +154,6 @@ private func sortChannelsForCategory(_ channels: [Mezon_Api_ChannelDescription],
 }
 
 
-private func categoryDescsSortedForDisplay(_ categoryDescs: [Mezon_Api_CategoryDesc]) -> [Mezon_Api_CategoryDesc] {
-    categoryDescs.enumerated().sorted { a, b in
-        let ao = a.element.categoryOrder
-        let bo = b.element.categoryOrder
-        if ao != bo { return ao < bo }
-        return a.offset < b.offset
-    }.map(\.element)
-}
-
 private func inferredCategoryDescs(from channels: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_CategoryDesc] {
     var seen = Set<Int64>()
     var result: [Mezon_Api_CategoryDesc] = []
@@ -211,7 +202,7 @@ private func buildChannelCategories(
     let prioritized = prioritizeChannels(channels)
     let useCategories: [Mezon_Api_CategoryDesc] = categoryDescs.isEmpty
         ? inferredCategoryDescs(from: channels)
-        : categoryDescsSortedForDisplay(categoryDescs)
+        : categoryDescs
 
     var favorFlat: [Mezon_Api_ChannelDescription] = []
     for cat in useCategories {
@@ -579,7 +570,9 @@ final class ChannelListViewController: ViewController {
         guard let token else { return base }
         let rows: [Mezon_Api_ChannelDescription]
         do {
-            rows = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
+            rows = try await Task.detached(priority: .utility) {
+                try await MezonHTTPClient.shared.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
+            }.value
         } catch {
             return base
         }
@@ -982,6 +975,7 @@ final class ChannelListViewController: ViewController {
             return
         }
         let clanId = self.clanId
+        scheduleBackgroundClanListAndVoiceRefresh()
 
         let signal = channelListSignal(clanId: clanId)
             |> map { payload -> FetchResult in .success(payload.channels, payload.categoryDescs, payload.favoriteChannelIds) }
@@ -1355,31 +1349,105 @@ final class ChannelListViewController: ViewController {
     private func channelListSignal(clanId: Int64) -> Signal<ChannelListFetchPayload, ChannelFetchError> {
         let context = self.context
         return Signal { subscriber in
-            let task = Task { @MainActor in
-                guard let token = await self.resolveAuthTokenPreferringUnexpiredSessionStore() else {
-                    subscriber.putError(.noSession)
+            let task = Task {
+                let token: String?
+                if let s = SessionStore.load(), !s.token.isEmpty, !s.isExpired {
+                    token = s.token
+                } else {
+                    token = await Task { @MainActor in await context.getToken() }.value
+                }
+                guard let token else {
+                    await MainActor.run { subscriber.putError(.noSession) }
                     return
                 }
+                let network = MezonHTTPClient.shared
                 do {
-                    async let channelsTask = context.account.network.listChannelDescs(clanId: clanId, token: token)
-                    async let categoriesTask = Self.listCategoryDescsOrEmpty(network: context.account.network, clanId: clanId, token: token)
-                    async let favoritesTask = Self.listFavoriteChannelIdsOrEmpty(network: context.account.network, clanId: clanId, token: token)
+                    async let channelsTask = network.listChannelDescs(clanId: clanId, token: token)
+                    async let categoriesTask = Self.listCategoryDescsOrEmpty(network: network, clanId: clanId, token: token)
+                    async let favoritesTask = Self.listFavoriteChannelIdsOrEmpty(network: network, clanId: clanId, token: token)
                     let channels = try await channelsTask
                     let categoryDescs = await categoriesTask
                     let favoriteIds = Set(await favoritesTask)
-                    subscriber.putNext(ChannelListFetchPayload(
+                    let payload = ChannelListFetchPayload(
                         channels: channels,
                         categoryDescs: categoryDescs,
                         favoriteChannelIds: favoriteIds
-                    ))
-                    subscriber.putCompletion()
-                } catch { subscriber.putError(.network(error)) }
+                    )
+                    await MainActor.run {
+                        subscriber.putNext(payload)
+                        subscriber.putCompletion()
+                    }
+                } catch {
+                    await MainActor.run { subscriber.putError(.network(error)) }
+                }
             }
             return ActionDisposable { task.cancel() }
         }
     }
 
-    private static func listCategoryDescsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Mezon_Api_CategoryDesc] {
+    private func scheduleBackgroundClanListAndVoiceRefresh() {
+        guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
+        let cid = clanId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.resolveAuthTokenPreferringUnexpiredSessionStore() else { return }
+            Task.detached(priority: .utility) {
+                let net = MezonHTTPClient.shared
+                do {
+                    let rawClans = try await net.listClanDescs(token: token)
+                    let sorted = rawClans.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+                    let records: [ClanRecord] = sorted.map { api -> ClanRecord in
+                        let data = (try? api.serializedData()) ?? Data()
+                        return ClanRecord(
+                            id: api.clanID,
+                            name: api.clanName,
+                            icon: api.logo.isEmpty ? nil : api.logo,
+                            ownerId: api.creatorID == 0 ? nil : String(api.creatorID),
+                            data: data
+                        )
+                    }
+                    let voicePrefBytes: Data?
+                    if cid != 0,
+                       let v = try? await net.listChannelVoiceUsers(clanId: cid, token: token),
+                       let d = try? v.serializedData() {
+                        voicePrefBytes = d
+                    } else {
+                        voicePrefBytes = nil
+                    }
+                    let prefBlob = Self.encodeClanDescsPreferenceBlob(sorted)
+                    await MainActor.run { [weak self] in
+                        guard let self, self.clanId == cid else { return }
+                        let pb = self.context.account.postbox
+                        pb.write { tx in tx.updateClans(records) }
+                        pb.setPreferenceDataSync(key: PreferencesKeys.clans, value: prefBlob)
+                        if let voiceB = voicePrefBytes {
+                            pb.setPreferenceDataSync(key: PreferencesKeys.clanVoiceUsers(clanId: cid), value: voiceB)
+                            NotificationCenter.default.post(
+                                name: .mezonVoicePresenceChanged,
+                                object: nil,
+                                userInfo: ["clanId": NSNumber(value: cid)]
+                            )
+                        }
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    nonisolated private static func encodeClanDescsPreferenceBlob(_ items: [Mezon_Api_ClanDesc]) -> Data {
+        var result = Data()
+        var count = UInt32(items.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for item in items {
+            guard let d = try? item.serializedData() else { continue }
+            var len = UInt32(d.count)
+            result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+            result.append(d)
+        }
+        return result
+    }
+
+    nonisolated private static func listCategoryDescsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Mezon_Api_CategoryDesc] {
         do {
             return try await network.listCategoryDescs(clanId: clanId, token: token)
         } catch {
@@ -1387,7 +1455,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private static func listFavoriteChannelIdsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Int64] {
+    nonisolated private static func listFavoriteChannelIdsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Int64] {
         do {
             return try await network.listFavoriteChannelIds(clanId: clanId, token: token)
         } catch {
@@ -1453,7 +1521,9 @@ final class ChannelListViewController: ViewController {
             let cachedData = self.context.account.postbox.getPreferenceData(key: key)
 
             do {
-                let apps = try await self.context.account.network.listChannelApps(clanId: clanId, token: token)
+                let apps = try await Task.detached(priority: .utility) {
+                    try await MezonHTTPClient.shared.listChannelApps(clanId: clanId, token: token)
+                }.value
                 guard self.clanId == clanId else { return }
                 let hasNonEmptyCache: Bool = {
                     guard let cachedData, !cachedData.isEmpty else { return false }
