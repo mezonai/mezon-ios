@@ -281,10 +281,15 @@ final class PollDetailViewController: UIViewController {
             container.heightAnchor.constraint(equalToConstant: Self.optionRowHeight),
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: countLabel.leadingAnchor, constant: -8),
+            label.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, multiplier: 0.7),
+
             countLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -8),
             countLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            countLabel.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 8)
         ])
+
+        countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        label.lineBreakMode = .byTruncatingTail
 
         let tap = OptionTapGesture(target: self, action: #selector(handleOptionSelect(_:)))
         tap.optionIndex = option.index
