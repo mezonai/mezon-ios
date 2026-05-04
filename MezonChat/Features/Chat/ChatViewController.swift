@@ -621,7 +621,7 @@ final class ChatViewController: ViewController {
                     votersByOption: [:],
                     isLoading: true
                 )
-                self.present(detailVC, animated: true)
+                self.present(detailVC, animated: false)
 
                 Task {
                     do {

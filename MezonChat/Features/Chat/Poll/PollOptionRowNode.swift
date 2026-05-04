@@ -134,10 +134,12 @@ final class PollOptionRowNode: ASDisplayNode {
             metaNode.removeFromSupernode()
         }
 
-        if option.isSelected && checkmarkNode.supernode == nil {
+        if option.isSelected {
             configureCheckmark()
-            addSubnode(checkmarkNode)
-        } else if !option.isSelected && checkmarkNode.supernode != nil {
+            if checkmarkNode.supernode == nil {
+                addSubnode(checkmarkNode)
+            }
+        } else if checkmarkNode.supernode != nil {
             checkmarkNode.removeFromSupernode()
         }
 

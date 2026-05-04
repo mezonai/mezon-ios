@@ -46,7 +46,14 @@ final class PollDetailViewController: UIViewController {
         self.isLoading = isLoading
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
-        modalTransitionStyle = .crossDissolve
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        self.view.alpha = 0
+        UIView.animate(withDuration: 0.15) {
+            self.view.alpha = 1
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -399,7 +406,11 @@ final class PollDetailViewController: UIViewController {
     }
 
     @objc private func dismissModal() {
-        dismiss(animated: true)
+        UIView.animate(withDuration: 0.15, animations: {
+            self.view.alpha = 0
+        }) { _ in
+            self.dismiss(animated: false)
+        }
     }
 }
 
