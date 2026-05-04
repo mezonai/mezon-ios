@@ -16,6 +16,7 @@ extension NSAttributedString.Key {
     static let mezonMention = NSAttributedString.Key("mezon.mention")
     static let mezonRoleMention = NSAttributedString.Key("mezon.roleMention")
     static let mezonHashtag = NSAttributedString.Key("mezon.hashtag")
+    static let mezonSystemAction = NSAttributedString.Key("mezon.systemAction")
 }
 
 enum RichTextSegment {
@@ -279,7 +280,12 @@ enum RichTextBuilder {
                     baselineFont: baseline,
                     imgproxyFitSide: s.emojiImgproxyFitSide
                 )
-                result.append(NSAttributedString(attachment: attachment))
+                let ps = NSMutableParagraphStyle()
+                ps.lineSpacing = 0
+                ps.paragraphSpacing = 0
+                let mas = NSMutableAttributedString(attachment: attachment)
+                mas.addAttributes([.font: baseline, .paragraphStyle: ps], range: NSRange(location: 0, length: mas.length))
+                result.append(mas)
 
             case .mention(let userId, let roleId, _):
                 var attrs = bodyAttributes(s)

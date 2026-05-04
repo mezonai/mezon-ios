@@ -1057,8 +1057,8 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         u.id = member.userId
         u.username = member.username
         u.displayName = displayName(forClanMember: member)
-        if !member.clanAvatar.isEmpty {
-            u.avatarURL = member.clanAvatar
+        if let url = member.resolvedAvatarURL(fallbackProfileAvatar: nil) {
+            u.avatarURL = url
         }
         u.online = member.isOnline
         return u

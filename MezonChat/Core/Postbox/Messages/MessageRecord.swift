@@ -120,6 +120,20 @@ extension MessageRecord {
     static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?) -> MessageRecord {
         let fresh = MessageRecord(from: api)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
+        if prev.senderId != fresh.senderId { return fresh }
+        let sameBodyForMerge = prev.content == fresh.content
+            && prev.attachmentsJSON == fresh.attachmentsJSON
+            && prev.referencesData == fresh.referencesData
+            && prev.mentionsJSON == fresh.mentionsJSON
+            && prev.code == fresh.code
+        if !sameBodyForMerge { return fresh }
+        let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+        let dn = api.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !dn.isEmpty || !un.isEmpty || !av.isEmpty { return fresh }
 
         let prevIsPoll = prev.code == 18 || PollData.parse(from: prev.content) != nil
         let freshIsPoll = fresh.code == 18 || PollData.parse(from: fresh.content) != nil
@@ -134,29 +148,6 @@ extension MessageRecord {
 
         let effectiveEditedAt: Date? = isLogicallyPoll ? nil : fresh.editedAt
 
-        let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
-        let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nick.isEmpty || !clanAv.isEmpty {
-            return MessageRecord(
-                id: fresh.id,
-                channelId: fresh.channelId,
-                clanId: fresh.clanId,
-                senderId: fresh.senderId,
-                content: effectiveContent,
-                createdAt: fresh.createdAt,
-                editedAt: effectiveEditedAt,
-                isDeleted: fresh.isDeleted,
-                code: fresh.code,
-                senderDisplayName: fresh.senderDisplayName,
-                senderAvatarURL: fresh.senderAvatarURL,
-                sendingState: fresh.sendingState,
-                attachmentsJSON: fresh.attachmentsJSON,
-                reactionsJSON: fresh.reactionsJSON,
-                referencesData: fresh.referencesData,
-                mentionsJSON: fresh.mentionsJSON
-            )
-        }
-        
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,

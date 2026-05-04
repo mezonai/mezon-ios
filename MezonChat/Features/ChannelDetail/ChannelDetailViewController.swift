@@ -9,6 +9,14 @@ final class ChannelDetailViewController: ViewController {
 
     private var detailNode: ChannelDetailContainerNode { displayNode as! ChannelDetailContainerNode }
 
+    private func resolvedChannelTypeForDetail() -> Int32 {
+        if channel.type != 0 { return channel.type }
+        if let (_, ch) = context.account.postbox.getChannelDescription(channelId: channel.channelID), ch.type != 0 {
+            return ch.type
+        }
+        return context.engine.clanData.resolvedListChannelUsersType(channelId: channel.channelID)
+    }
+
     init(context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription) {
         self.context = context
         self.clanId = clanId
@@ -49,11 +57,12 @@ final class ChannelDetailViewController: ViewController {
     }
 
     private func openThreadList() {
+        let t = resolvedChannelTypeForDetail()
         let parentId: Int64 =
-            channel.type == MezonConstants.ChannelType.thread.rawValue
+            t == MezonConstants.ChannelType.thread.rawValue
             ? channel.parentID
             : channel.channelID
-        let composerSurface = Self.surfaceChannelForThreadComposer(from: channel)
+        let composerSurface = Self.surfaceChannelForThreadComposer(from: channel, resolvedType: t)
         let vc = ThreadListViewController(
             context: context,
             clanId: clanId,
@@ -65,9 +74,9 @@ final class ChannelDetailViewController: ViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
-    private static func surfaceChannelForThreadComposer(from channel: Mezon_Api_ChannelDescription)
+    private static func surfaceChannelForThreadComposer(from channel: Mezon_Api_ChannelDescription, resolvedType: Int32)
         -> Mezon_Api_ChannelDescription {
-        guard channel.type == MezonConstants.ChannelType.thread.rawValue else { return channel }
+        guard resolvedType == MezonConstants.ChannelType.thread.rawValue else { return channel }
         var d = channel
         d.channelID = channel.parentID
         d.parentID = 0
@@ -76,13 +85,15 @@ final class ChannelDetailViewController: ViewController {
     }
 
     private func openChannelSearch() {
+        let t = resolvedChannelTypeForDetail()
         let isPrivateOrThread = channel.channelPrivate != 0 || channel.parentID != 0
+            || t == MezonConstants.ChannelType.thread.rawValue
         let searchVC = SearchViewController(
             clanId: clanId,
             context: context,
             channelId: channel.channelID,
             channelLabel: channel.channelLabel,
-            channelType: channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue,
+            channelType: t != 0 ? t : MezonConstants.ChannelType.channel.rawValue,
             needsChannelMemberFilter: isPrivateOrThread
         )
         navigationController?.pushViewController(searchVC, animated: true)

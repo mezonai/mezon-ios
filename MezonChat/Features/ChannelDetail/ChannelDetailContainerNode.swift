@@ -56,7 +56,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             channel: channel, context: context)
         self.membersListNode = MemberListNode(
             context: context, clanId: clanId, channelId: channel.channelID,
-            channelType: channel.type, channelDescription: channel)
+            channelDescription: channel)
         self.mediaGalleryNode = MediaGalleryNode(
             context: context, clanId: clanId, channelId: channel.channelID,
             channelType: channel.type)
@@ -67,7 +67,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             context: context, clanId: clanId, channelId: channel.channelID,
             channelType: channel.type)
         self.canvasNode = CanvasNode(
-            context: context, clanId: clanId, channelId: channel.channelID,
+            context: context, clanId: clanId, channelId: Self.canvasListChannelId(for: channel, context: context),
             channelType: channel.type)
 
         super.init()
@@ -95,6 +95,17 @@ final class ChannelDetailContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
         tabsScrollNode.view.showsHorizontalScrollIndicator = false
+    }
+
+    private static func canvasListChannelId(for channel: Mezon_Api_ChannelDescription, context: AccountContext) -> Int64 {
+        let thread = MezonConstants.ChannelType.thread.rawValue
+        let t = channel.type != 0
+            ? channel.type
+            : (context.account.postbox.getChannelDescription(channelId: channel.channelID)?.1.type ?? 0)
+        if t == thread, channel.parentID != 0 {
+            return channel.parentID
+        }
+        return channel.channelID
     }
 
     private static func visibleTabsList(

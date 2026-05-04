@@ -214,8 +214,57 @@ final class MessageTextContentNode: ASDisplayNode {
         return maxNeed
     }
 
+    private static func usesOnlyEmojiTextAttachmentsForSizing(_ attr: NSAttributedString) -> Bool {
+        guard attr.length > 0 else { return false }
+        var sawEmojiAttachment = false
+        var ok = true
+        attr.enumerateAttributes(in: NSRange(location: 0, length: attr.length), options: []) { attrs, range, stop in
+            if attrs[.attachment] is EmojiTextAttachment {
+                sawEmojiAttachment = true
+                return
+            }
+            if attrs[.attachment] != nil {
+                ok = false
+                stop.pointee = true
+                return
+            }
+            let piece = (attr.string as NSString).substring(with: range)
+            for us in piece.unicodeScalars {
+                if us.value == 0xFFFC || us.value == 0xFE0F || us.value == 0x200D { continue }
+                if CharacterSet.whitespacesAndNewlines.contains(us) { continue }
+                ok = false
+                stop.pointee = true
+                return
+            }
+        }
+        return sawEmojiAttachment && ok
+    }
+
+    private static func isSingleLineFragment(
+        _ layoutManager: NSLayoutManager,
+        forGlyphRange glyphRange: NSRange
+    ) -> Bool {
+        var idx = glyphRange.location
+        let end = glyphRange.location + glyphRange.length
+        var firstMinY: CGFloat?
+        while idx < end {
+            var eff = NSRange()
+            let rect = layoutManager.lineFragmentUsedRect(forGlyphAt: idx, effectiveRange: &eff)
+            if rect.height > 0.5 {
+                if let m = firstMinY, abs(rect.minY - m) > 2 {
+                    return false
+                }
+                firstMinY = rect.minY
+            }
+            idx = NSMaxRange(eff)
+            if eff.length == 0 { idx += 1 }
+        }
+        return true
+    }
+
     private static func textSize(for attrText: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
         let textContainer = NSTextContainer(size: CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
         let textStorage = NSTextStorage(attributedString: attrText)
         textContainer.lineFragmentPadding = 0
@@ -224,7 +273,17 @@ final class MessageTextContentNode: ASDisplayNode {
         layoutManager.ensureLayout(for: textContainer)
         let rect = layoutManager.usedRect(for: textContainer)
         let emojiMinH = minLayoutHeightForEmojiAttachments(attrText)
-        let h = max(ceil(rect.height), ceil(emojiMinH))
+        let rectH = ceil(rect.height)
+        let em = ceil(emojiMinH)
+        let glyphRange = NSRange(location: 0, length: layoutManager.numberOfGlyphs)
+        let h: CGFloat
+        if usesOnlyEmojiTextAttachmentsForSizing(attrText),
+           em > 0,
+           isSingleLineFragment(layoutManager, forGlyphRange: glyphRange) {
+            h = em
+        } else {
+            h = max(rectH, em)
+        }
         return CGSize(width: min(ceil(rect.width), maxWidth), height: h)
     }
 
@@ -314,11 +373,11 @@ final class MessageTextContentNode: ASDisplayNode {
 
 extension MessageTextContentNode: ASTextNodeDelegate {
 
-    func textNode(_ textNode: ASTextNode!, shouldHighlightLinkAttribute attribute: String!, value: Any!, at point: CGPoint) -> Bool {
+    @objc func textNode(_ textNode: ASTextNode!, shouldHighlightLinkAttribute attribute: String!, value: Any!, at point: CGPoint) -> Bool {
         true
     }
 
-    func textNode(_ textNode: ASTextNode!, tappedLinkAttribute attribute: String!, value: Any!, at point: CGPoint, textRange: NSRange) {
+    @objc func textNode(_ textNode: ASTextNode!, tappedLinkAttribute attribute: String!, value: Any!, at point: CGPoint, textRange: NSRange) {
         guard let attribute = attribute, let value = value else { return }
         let stringValue = "\(value)"
         if attribute == NSAttributedString.Key.mezonLink.rawValue,
@@ -396,6 +455,7 @@ final class EmojiTextView: UIView {
         tv.backgroundColor = .clear
         tv.textContainerInset = .zero
         tv.textContainer.lineFragmentPadding = 0
+        tv.layoutManager.usesFontLeading = false
         tv.isUserInteractionEnabled = false
         tv.textDragInteraction?.isEnabled = false
         tv.clipsToBounds = false

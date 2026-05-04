@@ -495,12 +495,12 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
                     return uid
                 }()
                 let avatar: String? = {
-                    if !m.clanAvatar.isEmpty { return m.clanAvatar }
-                    if let cur = context.currentUser, cur.id == uid {
-                        return cur.avatarURL?.absoluteString
-                    }
                     let profile = context.account.postbox.read { tx in tx.getProfile(userId: uid) }
-                    return profile?.avatarUrl
+                    if let cur = context.currentUser, cur.id == uid {
+                        return m.resolvedAvatarURL(fallbackProfileAvatar: cur.avatarURL?.absoluteString)
+                            ?? profile?.avatarUrl
+                    }
+                    return m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
                 }()
                 return (name, avatar)
             }

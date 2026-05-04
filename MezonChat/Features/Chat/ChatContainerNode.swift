@@ -48,6 +48,9 @@ struct ChatInteraction {
     let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
     let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void
     let onSendTokenLogTapped: () -> Void
+    let onSystemPinMessageTapped: (ChatMessageDisplay) -> Void
+    let onSystemThreadTapped: (Int64, String?) -> Void
+    let onSystemAllThreadsTapped: () -> Void
     let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
     let onOpenPollDetail: (_ messageId: String, _ channelId: String) -> Void
     var onMessagesReloaded: (() -> Void)?
@@ -581,30 +584,25 @@ final class ChatContainerNode: ASDisplayNode {
         let fullWidth = view.bounds.width > 0 ? view.bounds.width : layout.size.width
         let headerH: CGFloat = 44
         let headerFrame = CGRect(x: 0, y: safeTop, width: fullWidth, height: headerH)
-        transition.updateFrame(node: headerNode, frame: headerFrame)
+        transition.updateFrame(node: headerNode, frame: headerFrame, beginWithCurrentState: true)
 
+        let layoutBottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
         let tvFrame = CGRect(
             x: 0,
             y: headerFrame.maxY,
             width: fullWidth,
-            height: max(layout.size.height - headerFrame.maxY - inputBarHeight - layout.intrinsicInsets.bottom, 0)
+            height: max(layout.size.height - headerFrame.maxY - inputBarHeight - layoutBottomInset, 0)
         )
-        transition.updateFrame(node: listView, frame: tvFrame)
+        transition.updateFrame(node: listView, frame: tvFrame, beginWithCurrentState: true)
 
         let listInsets = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
-        let animDuration: Double
-        if case let .animated(duration, _) = transition {
-            animDuration = duration
-        } else {
-            animDuration = 0
-        }
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
             updateIndicesAndItems: [],
             options: [.Synchronous],
             scrollToItem: nil,
-            updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: tvFrame.size, insets: listInsets, duration: animDuration, curve: .Default(duration: nil)),
+            updateSizeAndInsets: ListViewUpdateSizeAndInsets(size: tvFrame.size, insets: listInsets, duration: 0, curve: .Default(duration: nil)),
             updateOpaqueState: nil,
             completion: { _ in }
         )

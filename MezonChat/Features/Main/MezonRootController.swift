@@ -194,11 +194,23 @@ final class MezonRootController: NavigationController {
         }
     }
 
-    private func isChatAlreadyVisible(channelId: Int64) -> Bool {
-        return viewControllers.contains(where: { vc in
-            guard let chatVC = vc as? ChatViewController else { return false }
-            return chatVC.channel.channelID == channelId
-        })
+    private func bringChatForChannelToFrontIfOnStack(channelIdInt: Int64, clanIdStr: String?) -> Bool {
+        guard let existing = viewControllers.compactMap({ $0 as? ChatViewController }).first(where: { $0.channel.channelID == channelIdInt }) else {
+            return false
+        }
+        rootTabController?.selectedIndex = 0
+        popToViewController(existing, animated: true)
+        existing.handleBroughtForwardFromNotificationDeepLink()
+        guard let homeVC = homeController else { return true }
+        let notificationClanId = clanIdStr.flatMap { Int64($0) }
+        let resolvedClanId: Int64 = {
+            if existing.clanId != 0 { return existing.clanId }
+            if let n = notificationClanId, n != 0 { return n }
+            return homeVC.channelListVC.clanId
+        }()
+        switchClanIfNeeded(homeVC: homeVC, toClanId: resolvedClanId)
+        homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+        return true
     }
 
     private func popToTabBarController() {
@@ -308,7 +320,7 @@ final class MezonRootController: NavigationController {
 
     private func navigateToChannel(channelIdStr: String, clanIdStr: String?, pushTitle: String? = nil) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
-        if isChatAlreadyVisible(channelId: channelIdInt) { return }
+        if bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
 
         rootTabController?.selectedIndex = 0
 
@@ -368,6 +380,7 @@ final class MezonRootController: NavigationController {
                 channel: ch,
                 fallbackClanId: homeVC.channelListVC.clanId
             )
+            switchClanIfNeeded(homeVC: homeVC, toClanId: resolvedClanId)
             homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
             var parentName: String?
             if ch.parentID != 0 {
@@ -390,6 +403,17 @@ final class MezonRootController: NavigationController {
             homeVC.clanListVC.select(clan: clan)
             homeVC.channelListVC.configure(clanId: notificationClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
 
+            if bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
+
+            homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
+            var minimal = Mezon_Api_ChannelDescription()
+            minimal.channelID = channelIdInt
+            minimal.clanID = notificationClanId
+            let chatVC = ChatViewController(
+                clanId: notificationClanId, channel: minimal, context: context, fallbackChannelLabel: pushTitle
+            )
+            pushViewController(chatVC, animated: false)
+
             let loaded = homeVC.channelListVC.channelsLoadedSignal
                 |> filter { $0 }
                 |> take(1)
@@ -398,37 +422,21 @@ final class MezonRootController: NavigationController {
 
             navigationDisposable.set(loaded.start(next: { [weak self] _ in
                 guard let self, let homeVC = self.homeController else { return }
-                if self.isChatAlreadyVisible(channelId: channelIdInt) { return }
-
+                if self.bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
+                guard let top = self.topViewController as? ChatViewController else { return }
+                guard top.channel.channelID == channelIdInt else { return }
                 if let ch = homeVC.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
-                    homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
                     var parentName: String?
                     if ch.parentID != 0 {
                         parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
                     }
-                    let resolved = self.resolvedClanIdForOpenChat(
-                        notificationClanId: notificationClanId,
-                        channel: ch,
-                        fallbackClanId: targetClanId
-                    )
-                    let chatVC = ChatViewController(
-                        clanId: resolved, channel: ch, context: self.context, parentName: parentName,
-                        fallbackChannelLabel: pushTitle
-                    )
-                    self.pushViewController(chatVC, animated: false)
+                    top.applyMergedChannelDescriptionFromChannelListLoadIfNeeded(ch, parentChannelName: parentName)
                 } else {
-                    homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
-                    var minimal = Mezon_Api_ChannelDescription()
-                    minimal.channelID = channelIdInt
-                    minimal.clanID = targetClanId
-                    let chatVC = ChatViewController(
-                        clanId: targetClanId, channel: minimal, context: self.context, fallbackChannelLabel: pushTitle
-                    )
-                    self.pushViewController(chatVC, animated: false)
+                    top.applyMergedChannelDescriptionFromChannelListLoadIfNeeded(nil)
                 }
             }))
+            return
         } else {
-
             switchClanIfNeeded(homeVC: homeVC, toClanId: targetClanId)
             homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
             var minimal = Mezon_Api_ChannelDescription()

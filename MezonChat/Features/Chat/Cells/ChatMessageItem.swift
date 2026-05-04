@@ -190,6 +190,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             let existingBubble = self?.bubbleNode
             let isSameLogicalMessage: Bool = {
                 guard let existing = existingBubble else { return false }
+                if existing.display.isCombine != item.display.isCombine { return false }
                 if existing.display.id == item.display.id { return true }
                 let wasPending = existing.display.id.hasPrefix("pending-")
                 let isNowReal = !item.display.id.hasPrefix("pending-")

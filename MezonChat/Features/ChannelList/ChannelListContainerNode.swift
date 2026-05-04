@@ -170,15 +170,26 @@ final class ChannelListContainerNode: ASDisplayNode {
             applyRowDiff(prev: prevState, new: newState)
         }
 
-        if !wasClanSwitching,
-           !newState.isLoading,
-           let selectedId = newState.selectedChannelId,
-           selectedId != prevState.selectedChannelId,
-           let catIdx = firstCategoryIndexContainingListChannel(selectedId),
-           state.categories[catIdx].id != ChannelCategory.favoritesCategoryId {
-            scrollToChannel(channelId: selectedId, animated: true)
-        }
+        maybeRevealSelectedChannel(prevState: prevState, newState: newState, wasClanSwitching: wasClanSwitching)
         refreshNewUnreadButton()
+    }
+
+    private func maybeRevealSelectedChannel(
+        prevState: ChannelListState,
+        newState: ChannelListState,
+        wasClanSwitching: Bool
+    ) {
+        guard !newState.isLoading else { return }
+        guard let selectedId = newState.selectedChannelId, selectedId != 0 else { return }
+        guard firstCategoryIndexContainingListChannel(selectedId) != nil else { return }
+        let selectionChanged = prevState.selectedChannelId != newState.selectedChannelId
+        let loadingJustFinished = prevState.isLoading && !newState.isLoading
+        let voiceMapChanged = prevState.voiceUsersByChannel != newState.voiceUsersByChannel
+        let selectedIsVoiceChannel = newState.allChannels.contains {
+            $0.channelID == selectedId && Self.voiceChannelTypes.contains($0.type)
+        }
+        guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && voiceMapChanged) else { return }
+        scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
     }
 
     private func safeReloadData() {
@@ -663,6 +674,19 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func firstCategoryIndexContainingListChannel(_ channelId: Int64) -> Int? {
+        if let favIdx = state.categories.firstIndex(where: { $0.id == ChannelCategory.favoritesCategoryId }),
+           let flat = state.categories[favIdx].favoriteFlatChannels,
+           flat.contains(where: { $0.channelID == channelId }) {
+            let rows = rowsForSection(favIdx)
+            if rows.contains(where: { row in
+                switch row {
+                case .voiceMembersCollapsed, .voiceMemberExpanded: return false
+                default: return row.channelDesc.channelID == channelId
+                }
+            }) {
+                return favIdx
+            }
+        }
         for s in 0..<state.categories.count {
             let rows = rowsForSection(s)
             if rows.contains(where: { row in
@@ -1232,7 +1256,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             let ch = row.channelDesc
             if Self.voiceChannelTypes.contains(ch.type) {
                 let hasMembers = !(voiceUsersByChannel[ch.channelID] ?? []).isEmpty
-                return hasMembers
+                return hasMembers || ch.channelID == selectedChannelId
             }
             if ch.countMessUnread > 0 { return true }
             if ch.lastSentMessage.timestampSeconds > ch.lastSeenMessage.timestampSeconds { return true }

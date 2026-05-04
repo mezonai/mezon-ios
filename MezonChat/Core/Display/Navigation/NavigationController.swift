@@ -145,7 +145,7 @@ public protocol NavigationDetailsPlaceholderNode: ASDisplayNode {
 }
 
 open class NavigationController: UINavigationController, ContainableController, UIGestureRecognizerDelegate {
-    public static let channelListToChatPushAnimationDuration: Double = 0.2
+    public static let channelListToChatPushAnimationDuration: Double = 0.1
 
     public var isOpaqueWhenInOverlay: Bool = true
     public var blocksBackgroundWhenInOverlay: Bool = true
