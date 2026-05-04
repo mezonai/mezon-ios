@@ -865,7 +865,15 @@ final class MessageBubbleNode: ASDisplayNode {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
         guard let touch = touches.first, !touchIsOnReactionsStrip(touch) else { return }
+        if touchIsInsidePollCard(touch) { return }
         showHighlight(true)
+    }
+
+    private func touchIsInsidePollCard(_ touch: UITouch) -> Bool {
+        guard let pn = pollCardNode, pn.isNodeLoaded else { return false }
+        let p = touch.location(in: view)
+        let frameInBubble = pn.view.convert(pn.view.bounds, to: view)
+        return frameInBubble.contains(p)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
