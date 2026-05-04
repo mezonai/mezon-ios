@@ -478,6 +478,11 @@ enum L10n {
         static let createThreadFirstMessagePlaceholder = "threadList.createThreadFirstMessagePlaceholder"
     }
 
+    enum ChatSystem {
+        static let pinMessageAnchor = "chat.system.pinMessageAnchor"
+        static let allThreadsAnchor = "chat.system.allThreadsAnchor"
+    }
+
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
@@ -985,6 +990,8 @@ extension L10n {
 
         "channel.label":  "channel",
         "channel.thread": "Threads",
+        "chat.system.pinMessageAnchor": "a message",
+        "chat.system.allThreadsAnchor": "all threads",
         "channel.settings": "Channel Settings",
         "channel.name":   "Channel Name",
         "channel.topic":  "Channel Topic",
@@ -1564,6 +1571,8 @@ extension L10n {
 
         "channel.label":  "kênh",
         "channel.thread": "Chủ đề",
+        "chat.system.pinMessageAnchor": "một tin nhắn",
+        "chat.system.allThreadsAnchor": "tất cả chủ đề",
         "channel.settings": "Cài đặt kênh",
         "channel.name":   "Tên kênh",
         "channel.topic":  "Chủ đề kênh",
