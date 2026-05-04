@@ -48,6 +48,8 @@ struct ChatInteraction {
     let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
     let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void
     let onSendTokenLogTapped: () -> Void
+    let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
+    let onOpenPollDetail: (_ messageId: String, _ channelId: String) -> Void
     var onMessagesReloaded: (() -> Void)?
 }
 
@@ -505,7 +507,16 @@ final class ChatContainerNode: ASDisplayNode {
             .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)"
+        let pollHash: String
+        if let pd = m.pollData {
+            let sortedCounts = pd.answerCounts.sorted(by: { $0.key < $1.key })
+            let countStrings = sortedCounts.map { "\($0.key):\($0.value)" }
+            let countJoined = countStrings.joined(separator: ",")
+            pollHash = "\(pd.totalVotes)|\(countJoined)"
+        } else {
+            pollHash = ""
+        }
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {

@@ -657,6 +657,26 @@ enum L10n {
         static let sent               = "friendList.sent"
         static let noResults          = "friendList.noResults"
     }
+
+    enum Poll {
+        static let selectOne          = "poll.selectOne"
+        static let selectOneOrMore    = "poll.selectOneOrMore"
+        static let voteButton         = "poll.voteButton"
+        static let removeVote         = "poll.removeVote"
+        static let showResults        = "poll.showResults"
+        static let backToVote         = "poll.backToVote"
+        static let vote               = "poll.vote"
+        static let votes              = "poll.votes"
+        static let ended              = "poll.ended"
+        static let left               = "poll.left"
+        static let days               = "poll.days"
+        static let hours              = "poll.hours"
+        static let minutes            = "poll.minutes"
+        static let loadMore           = "poll.loadMore"
+        static let loadMore1Option    = "poll.loadMore1Option"
+        static let showLess           = "poll.showLess"
+        static let noVotesYet         = "poll.noVotesYet"
+    }
 }
 
 extension L10n {
@@ -1018,8 +1038,26 @@ extension L10n {
         "channelMessages.yourLocation": "Your location",
         "channelMessages.locationOf": "%@'s location",
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
-        "channelMessages.pollUnsupported": "Polls aren’t supported in the app yet.",
+        "channelMessages.pollUnsupported": "Polls aren't supported in the app yet.",
         "channelMessages.pollComingSoon": "Coming soon.",
+
+        "poll.selectOne": "Select one option",
+        "poll.selectOneOrMore": "Select one or more options",
+        "poll.voteButton": "Vote",
+        "poll.removeVote": "Remove vote",
+        "poll.showResults": "Show results",
+        "poll.backToVote": "Back to vote",
+        "poll.vote": "vote",
+        "poll.votes": "votes",
+        "poll.ended": "Ended",
+        "poll.left": "left",
+        "poll.days": "days",
+        "poll.hours": "hours",
+        "poll.minutes": "minutes",
+        "poll.loadMore": "%d more options",
+        "poll.loadMore1Option": "1 more option",
+        "poll.showLess": "Show less",
+        "poll.noVotesYet": "No votes yet",
 
         "chatWelcome.welcomeToChannel": "Welcome to #%@",
         "chatWelcome.startOfChannel": "This is the start of the #%@ %@ channel",
@@ -1599,6 +1637,24 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
         "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
         "channelMessages.pollComingSoon": "Sắp có.",
+
+        "poll.selectOne": "Chọn một tùy chọn",
+        "poll.selectOneOrMore": "Chọn một hoặc nhiều tùy chọn",
+        "poll.voteButton": "Bình chọn",
+        "poll.removeVote": "Hủy bình chọn",
+        "poll.showResults": "Xem kết quả",
+        "poll.backToVote": "Quay lại bình chọn",
+        "poll.vote": "bình chọn",
+        "poll.votes": "bình chọn",
+        "poll.ended": "Đã kết thúc",
+        "poll.left": "còn lại",
+        "poll.days": "ngày",
+        "poll.hours": "giờ",
+        "poll.minutes": "phút",
+        "poll.loadMore": "Thêm %d tùy chọn",
+        "poll.loadMore1Option": "Thêm 1 tùy chọn",
+        "poll.showLess": "Thu gọn",
+        "poll.noVotesYet": "Chưa có bình chọn",
 
         "chatWelcome.welcomeToChannel": "Chào mừng đến với #%@",
         "chatWelcome.startOfChannel": "Đây là nơi bắt đầu của kênh #%@ %@",

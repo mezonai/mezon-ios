@@ -197,6 +197,8 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                     let editedB = item.display.message.editedAt?.timeIntervalSince1970
                     let bodyUnchanged = existing.display.parsedContent.text == item.display.parsedContent.text
                         && editedA == editedB
+                        && existing.display.pollData?.totalVotes == item.display.pollData?.totalVotes
+                        && existing.display.pollData?.answerCounts == item.display.pollData?.answerCounts
                     if bodyUnchanged {
                         existing.updateReactions(newDisplay: item.display)
                         bubble = existing

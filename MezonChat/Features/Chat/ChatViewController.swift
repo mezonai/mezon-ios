@@ -155,10 +155,12 @@ struct ChatMessageDisplay: Identifiable {
     let messageCode: Int32
     let clanInviteLinkCode: String?
     let replyRefSourceContent: String
+    let pollData: PollData?
+    let rawContentData: Data?
     var isFailed: Bool { sendingState == .failed }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var isSendTokenLog: Bool { messageCode == MezonConstants.MessageCode.sendToken.rawValue }
-    var isPollMessage: Bool { messageCode == MezonConstants.MessageCode.poll.rawValue }
+    var isPollMessage: Bool { pollData != nil }
     var id: String { message.id }
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
@@ -562,6 +564,95 @@ final class ChatViewController: ViewController {
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
                 self.navigationController?.pushViewController(vc, animated: true)
+            },
+            onVotePoll: { [weak self] messageId, channelId, answerIndices, completion in
+                guard let self else { completion(nil); return }
+                let token = self.context.session?.token ?? ""
+                guard !token.isEmpty else { completion(nil); return }
+                guard let pollData = self.currentState.messages.first(where: { $0.id == messageId })?.pollData else {
+                    completion(nil)
+                    return
+                }
+                Task {
+                    do {
+                        let response = try await self.context.account.network.votePoll(
+                            pollId: pollData.id,
+                            messageId: Int64(messageId) ?? 0,
+                            channelId: Int64(channelId) ?? 0,
+                            answerIndices: answerIndices,
+                            token: token
+                        )
+                        await MainActor.run {
+                            completion(response.myAnswerIndices)
+                        }
+                    } catch {
+                        await MainActor.run {
+                            Toast.error(error.localizedDescription)
+                            completion(nil)
+                        }
+                    }
+                }
+            },
+            onOpenPollDetail: { [weak self] messageId, channelId in
+                guard let self else { return }
+                let token = self.context.session?.token ?? ""
+                guard !token.isEmpty else { return }
+                guard let display = self.currentState.messages.first(where: { $0.id == messageId }),
+                      let pollData = display.pollData else { return }
+
+                let options: [PollOptionDisplay] = pollData.answers.map { answer in
+                    let voteCount = pollData.answerCounts[answer.index] ?? 0
+                    let percentage = pollData.totalVotes > 0
+                        ? Int(round(Double(voteCount) / Double(pollData.totalVotes) * 100))
+                        : 0
+                    return PollOptionDisplay(
+                        index: answer.index,
+                        label: answer.label,
+                        voteCount: voteCount,
+                        percentage: percentage,
+                        isSelected: false
+                    )
+                }
+
+                let detailVC = PollDetailViewController(
+                    question: pollData.question,
+                    totalVotes: pollData.totalVotes,
+                    options: options,
+                    votersByOption: [:],
+                    isLoading: true
+                )
+                self.present(detailVC, animated: true)
+
+                Task {
+                    do {
+                        let response = try await self.context.account.network.getPoll(
+                            pollId: pollData.id,
+                            messageId: Int64(messageId) ?? 0,
+                            channelId: Int64(channelId) ?? 0,
+                            token: token
+                        )
+                        var votersByOption: [Int: [PollVoter]] = [:]
+                        for detail in response.voterDetails {
+                            let voters = detail.userIds.map { userId in
+                                let profile = self.context.account.postbox.read { $0.getProfile(userId: "\(userId)") }
+                                return PollVoter(
+                                    id: "\(userId)",
+                                    displayName: profile?.displayName ?? profile?.username ?? "User",
+                                    username: profile?.username ?? "",
+                                    avatar: profile?.avatarUrl ?? ""
+                                )
+                            }
+                            votersByOption[Int(detail.answerIndex)] = voters
+                        }
+                        await MainActor.run {
+                            detailVC.updateVoters(votersByOption)
+                        }
+                    } catch {
+                        await MainActor.run {
+                            Toast.error(error.localizedDescription)
+                        }
+                    }
+                }
             },
             onMessagesReloaded: nil
         )
@@ -1526,7 +1617,16 @@ final class ChatViewController: ViewController {
             .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)"
+        let pollHash: String
+        if let pd = m.pollData {
+            let sortedCounts = pd.answerCounts.sorted(by: { $0.key < $1.key })
+            let countStrings = sortedCounts.map { "\($0.key):\($0.value)" }
+            let countJoined = countStrings.joined(separator: ",")
+            pollHash = "\(pd.totalVotes)|\(countJoined)"
+        } else {
+            pollHash = ""
+        }
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -1689,6 +1789,10 @@ final class ChatViewController: ViewController {
                 avatarURL: record.senderAvatarURL, senderName: record.senderDisplayName, isMe: isMe
             )
             let clanInviteLinkCode = ClanInviteLinkParser.firstInviteCode(in: content)
+            let parsedPollData = PollData.parse(from: record.content)
+            let pollData: PollData? = (record.code == MezonConstants.MessageCode.poll.rawValue || parsedPollData != nil)
+                ? parsedPollData
+                : nil
             return ChatMessageDisplay(
                 message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
@@ -1696,7 +1800,9 @@ final class ChatViewController: ViewController {
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
                 isForward: isForward, showForwardHeader: false, messageCode: record.code,
                 clanInviteLinkCode: clanInviteLinkCode,
-                replyRefSourceContent: replyRefSourceContent
+                replyRefSourceContent: replyRefSourceContent,
+                pollData: pollData,
+                rawContentData: record.content
             )
         }
         return Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
@@ -1765,7 +1871,9 @@ final class ChatViewController: ViewController {
     }
 
     private func messageRecord(from api: Mezon_Api_ChannelMessage) -> MessageRecord {
-        var record = MessageRecord(from: api)
+        let mid = "\(api.messageID)"
+        let existing = context.account.postbox.read { tx in tx.getMessageById(mid) }
+        var record = MessageRecord.fromApi(api, merging: existing)
         if topicId != 0 {
             record = MessageRecord(
                 id: record.id, channelId: storageChannelId, clanId: record.clanId,
@@ -1835,7 +1943,9 @@ final class ChatViewController: ViewController {
                 topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
                 isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode,
                 clanInviteLinkCode: d.clanInviteLinkCode,
-                replyRefSourceContent: d.replyRefSourceContent
+                replyRefSourceContent: d.replyRefSourceContent,
+                pollData: d.pollData,
+                rawContentData: d.rawContentData
             )
         }
     }
@@ -3197,7 +3307,9 @@ final class ChatViewController: ViewController {
             hasIncludeMention: display.hasIncludeMention, isForward: display.isForward,
             showForwardHeader: display.showForwardHeader, messageCode: display.messageCode,
             clanInviteLinkCode: display.clanInviteLinkCode,
-            replyRefSourceContent: display.replyRefSourceContent
+            replyRefSourceContent: display.replyRefSourceContent,
+            pollData: display.pollData,
+            rawContentData: display.rawContentData
         )
     }
 
