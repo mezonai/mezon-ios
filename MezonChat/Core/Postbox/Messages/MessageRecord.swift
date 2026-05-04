@@ -71,6 +71,9 @@ extension MessageRecord {
 
     init(from api: Mezon_Api_ChannelMessage) {
         let contentData = api.content.data(using: .utf8) ?? Data()
+        let parsedPoll = PollData.parse(from: contentData)
+        let isPoll = api.code == 18 || parsedPoll != nil
+        
         let createdAt   = Date(timeIntervalSince1970: TimeInterval(api.createTimeSeconds))
         let displayName: String = {
             let cn = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -89,9 +92,12 @@ extension MessageRecord {
             return nil
         }()
         let channelId = api.topicID != 0 ? "topic-\(api.topicID)" : "\(api.channelID)"
-        let editedAt: Date? = api.updateTimeSeconds > api.createTimeSeconds
-            ? Date(timeIntervalSince1970: TimeInterval(api.updateTimeSeconds))
-            : nil
+        let editedAt: Date? = {
+            if isPoll { return nil }
+            return api.updateTimeSeconds > api.createTimeSeconds
+                ? Date(timeIntervalSince1970: TimeInterval(api.updateTimeSeconds))
+                : nil
+        }()
         self.init(
             id:                "\(api.messageID)",
             channelId:         channelId,
@@ -114,17 +120,51 @@ extension MessageRecord {
     static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?) -> MessageRecord {
         let fresh = MessageRecord(from: api)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
+
+        let prevIsPoll = prev.code == 18 || PollData.parse(from: prev.content) != nil
+        let freshIsPoll = fresh.code == 18 || PollData.parse(from: fresh.content) != nil
+        let isLogicallyPoll = prevIsPoll || freshIsPoll
+
+        var effectiveContent = fresh.content
+        if isLogicallyPoll && !freshIsPoll {
+            effectiveContent = prev.content
+        } else if fresh.content.isEmpty {
+            effectiveContent = prev.content
+        }
+
+        let effectiveEditedAt: Date? = isLogicallyPoll ? nil : fresh.editedAt
+
         let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
         let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+        if !nick.isEmpty || !clanAv.isEmpty {
+            return MessageRecord(
+                id: fresh.id,
+                channelId: fresh.channelId,
+                clanId: fresh.clanId,
+                senderId: fresh.senderId,
+                content: effectiveContent,
+                createdAt: fresh.createdAt,
+                editedAt: effectiveEditedAt,
+                isDeleted: fresh.isDeleted,
+                code: fresh.code,
+                senderDisplayName: fresh.senderDisplayName,
+                senderAvatarURL: fresh.senderAvatarURL,
+                sendingState: fresh.sendingState,
+                attachmentsJSON: fresh.attachmentsJSON,
+                reactionsJSON: fresh.reactionsJSON,
+                referencesData: fresh.referencesData,
+                mentionsJSON: fresh.mentionsJSON
+            )
+        }
+        
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,
             clanId: fresh.clanId,
             senderId: fresh.senderId,
-            content: fresh.content,
+            content: effectiveContent,
             createdAt: fresh.createdAt,
-            editedAt: fresh.editedAt,
+            editedAt: effectiveEditedAt,
             isDeleted: fresh.isDeleted,
             code: fresh.code,
             senderDisplayName: prev.senderDisplayName,

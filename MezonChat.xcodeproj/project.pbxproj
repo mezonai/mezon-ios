@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1CA3EFD2D4A1C915DC515A79 /* PollVoteCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F36487667CF2FD570A7D5A /* PollVoteCache.swift */; };
+		F76B04CED04B10D27FA5DFB1 /* PollData.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4122D5F01E54659F571F6DA /* PollData.swift */; };
+		5BE72B34AA216244BDA94187 /* PollCardNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B877F77BFECEBFD8B77A2AC3 /* PollCardNode.swift */; };
+		3CD6A6527A3662A0D7C3C2B8 /* PollOptionRowNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBA9B183340662D4B0F9E35 /* PollOptionRowNode.swift */; };
+		76319A6BDAFCB9B59C1F1857 /* PollDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAC722A461F9BDF1445D63FB /* PollDetailViewController.swift */; };
 		009DDE590AB7CD0A9FD144FD /* MmnClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 483B364113CEC92DE9F19FAF /* MmnClient.swift */; };
 		00B3B7C0E978F273C126DC22 /* LanguageSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE3F1520028CFB731221677 /* LanguageSettingsViewController.swift */; };
 		01DA7547F5DFD51C2EEF3D32 /* MezonHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A159E8AE853432D3B4154B0 /* MezonHTTPClient.swift */; };
@@ -539,6 +544,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		53F36487667CF2FD570A7D5A /* PollVoteCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollVoteCache.swift; sourceTree = "<group>"; };
+		E4122D5F01E54659F571F6DA /* PollData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollData.swift; sourceTree = "<group>"; };
+		B877F77BFECEBFD8B77A2AC3 /* PollCardNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollCardNode.swift; sourceTree = "<group>"; };
+		4BBA9B183340662D4B0F9E35 /* PollOptionRowNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollOptionRowNode.swift; sourceTree = "<group>"; };
+		CAC722A461F9BDF1445D63FB /* PollDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollDetailViewController.swift; sourceTree = "<group>"; };
 		0086350E45925F120C897BFC /* ChannelListContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelListContainerNode.swift; sourceTree = "<group>"; };
 		014DE40C0307047DD5F4D17B /* KeyShortcut.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyShortcut.swift; sourceTree = "<group>"; };
 		017666F1C040E550CEBE930E /* ChatContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatContainerNode.swift; sourceTree = "<group>"; };
@@ -1102,6 +1112,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		EC2B8017DE227F4E2D049736 /* Poll */ = {
+			isa = PBXGroup;
+			children = (
+				E4122D5F01E54659F571F6DA /* PollData.swift */,
+				53F36487667CF2FD570A7D5A /* PollVoteCache.swift */,
+				B877F77BFECEBFD8B77A2AC3 /* PollCardNode.swift */,
+				4BBA9B183340662D4B0F9E35 /* PollOptionRowNode.swift */,
+				CAC722A461F9BDF1445D63FB /* PollDetailViewController.swift */,
+			);
+			path = Poll;
+			sourceTree = "<group>";
+		};
 		04015AFAC4C0E26572D6AB77 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
@@ -2061,6 +2083,7 @@
 		BB8DF00AD0E202969AAA5558 /* Chat */ = {
 			isa = PBXGroup;
 			children = (
+				EC2B8017DE227F4E2D049736 /* Poll */,
 				81876B3A5584BB05CF7AAC9F /* ChatAudioPlaybackCoordinator.swift */,
 				017666F1C040E550CEBE930E /* ChatContainerNode.swift */,
 				27D2AB257C6D80326329B3D0 /* ChatEmojiPickerPresenter.swift */,
@@ -2606,6 +2629,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F76B04CED04B10D27FA5DFB1 /* PollData.swift in Sources */,
+				1CA3EFD2D4A1C915DC515A79 /* PollVoteCache.swift in Sources */,
+				5BE72B34AA216244BDA94187 /* PollCardNode.swift in Sources */,
+				3CD6A6527A3662A0D7C3C2B8 /* PollOptionRowNode.swift in Sources */,
+				76319A6BDAFCB9B59C1F1857 /* PollDetailViewController.swift in Sources */,
 				8F86CFDCD730499F49787149 /* ASCGImageBuffer.mm in Sources */,
 				89B03906CB574F31B9373594 /* ASDisplayNode+Measure.swift in Sources */,
 				9D75DE1606BAA81A2D2A3199 /* ASTransformLayerNode.swift in Sources */,

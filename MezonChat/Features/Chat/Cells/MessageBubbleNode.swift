@@ -23,7 +23,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var locationNode: MessageLocationNode?
     private var clanInviteLinkNode: MessageClanInviteLinkNode?
     private var sendTokenLogNode: MessageSendTokenLogNode?
-    private var pollUnsupportedNode: ASTextNode2?
+    private var pollCardNode: PollCardNode?
     private var errorTextNode: ASTextNode2?
     private var editedNode: ASTextNode2?
 
@@ -243,12 +243,34 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(cln)
         }
 
-        if display.isPollMessage {
-            let pn = ASTextNode2()
-            pn.attributedText = Self.pollUnsupportedAttributedString()
-            pn.maximumNumberOfLines = 0
-            pollUnsupportedNode = pn
-            addSubnode(pn)
+        if display.isPollMessage, let pollData = display.pollData {
+            if let existing = self.pollCardNode {
+                existing.updatePollData(pollData)
+            } else {
+                let pn = PollCardNode()
+                pn.configure(pollData: pollData, messageId: display.id, channelId: display.message.channelId, myVoteIndices: [])
+                pn.onVotePoll = { messageId, channelId, answerIndices, completion in
+                    interaction.onVotePoll(messageId, channelId, answerIndices, completion)
+                }
+                pn.onOpenPollDetail = { messageId, channelId in
+                    interaction.onOpenPollDetail(messageId, channelId)
+                }
+                pn.onLongPress = { [weak self] in
+                    guard let self else { return }
+                    interaction.onMessageLongPressed(self.display)
+                }
+                pn.onNeedsRelayout = { [weak self] in
+                    guard let self else { return }
+                    let _ = self.measureSize(width: self.cachedTotalSize.width)
+                    self.setNeedsLayout()
+                    interaction.onMessageNeedsRelayout?(self.display.id)
+                }
+                pollCardNode = pn
+                addSubnode(pn)
+            }
+        } else {
+            pollCardNode?.removeFromSupernode()
+            pollCardNode = nil
         }
 
         if display.isSendTokenLog {
@@ -541,9 +563,18 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(etn)
         }
 
+        if newDisplay.isPollMessage, let pn = pollCardNode, let newPollData = newDisplay.pollData {
+            let pollChanged = oldDisplay.pollData?.totalVotes != newPollData.totalVotes
+                || oldDisplay.pollData?.answerCounts != newPollData.answerCounts
+                || oldDisplay.pollData?.isClosed != newPollData.isClosed
+            if pollChanged {
+                pn.updatePollData(newPollData)
+            }
+        }
+
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
-        pollUnsupportedNode?.alpha = contentAlpha
+        pollCardNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha
@@ -834,7 +865,15 @@ final class MessageBubbleNode: ASDisplayNode {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
         guard let touch = touches.first, !touchIsOnReactionsStrip(touch) else { return }
+        if touchIsInsidePollCard(touch) { return }
         showHighlight(true)
+    }
+
+    private func touchIsInsidePollCard(_ touch: UITouch) -> Bool {
+        guard let pn = pollCardNode, pn.isNodeLoaded else { return false }
+        let p = touch.location(in: view)
+        let frameInBubble = pn.view.convert(pn.view.bounds, to: view)
+        return frameInBubble.contains(p)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -961,8 +1000,8 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedCallLogSize = .zero
         }
 
-        if let pollUnsupportedNode {
-            cachedPollSize = pollUnsupportedNode.measure(CGSize(width: bodyContentWidth, height: .greatestFiniteMagnitude))
+        if let pollCardNode {
+            cachedPollSize = pollCardNode.measureSize(maxWidth: bodyContentWidth)
             totalH += cachedPollSize.height + vertSpacing
         } else {
             cachedPollSize = .zero
@@ -1134,8 +1173,8 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedCallLogSize.height + vertSpacing
         }
 
-        if let pollUnsupportedNode {
-            pollUnsupportedNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedPollSize.height)
+        if let pollCardNode {
+            pollCardNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedPollSize.height)
             noteForwardBlock(topY: y, height: cachedPollSize.height)
             y += cachedPollSize.height + vertSpacing
         }
@@ -1237,7 +1276,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
-        pollUnsupportedNode?.alpha = contentAlpha
+        pollCardNode?.alpha = contentAlpha
         topicNode?.alpha = contentAlpha
         textContentNode?.alpha = contentAlpha
         mediaContentNode?.alpha = contentAlpha

@@ -1529,6 +1529,59 @@ final class MezonHTTPClient {
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
+
+    func votePoll(
+        pollId: Int64,
+        messageId: Int64,
+        channelId: Int64,
+        answerIndices: [Int32],
+        token: String
+    ) async throws -> Mezon_Api_VotePollResponse {
+        var req = Mezon_Api_VotePollRequest()
+        req.pollID = pollId
+        req.messageID = messageId
+        req.channelID = channelId
+        req.answerIndices = answerIndices
+        return try await postProto(
+            path: "/mezon.api.Mezon/VotePoll",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getPoll(
+        pollId: Int64,
+        messageId: Int64,
+        channelId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_GetPollResponse {
+        var req = Mezon_Api_GetPollRequest()
+        req.pollID = pollId
+        req.messageID = messageId
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetPoll",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func closePoll(
+        pollId: Int64,
+        messageId: Int64,
+        channelId: Int64,
+        token: String
+    ) async throws {
+        var req = Mezon_Api_ClosePollRequest()
+        req.pollID = pollId
+        req.messageID = messageId
+        req.channelID = channelId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/ClosePoll",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
 }
 
 private struct EmptyBody: Encodable {}
