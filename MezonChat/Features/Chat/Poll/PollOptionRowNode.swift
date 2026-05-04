@@ -19,7 +19,7 @@ final class PollOptionRowNode: ASDisplayNode {
     private static let rowHeight: CGFloat = 40
     private static let cornerRadius: CGFloat = 8
     private static let fillAnimationDuration: CFTimeInterval = 0.6
-    private static let activeTextWhiteThreshold = 30
+    private static let activeTextWhiteThreshold = 0
     private static let blurpleColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1)
     private static let blurpleFillResult = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 0.35)
 
@@ -89,7 +89,7 @@ final class PollOptionRowNode: ASDisplayNode {
     private func updateLabelText() {
         let t = UIColor.theme
         let shouldUseActiveColor = hasVoted && option.isSelected && shouldShowResults
-            && option.percentage >= 15
+            && option.percentage >= 0
         labelNode.attributedText = NSAttributedString(
             string: option.label,
             attributes: [

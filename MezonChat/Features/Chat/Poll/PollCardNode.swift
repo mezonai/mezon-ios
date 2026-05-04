@@ -121,9 +121,6 @@ final class PollCardNode: ASDisplayNode {
     }
 
     private func buildUI() {
-        optionRowNodes.forEach { $0.removeFromSupernode() }
-        optionRowNodes.removeAll()
-
         let t = UIColor.theme
 
         cardNode.backgroundColor = t.primary
@@ -155,18 +152,31 @@ final class PollCardNode: ASDisplayNode {
         instructionNode.maximumNumberOfLines = 1
         if instructionNode.supernode == nil { cardNode.addSubnode(instructionNode) }
 
-        for opt in visibleOptions {
-            let row = PollOptionRowNode(
-                option: opt,
-                shouldShowResults: shouldShowResults,
-                allowMultiple: isMultiple,
-                hasVoted: hasVoted
-            )
-            row.onTapped = { [weak self] in
-                self?.handleOptionPress(index: opt.index)
+        let options = visibleOptions
+        
+        if optionRowNodes.count > options.count {
+            for i in (options.count..<optionRowNodes.count).reversed() {
+                optionRowNodes[i].removeFromSupernode()
+                optionRowNodes.remove(at: i)
             }
-            optionRowNodes.append(row)
-            cardNode.addSubnode(row)
+        }
+        
+        for (i, opt) in options.enumerated() {
+            if i < optionRowNodes.count {
+                optionRowNodes[i].update(option: opt, shouldShowResults: shouldShowResults, hasVoted: hasVoted)
+            } else {
+                let row = PollOptionRowNode(
+                    option: opt,
+                    shouldShowResults: shouldShowResults,
+                    allowMultiple: isMultiple,
+                    hasVoted: hasVoted
+                )
+                row.onTapped = { [weak self] in
+                    self?.handleOptionPress(index: opt.index)
+                }
+                optionRowNodes.append(row)
+                cardNode.addSubnode(row)
+            }
         }
 
         footerSeparator.backgroundColor = UIColor.mezonBorder
@@ -197,7 +207,6 @@ final class PollCardNode: ASDisplayNode {
         updateLoadMoreText()
         let _ = measureSize(maxWidth: cachedWidth)
         setNeedsLayout()
-        onNeedsRelayout?()
     }
 
     private func updateStatsText() {
@@ -362,7 +371,10 @@ final class PollCardNode: ASDisplayNode {
         buildUI()
         let _ = measureSize(maxWidth: cachedWidth)
         setNeedsLayout()
-        onNeedsRelayout?()
+        
+        Queue.mainQueue().after(0.01) { [weak self] in
+            self?.onNeedsRelayout?()
+        }
     }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {

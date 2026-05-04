@@ -244,25 +244,33 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         if display.isPollMessage, let pollData = display.pollData {
-            let pn = PollCardNode()
-            pn.configure(pollData: pollData, messageId: display.id, channelId: display.message.channelId, myVoteIndices: [])
-            pn.onVotePoll = { messageId, channelId, answerIndices, completion in
-                interaction.onVotePoll(messageId, channelId, answerIndices, completion)
+            if let existing = self.pollCardNode {
+                existing.updatePollData(pollData)
+            } else {
+                let pn = PollCardNode()
+                pn.configure(pollData: pollData, messageId: display.id, channelId: display.message.channelId, myVoteIndices: [])
+                pn.onVotePoll = { messageId, channelId, answerIndices, completion in
+                    interaction.onVotePoll(messageId, channelId, answerIndices, completion)
+                }
+                pn.onOpenPollDetail = { messageId, channelId in
+                    interaction.onOpenPollDetail(messageId, channelId)
+                }
+                pn.onLongPress = { [weak self] in
+                    guard let self else { return }
+                    interaction.onMessageLongPressed(self.display)
+                }
+                pn.onNeedsRelayout = { [weak self] in
+                    guard let self else { return }
+                    let _ = self.measureSize(width: self.cachedTotalSize.width)
+                    self.setNeedsLayout()
+                    interaction.onMessageNeedsRelayout?(self.display.id)
+                }
+                pollCardNode = pn
+                addSubnode(pn)
             }
-            pn.onOpenPollDetail = { messageId, channelId in
-                interaction.onOpenPollDetail(messageId, channelId)
-            }
-            pn.onLongPress = { [weak self] in
-                guard let self else { return }
-                interaction.onMessageLongPressed(self.display)
-            }
-            pn.onNeedsRelayout = { [weak self] in
-                guard let self else { return }
-                let _ = self.measureSize(width: self.cachedTotalSize.width)
-                self.setNeedsLayout()
-            }
-            pollCardNode = pn
-            addSubnode(pn)
+        } else {
+            pollCardNode?.removeFromSupernode()
+            pollCardNode = nil
         }
 
         if display.isSendTokenLog {

@@ -654,7 +654,8 @@ final class ChatViewController: ViewController {
                     }
                 }
             },
-            onMessagesReloaded: nil
+            onMessagesReloaded: nil,
+            onMessageNeedsRelayout: nil
         )
         interaction.onMessagesReloaded = { [weak self] in
             guard let self else { return }
@@ -666,6 +667,11 @@ final class ChatViewController: ViewController {
                 self.scrollToBottomIfNeeded()
             }
         }
+        interaction.onMessageNeedsRelayout = { [weak self] messageId in
+            guard let self else { return }
+            self.messagesNode.forceUpdateItem(id: messageId)
+        }
+        
         displayNode = ChatContainerNode(
             signal: stateSignal(),
             interaction: interaction,

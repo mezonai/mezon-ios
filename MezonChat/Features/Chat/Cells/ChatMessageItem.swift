@@ -6,12 +6,15 @@ final class ChatMessageItem: ListViewItem {
     let display: ChatMessageDisplay
     let interaction: ChatInteraction
 
+    let relayoutVersion: Int
+    
     var selectable: Bool { false }
     var approximateHeight: CGFloat { display.isCombine ? 60 : 100 }
-
-    init(display: ChatMessageDisplay, interaction: ChatInteraction) {
+    
+    init(display: ChatMessageDisplay, interaction: ChatInteraction, relayoutVersion: Int = 0) {
         self.display = display
         self.interaction = interaction
+        self.relayoutVersion = relayoutVersion
     }
 
     func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
@@ -45,6 +48,15 @@ final class ChatMessageItem: ListViewItem {
     }
 
     func selected(listView: ListView) {}
+    
+    func isEqual(to other: ListViewItem) -> Bool {
+        guard let other = other as? ChatMessageItem else { return false }
+        return self.display.id == other.display.id
+            && self.display.message.editedAt == other.display.message.editedAt
+            && self.display.pollData?.totalVotes == other.display.pollData?.totalVotes
+            && self.display.pollData?.answerCounts == other.display.pollData?.answerCounts
+            && self.relayoutVersion == other.relayoutVersion
+    }
 }
 
 final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
@@ -216,7 +228,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
 
             _ = CGSize(width: width, height: .greatestFiniteMagnitude)
             let measuredSize = bubble.measureSize(width: width)
-
+            
             let nodeLayout = ListViewItemNodeLayout(
                 contentSize: CGSize(width: width, height: measuredSize.height),
                 insets: UIEdgeInsets()
