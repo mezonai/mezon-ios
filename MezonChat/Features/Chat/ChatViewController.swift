@@ -582,7 +582,6 @@ final class ChatViewController: ViewController {
             onSystemAllThreadsTapped: { [weak self] in
                 self?.openThreadListFromChat()
             },
-            onMessagesReloaded: nil,
             onVotePoll: { [weak self] messageId, channelId, answerIndices, completion in
                 guard let self else { completion(nil); return }
                 let token = self.context.session?.token ?? ""
@@ -672,8 +671,6 @@ final class ChatViewController: ViewController {
                     }
                 }
             },
-            onMessagesReloaded: nil,
-            onMessageNeedsRelayout: nil
         )
         interaction.onMessagesReloaded = { [weak self] in
             guard let self else { return }
@@ -685,7 +682,7 @@ final class ChatViewController: ViewController {
                 self.scrollToBottomIfNeeded()
             }
         }
-        interaction.onMessageNeedsRelayout = { [weak self] messageId in
+        interaction.onMessageNeedsRelayout = { [weak self] (messageId: String) in
             guard let self else { return }
             self.messagesNode.forceUpdateItem(id: messageId)
         }
