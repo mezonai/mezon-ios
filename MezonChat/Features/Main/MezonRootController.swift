@@ -220,35 +220,113 @@ final class MezonRootController: NavigationController {
     }
 
     @objc private func handleIncomingPeerCall(_ notification: Notification) {
-        guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else { return }
-        guard let myId = Int64(context.currentUser?.id ?? "") else { return }
-        guard payload.receiverId == myId || payload.receiverId == 0 else { return }
-        guard var top = mezonKeyWindowRootViewController() else { return }
-        while let presented = top.presentedViewController {
-            if presented is PeerCallViewController { return }
-            top = presented
+        guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else {
+            return
         }
-        var name = "Incoming call"
-        var avatar: String?
-        if let compressed = payload.resolvedCompressedOffer() {
-            let meta = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(compressed)
-            if let n = meta.name, !n.isEmpty { name = n }
-            avatar = meta.avatar
+        let myId: Int64? = {
+            if let s = context.currentUser?.id, let v = Int64(s) { return v }
+            if let s = SessionStore.load()?.userId, let v = Int64(s) { return v }
+            return nil
+        }()
+        guard let myId else {
+            return
         }
-        let vc = PeerCallViewController(context: context, incoming: payload, remoteDisplayName: name, remoteAvatarURL: avatar)
-        top.present(vc, animated: true)
+        guard payload.receiverId == myId || payload.receiverId == 0 else {
+            return
+        }
+        switch peerCallIncomingPresentHost() {
+        case .noHost:
+            stashIncomingPeerCallAndScheduleFlush(notification.userInfo ?? [:])
+            return
+        case .alreadyShowing:
+            WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+            return
+        case .ready(let top):
+            let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
+            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
+            let vc = PeerCallViewController(
+                context: context,
+                incoming: payload,
+                remoteDisplayName: display.name,
+                remoteAvatarURL: display.avatar,
+                skipIncomingRingingUI: skipRing
+            )
+            top.present(vc, animated: !skipRing)
+            WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+        }
     }
 
-    private func mezonKeyWindowRootViewController() -> UIViewController? {
-        if let w = view.window, let r = w.rootViewController { return r }
+    func flushPendingIncomingPeerCallIfNeeded() {
+        guard WebRTCCallManager.shared.peekPendingIncomingPeerCallPresentation() != nil else { return }
+        switch peerCallIncomingPresentHost() {
+        case .noHost:
+            return
+        case .alreadyShowing, .ready:
+            break
+        }
+        guard let info = WebRTCCallManager.shared.peekPendingIncomingPeerCallPresentation() else { return }
+        handleIncomingPeerCall(Notification(name: .mezonIncomingPeerCall, object: nil, userInfo: info))
+    }
+
+    private enum PeerCallIncomingPresentHost {
+        case noHost
+        case alreadyShowing
+        case ready(UIViewController)
+    }
+
+    private func stashIncomingPeerCallAndScheduleFlush(_ userInfo: [AnyHashable: Any]) {
+        WebRTCCallManager.shared.stashIncomingPeerCallPresentation(userInfo)
+        DispatchQueue.main.async { [weak self] in
+            self?.flushPendingIncomingPeerCallIfNeeded()
+        }
+        for delay in [0.05, 0.2, 0.6] as [TimeInterval] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.flushPendingIncomingPeerCallIfNeeded()
+            }
+        }
+    }
+
+    private func peerCallApplicationModalRootViewController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .filter { $0.session.role == .windowApplication }
+            .filter { [.foregroundActive, .foregroundInactive].contains($0.activationState) }
         for scene in scenes {
-            if let win = scene.windows.first(where: { $0.isKeyWindow }), let r = win.rootViewController { return r }
+            if let w = scene.windows.first(where: { $0.isKeyWindow }),
+               let r = w.rootViewController,
+               !(r is SplashViewController) {
+                return r
+            }
         }
         for scene in scenes {
-            if let win = scene.windows.first, let r = win.rootViewController { return r }
+            let ordered = scene.windows.sorted { $0.windowLevel.rawValue < $1.windowLevel.rawValue }
+            for w in ordered {
+                guard !w.isHidden, w.alpha > 0 else { continue }
+                guard w.windowLevel == .normal, let r = w.rootViewController else { continue }
+                if r is SplashViewController { continue }
+                return r
+            }
+        }
+        if isViewLoaded, let w = view.window, let r = w.rootViewController, !(r is SplashViewController) {
+            return r
         }
         return nil
+    }
+
+    private func peerCallIncomingPresentHost() -> PeerCallIncomingPresentHost {
+        guard let root = peerCallApplicationModalRootViewController() else {
+            return .noHost
+        }
+        var top = root
+        while let presented = top.presentedViewController {
+            if presented is PeerCallViewController { return .alreadyShowing }
+            top = presented
+        }
+        return .ready(top)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        flushPendingIncomingPeerCallIfNeeded()
     }
 
     private func navigateToDM(channelIdStr: String, title: String?) {

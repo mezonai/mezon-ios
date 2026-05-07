@@ -10,6 +10,38 @@ private struct IceCandidateWire: Codable {
 
 private let peerCallLocalAudioStreamId = "mezon_peer_call_audio"
 
+private final class PeerCallThreadSafeSignalingQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [(Int64, Int32, String)] = []
+    func append(_ item: (Int64, Int32, String)) {
+        lock.lock()
+        items.append(item)
+        lock.unlock()
+    }
+    func takeAll() -> [(Int64, Int32, String)] {
+        lock.lock()
+        let out = items
+        items.removeAll()
+        lock.unlock()
+        return out
+    }
+}
+
+private final class PeerCallLockFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func get() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+    func set(_ v: Bool) {
+        lock.lock()
+        value = v
+        lock.unlock()
+    }
+}
+
 enum PeerCallDirection {
     case outgoing
     case incoming
@@ -50,16 +82,33 @@ final class PeerWebRTCCallSession: NSObject {
     private var lastPublishedRemoteVideoTrackId: String?
     private var remoteVideoInboundBytesProbeTask: Task<Void, Never>?
     private var remoteVideoInboundMonitorTask: Task<Void, Never>?
+    private var audioFlowVerifyTask: Task<Void, Never>?
+    private var beganAudioFlowVerification = false
     private var lastEmittedRemoteVideoInboundActive = false
 
     private var ended = false
-    private var didEstablishMediaConnection = false
+    private(set) var didEstablishMediaConnection = false
+    private var didPostConnectedStatusToUI = false
+    private var iceConnectedOrCompletedForUI = false
+    private var peerConnectionReportedConnectedForUI = false
+
+    private var isAnswerPrepared = false
+    private var preparedAnswerCompressed: String?
+    private var isPreWarmingNoSignal = false
+    private var deferredOutgoingSignaling: [(receiverId: Int64, dataType: Int32, jsonData: String)] = []
+
+    nonisolated private static let preWarmBackgroundIceFlag = PeerCallLockFlag()
+    nonisolated(unsafe) private let threadSafePreWarmSignaling = PeerCallThreadSafeSignalingQueue()
+    nonisolated private let signalingDestinationUserId: Int64
+
+    private var incomingAnswerFlowStarted = false
 
     private var localMicEnabled = true
     private var localCameraEnabled = false
     private var localSpeakerEnabled = false
     private var preferredCameraPosition: AVCaptureDevice.Position = .front
     private var remoteMicEnabled = true
+    private var remoteCameraEnabledFromSignaling = true
 
     private static var sslStarted = false
 
@@ -89,6 +138,7 @@ final class PeerWebRTCCallSession: NSObject {
     var isSpeakerOn: Bool { localSpeakerEnabled }
 
     var onStatusLabel: ((String) -> Void)?
+    var onCallMediaConnectedAt: ((Date) -> Void)?
     var onEnded: (() -> Void)?
     var onRemoteMedia: ((Bool) -> Void)?
     var onLocalMedia: ((Bool, Bool) -> Void)?
@@ -122,11 +172,57 @@ final class PeerWebRTCCallSession: NSObject {
         self.wantsVideo = wantsVideo
         self.phase = incomingStartsRinging ? .ringing : .active
         self.pendingOfferCompressed = initialCompressedOffer
+        self.signalingDestinationUserId = peerUserId
         super.init()
     }
 
+    private func setPreWarmingNoSignal(_ value: Bool) {
+        isPreWarmingNoSignal = value
+        Self.preWarmBackgroundIceFlag.set(value)
+    }
+
+    private func clearPreWarmDeferralPipeline() {
+        setPreWarmingNoSignal(false)
+        _ = threadSafePreWarmSignaling.takeAll()
+    }
+
+    private func mergeThreadSafePreWarmDeferredIntoDeferredOutgoing() {
+        let batch = threadSafePreWarmSignaling.takeAll()
+        for item in batch {
+            sendRealtimePeerSignaling(receiverId: item.0, dataType: item.1, jsonData: item.2)
+        }
+    }
+
+    private func sendRealtimePeerSignaling(receiverId: Int64, dataType: Int32, jsonData: String) {
+        if isPreWarmingNoSignal && dataType != WebRTCSignalingDataType.sdpQuit {
+            deferredOutgoingSignaling.append((receiverId, dataType, jsonData))
+            return
+        }
+        MezonSocket.shared.forwardWebrtcSignaling(
+            receiverId: receiverId,
+            dataType: dataType,
+            jsonData: jsonData,
+            channelId: channelId,
+            callerId: myUserId
+        )
+    }
+
+    private func flushDeferredOutgoingSignaling() {
+        let queued = deferredOutgoingSignaling
+        deferredOutgoingSignaling.removeAll()
+        for item in queued {
+            MezonSocket.shared.forwardWebrtcSignaling(
+                receiverId: item.receiverId,
+                dataType: item.dataType,
+                jsonData: item.jsonData,
+                channelId: channelId,
+                callerId: myUserId
+            )
+        }
+    }
+
     func beginOutgoingCall() {
-        onStatusLabel?(direction == .outgoing ? "Calling…" : "")
+        onStatusLabel?(direction == .outgoing ? "Ringing…" : "")
         Task {
             let micOk = await Self.requestMicPermission()
             guard micOk else {
@@ -157,7 +253,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func rescanRemoteVideoAttachment() {
-        peerCallVideoLog("rescanRemoteVideoAttachment debounce 120ms")
         rescanRemoteVideoDebounceTask?.cancel()
         rescanRemoteVideoDebounceTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
@@ -170,11 +265,65 @@ final class PeerWebRTCCallSession: NSObject {
         scanTransceiversForRemoteVideo()
     }
 
+    func isSameIncomingPeerCall(channelId ch: Int64, callerId peer: Int64) -> Bool {
+        direction == .incoming && channelId == ch && peerUserId == peer
+    }
+
+    func isRingingIncomingPeerCallMatching(channelId ch: Int64, callerId peer: Int64) -> Bool {
+        direction == .incoming && channelId == ch && peerUserId == peer && phase == .ringing
+    }
+
+    private static func waitForCallKitReadyForIncomingAnswer() async {
+        let rtc = LKRTCAudioSession.sharedInstance()
+        if rtc.isActive {
+            return
+        }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            var token: NSObjectProtocol?
+            var finished = false
+            let finish: () -> Void = {
+                guard !finished else { return }
+                finished = true
+                if let token { NotificationCenter.default.removeObserver(token) }
+                cont.resume()
+            }
+            token = NotificationCenter.default.addObserver(
+                forName: .mezonCallKitAudioActivated,
+                object: nil,
+                queue: .main
+            ) { _ in
+                finish()
+            }
+            Task { @MainActor in
+                for _ in 0..<80 {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    if LKRTCAudioSession.sharedInstance().isActive {
+                        finish()
+                        return
+                    }
+                }
+                finish()
+            }
+        }
+    }
+
+    private func configureAudioSessionWithIncomingRetry() async throws {
+        do {
+            try configureAudioSession()
+        } catch {
+            guard direction == .incoming else { throw error }
+            try await Task.sleep(nanoseconds: 320_000_000)
+            try configureAudioSession()
+        }
+    }
+
     func answerIncomingCall() {
+        guard !incomingAnswerFlowStarted else { return }
+        incomingAnswerFlowStarted = true
         cancelIncomingRingTimer()
         PeerCallSoundPlayer.shared.stopRinging()
         onStatusLabel?("Connecting…")
-        Task {
+        Task { @MainActor in
             let micOk = await Self.requestMicPermission()
             guard micOk else {
                 onStatusLabel?("Microphone access denied")
@@ -182,13 +331,159 @@ final class PeerWebRTCCallSession: NSObject {
                 return
             }
             do {
-                try configureAudioSession()
-                try await buildIncomingPeerConnectionAndAnswer()
+                try await waitForIncomingOfferIfNeeded()
+                await Self.waitForCallKitReadyForIncomingAnswer()
+                try await configureAudioSessionWithIncomingRetry()
+                if isAnswerPrepared, peerConnection != nil {
+                    try sendPreparedAnswerAndGoActive()
+                } else {
+                    try await buildIncomingPeerConnectionAndAnswer()
+                }
             } catch {
                 onStatusLabel?("Could not answer call")
                 finishCall(sendQuit: true)
             }
         }
+    }
+
+    func prepareIncomingAnswerInBackground() async throws {
+        guard !ended, !isAnswerPrepared, peerConnection == nil else { return }
+        guard direction == .incoming else { return }
+        guard let offerCompressed = pendingOfferCompressed?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !offerCompressed.isEmpty else {
+            return
+        }
+
+        setPreWarmingNoSignal(true)
+        do {
+            try await performPreWarmBuild(offerCompressed: offerCompressed)
+        } catch {
+            resetAfterFailedPreWarm()
+            throw error
+        }
+    }
+
+    private func performPreWarmBuild(offerCompressed: String) async throws {
+        Self.ensureSSL()
+        let factory = Self.makePeerConnectionFactory()
+        peerFactory = factory
+
+        let config = LKRTCConfiguration()
+        applyPeerConnectionConfigCommon(config)
+
+        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        guard let pc = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
+            throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
+        }
+        peerConnection = pc
+
+        try buildAudioVideoTracks(factory: factory)
+
+        let remoteOffer = try parseRemoteSessionDescription(compressedOrPlain: offerCompressed)
+        let offerHasVideo = IncomingPeerCallPayloadParser.sdpContainsVideo(remoteOffer.sdp)
+
+        try await setPeerRemoteDescription(remoteOffer)
+        attachLocalTracksAfterRemoteOffer(offerHasVideo: offerHasVideo)
+
+        for json in pendingRemoteIceJsonBeforePc {
+            await applyRemoteIceCandidatePayload(json)
+        }
+        pendingRemoteIceJsonBeforePc.removeAll()
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            pc.answer(for: constraints) { sdp, error in
+                if let error {
+                    cont.resume(throwing: error)
+                    return
+                }
+                guard let sdp else {
+                    cont.resume(throwing: PeerWebRTCCallSessionError.missingSDP)
+                    return
+                }
+                pc.setLocalDescription(sdp) { err in
+                    if let err {
+                        cont.resume(throwing: err)
+                    } else {
+                        cont.resume()
+                    }
+                }
+            }
+        }
+
+        mergeThreadSafePreWarmDeferredIntoDeferredOutgoing()
+
+        guard let localSDP = pc.localDescription else {
+            throw PeerWebRTCCallSessionError.missingSDP
+        }
+        let answerJson = try answerJSONString(from: localSDP)
+        let compressedAnswer = try PeerWebRTCStringCompression.gzipCompressUtf8(answerJson)
+        preparedAnswerCompressed = compressedAnswer
+        isAnswerPrepared = true
+    }
+
+    private func resetAfterFailedPreWarm() {
+        clearPreWarmDeferralPipeline()
+        isAnswerPrepared = false
+        preparedAnswerCompressed = nil
+        deferredOutgoingSignaling.removeAll()
+        peerConnection?.close()
+        peerConnection = nil
+        peerFactory = nil
+        videoCapturer?.stopCapture(completionHandler: {})
+        videoCapturer = nil
+        localVideoTrack = nil
+        localAudioTrack?.isEnabled = false
+        localAudioTrack = nil
+        pendingOutgoingIce.removeAll()
+        pendingRemoteIce.removeAll()
+    }
+
+    private func sendPreparedAnswerAndGoActive() throws {
+        guard let pc = peerConnection else {
+            throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
+        }
+        guard let compressedAnswer = preparedAnswerCompressed else {
+            throw PeerWebRTCCallSessionError.missingSDP
+        }
+        mergeThreadSafePreWarmDeferredIntoDeferredOutgoing()
+        setPreWarmingNoSignal(false)
+        preparedAnswerCompressed = nil
+        isAnswerPrepared = false
+
+        sendRealtimePeerSignaling(
+            receiverId: peerUserId,
+            dataType: WebRTCSignalingDataType.sdpAnswer,
+            jsonData: compressedAnswer
+        )
+        flushDeferredOutgoingSignaling()
+        forwardLocalMediaStatus()
+        phase = .active
+        flushPendingOutgoingIceIfPossible()
+        drainPendingRemoteIce()
+        bindLocalAudioForOutbound(pc: pc)
+        emitLocalMediaState()
+        onLocalVideoTrack?(nil)
+        scanTransceiversForRemoteVideo()
+        scheduleDeferredRemoteVideoScan()
+        scheduleRemoteVideoPostConnectWork()
+    }
+
+    private func waitForIncomingOfferIfNeeded() async throws {
+        guard direction == .incoming else { return }
+        for _ in 0..<100 {
+            if let p = pendingOfferCompressed?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty {
+                return
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        throw PeerWebRTCCallSessionError.missingSDP
+    }
+
+    private func signalingMessageTargetsThisSession(_ msg: Mezon_Realtime_WebrtcSignalingFwd) -> Bool {
+        let c = msg.callerID
+        let r = msg.receiverID
+        if c == myUserId { return false }
+        return c == peerUserId && (r == myUserId || r == 0)
     }
 
     func declineIncoming() {
@@ -199,13 +494,20 @@ final class PeerWebRTCCallSession: NSObject {
 
     func handleIncomingSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd) {
         guard msg.channelID == channelId else { return }
-        let pair = Set([msg.callerID, msg.receiverID])
-        guard pair.contains(myUserId), pair.contains(peerUserId) else { return }
+        guard signalingMessageTargetsThisSession(msg) else {
+            return
+        }
 
         switch msg.dataType {
         case WebRTCSignalingDataType.sdpOffer:
             if phase == .ringing {
-                pendingOfferCompressed = msg.jsonData
+                let existing = pendingOfferCompressed?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if existing.isEmpty {
+                    let next = msg.jsonData.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !next.isEmpty {
+                        pendingOfferCompressed = next
+                    }
+                }
                 return
             }
             Task {
@@ -220,6 +522,7 @@ final class PeerWebRTCCallSession: NSObject {
                 await queueOrApplyIce(msg.jsonData)
             }
         case WebRTCSignalingDataType.sdpStatusRemoteMedia:
+            guard msg.callerID == peerUserId else { return }
             applyRemoteMediaWire(msg.jsonData)
         case WebRTCSignalingDataType.sdpQuit, WebRTCSignalingDataType.sdpTimeout, WebRTCSignalingDataType.sdpNotAvailable,
              WebRTCSignalingDataType.sdpJoinedOtherCall, WebRTCSignalingDataType.clearCall:
@@ -259,9 +562,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func toggleCameraEnabled() {
-        peerCallDebug(
-            "toggleCamera enabled=\(localCameraEnabled) hasLocalVideoTrack=\(localVideoTrack != nil) wantsVideo=\(wantsVideo) phase=\(phase)"
-        )
         if localCameraEnabled {
             localCameraEnabled = false
             videoCapturer?.stopCapture(completionHandler: {})
@@ -269,13 +569,11 @@ final class PeerWebRTCCallSession: NSObject {
             onLocalVideoTrack?(nil)
             forwardLocalMediaStatus()
             onLocalMedia?(localMicEnabled, localCameraEnabled)
-            peerCallDebug("toggleCamera -> OFF, onLocalVideoTrack(nil)")
             return
         }
         Task {
             let ok = await Self.requestCameraPermission()
             guard ok else {
-                peerCallDebug("toggleCamera permission denied")
                 onStatusLabel?("Camera access denied")
                 return
             }
@@ -284,27 +582,20 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func enableCameraMidCall() async {
-        peerCallDebug(
-            "enableCameraMidCall enter phase=\(phase) pc=\(peerConnection != nil) factory=\(peerFactory != nil) trackNil=\(localVideoTrack == nil)"
-        )
         guard let pc = peerConnection, let factory = peerFactory else {
-            peerCallDebug("enableCameraMidCall abort: missing pc or factory")
             return
         }
         guard phase == .active else {
-            peerCallDebug("enableCameraMidCall abort: phase not active")
             return
         }
         do {
             try configureAudioSession()
-            peerCallDebug("enableCameraMidCall configureAudioSession ok")
             var needsRenegotiation = false
             var addedVideoTransceiver = false
             let videoTrackExistedDisabled = localVideoTrack.map { !$0.isEnabled } ?? false
             if localVideoTrack == nil {
                 try setupLocalVideo(factory: factory)
                 guard let vt = localVideoTrack else {
-                    peerCallDebug("enableCameraMidCall setupLocalVideo left no track")
                     return
                 }
                 let vi = LKRTCRtpTransceiverInit()
@@ -312,48 +603,32 @@ final class PeerWebRTCCallSession: NSObject {
                 pc.addTransceiver(with: vt, init: vi)
                 needsRenegotiation = true
                 addedVideoTransceiver = true
-                peerCallDebug("enableCameraMidCall new transceiver + track \(vt.trackId)")
             } else if videoTrackExistedDisabled {
                 needsRenegotiation = true
-                peerCallDebug(
-                    "enableCameraMidCall existing disabled track needsRenegotiation id=\(localVideoTrack?.trackId ?? "?")"
-                )
             }
             localVideoTrack?.isEnabled = true
             localCameraEnabled = true
             try? configureAudioSession()
             try startCameraCaptureIfNeeded()
-            peerCallDebug("enableCameraMidCall capture started")
             bindLocalVideoForOutbound(pc: pc)
             forwardLocalMediaStatus()
             onLocalMedia?(localMicEnabled, localCameraEnabled)
             if let vt = localVideoTrack {
                 onLocalVideoTrack?(vt)
-                peerCallDebug("enableCameraMidCall onLocalVideoTrack id=\(vt.trackId) en=\(vt.isEnabled)")
             }
             if needsRenegotiation {
                 let remoteReady = pc.remoteDescription != nil
                 let canOffer = remoteReady || addedVideoTransceiver
-                peerCallDebug(
-                    "reoffer needs=\(needsRenegotiation) remoteSDP=\(remoteReady) addedTx=\(addedVideoTransceiver) canOffer=\(canOffer) signaling=\(pc.signalingState)"
-                )
                 if canOffer {
                     try await createAndSendOffer()
-                    peerCallDebug("enableCameraMidCall createAndSendOffer done")
-                } else {
-                    peerCallDebug("reoffer skipped: in-flight initial offer already has video m-line")
                 }
             }
         } catch {
-            peerCallDebug("enableCameraMidCall FAILED: \(error)")
         }
     }
 
     private func createAndSendOffer() async throws {
         guard let pc = peerConnection else { return }
-        peerCallDebug(
-            "createAndSendOffer signaling=\(pc.signalingState) ice=\(pc.iceConnectionState) conn=\(pc.connectionState)"
-        )
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pc.offer(for: constraints) { sdp, error in
@@ -379,19 +654,23 @@ final class PeerWebRTCCallSession: NSObject {
         }
         let json = try offerJSONString(from: localSDP)
         let compressed = try PeerWebRTCStringCompression.gzipCompressUtf8(json)
-        MezonSocket.shared.forwardWebrtcSignaling(
+        sendRealtimePeerSignaling(
             receiverId: peerUserId,
             dataType: WebRTCSignalingDataType.sdpOffer,
-            jsonData: compressed,
-            channelId: channelId,
-            callerId: myUserId
+            jsonData: compressed
         )
         flushPendingOutgoingIceIfPossible()
+        bindLocalAudioForOutbound(pc: pc)
+        if localCameraEnabled {
+            bindLocalVideoForOutbound(pc: pc)
+        }
     }
 
     private func finishCall(sendQuit: Bool) {
         guard !ended else { return }
         ended = true
+        clearPreWarmDeferralPipeline()
+        incomingAnswerFlowStarted = false
         PeerCallSoundPlayer.shared.stopAll()
         cancelOutgoingRingTimer()
         cancelIncomingRingTimer()
@@ -412,13 +691,14 @@ final class PeerWebRTCCallSession: NSObject {
         }
 
         if sendQuit {
-            MezonSocket.shared.forwardWebrtcSignaling(
+            sendRealtimePeerSignaling(
                 receiverId: peerUserId,
                 dataType: WebRTCSignalingDataType.sdpQuit,
-                jsonData: "",
-                channelId: channelId,
-                callerId: myUserId
+                jsonData: ""
             )
+        }
+        if direction == .incoming {
+            CallKitManager.shared.clearVoipQuitSnapshot()
         }
         tearDownResources()
         WebRTCCallManager.shared.detachSession(self)
@@ -434,11 +714,14 @@ final class PeerWebRTCCallSession: NSObject {
         remoteVideoInboundBytesProbeTask = nil
         remoteVideoInboundMonitorTask?.cancel()
         remoteVideoInboundMonitorTask = nil
+        audioFlowVerifyTask?.cancel()
+        audioFlowVerifyTask = nil
         lastEmittedRemoteVideoInboundActive = false
         onRemoteVideoInboundActive?(false)
         isScanningTransceivers = false
         delegateDeliveredRemoteVideoTrackIds.removeAll()
         lastPublishedRemoteVideoTrackId = nil
+        remoteCameraEnabledFromSignaling = true
         videoCapturer?.stopCapture(completionHandler: {})
         videoCapturer = nil
         localVideoTrack = nil
@@ -482,8 +765,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func configureAudioSession() throws {
         let rtc = LKRTCAudioSession.sharedInstance()
-        rtc.useManualAudio = false
-        rtc.isAudioEnabled = true
+        rtc.useManualAudio = true
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         let useVideoChat = wantsVideo || localVideoTrack != nil || localCameraEnabled
@@ -501,12 +783,14 @@ final class PeerWebRTCCallSession: NSObject {
         } else {
             cfg.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
         }
-        try rtc.setConfiguration(cfg, active: true)
-        let port: AVAudioSession.PortOverride = localSpeakerEnabled ? .speaker : .none
-        try rtc.overrideOutputAudioPort(port)
-        peerCallDebug(
-            "configureAudioSession mode=\(localSpeakerEnabled ? (useVideoChat ? "videoChat" : "voiceChat") : "voiceChat(earpiece)")"
-        )
+        let activateSelf = direction == .outgoing
+        rtc.isAudioEnabled = false
+        try rtc.setConfiguration(cfg, active: activateSelf)
+        if rtc.isActive {
+            rtc.isAudioEnabled = true
+            let port: AVAudioSession.PortOverride = localSpeakerEnabled ? .speaker : .none
+            try? rtc.overrideOutputAudioPort(port)
+        }
     }
 
     private func applySpeakerOutputRoute() throws {
@@ -575,25 +859,34 @@ final class PeerWebRTCCallSession: NSObject {
     private func rtpTransceiverSetSendRecv(_ tx: LKRTCRtpTransceiver) {
         var err: NSError?
         tx.setDirection(.sendRecv, error: &err)
-        if let e = err {
-            peerCallDebug("setSendRecv error: \(e)")
-        }
     }
 
     private func bindLocalAudioForOutbound(pc: LKRTCPeerConnection) {
         guard let at = localAudioTrack else {
-            peerCallDebug("bindLocalAudio skip: no localAudioTrack")
             return
         }
         let aTx = pc.transceivers.filter { $0.mediaType == .audio && !$0.isStopped }
-        peerCallDebug("bindLocalAudio audioTx.count=\(aTx.count) senders=\(pc.senders.count)")
         var picked: LKRTCRtpTransceiver?
         for tx in aTx {
-            var cur = LKRTCRtpTransceiverDirection.inactive
-            if tx.currentDirection(&cur) {
-                if cur == .sendOnly || cur == .sendRecv {
-                    picked = tx
-                    break
+            if (tx.sender.track as? LKRTCAudioTrack) === at {
+                picked = tx
+                break
+            }
+        }
+        if picked == nil {
+            for tx in aTx where tx.sender.track == nil {
+                picked = tx
+                break
+            }
+        }
+        if picked == nil {
+            for tx in aTx {
+                var cur = LKRTCRtpTransceiverDirection.inactive
+                if tx.currentDirection(&cur) {
+                    if cur == .sendOnly || cur == .sendRecv {
+                        picked = tx
+                        break
+                    }
                 }
             }
         }
@@ -601,7 +894,6 @@ final class PeerWebRTCCallSession: NSObject {
             picked = aTx.first
         }
         guard let tx = picked else {
-            peerCallDebug("bindLocalAudio WARNING: no audio transceiver")
             return
         }
         tx.sender.track = at
@@ -610,19 +902,14 @@ final class PeerWebRTCCallSession: NSObject {
         }
         rtpTransceiverSetSendRecv(tx)
         at.isEnabled = localMicEnabled
-        peerCallDebug(
-            "bindLocalAudio track=\(at.trackId) mid=\(tx.mid) micEn=\(localMicEnabled) streamIds=\(tx.sender.streamIds)"
-        )
     }
 
     private func bindLocalVideoForOutbound(pc: LKRTCPeerConnection) {
         guard let vt = localVideoTrack else {
-            peerCallDebug("bindLocalVideo skip: no localVideoTrack")
             return
         }
         let vTx = pc.transceivers.filter { $0.mediaType == .video && !$0.isStopped }
         guard let tx = vTx.first else {
-            peerCallDebug("bindLocalVideo WARNING: no video transceiver")
             return
         }
         tx.sender.track = vt
@@ -630,9 +917,6 @@ final class PeerWebRTCCallSession: NSObject {
             tx.sender.streamIds = ["mezon_local_video"]
         }
         rtpTransceiverSetSendRecv(tx)
-        peerCallDebug(
-            "bindLocalVideo track=\(vt.trackId) mid=\(tx.mid) streamIds=\(tx.sender.streamIds)"
-        )
     }
 
     private func attachLocalTracksAfterRemoteOffer(offerHasVideo: Bool) {
@@ -640,7 +924,6 @@ final class PeerWebRTCCallSession: NSObject {
         bindLocalAudioForOutbound(pc: pc)
         if offerHasVideo, wantsVideo, localVideoTrack != nil {
             bindLocalVideoForOutbound(pc: pc)
-            peerCallVideoLog("answer attach video via bindLocalVideo")
         }
     }
 
@@ -715,12 +998,10 @@ final class PeerWebRTCCallSession: NSObject {
         let json = try offerJSONString(from: localSDP)
         let compressed = try PeerWebRTCStringCompression.gzipCompressUtf8(json)
 
-        MezonSocket.shared.forwardWebrtcSignaling(
+        sendRealtimePeerSignaling(
             receiverId: peerUserId,
             dataType: WebRTCSignalingDataType.sdpOffer,
-            jsonData: compressed,
-            channelId: channelId,
-            callerId: myUserId
+            jsonData: compressed
         )
 
         let pushBody = MakeCallPushBody(
@@ -751,7 +1032,6 @@ final class PeerWebRTCCallSession: NSObject {
         drainPendingRemoteIce()
         bindLocalAudioForOutbound(pc: pc)
         emitLocalMediaState()
-        peerCallDebug("startOutgoingPeerConnection onLocalVideoTrack(nil) after connect (preview until user enables camera)")
         onLocalVideoTrack?(nil)
         scanTransceiversForRemoteVideo()
         scheduleDeferredRemoteVideoScan()
@@ -816,12 +1096,10 @@ final class PeerWebRTCCallSession: NSObject {
         let answerJson = try answerJSONString(from: localSDP)
         let compressedAnswer = try PeerWebRTCStringCompression.gzipCompressUtf8(answerJson)
 
-        MezonSocket.shared.forwardWebrtcSignaling(
+        sendRealtimePeerSignaling(
             receiverId: peerUserId,
             dataType: WebRTCSignalingDataType.sdpAnswer,
-            jsonData: compressedAnswer,
-            channelId: channelId,
-            callerId: myUserId
+            jsonData: compressedAnswer
         )
 
         forwardLocalMediaStatus()
@@ -831,7 +1109,6 @@ final class PeerWebRTCCallSession: NSObject {
         drainPendingRemoteIce()
         bindLocalAudioForOutbound(pc: pc)
         emitLocalMediaState()
-        peerCallDebug("buildIncomingPeerConnectionAndAnswer onLocalVideoTrack(nil) after answer (preview until user enables camera)")
         onLocalVideoTrack?(nil)
         scanTransceiversForRemoteVideo()
         scheduleDeferredRemoteVideoScan()
@@ -919,7 +1196,6 @@ final class PeerWebRTCCallSession: NSObject {
             scheduleDeferredRemoteVideoScan()
             scheduleRemoteVideoPostConnectWork()
         } catch {
-            peerCallDebug("applyCompressedAnswer failed: \(error)")
         }
     }
 
@@ -960,12 +1236,10 @@ final class PeerWebRTCCallSession: NSObject {
             guard let localSDP = pc.localDescription else { return }
             let json = try answerJSONString(from: localSDP)
             let compressed = try PeerWebRTCStringCompression.gzipCompressUtf8(json)
-            MezonSocket.shared.forwardWebrtcSignaling(
+            sendRealtimePeerSignaling(
                 receiverId: peerUserId,
                 dataType: WebRTCSignalingDataType.sdpAnswer,
-                jsonData: compressed,
-                channelId: channelId,
-                callerId: myUserId
+                jsonData: compressed
             )
             flushPendingOutgoingIceIfPossible()
             drainPendingRemoteIce()
@@ -977,7 +1251,6 @@ final class PeerWebRTCCallSession: NSObject {
             scheduleDeferredRemoteVideoScan()
             scheduleRemoteVideoPostConnectWork()
         } catch {
-            peerCallDebug("handleRenegotiationOffer failed: \(error)")
         }
     }
 
@@ -1000,7 +1273,8 @@ final class PeerWebRTCCallSession: NSObject {
                 return
             }
             try await addIceCandidate(cand, pc: pc)
-        } catch {}
+        } catch {
+        }
     }
 
     private func addIceCandidate(_ cand: LKRTCIceCandidate, pc: LKRTCPeerConnection) async throws {
@@ -1019,16 +1293,15 @@ final class PeerWebRTCCallSession: NSObject {
         guard let pc = peerConnection, pc.remoteDescription != nil else { return }
         let batch = pendingOutgoingIce
         pendingOutgoingIce.removeAll()
+        guard !batch.isEmpty else { return }
         for cand in batch {
             guard let data = try? iceCandidateJSONData(cand),
                   let json = String(data: data, encoding: .utf8)
             else { continue }
-            MezonSocket.shared.forwardWebrtcSignaling(
+            sendRealtimePeerSignaling(
                 receiverId: peerUserId,
                 dataType: WebRTCSignalingDataType.iceCandidate,
-                jsonData: json,
-                channelId: channelId,
-                callerId: myUserId
+                jsonData: json
             )
         }
     }
@@ -1044,30 +1317,70 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
-    private func iceCandidateJSONData(_ cand: LKRTCIceCandidate) throws -> Data {
+    nonisolated private static func iceCandidateJSONDataForWire(_ cand: LKRTCIceCandidate) throws -> Data {
         let wire = IceCandidateWire(candidate: cand.sdp, sdpMLineIndex: cand.sdpMLineIndex, sdpMid: cand.sdpMid)
         return try JSONEncoder().encode(wire)
     }
 
+    private func iceCandidateJSONData(_ cand: LKRTCIceCandidate) throws -> Data {
+        try Self.iceCandidateJSONDataForWire(cand)
+    }
+
     private func forwardSignalingConnectedHandshake() {
-        MezonSocket.shared.forwardWebrtcSignaling(
+        sendRealtimePeerSignaling(
             receiverId: peerUserId,
             dataType: WebRTCSignalingDataType.sdpInit,
-            jsonData: "",
-            channelId: channelId,
-            callerId: myUserId
+            jsonData: ""
         )
         forwardLocalMediaStatus()
     }
 
+    private func postConnectedStatusToUIIfNeeded() {
+        guard !didPostConnectedStatusToUI else { return }
+        guard !ended else { return }
+        didPostConnectedStatusToUI = true
+        let mediaConnectedAt = Date()
+        onCallMediaConnectedAt?(mediaConnectedAt)
+        onStatusLabel?("Connected")
+        NotificationCenter.default.post(
+            name: .mezonPeerCallDidConnect,
+            object: nil,
+            userInfo: [
+                "channelId": NSNumber(value: channelId),
+                "callerId": NSNumber(value: peerUserId),
+            ]
+        )
+    }
+
+    private func tryPresentFullyConnectedCallUI() {
+        guard iceConnectedOrCompletedForUI, peerConnectionReportedConnectedForUI else { return }
+        guard !didPostConnectedStatusToUI else { return }
+        if beganAudioFlowVerification { return }
+        beganAudioFlowVerification = true
+        audioFlowVerifyTask?.cancel()
+        audioFlowVerifyTask = Task { @MainActor in
+            let deadline = Date().addingTimeInterval(12)
+            let pollNs: UInt64 = 120_000_000
+            while !Task.isCancelled, !self.ended {
+                if let pc = self.peerConnection, await Self.hasInboundAudioRtp(peerConnection: pc) {
+                    self.postConnectedStatusToUIIfNeeded()
+                    return
+                }
+                if Date() >= deadline {
+                    self.postConnectedStatusToUIIfNeeded()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: pollNs)
+            }
+        }
+    }
+
     private func forwardLocalMediaStatus() {
         let payload = "{\"cameraEnabled\":\(localCameraEnabled),\"micEnabled\":\(localMicEnabled)}"
-        MezonSocket.shared.forwardWebrtcSignaling(
+        sendRealtimePeerSignaling(
             receiverId: peerUserId,
             dataType: WebRTCSignalingDataType.sdpStatusRemoteMedia,
-            jsonData: payload,
-            channelId: channelId,
-            callerId: myUserId
+            jsonData: payload
         )
     }
 
@@ -1092,7 +1405,17 @@ final class PeerWebRTCCallSession: NSObject {
         if let m = boolFromKeys(["micEnabled", "mic_enabled"]) {
             remoteMicEnabled = m
         }
-        peerCallVideoLog("applyRemoteMediaWire json=\(json) -> mic=\(remoteMicEnabled)")
+        if let cam = boolFromKeys(["cameraEnabled", "camera_enabled"]) {
+            remoteCameraEnabledFromSignaling = cam
+            if !cam {
+                lastPublishedRemoteVideoTrackId = nil
+                onRemoteVideoTrack?(nil)
+                emitRemoteVideoInboundActive(false)
+            } else {
+                scanTransceiversForRemoteVideo()
+                scheduleDeferredRemoteVideoScan()
+            }
+        }
         onRemoteMedia?(remoteMicEnabled)
     }
 
@@ -1114,23 +1437,21 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func publishRemoteVideoTrack(_ track: LKRTCVideoTrack, fromPeerDelegate: Bool = false) {
         if let localVideoTrack, track.trackId == localVideoTrack.trackId {
-            peerCallVideoLog("publishRemoteVideoTrack skip local trackId=\(track.trackId)")
+            return
+        }
+        guard remoteCameraEnabledFromSignaling else {
             return
         }
         if fromPeerDelegate, !delegateDeliveredRemoteVideoTrackIds.contains(track.trackId) {
             delegateDeliveredRemoteVideoTrackIds.append(track.trackId)
         }
         if lastPublishedRemoteVideoTrackId == track.trackId {
-            peerCallVideoLog("publishRemoteVideoTrack redispatch id=\(track.trackId)")
             track.isEnabled = true
             track.shouldReceive = true
             return
         }
         track.isEnabled = true
         track.shouldReceive = true
-        peerCallVideoLog(
-            "publishRemoteVideoTrack \(peerCallVideoTrackLabel(track)) delegateHint=\(delegateDeliveredRemoteVideoTrackIds)"
-        )
         lastPublishedRemoteVideoTrackId = track.trackId
         onRemoteVideoTrack?(track)
     }
@@ -1139,37 +1460,27 @@ final class PeerWebRTCCallSession: NSObject {
         guard !ended else { return }
         guard let pc = peerConnection else { return }
         if isScanningTransceivers {
-            peerCallVideoLog("scanTransceivers skip (reentrant)")
             return
         }
         isScanningTransceivers = true
         defer { isScanningTransceivers = false }
         let txs = pc.transceivers
-        peerCallVideoLog("scanTransceivers txs.count=\(txs.count)")
         let localVideoTrackId = localVideoTrack?.trackId
         var candidates: [(tx: LKRTCRtpTransceiver, track: LKRTCVideoTrack)] = []
         for tx in txs {
             guard tx.mediaType == .video else { continue }
             guard let t = tx.receiver.track as? LKRTCVideoTrack else { continue }
             if let localVideoTrackId, t.trackId == localVideoTrackId {
-                peerCallVideoLog("scanTransceivers skip receiver trackId matches localVideoTrack")
                 continue
             }
             candidates.append((tx, t))
         }
         guard !candidates.isEmpty else {
-            peerCallVideoLog("scanTransceivers no remote-shaped video receiver track")
             if lastPublishedRemoteVideoTrackId != nil {
-                peerCallVideoLog("scanTransceivers clear published remote video")
                 lastPublishedRemoteVideoTrackId = nil
                 onRemoteVideoTrack?(nil)
             }
             return
-        }
-        for (idx, c) in candidates.enumerated() {
-            peerCallVideoLog(
-                "scanTransceivers candidate[\(idx)] dir=\(c.tx.direction) \(peerCallVideoTrackLabel(c.track))"
-            )
         }
         candidates.sort { a, b in
             let ra = delegateDeliveryRank(a.track.trackId)
@@ -1181,9 +1492,6 @@ final class PeerWebRTCCallSession: NSObject {
             return a.track.trackId < b.track.trackId
         }
         let picked = candidates[0]
-        peerCallVideoLog(
-            "scanTransceivers picked dir=\(picked.tx.direction) track=\(peerCallVideoTrackLabel(picked.track)) among \(candidates.count) candidate(s) delegateOrder=\(delegateDeliveredRemoteVideoTrackIds)"
-        )
         publishRemoteVideoTrack(picked.track)
     }
 
@@ -1213,19 +1521,13 @@ final class PeerWebRTCCallSession: NSObject {
                 guard let vt = tx.receiver.track as? LKRTCVideoTrack else { continue }
                 if let localVideoTrack, vt.trackId == localVideoTrack.trackId { continue }
                 let report = await Self.receiverStatisticsReport(peerConnection: pc, receiver: tx.receiver)
-                let line = Self.summarizedStatsLine(report: report)
-                peerCallVideoLog("inboundProbe receiver track=\(vt.trackId.prefix(8))... stats=\(line)")
                 let b = Self.bytesReceivedVideoInbound(from: report)
                 picks.append((vt, b))
             }
-            let summary = picks.map { "\($0.track.trackId.prefix(8)):\($0.bytes)" }.joined(separator: ",")
-            peerCallVideoLog("inboundProbe bytesByTrack=[\(summary)] published=\(lastPublishedRemoteVideoTrackId ?? "nil")")
             guard let best = picks.max(by: { $0.bytes < $1.bytes }), best.bytes > 0 else { return }
             guard best.track.trackId != lastPublishedRemoteVideoTrackId else {
-                peerCallVideoLog("inboundProbe keep track=\(best.track.trackId.prefix(8))... bytes=\(best.bytes)")
                 return
             }
-            peerCallVideoLog("inboundProbe republish track=\(best.track.trackId) bytes=\(best.bytes)")
             publishRemoteVideoTrack(best.track, fromPeerDelegate: false)
         }
     }
@@ -1303,6 +1605,31 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    private nonisolated static func hasInboundAudioRtp(peerConnection: LKRTCPeerConnection) async -> Bool {
+        for tx in peerConnection.transceivers where tx.mediaType == .audio {
+            let report = await receiverStatisticsReport(peerConnection: peerConnection, receiver: tx.receiver)
+            if audioInboundPresent(in: report) { return true }
+        }
+        return await withCheckedContinuation { cont in
+            peerConnection.statistics { report in
+                cont.resume(returning: audioInboundPresent(in: report))
+            }
+        }
+    }
+
+    private nonisolated static func audioInboundPresent(in report: LKRTCStatisticsReport) -> Bool {
+        for (_, stat) in report.statistics {
+            let st = stat.type
+            guard st == "inbound-rtp" || st == "remote-inbound-rtp" else { continue }
+            let vals = stat.values
+            guard (vals["kind"] as? String) == "audio" else { continue }
+            let br = (vals["bytesReceived"] as? NSNumber)?.uint64Value ?? 0
+            let pr = (vals["packetsReceived"] as? NSNumber)?.uint64Value ?? 0
+            if br > 0 || pr > 0 { return true }
+        }
+        return false
+    }
+
     private nonisolated static func bytesReceivedVideoInbound(from report: LKRTCStatisticsReport) -> UInt64 {
         var maxBytes: UInt64 = 0
         for (_, stat) in report.statistics {
@@ -1315,54 +1642,6 @@ final class PeerWebRTCCallSession: NSObject {
             }
         }
         return maxBytes
-    }
-
-    private nonisolated static func summarizedStatsLine(report: LKRTCStatisticsReport) -> String {
-        report.statistics
-            .map { _, s in
-                let v = s.values
-                let br = (v["bytesReceived"] as? NSNumber)?.uint64Value ?? 0
-                let fd = (v["framesDecoded"] as? NSNumber)?.intValue ?? -1
-                let kind = v["kind"] as? String ?? "."
-                return "\(s.type)(\(kind) b=\(br) dec=\(fd))"
-            }
-            .joined(separator: ";")
-    }
-
-    private func scheduleAudioOutboundDiagnostics() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !ended, let pc = peerConnection else { return }
-            pc.statistics { [weak self] report in
-                guard let self else { return }
-                Task { @MainActor in
-                    var found = false
-                    for (_, stat) in report.statistics {
-                        guard stat.type == "outbound-rtp" else { continue }
-                        let vals = stat.values
-                        guard (vals["kind"] as? String) == "audio" else { continue }
-                        let bytes = (vals["bytesSent"] as? NSNumber)?.uint64Value ?? 0
-                        let packets = (vals["packetsSent"] as? NSNumber)?.uint64Value ?? 0
-                        self.peerCallDebug("audioOutboundStats bytesSent=\(bytes) packetsSent=\(packets)")
-                        found = true
-                    }
-                    if !found {
-                        self.peerCallDebug("audioOutboundStats: no outbound-rtp audio (check session + transceiver)")
-                    }
-                }
-            }
-        }
-    }
-
-    private func peerCallVideoLog(_: String) {
-    }
-
-    private func peerCallDebug(_: String) {
-    }
-
-    private func peerCallVideoTrackLabel(_ track: LKRTCVideoTrack) -> String {
-        let st = String(describing: track.readyState)
-        return "id=\(track.trackId) enabled=\(track.isEnabled) readyState=\(st) shouldReceive=\(track.shouldReceive)"
     }
 
     private func scheduleDeferredRemoteVideoScan() {
@@ -1408,10 +1687,12 @@ private struct MakeCallPushBody: Encodable {
 
 extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCPeerConnectionState) {
+        if Self.preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             switch state {
             case .connected:
-                peerCallVideoLog("PC RTCPeerConnectionState connected -> scan")
+                peerConnectionReportedConnectedForUI = true
+                tryPresentFullyConnectedCallUI()
                 scanTransceiversForRemoteVideo()
                 scheduleDeferredRemoteVideoScan()
                 scheduleRemoteVideoPostConnectWork()
@@ -1424,6 +1705,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) {
+        if Self.preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             switch state {
             case .connected, .completed:
@@ -1432,10 +1714,10 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 cancelOutgoingRingTimer()
                 PeerCallSoundPlayer.shared.stopDialTone()
                 didEstablishMediaConnection = true
+                iceConnectedOrCompletedForUI = true
+                tryPresentFullyConnectedCallUI()
                 onNetworkBanner?(nil)
-                onStatusLabel?("Connected")
                 forwardSignalingConnectedHandshake()
-                peerCallVideoLog("ICE connected/completed -> scan + deferred scan")
                 try? configureAudioSession()
                 if let pc = peerConnection {
                     bindLocalAudioForOutbound(pc: pc)
@@ -1443,7 +1725,6 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                         bindLocalVideoForOutbound(pc: pc)
                     }
                 }
-                scheduleAudioOutboundDiagnostics()
                 scanTransceiversForRemoteVideo()
                 scheduleDeferredRemoteVideoScan()
                 scheduleRemoteVideoPostConnectWork()
@@ -1462,6 +1743,13 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
+        if Self.preWarmBackgroundIceFlag.get() {
+            if let data = try? Self.iceCandidateJSONDataForWire(candidate),
+               let json = String(data: data, encoding: .utf8) {
+                threadSafePreWarmSignaling.append((signalingDestinationUserId, WebRTCSignalingDataType.iceCandidate, json))
+            }
+            return
+        }
         Task { @MainActor in
             guard let pc = peerConnection else { return }
             if pc.remoteDescription == nil {
@@ -1470,12 +1758,10 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 guard let data = try? iceCandidateJSONData(candidate),
                       let json = String(data: data, encoding: .utf8)
                 else { return }
-                MezonSocket.shared.forwardWebrtcSignaling(
+                sendRealtimePeerSignaling(
                     receiverId: peerUserId,
                     dataType: WebRTCSignalingDataType.iceCandidate,
-                    jsonData: json,
-                    channelId: channelId,
-                    callerId: myUserId
+                    jsonData: json
                 )
             }
         }
@@ -1484,11 +1770,9 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd rtpReceiver: LKRTCRtpReceiver, streams: [LKRTCMediaStream]) {
+        if Self.preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
-            let kind = rtpReceiver.track?.kind ?? "nil"
-            peerCallVideoLog("delegate didAdd receiver kind=\(kind) streamCount=\(streams.count)")
             guard let vt = pickRemoteVideoTrack(receiver: rtpReceiver, streams: streams) else {
-                peerCallVideoLog("delegate didAdd receiver pickRemoteVideoTrack -> nil")
                 return
             }
             publishRemoteVideoTrack(vt, fromPeerDelegate: true)
@@ -1496,11 +1780,10 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
+        if Self.preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
-            peerCallVideoLog("delegate didStartReceivingOn media=\(transceiver.mediaType)")
             guard transceiver.mediaType == .video else { return }
             guard let vt = transceiver.receiver.track as? LKRTCVideoTrack else {
-                peerCallVideoLog("delegate didStartReceivingOn video transceiver but no LKRTCVideoTrack")
                 return
             }
             publishRemoteVideoTrack(vt, fromPeerDelegate: true)
@@ -1508,8 +1791,8 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
+        if Self.preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
-            peerCallVideoLog("delegate didAdd stream videoTracks=\(stream.videoTracks.count)")
             for i in 0..<stream.videoTracks.count {
                 let vt = stream.videoTracks[i]
                 publishRemoteVideoTrack(vt, fromPeerDelegate: true)
@@ -1522,7 +1805,6 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         Task { @MainActor in
             let kind = rtpReceiver.track?.kind ?? "nil"
             guard kind == "video" else { return }
-            peerCallVideoLog("delegate didRemove video receiver")
             scanTransceiversForRemoteVideo()
         }
     }

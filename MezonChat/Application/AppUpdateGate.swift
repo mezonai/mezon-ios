@@ -3,7 +3,6 @@ import UIKit
 @MainActor
 enum AppUpdateGate {
     private static let appStoreID = "6502750046"
-    private static let countryCode = "vn"
     private static let checkDelay: TimeInterval = 2
     private static var didScheduleCheck = false
     private static var didPresentUpdateSheet = false
@@ -23,7 +22,9 @@ enum AppUpdateGate {
         guard let (remoteVersion, storeURL) = await fetchAppStoreVersion() else {
             return
         }
-        guard remoteVersion.compare(localVersion, options: .numeric) == .orderedDescending else { return }
+        guard remoteVersion.compare(localVersion, options: .numeric) == .orderedDescending else {
+            return
+        }
         didPresentUpdateSheet = true
         let content = AppUpdateRequiredSheetViewController(storeURL: storeURL, remoteVersion: remoteVersion)
         let nav = UINavigationController(rootViewController: content)
@@ -34,13 +35,30 @@ enum AppUpdateGate {
     }
 
     private static func fetchAppStoreVersion() async -> (String, URL)? {
-        let url = URL(string: "https://itunes.apple.com/lookup?id=\(appStoreID)&country=\(countryCode)")!
+        await fetchLookupDefault()
+    }
+
+    private static func fetchLookupDefault() async -> (String, URL)? {
+        var components = URLComponents(string: "https://itunes.apple.com/lookup")!
+        components.queryItems = [URLQueryItem(name: "id", value: appStoreID)]
+        guard let url = components.url else { return nil }
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
-            let decoded = try JSONDecoder().decode(ITunesLookupResponse.self, from: data)
-            guard let first = decoded.results.first else { return nil }
-            guard let storeURL = URL(string: first.trackViewUrl) else { return nil }
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return nil
+            }
+            let decoded: ITunesLookupResponse
+            do {
+                decoded = try JSONDecoder().decode(ITunesLookupResponse.self, from: data)
+            } catch {
+                return nil
+            }
+            guard let first = decoded.results.first else {
+                return nil
+            }
+            guard let storeURL = URL(string: first.trackViewUrl) else {
+                return nil
+            }
             return (first.version, storeURL)
         } catch {
             return nil

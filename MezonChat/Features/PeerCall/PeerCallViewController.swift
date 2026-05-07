@@ -32,7 +32,7 @@ final class PeerCallViewController: UIViewController {
     private let subtitleLabel = UILabel()
     private let durationLabel = UILabel()
 
-    private let remoteMutedBanner = UIView()
+    private let remoteMutedBanner = UIStackView()
     private let remoteMutedIcon = UIImageView()
     private let remoteMutedLabel = UILabel()
 
@@ -55,6 +55,7 @@ final class PeerCallViewController: UIViewController {
     private let declineButton = UIButton(type: .system)
 
     private var session: PeerWebRTCCallSession?
+    private var userDidExplicitlyEnd = false
     private var didStartDurationTimer = false
     private var connectedDate: Date?
     private var durationTimer: Foundation.Timer?
@@ -71,6 +72,7 @@ final class PeerCallViewController: UIViewController {
 
     private var durationConstraintAvatar: NSLayoutConstraint?
     private var durationConstraintVideo: NSLayoutConstraint?
+    private var durationTopBelowMutedBanner: NSLayoutConstraint?
     private var mutedBannerBelowAvatar: NSLayoutConstraint?
     private var mutedBannerAboveFooter: NSLayoutConstraint?
 
@@ -80,6 +82,10 @@ final class PeerCallViewController: UIViewController {
 
     private var audioRouteObserver: NSObjectProtocol?
     private var closeHeaderWidthConstraint: NSLayoutConstraint?
+    private var callKitMatchedIncomingObserver: NSObjectProtocol?
+    private let skipIncomingRingingUI: Bool
+    private var connectingSubtitleShownAt: Date?
+    private var pendingConnectedChromeWorkItem: DispatchWorkItem?
 
     init(
         context: AccountContext,
@@ -89,6 +95,7 @@ final class PeerCallViewController: UIViewController {
         channelId: Int64,
         isVideo: Bool
     ) {
+        self.skipIncomingRingingUI = false
         self.accountContext = context
         self.entry = .outgoing(isVideo: isVideo, remoteUserName: remoteUserName, remoteAvatarURL: remoteAvatarURL, remoteUserId: remoteUserId, channelId: channelId)
         super.init(nibName: nil, bundle: nil)
@@ -100,8 +107,10 @@ final class PeerCallViewController: UIViewController {
         context: AccountContext,
         incoming payload: IncomingPeerCallPayload,
         remoteDisplayName: String,
-        remoteAvatarURL: String?
+        remoteAvatarURL: String?,
+        skipIncomingRingingUI: Bool = false
     ) {
+        self.skipIncomingRingingUI = skipIncomingRingingUI
         self.accountContext = context
         self.entry = .incoming(payload: payload, remoteDisplayName: remoteDisplayName, remoteAvatarURL: remoteAvatarURL)
         super.init(nibName: nil, bundle: nil)
@@ -115,19 +124,30 @@ final class PeerCallViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        if case .incoming(let payload, _, _) = entry, payload.resolvedCompressedOffer() == nil {
-            DispatchQueue.main.async { [weak self] in
-                self?.closeFromBadPayload()
+        if case .incoming(let payload, _, _) = entry {
+            guard payload.channelId != 0, payload.callerId != 0 else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.closeFromBadPayload()
+                }
+                return
             }
-            return
+            if !skipIncomingRingingUI {
+                callKitMatchedIncomingObserver = NotificationCenter.default.addObserver(
+                    forName: .mezonCallKitMatchedExistingIncoming,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] note in
+                    self?.handleCallKitMatchedExistingIncoming(note)
+                }
+            }
         }
 
-        view.backgroundColor = UIColor(red: 0.06, green: 0.07, blue: 0.10, alpha: 1)
+        view.backgroundColor = UIColor(red: 28 / 255, green: 29 / 255, blue: 35 / 255, alpha: 1)
 
         gradientHost.translatesAutoresizingMaskIntoConstraints = false
         gradientHost.isUserInteractionEnabled = false
-        let g0 = UIColor(red: 0.06, green: 0.07, blue: 0.10, alpha: 1).cgColor
-        let g1 = UIColor(red: 0.11, green: 0.12, blue: 0.17, alpha: 1).cgColor
+        let g0 = UIColor(red: 19 / 255, green: 19 / 255, blue: 24 / 255, alpha: 1).cgColor
+        let g1 = UIColor(red: 19 / 255, green: 19 / 255, blue: 24 / 255, alpha: 1).cgColor
         gradientLayer.colors = [g0, g1]
         gradientLayer.locations = [0, 1]
         gradientLayer.startPoint = CGPoint(x: 1, y: 0)
@@ -137,15 +157,16 @@ final class PeerCallViewController: UIViewController {
         remoteBackdrop.translatesAutoresizingMaskIntoConstraints = false
         remoteBackdrop.backgroundColor = UIColor.black.withAlphaComponent(0.92)
         remoteBackdrop.isHidden = true
+        remoteBackdrop.isUserInteractionEnabled = false
 
         remoteVideoView.translatesAutoresizingMaskIntoConstraints = false
         remoteVideoView.isHidden = false
         remoteVideoView.alpha = 0
         remoteVideoView.attach(track: nil)
         localVideoView.translatesAutoresizingMaskIntoConstraints = false
-        localVideoView.layer.cornerRadius = 8
+        localVideoView.layer.cornerRadius = 0
         localVideoView.layer.borderWidth = 1
-        localVideoView.layer.borderColor = UIColor.mezonBorder.cgColor
+        localVideoView.layer.borderColor = UIColor(red: 42 / 255, green: 45 / 255, blue: 49 / 255, alpha: 1).cgColor
         localVideoView.clipsToBounds = true
         localVideoView.isHidden = true
 
@@ -177,12 +198,12 @@ final class PeerCallViewController: UIViewController {
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
-        avatarImageView.layer.cornerRadius = 54
+            avatarImageView.layer.cornerRadius = 50
         avatarImageView.backgroundColor = UIColor.white.withAlphaComponent(0.08)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textAlignment = .center
-        titleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         titleLabel.textColor = .white
 
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -192,25 +213,36 @@ final class PeerCallViewController: UIViewController {
 
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
         durationLabel.textAlignment = .center
-        durationLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .medium)
+        durationLabel.font = .monospacedDigitSystemFont(ofSize: 16, weight: .medium)
         durationLabel.textColor = UIColor.white.withAlphaComponent(0.92)
         durationLabel.isHidden = true
+        durationLabel.numberOfLines = 1
+        durationLabel.setContentCompressionResistancePriority(.required, for: .vertical)
 
+        remoteMutedBanner.axis = .horizontal
+        remoteMutedBanner.alignment = .center
+        remoteMutedBanner.spacing = 8
+        remoteMutedBanner.isLayoutMarginsRelativeArrangement = true
+        remoteMutedBanner.layoutMargins = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         remoteMutedBanner.translatesAutoresizingMaskIntoConstraints = false
         remoteMutedBanner.backgroundColor = UIColor.white.withAlphaComponent(0.14)
         remoteMutedBanner.layer.cornerRadius = 20
         remoteMutedBanner.clipsToBounds = true
         remoteMutedBanner.isHidden = true
+        remoteMutedBanner.setContentHuggingPriority(.required, for: .horizontal)
+        remoteMutedBanner.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        remoteMutedIcon.translatesAutoresizingMaskIntoConstraints = false
         remoteMutedIcon.image = UIImage(systemName: "mic.slash.fill")
         remoteMutedIcon.tintColor = .white
+        remoteMutedIcon.contentMode = .scaleAspectFit
+        remoteMutedIcon.setContentHuggingPriority(.required, for: .horizontal)
 
-        remoteMutedLabel.translatesAutoresizingMaskIntoConstraints = false
         remoteMutedLabel.font = .systemFont(ofSize: 14)
         remoteMutedLabel.textColor = UIColor.white.withAlphaComponent(0.92)
         remoteMutedLabel.numberOfLines = 2
-        remoteMutedLabel.textAlignment = .center
+        remoteMutedLabel.textAlignment = .natural
+        remoteMutedLabel.lineBreakMode = .byWordWrapping
+        remoteMutedLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         networkBanner.translatesAutoresizingMaskIntoConstraints = false
         networkBanner.textAlignment = .center
@@ -222,10 +254,10 @@ final class PeerCallViewController: UIViewController {
         networkBanner.isHidden = true
 
         footerContainer.translatesAutoresizingMaskIntoConstraints = false
-        footerContainer.backgroundColor = UIColor(red: 0.11, green: 0.11, blue: 0.14, alpha: 0.97)
+        footerContainer.backgroundColor = .clear
         footerContainer.isUserInteractionEnabled = true
         activeFooterStack.axis = .horizontal
-        activeFooterStack.spacing = 40
+        activeFooterStack.spacing = 30
         activeFooterStack.distribution = .equalSpacing
         activeFooterStack.alignment = .center
         activeFooterStack.translatesAutoresizingMaskIntoConstraints = false
@@ -242,31 +274,33 @@ final class PeerCallViewController: UIViewController {
 
         configureFooterCircle(speakerButton, side: 54)
         speakerButton.addTarget(self, action: #selector(speakerTapped), for: .touchUpInside)
-        speakerCaption.font = .systemFont(ofSize: 12, weight: .medium)
-        speakerCaption.textColor = UIColor.white.withAlphaComponent(0.85)
+        speakerCaption.font = .systemFont(ofSize: 12, weight: .semibold)
+        speakerCaption.textColor = UIColor.white.withAlphaComponent(0.92)
 
         configureFooterCircle(endButton, side: 54)
         endButton.setImage(UIImage(systemName: "phone.down.fill"), for: .normal)
         endButton.addTarget(self, action: #selector(endTapped), for: .touchUpInside)
 
-        NSLayoutConstraint.activate([
-            speakerButton.widthAnchor.constraint(equalToConstant: 54),
-            speakerButton.heightAnchor.constraint(equalToConstant: 54),
-            endButton.widthAnchor.constraint(equalToConstant: 54),
-            endButton.heightAnchor.constraint(equalToConstant: 54),
-            micButton.widthAnchor.constraint(equalToConstant: 54),
-            micButton.heightAnchor.constraint(equalToConstant: 54),
-        ])
-
-        endCaption.font = .systemFont(ofSize: 12, weight: .medium)
-        endCaption.textColor = UIColor.white.withAlphaComponent(0.85)
+        endCaption.font = .systemFont(ofSize: 12, weight: .semibold)
+        endCaption.textColor = UIColor.white.withAlphaComponent(0.92)
         endCaption.text = "End"
 
         configureFooterCircle(micButton, side: 54)
         micButton.addTarget(self, action: #selector(micTapped), for: .touchUpInside)
-        micCaption.font = .systemFont(ofSize: 12, weight: .medium)
-        micCaption.textColor = UIColor.white.withAlphaComponent(0.85)
+        micCaption.font = .systemFont(ofSize: 12, weight: .semibold)
+        micCaption.textColor = UIColor.white.withAlphaComponent(0.92)
         micCaption.text = "Mic"
+
+        let sbW = speakerButton.widthAnchor.constraint(equalToConstant: 54)
+        let sbH = speakerButton.heightAnchor.constraint(equalToConstant: 54)
+        let ebW = endButton.widthAnchor.constraint(equalToConstant: 54)
+        let ebH = endButton.heightAnchor.constraint(equalToConstant: 54)
+        let mbW = micButton.widthAnchor.constraint(equalToConstant: 54)
+        let mbH = micButton.heightAnchor.constraint(equalToConstant: 54)
+        for c in [sbW, sbH, ebW, ebH, mbW, mbH] {
+            c.priority = .defaultHigh
+        }
+        NSLayoutConstraint.activate([sbW, sbH, ebW, ebH, mbW, mbH])
 
         speakerColumn.addArrangedSubview(speakerButton)
         speakerColumn.addArrangedSubview(speakerCaption)
@@ -312,8 +346,13 @@ final class PeerCallViewController: UIViewController {
         avatarBlock.addSubview(titleLabel)
         avatarBlock.addSubview(subtitleLabel)
 
-        remoteMutedBanner.addSubview(remoteMutedIcon)
-        remoteMutedBanner.addSubview(remoteMutedLabel)
+        remoteMutedBanner.addArrangedSubview(remoteMutedIcon)
+        remoteMutedBanner.addArrangedSubview(remoteMutedLabel)
+
+        NSLayoutConstraint.activate([
+            remoteMutedIcon.widthAnchor.constraint(equalToConstant: 22),
+            remoteMutedIcon.heightAnchor.constraint(equalToConstant: 22),
+        ])
 
         footerContainer.addSubview(activeFooterStack)
         footerContainer.addSubview(incomingFooterStack)
@@ -368,8 +407,8 @@ final class PeerCallViewController: UIViewController {
 
             avatarImageView.topAnchor.constraint(equalTo: avatarBlock.topAnchor),
             avatarImageView.centerXAnchor.constraint(equalTo: avatarBlock.centerXAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 108),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 108),
+            avatarImageView.widthAnchor.constraint(equalToConstant: 100),
+            avatarImageView.heightAnchor.constraint(equalToConstant: 100),
 
             titleLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 22),
             titleLabel.leadingAnchor.constraint(equalTo: avatarBlock.leadingAnchor),
@@ -384,25 +423,17 @@ final class PeerCallViewController: UIViewController {
             networkBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             networkBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
 
-            remoteMutedBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            remoteMutedBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-
-            remoteMutedIcon.leadingAnchor.constraint(equalTo: remoteMutedBanner.leadingAnchor, constant: 12),
-            remoteMutedIcon.centerYAnchor.constraint(equalTo: remoteMutedBanner.centerYAnchor),
-            remoteMutedIcon.widthAnchor.constraint(equalToConstant: 22),
-            remoteMutedIcon.heightAnchor.constraint(equalToConstant: 22),
-
-            remoteMutedLabel.leadingAnchor.constraint(equalTo: remoteMutedIcon.trailingAnchor, constant: 8),
-            remoteMutedLabel.trailingAnchor.constraint(equalTo: remoteMutedBanner.trailingAnchor, constant: -12),
-            remoteMutedLabel.topAnchor.constraint(equalTo: remoteMutedBanner.topAnchor, constant: 8),
-            remoteMutedLabel.bottomAnchor.constraint(equalTo: remoteMutedBanner.bottomAnchor, constant: -8),
+            remoteMutedBanner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            remoteMutedBanner.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
+            remoteMutedBanner.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            remoteMutedBanner.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, constant: -32),
 
             durationLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 
-            localVideoView.widthAnchor.constraint(equalToConstant: 118),
-            localVideoView.heightAnchor.constraint(equalToConstant: 210),
+            localVideoView.widthAnchor.constraint(equalToConstant: 140),
+            localVideoView.heightAnchor.constraint(equalToConstant: 165),
             localVideoView.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 10),
-            localVideoView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            localVideoView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10),
 
             footerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -410,12 +441,12 @@ final class PeerCallViewController: UIViewController {
             footerContainer.heightAnchor.constraint(equalToConstant: 152),
 
             activeFooterStack.centerXAnchor.constraint(equalTo: footerContainer.centerXAnchor),
-            activeFooterStack.bottomAnchor.constraint(equalTo: footerContainer.safeAreaLayoutGuide.bottomAnchor, constant: -10),
-            activeFooterStack.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.88),
+            activeFooterStack.bottomAnchor.constraint(equalTo: footerContainer.safeAreaLayoutGuide.bottomAnchor, constant: -28),
+            activeFooterStack.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.75),
 
             incomingFooterStack.centerXAnchor.constraint(equalTo: footerContainer.centerXAnchor),
-            incomingFooterStack.bottomAnchor.constraint(equalTo: footerContainer.safeAreaLayoutGuide.bottomAnchor, constant: -10),
-            incomingFooterStack.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.88),
+            incomingFooterStack.bottomAnchor.constraint(equalTo: footerContainer.safeAreaLayoutGuide.bottomAnchor, constant: -28),
+            incomingFooterStack.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.75),
 
             answerButton.widthAnchor.constraint(equalToConstant: 56),
             answerButton.heightAnchor.constraint(equalToConstant: 56),
@@ -424,15 +455,19 @@ final class PeerCallViewController: UIViewController {
         ])
 
         durationConstraintAvatar = durationLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 10)
-        durationConstraintVideo = durationLabel.bottomAnchor.constraint(equalTo: activeFooterStack.topAnchor, constant: -12)
+        let dcVideo = durationLabel.bottomAnchor.constraint(equalTo: activeFooterStack.topAnchor, constant: -32)
+        dcVideo.priority = .required
+        durationConstraintVideo = dcVideo
+        let topBelowMuted = durationLabel.topAnchor.constraint(equalTo: remoteMutedBanner.bottomAnchor, constant: 14)
+        topBelowMuted.priority = .required
+        durationTopBelowMutedBanner = topBelowMuted
         mutedBannerBelowAvatar = remoteMutedBanner.topAnchor.constraint(equalTo: avatarBlock.bottomAnchor, constant: 16)
-        mutedBannerAboveFooter = remoteMutedBanner.bottomAnchor.constraint(equalTo: footerContainer.topAnchor, constant: -20)
+        mutedBannerAboveFooter = remoteMutedBanner.bottomAnchor.constraint(equalTo: footerContainer.topAnchor, constant: -48)
 
         buildRingViews()
         loadRemoteAvatar()
         applyIdleChromeColors()
         updateHeaderVideoAppearance()
-        updateFooterControlAppearance()
         updateFlipVisibility()
         updateRemoteMutedBanner()
         refreshRemoteCallLayout()
@@ -440,20 +475,31 @@ final class PeerCallViewController: UIViewController {
         switch entry {
         case .outgoing(_, let remoteUserName, _, _, _):
             titleLabel.text = remoteUserName.isEmpty ? "Call" : remoteUserName
-            subtitleLabel.text = "Calling…"
+            subtitleLabel.text = "Ringing…"
             activeFooterStack.isHidden = false
             incomingFooterStack.isHidden = true
-            setCloseHeaderChromeVisible(true)
+            setCloseHeaderChromeVisible(false)
             PeerCallSoundPlayer.shared.playDialToneLoop()
         case .incoming(_, let remoteDisplayName, _):
             titleLabel.text = remoteDisplayName.isEmpty ? "Incoming call" : remoteDisplayName
-            subtitleLabel.text = "Incoming…"
-            activeFooterStack.isHidden = true
-            incomingFooterStack.isHidden = false
-            setCloseHeaderChromeVisible(false)
-            PeerCallSoundPlayer.shared.playRingingLoop()
+            if skipIncomingRingingUI {
+                subtitleLabel.text = "Connecting…"
+                connectingSubtitleShownAt = Date()
+                activeFooterStack.isHidden = false
+                incomingFooterStack.isHidden = true
+                setCloseHeaderChromeVisible(true)
+                PeerCallSoundPlayer.shared.stopAll()
+            } else {
+                subtitleLabel.text = "Incoming…"
+                activeFooterStack.isHidden = true
+                incomingFooterStack.isHidden = false
+                setCloseHeaderChromeVisible(false)
+                PeerCallSoundPlayer.shared.playRingingLoop()
+            }
         }
 
+        updateFooterControlAppearance()
+        updateFlipVisibility()
         startRingPulseIfNeeded()
 
         buildSessionAndCallbacks()
@@ -461,7 +507,9 @@ final class PeerCallViewController: UIViewController {
 
         switch entry {
         case .incoming:
-            session?.scheduleIncomingRingTimeout()
+            if !skipIncomingRingingUI {
+                session?.scheduleIncomingRingTimeout()
+            }
         case .outgoing:
             break
         }
@@ -472,37 +520,59 @@ final class PeerCallViewController: UIViewController {
         if let obs = audioRouteObserver {
             NotificationCenter.default.removeObserver(obs)
         }
+        if let o = callKitMatchedIncomingObserver {
+            NotificationCenter.default.removeObserver(o)
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         gradientLayer.frame = gradientHost.bounds
+        if !remoteMutedBanner.isHidden {
+            let w = max(100, view.bounds.width - 32 - remoteMutedBanner.layoutMargins.left - remoteMutedBanner.layoutMargins.right - remoteMutedBanner.spacing - 22)
+            if abs(remoteMutedLabel.preferredMaxLayoutWidth - w) > 0.5 {
+                remoteMutedLabel.preferredMaxLayoutWidth = w
+            }
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard let session else { return }
+        guard let session else {
+            return
+        }
         WebRTCCallManager.shared.attachSignalingSession(session)
         session.resyncRemoteAttachmentWithUI()
         switch entry {
         case .outgoing:
             session.beginOutgoingCall()
         case .incoming:
-            break
+            if skipIncomingRingingUI {
+                subtitleLabel.text = "Connecting…"
+                subtitleLabel.isHidden = false
+                durationLabel.isHidden = true
+                connectingSubtitleShownAt = connectingSubtitleShownAt ?? Date()
+                session.answerIncomingCall()
+            }
         }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        pendingConnectedChromeWorkItem?.cancel()
+        pendingConnectedChromeWorkItem = nil
         durationTimer?.invalidate()
         durationTimer = nil
         stopRingAnimations()
-        if isBeingDismissed || isMovingFromParent {
-            PeerCallSoundPlayer.shared.stopAll()
-            session?.hangUp()
-            WebRTCCallManager.shared.abandonIncomingPresentation()
-            CallKitManager.shared.requestEndActiveVoIPCallIfNeeded()
+        guard isBeingDismissed || isMovingFromParent else { return }
+        let shouldEnd = userDidExplicitlyEnd || (session?.didEstablishMediaConnection == true)
+        guard shouldEnd else {
+            return
         }
+        PeerCallSoundPlayer.shared.stopAll()
+        session?.hangUp()
+        WebRTCCallManager.shared.abandonIncomingPresentation()
+        CallKitManager.shared.requestEndActiveVoIPCallIfNeeded()
     }
 
     @objc private func closeHeaderTapped() {
@@ -514,6 +584,7 @@ final class PeerCallViewController: UIViewController {
                 self.declineTapped()
                 return
             }
+            self.userDidExplicitlyEnd = true
             self.session?.hangUp()
         }))
         present(alert, animated: true)
@@ -535,26 +606,41 @@ final class PeerCallViewController: UIViewController {
         updateFooterControlAppearance()
     }
 
-    @objc private func answerTapped() {
+    private func handleCallKitMatchedExistingIncoming(_ note: Notification) {
+        guard case .incoming(let payload, _, _) = entry else { return }
+        guard let nCh = note.userInfo?["channelId"] as? NSNumber,
+              let nCaller = note.userInfo?["callerId"] as? NSNumber else { return }
+        guard nCh.int64Value == payload.channelId && nCaller.int64Value == payload.callerId else { return }
+        applyIncomingAnswerChromeOnly()
+    }
+
+    private func applyIncomingAnswerChromeOnly() {
         PeerCallSoundPlayer.shared.stopRinging()
         incomingFooterStack.isHidden = true
         activeFooterStack.isHidden = false
         setCloseHeaderChromeVisible(true)
         refreshHeaderRightVisibility()
-        session?.answerIncomingCall()
         updateFlipVisibility()
         updateHeaderVideoAppearance()
         syncLocalPreviewMirror()
     }
 
+    @objc private func answerTapped() {
+        applyIncomingAnswerChromeOnly()
+        session?.answerIncomingCall()
+    }
+
     @objc private func declineTapped() {
+        userDidExplicitlyEnd = true
         PeerCallSoundPlayer.shared.stopRinging()
         session?.declineIncoming()
         WebRTCCallManager.shared.abandonIncomingPresentation()
         CallKitManager.shared.invalidateStoredVoIPPayloadOnly()
+        CallKitManager.shared.requestEndActiveVoIPCallIfNeeded()
     }
 
     @objc private func endTapped() {
+        userDidExplicitlyEnd = true
         session?.hangUp()
     }
 
@@ -562,21 +648,44 @@ final class PeerCallViewController: UIViewController {
         session?.toggleMicrophoneEnabled()
     }
 
-    private func closeFromBadPayload() {
-        WebRTCCallManager.shared.abandonIncomingPresentation()
-        dismiss(animated: true)
+    private func leaveCallScreen(animated: Bool) {
+        if let nav = navigationController,
+           nav.viewControllers.contains(where: { $0 === self }),
+           nav.viewControllers.count > 1 {
+            nav.popViewController(animated: animated)
+            return
+        }
+        dismiss(animated: animated)
     }
 
-    private var isVideoSession: Bool {
-        session?.isVideoCallSession ?? {
-            switch entry {
-            case .outgoing(let v, _, _, _, _): return v
-            case .incoming(let payload, _, _):
-                guard let offer = payload.resolvedCompressedOffer() else { return false }
-                let meta = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(offer)
-                return IncomingPeerCallPayloadParser.sdpContainsVideo(meta.sdpHint)
-            }
-        }()
+    private func closeFromBadPayload() {
+        WebRTCCallManager.shared.abandonIncomingPresentation()
+        leaveCallScreen(animated: true)
+    }
+
+    private func applyConnectedCallChrome(connectedAt: Date) {
+        pendingConnectedChromeWorkItem = nil
+        guard !isCallConnected else { return }
+        isCallConnected = true
+        subtitleLabel.isHidden = true
+        didStartDurationTimer = true
+        durationLabel.isHidden = false
+        connectedDate = connectedAt
+        durationTimer?.invalidate()
+        let t = Foundation.Timer(timeInterval: 1, repeats: true) { [weak self] (_: Foundation.Timer) in
+            guard let self else { return }
+            let sec = max(0, Int(Date().timeIntervalSince(connectedAt)))
+            let m = sec / 60
+            let s = sec % 60
+            self.durationLabel.text = String(format: "%02d:%02d", m, s)
+        }
+        durationTimer = t
+        RunLoop.main.add(t, forMode: .common)
+        applyConnectedAvatarBorder()
+        stopRingAnimations()
+        applyIdleChromeColors()
+        updateRemoteMutedBanner()
+        refreshRemoteCallLayout()
     }
 
     private var showRemoteVideoSurface: Bool {
@@ -626,9 +735,19 @@ final class PeerCallViewController: UIViewController {
         }
     }
 
+    private func resolveLocalUserIdForPeerCall() -> Int64? {
+        if let s = accountContext.currentUser?.id, let v = Int64(s), v != 0 {
+            return v
+        }
+        if let s = SessionStore.load()?.userId, let v = Int64(s), v != 0 {
+            return v
+        }
+        return nil
+    }
+
     private func buildSessionAndCallbacks() {
-        guard let myId = Int64(accountContext.currentUser?.id ?? "") else {
-            dismiss(animated: true)
+        guard let myId = resolveLocalUserIdForPeerCall() else {
+            leaveCallScreen(animated: true)
             return
         }
 
@@ -649,60 +768,74 @@ final class PeerCallViewController: UIViewController {
                 initialCompressedOffer: nil
             )
         case .incoming(let payload, _, _):
-            guard let offer = payload.resolvedCompressedOffer() else { return }
-            let meta = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(offer)
-            let video = IncomingPeerCallPayloadParser.sdpContainsVideo(meta.sdpHint)
-            session = PeerWebRTCCallSession(
-                direction: .incoming,
-                myUserId: myId,
-                peerUserId: payload.callerId,
-                channelId: payload.channelId,
-                callerDisplayNameForPush: callerName,
-                callerAvatarURLStringForPush: callerAvatar,
-                wantsVideo: video,
-                incomingStartsRinging: true,
-                initialCompressedOffer: offer
-            )
+            if let warm = WebRTCCallManager.shared.consumePreWarmedIncomingSession(
+                channelId: payload.channelId, callerId: payload.callerId
+            ) {
+                session = warm
+            } else {
+                let offer = payload.resolvedCompressedOffer()
+                let video = false
+                session = PeerWebRTCCallSession(
+                    direction: .incoming,
+                    myUserId: myId,
+                    peerUserId: payload.callerId,
+                    channelId: payload.channelId,
+                    callerDisplayNameForPush: callerName,
+                    callerAvatarURLStringForPush: callerAvatar,
+                    wantsVideo: video,
+                    incomingStartsRinging: true,
+                    initialCompressedOffer: offer
+                )
+            }
         }
 
         refreshHeaderRightVisibility()
 
+        session?.onCallMediaConnectedAt = { [weak self] connectedAt in
+            guard let self else { return }
+            self.pendingConnectedChromeWorkItem?.cancel()
+            let minConnectingVisibility: TimeInterval = self.skipIncomingRingingUI ? 0.45 : 0
+            let anchor = self.connectingSubtitleShownAt ?? connectedAt
+            let delay = max(0, minConnectingVisibility - Date().timeIntervalSince(anchor))
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                guard self.view.window != nil else { return }
+                guard !self.userDidExplicitlyEnd else { return }
+                self.applyConnectedCallChrome(connectedAt: connectedAt)
+            }
+            self.pendingConnectedChromeWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+
         session?.onStatusLabel = { [weak self] text in
             guard let self else { return }
             if text == "Connected" {
-                self.isCallConnected = true
-                self.subtitleLabel.isHidden = true
-                self.didStartDurationTimer = true
-                self.durationLabel.isHidden = false
-                let connectedAt = Date()
-                self.connectedDate = connectedAt
-                self.durationTimer?.invalidate()
-                let t = Foundation.Timer(timeInterval: 1, repeats: true) { [weak self] (_: Foundation.Timer) in
-                    guard let self else { return }
-                    let sec = max(0, Int(Date().timeIntervalSince(connectedAt)))
-                    let m = sec / 60
-                    let s = sec % 60
-                    self.durationLabel.text = String(format: "%02d:%02d", m, s)
-                }
-                self.durationTimer = t
-                RunLoop.main.add(t, forMode: .common)
-                self.applyConnectedAvatarBorder()
-                self.stopRingAnimations()
-                self.updateDurationConstraints()
-                self.applyIdleChromeColors()
-                self.updateRemoteMutedBanner()
-                self.refreshRemoteCallLayout()
-            } else {
-                self.subtitleLabel.text = text
-                self.subtitleLabel.isHidden = false
+                return
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            self.subtitleLabel.text = text
+            self.subtitleLabel.isHidden = false
+            if trimmed == "Connecting…" {
+                self.connectingSubtitleShownAt = Date()
             }
         }
 
         session?.onEnded = { [weak self] in
             guard let self else { return }
+            self.userDidExplicitlyEnd = true
             self.remoteVideoSurfaceShown = false
             self.pendingRemoteVideoRendererSync = false
-            self.dismiss(animated: true)
+            // Cold-launched-for-VoIP minimal flow: skip the modal dismiss
+            // animation and tear the process down as soon as the quit signal
+            // has had a moment to flush. The user explicitly asked for an
+            // immediate kill on end-call to avoid stale-state bugs from
+            // re-using a process whose only purpose was the VoIP push.
+            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
+                CallKitManager.shared.endActiveCallAndExitProcessFastIfMinimalFlow()
+                return
+            }
+            self.leaveCallScreen(animated: true)
         }
 
         session?.onRemoteVideoInboundActive = { [weak self] active in
@@ -713,7 +846,6 @@ final class PeerCallViewController: UIViewController {
                 self.pendingRemoteVideoRendererSync = true
             }
             self.refreshRemoteCallLayout()
-            self.updateDurationConstraints()
             self.applyIdleChromeColors()
             self.updateRemoteMutedBanner()
         }
@@ -723,7 +855,6 @@ final class PeerCallViewController: UIViewController {
             self.remoteMicOn = mic
             self.refreshRemoteCallLayout()
             self.updateRemoteMutedBanner()
-            self.updateDurationConstraints()
             self.applyIdleChromeColors()
         }
 
@@ -755,11 +886,10 @@ final class PeerCallViewController: UIViewController {
             if track == nil {
                 self.remoteVideoInboundActive = false
             }
-            if track != nil, self.isVideoSession {
+            if track != nil {
                 self.pendingRemoteVideoRendererSync = true
             }
             self.refreshRemoteCallLayout()
-            self.updateDurationConstraints()
             self.applyIdleChromeColors()
             self.updateRemoteMutedBanner()
             if track != nil {
@@ -793,13 +923,13 @@ final class PeerCallViewController: UIViewController {
     }
 
     private func refreshHeaderRightVisibility() {
-        headerRightStack.isHidden = !isVideoSession || !incomingFooterStack.isHidden
+        headerRightStack.isHidden = !incomingFooterStack.isHidden
     }
 
-    private func setCloseHeaderChromeVisible(_ visible: Bool) {
-        closeHeaderButton.isHidden = !visible
-        closeHeaderButton.isUserInteractionEnabled = visible
-        closeHeaderWidthConstraint?.constant = visible ? 48 : 0
+    private func setCloseHeaderChromeVisible(_: Bool) {
+        closeHeaderButton.isHidden = true
+        closeHeaderButton.isUserInteractionEnabled = false
+        closeHeaderWidthConstraint?.constant = 0
     }
 
     private func loadRemoteAvatar() {
@@ -822,7 +952,7 @@ final class PeerCallViewController: UIViewController {
 
     private func buildRingViews() {
         let sizes: [CGFloat] = [50, 160, 180]
-        let dim = UIColor.white.withAlphaComponent(0.22)
+        let dim = UIColor(red: 47 / 255, green: 47 / 255, blue: 55 / 255, alpha: 1)
         for size in sizes {
             let ring = UIView()
             ring.translatesAutoresizingMaskIntoConstraints = false
@@ -843,6 +973,7 @@ final class PeerCallViewController: UIViewController {
     }
 
     private func startRingPulseIfNeeded() {
+        if skipIncomingRingingUI { return }
         stopRingDisplayLink()
         guard !isCallConnected, ringViews.count == 3 else { return }
         ringPhaseStart = CACurrentMediaTime()
@@ -910,11 +1041,10 @@ final class PeerCallViewController: UIViewController {
 
     private func applyConnectedAvatarBorder() {
         avatarImageView.layer.borderWidth = 4
-        avatarImageView.layer.borderColor = UIColor.theme.textSuccess.cgColor
+        avatarImageView.layer.borderColor = UIColor(red: 76 / 255, green: 175 / 255, blue: 80 / 255, alpha: 1).cgColor
     }
 
     private func applyIdleChromeColors() {
-        let onRemoteVideo = showRemoteVideoSurface
         let fg = UIColor.white
         let fgMuted = UIColor.white.withAlphaComponent(0.68)
         let fgTimer = UIColor.white.withAlphaComponent(0.92)
@@ -922,8 +1052,8 @@ final class PeerCallViewController: UIViewController {
         if !isCallConnected {
             subtitleLabel.textColor = fgMuted
         }
-        durationLabel.textColor = onRemoteVideo ? fgMuted : fgTimer
-        let footerCaption = UIColor.white.withAlphaComponent(0.85)
+        durationLabel.textColor = fgTimer
+        let footerCaption = UIColor.white.withAlphaComponent(0.92)
         speakerCaption.textColor = footerCaption
         endCaption.textColor = footerCaption
         micCaption.textColor = footerCaption
@@ -932,11 +1062,17 @@ final class PeerCallViewController: UIViewController {
     private func updateDurationConstraints() {
         durationConstraintAvatar?.isActive = false
         durationConstraintVideo?.isActive = false
+        durationTopBelowMutedBanner?.isActive = false
+        durationConstraintVideo?.priority = .required
         if !isCallConnected || durationLabel.isHidden {
             return
         }
         if showRemoteVideoSurface {
             durationConstraintVideo?.isActive = true
+            if !remoteMicOn {
+                durationTopBelowMutedBanner?.isActive = true
+                durationConstraintVideo?.priority = UILayoutPriority(750)
+            }
         } else {
             durationConstraintAvatar?.isActive = true
         }
@@ -955,13 +1091,20 @@ final class PeerCallViewController: UIViewController {
                 mutedBannerBelowAvatar?.isActive = true
             }
         }
+        updateDurationConstraints()
     }
 
     private func updateFooterControlAppearance() {
-        let speakerFill = UIColor(white: 0.26, alpha: 1)
+        let dimFill = UIColor(red: 46 / 255, green: 47 / 255, blue: 52 / 255, alpha: 0.55)
+        let activeIcon = UIColor(red: 38 / 255, green: 39 / 255, blue: 44 / 255, alpha: 1)
         let speakerRouteOn = session?.isSpeakerOn ?? false
-        speakerButton.backgroundColor = speakerRouteOn ? UIColor(white: 0.34, alpha: 1) : speakerFill
-        speakerButton.tintColor = .white
+        if speakerRouteOn {
+            speakerButton.backgroundColor = .white
+            speakerButton.tintColor = activeIcon
+        } else {
+            speakerButton.backgroundColor = dimFill
+            speakerButton.tintColor = .white
+        }
         let av = AVAudioSession.sharedInstance()
         let spkName: String
         if let port = av.currentRoute.outputs.first?.portType {
@@ -977,19 +1120,17 @@ final class PeerCallViewController: UIViewController {
         speakerButton.setImage(UIImage(systemName: spkName), for: .normal)
         let spkrTitle = NSLocalizedString(
             "peerCall.audioRouteSpeaker", tableName: nil, bundle: .main, value: "Speaker", comment: "")
-        let earTitle = NSLocalizedString(
-            "peerCall.audioRouteEarpiece", tableName: nil, bundle: .main, value: "Earpiece", comment: "")
-        speakerCaption.text = speakerRouteOn ? spkrTitle : earTitle
-        speakerButton.accessibilityLabel = speakerRouteOn ? spkrTitle : earTitle
+        speakerCaption.text = spkrTitle
+        speakerButton.accessibilityLabel = spkrTitle
 
-        endButton.backgroundColor = UIColor(red: 0.96, green: 0.26, blue: 0.21, alpha: 1)
+        endButton.backgroundColor = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
         endButton.tintColor = .white
 
         if localMicOn {
             micButton.backgroundColor = .white
             micButton.tintColor = .black
         } else {
-            micButton.backgroundColor = speakerFill
+            micButton.backgroundColor = dimFill
             micButton.tintColor = .white
         }
         micButton.setImage(UIImage(systemName: localMicOn ? "mic.fill" : "mic.slash.fill"), for: .normal)
@@ -1026,18 +1167,23 @@ final class PeerCallViewController: UIViewController {
     }
 
     private func updateHeaderVideoAppearance() {
-        let pill = UIColor.white.withAlphaComponent(0.18)
-        headerVideoButton.backgroundColor = pill
-        headerVideoButton.tintColor = .white
+        let dimFill = UIColor(red: 46 / 255, green: 47 / 255, blue: 52 / 255, alpha: 0.55)
+        if localCameraOn {
+            headerVideoButton.backgroundColor = .white
+            headerVideoButton.tintColor = .black
+        } else {
+            headerVideoButton.backgroundColor = dimFill
+            headerVideoButton.tintColor = UIColor.white.withAlphaComponent(0.92)
+        }
         let img = localCameraOn ? UIImage(systemName: "video.fill") : UIImage(systemName: "video.slash.fill")
         headerVideoButton.setImage(img, for: .normal)
     }
 
     private func updateFlipVisibility() {
-        let pill = UIColor.white.withAlphaComponent(0.18)
-        flipCameraButton.backgroundColor = pill
+        let badge = UIColor(red: 46 / 255, green: 47 / 255, blue: 52 / 255, alpha: 1)
+        flipCameraButton.backgroundColor = badge
         flipCameraButton.tintColor = .white
-        flipCameraButton.isHidden = !isVideoSession || !localCameraOn || !hasLocalVideoTrack || incomingFooterStack.isHidden == false
+        flipCameraButton.isHidden = !localCameraOn || !hasLocalVideoTrack || !incomingFooterStack.isHidden
     }
 
     private func syncLocalPreviewMirror() {
@@ -1046,7 +1192,7 @@ final class PeerCallViewController: UIViewController {
 
     private func styleHeaderCircle(_ b: UIButton, symbol: String) {
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        b.backgroundColor = UIColor(red: 46 / 255, green: 47 / 255, blue: 52 / 255, alpha: 1)
         b.tintColor = .white
         b.layer.cornerRadius = 24
         b.clipsToBounds = true

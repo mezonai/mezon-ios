@@ -174,6 +174,7 @@ final class DmListItemCell: UITableViewCell {
                 avatarLoadGeneration += 1
                 imageTask?.cancel()
                 imageTask = nil
+                avatarView.image = nil
                 avatarView.backgroundColor = Self.groupDmListPlaceholderOrange
                 groupIconView.tintColor = .white
                 groupIconView.isHidden = false
@@ -191,6 +192,7 @@ final class DmListItemCell: UITableViewCell {
                 avatarLoadGeneration += 1
                 imageTask?.cancel()
                 imageTask = nil
+                avatarView.image = nil
                 avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
                 avatarPlaceholder.isHidden = false
                 avatarPlaceholder.text = String(displayName.prefix(1)).uppercased()
@@ -215,6 +217,7 @@ final class DmListItemCell: UITableViewCell {
             avatarView.image = cached
             return
         }
+        avatarView.image = nil
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
             if let image {
@@ -243,7 +246,6 @@ final class DmListItemCell: UITableViewCell {
 
     private func lastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
         let msg = channel.lastSentMessage
-        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let hasHeaderPayload =
             channel.hasLastSentMessage
             || msg.timestampSeconds > 0
@@ -267,19 +269,19 @@ final class DmListItemCell: UITableViewCell {
         let preview: String
         if let payload = Self.messageContentPayload(from: msg.content) {
             if Self.isRNEmptyMessageContent(payload) {
-                preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
+                preview = Self.previewWhenNoMessageBody()
             } else {
                 preview = Self.dmPreviewBody(from: payload, channelId: channel.channelID)
             }
         } else if msg.content.isEmpty {
-            preview = Self.previewWhenNoMessageBody(isGroup: isGroup)
+            preview = Self.previewWhenNoMessageBody()
         } else {
             preview = Self.normalizeJsonEscapedSlashes(in: msg.content)
         }
 
         let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return (Self.previewWhenNoMessageBody(isGroup: isGroup), time)
+            return (Self.previewWhenNoMessageBody(), time)
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
         return (body.count >= 20 ? body + "..." : body, time)
@@ -289,11 +291,8 @@ final class DmListItemCell: UITableViewCell {
         text.replacingOccurrences(of: "\\/", with: "/")
     }
 
-    private static func previewWhenNoMessageBody(isGroup: Bool) -> String {
-        if isGroup {
-            return Self.previewLayoutPlaceholder
-        }
-        return ""
+    private static func previewWhenNoMessageBody() -> String {
+        Self.previewLayoutPlaceholder
     }
 
 

@@ -87,6 +87,9 @@ final class MezonSocket: NSObject {
     private var reconnectAttempts = 0
     private var hasTriedRefreshSinceConnect = false
     private let maxReconnectAttempts = 5
+    private var pendingSendQueue: [(envelope: Mezon_Realtime_Envelope, queuedAt: Date)] = []
+    private let pendingSendQueueCap = 32
+    private let pendingSendStaleAge: TimeInterval = 10
 
     var tokenProvider: (() async throws -> String)?
 
@@ -95,6 +98,17 @@ final class MezonSocket: NSObject {
     private override init() { super.init() }
 
     func connect(token: String, wsHostOverride: String? = nil) {
+        // Dedupe redundant connect calls. When two paths race to connect with
+        // the same credentials (e.g. AccountContext.restoreAndRefreshSession
+        // and CallKit.prepareForVoIPAnswerConnectivity both completing at
+        // roughly the same time on a VoIP cold-launch), cancelling the
+        // already-in-flight WebSocket and rebuilding it just adds a wasted
+        // round-trip before we can send the answer SDP.
+        if self.token == token, self.wsHostOverride == wsHostOverride,
+           webSocketTask != nil {
+            return
+        }
+
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         if let old = webSocketTask {
@@ -113,6 +127,18 @@ final class MezonSocket: NSObject {
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
         receiveLoop()
+    }
+
+    func waitForConnected(timeoutNanoseconds: UInt64) async -> Bool {
+        if isConnected { return true }
+        let step: UInt64 = 50_000_000
+        var elapsed: UInt64 = 0
+        while elapsed < timeoutNanoseconds {
+            try? await Task.sleep(nanoseconds: step)
+            elapsed += step
+            if isConnected { return true }
+        }
+        return isConnected
     }
 
     func disconnect() {
@@ -135,6 +161,10 @@ final class MezonSocket: NSObject {
         reconnectWorkItem = nil
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
+        // Force a fresh connection: callers of reconnectFromForeground
+        // (e.g. protectedDataDidBecomeAvailable) intentionally suspect a
+        // stale connection, so we must bypass connect()'s same-token dedupe.
+        cleanupForReconnect()
         Task { @MainActor in
             await performReconnect(useTokenRefresh: tokenProvider != nil)
         }
@@ -150,9 +180,33 @@ final class MezonSocket: NSObject {
     }
 
     func send(_ envelope: Mezon_Realtime_Envelope) {
-        guard let task = webSocketTask else { return }
+        guard isConnected, let task = webSocketTask else {
+            enqueuePendingSend(envelope)
+            return
+        }
         guard let data = try? envelope.serializedData() else { return }
         task.send(.data(data)) { _ in }
+    }
+
+    private func enqueuePendingSend(_ envelope: Mezon_Realtime_Envelope) {
+        let now = Date()
+        pendingSendQueue.removeAll { now.timeIntervalSince($0.queuedAt) > pendingSendStaleAge }
+        if pendingSendQueue.count >= pendingSendQueueCap {
+            pendingSendQueue.removeFirst()
+        }
+        pendingSendQueue.append((envelope, now))
+    }
+
+    private func flushPendingSendQueue() {
+        guard isConnected, let task = webSocketTask else { return }
+        guard !pendingSendQueue.isEmpty else { return }
+        let now = Date()
+        let batch = pendingSendQueue.filter { now.timeIntervalSince($0.queuedAt) <= pendingSendStaleAge }
+        pendingSendQueue.removeAll()
+        for entry in batch {
+            guard let data = try? entry.envelope.serializedData() else { continue }
+            task.send(.data(data)) { _ in }
+        }
     }
 
     func joinClanChat(clanId: Int64) {
@@ -509,6 +563,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.hasTriedRefreshSinceConnect = false
             self.eventPipe.putNext(.connected)
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
+            self.flushPendingSendQueue()
         }
     }
 
@@ -520,6 +575,9 @@ extension MezonSocket: URLSessionWebSocketDelegate {
     ) {
         Task { @MainActor in
             self.isConnected = false
+            // Drop the dead task so the connect() dedupe guard knows the
+            // socket really needs to be rebuilt next time.
+            self.webSocketTask = nil
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
             self.eventPipe.putNext(.disconnected)
 

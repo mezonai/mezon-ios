@@ -38,5 +38,9 @@ extension Notification.Name {
     static let mezonChannelPinsNeedRefresh = Notification.Name("mezon.channel.pinsNeedRefresh")
     static let mezonUserChannelAddedFromSocket = Notification.Name("mezon.channels.userChannelAddedFromSocket")
     static let mezonIncomingPeerCall = Notification.Name("mezon.call.incomingPeer")
+    static let mezonCallKitMatchedExistingIncoming = Notification.Name("mezon.call.callKitMatchedExistingIncoming")
+    static let mezonCallKitAudioActivated = Notification.Name("mezon.call.callKitAudioActivated")
+    static let mezonPeerCallDidConnect = Notification.Name("mezon.call.peerCallDidConnect")
     static let mezonVoIPTokenDidUpdate = Notification.Name("mezon.voip.tokenUpdated")
+    static let mezonVoIPMinimalCallChromeActivated = Notification.Name("mezon.voip.minimalCallChromeActivated")
 }

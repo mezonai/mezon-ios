@@ -24,6 +24,7 @@ final class AccountContextImpl: AccountContext {
     private(set) var isSessionReady: Bool = false
     private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
     private var activeRefreshTask: Task<Bool, Never>?
+    private var heavyAccountBootstrapTask: Task<Void, Never>?
     func waitForSessionReady() async {
         if isSessionReady { return }
         await withCheckedContinuation { continuation in
@@ -228,6 +229,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     func login(user: User, session: MezonSession) {
+        VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
         hasCompletedInitialSetup = true
@@ -241,12 +243,18 @@ final class AccountContextImpl: AccountContext {
             }
             if let freshSession = self.session {
                 applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
+                scheduleHeavyAccountBootstrapAfterYield(token: freshSession.token)
             }
             self.registerFCMTokenIfNeeded()
         }
     }
 
     func logout() {
+        heavyAccountBootstrapTask?.cancel()
+        heavyAccountBootstrapTask = nil
+        if VoIPAnswerAccountBridge.context === self {
+            VoIPAnswerAccountBridge.context = nil
+        }
         SessionExpiredModal.removeOverlayIfPresented()
         account.network.bearerUnauthorizedRecovery = nil
         socketEventsDisposable?.dispose()
@@ -278,6 +286,7 @@ final class AccountContextImpl: AccountContext {
         }
 
         setLoggedIn(false)
+        hasCompletedInitialSetup = false
     }
 
     private func registerFCMTokenIfNeeded() {
@@ -287,9 +296,10 @@ final class AccountContextImpl: AccountContext {
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
         Task {
             guard let authToken = await self.getToken() else { return }
+            let voipToken = CallKitManager.shared.voipToken ?? ""
             do {
                 _ = try await account.network.registFcmDeviceToken(
-                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", authToken: authToken
+                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
                 )
             } catch {
             }
@@ -333,6 +343,7 @@ final class AccountContextImpl: AccountContext {
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let token = self.session?.token else { return }
+                if self.account.socket.isConnected { return }
                 self.account.socket.connect(token: token, wsHostOverride: nil)
             }
         }
@@ -391,11 +402,18 @@ final class AccountContextImpl: AccountContext {
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
-                self.applySession(merged, user: self.currentUser, connectSocket: !merged.created)
+                self.applySession(merged, user: self.currentUser, connectSocket: !merged.created, fetchAccount: false)
+                self.scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
                 if let s = self.session {
                     self.setLoggedIn(!s.created)
                 }
-                self.registerFCMTokenIfNeeded()
+                // Skip FCM registration during the VoIP answer cold-launch:
+                // it adds an unnecessary network round-trip while we're racing
+                // to deliver the WebRTC answer SDP. The real registration runs
+                // again on next normal app launch.
+                if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+                    self.registerFCMTokenIfNeeded()
+                }
                 self.markSessionReady()
             },
             onExpired: { [weak self] in
@@ -449,22 +467,67 @@ final class AccountContextImpl: AccountContext {
                 return t
             }
             account.socket.connect(token: session.token, wsHostOverride: nil)
+            if !session.token.isEmpty {
+                hasCompletedInitialSetup = true
+            }
         }
         if let user { applyCurrentUser(user) }
 
         guard fetchAccount else { return }
-        Task { @MainActor in
-            do {
-                let apiAccount = try await engine.auth.getAccount(token: session.token)
-                if let data = try? apiAccount.serializedData() {
-                    account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
-                }
-                applyCurrentUser(mapAccountToUser(apiAccount))
-            } catch {
-                applyCachedAccountIfAvailable()
-            }
-            self.fetchAllUserClansAndChannels(token: session.token)
+        scheduleHeavyAccountBootstrapAfterYield(token: session.token)
+    }
+
+    private func scheduleHeavyAccountBootstrapAfterYield(token: String) {
+        guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
+        heavyAccountBootstrapTask?.cancel()
+        heavyAccountBootstrapTask = Task { @MainActor in
+            await Task.yield()
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            await performHeavyAccountBootstrap(token: token)
         }
+    }
+
+    private func performHeavyAccountBootstrap(token: String) async {
+        do {
+            let apiAccount = try await engine.auth.getAccount(token: token)
+            if let data = try? apiAccount.serializedData() {
+                account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
+            }
+            applyCurrentUser(mapAccountToUser(apiAccount))
+        } catch {
+            applyCachedAccountIfAvailable()
+        }
+        fetchAllUserClansAndChannels(token: token)
+    }
+
+    func prepareForVoIPAnswerConnectivity() async -> Bool {
+        let disk = SessionStore.load()
+        guard let baseSession = session ?? disk else { return false }
+        // Warm path: the app is already running with a live session and a
+        // connected signaling socket (e.g. VoIP push arrived while the user
+        // had the app open or backgrounded but not killed). Skip the refresh
+        // round-trip and the redundant socket reconnect — both add latency
+        // before we can deliver the answer SDP.
+        if let s = session, !s.isExpired, account.socket.isConnected {
+            markSessionReady()
+            return true
+        }
+        account.network.updateBaseURL(from: baseSession)
+        let refreshed: MezonSession
+        do {
+            refreshed = try await SessionRefreshManager.shared.refresh(session: baseSession)
+        } catch {
+            if baseSession.isExpired {
+                return false
+            }
+            refreshed = baseSession
+        }
+        let merged = mergeIdToken(into: refreshed, previous: session ?? baseSession)
+        applySession(merged, user: currentUser, connectSocket: true, fetchAccount: false)
+        scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
+        markSessionReady()
+        return true
     }
 
     private func fetchAllUserClansAndChannels(token: String) {
@@ -640,8 +703,10 @@ final class AccountContextImpl: AccountContext {
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
-            joinDirectMessageClanOnSocketConnected()
-            rejoinCurrentChannel()
+            if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+                joinDirectMessageClanOnSocketConnected()
+                rejoinCurrentChannel()
+            }
 
         case .typing(let e):
             NotificationCenter.default.post(

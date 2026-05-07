@@ -730,7 +730,7 @@ final class SendMessageInputViewController: UIViewController {
         ]
         placeholderLabel.isHidden = !text.isEmpty
         textView.isScrollEnabled = false
-        updateTextViewHeight()
+        flushComposerHeightAfterContentMutation()
         textPipe.putNext(text)
 
         for f in snap.fileDrafts {
@@ -1226,7 +1226,7 @@ final class SendMessageInputViewController: UIViewController {
         placeholderLabel.isHidden = !text.isEmpty
         textView.typingAttributes = normalAttrs
         textView.isScrollEnabled = false
-        updateTextViewHeight()
+        flushComposerHeightAfterContentMutation()
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
@@ -3354,6 +3354,9 @@ final class SendMessageInputViewController: UIViewController {
         applyTheme()
         reloadEmojiSuggestionList()
         reloadHashtagChannelCandidates()
+        if !(textView.text ?? "").isEmpty {
+            flushComposerHeightAfterContentMutation()
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -4617,6 +4620,13 @@ extension SendMessageInputViewController: UITextViewDelegate {
         return max(1, inner)
     }
 
+    private func flushComposerHeightAfterContentMutation() {
+        updateTextViewHeight()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateTextViewHeight()
+        }
+    }
+
     private func updateTextViewHeight() {
         let font = textView.font ?? .systemFont(ofSize: 15.sf)
         let lineHeight = font.lineHeight
@@ -4626,18 +4636,12 @@ extension SendMessageInputViewController: UITextViewDelegate {
         let minHeight = Self.textViewMinHeight
         let availableWidth = resolvedComposerFittingContentWidth()
         let fittingSize = CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
-        let textHeight = textView.sizeThatFits(fittingSize).height
-        let contentBlockHeight = max(0, textHeight - verticalInsets)
-        let newHeight: CGFloat
-        if contentBlockHeight <= lineHeight * 1.5 {
-            newHeight = minHeight
-        } else {
-            let lines = min(Int(maxLines), max(1, Int(ceil(contentBlockHeight / lineHeight - 0.01))))
-            let computed = CGFloat(lines) * lineHeight + verticalInsets
-            newHeight = min(max(computed, minHeight), maxHeight)
-        }
+        let measuredTotal = textView.sizeThatFits(fittingSize).height
+        let empty = (textView.text ?? "").isEmpty
+        let rawHeight = empty ? minHeight : measuredTotal
+        let newHeight = min(max(rawHeight, minHeight), maxHeight)
 
-        let shouldScroll = textHeight > maxHeight
+        let shouldScroll = measuredTotal > maxHeight + 0.5
         if textView.isScrollEnabled != shouldScroll {
             textView.isScrollEnabled = shouldScroll
             if shouldScroll {

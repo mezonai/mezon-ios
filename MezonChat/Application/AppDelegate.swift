@@ -24,12 +24,28 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         MezonEnvironment.current = .prod
         CallKitManager.shared.configure()
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                MezonSocket.shared.reconnectFromForeground()
+            }
+        }
 
         DispatchQueue.main.async {
             FirebaseApp.configure()
             UNUserNotificationCenter.current().delegate = self
             Messaging.messaging().delegate = self
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleVoIPMinimalCallChromeActivated),
+            name: .mezonVoIPMinimalCallChromeActivated,
+            object: nil
+        )
 
         return true
     }
@@ -55,20 +71,20 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     private func registerFcmDeviceWithBackendIfPossible() {
         Task { @MainActor in
+            guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
             guard let context = self.accountContext else { return }
             guard let authToken = await context.getToken() else { return }
             let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
             let voipToken = CallKitManager.shared.voipToken ?? ""
-            Messaging.messaging().token { fcmToken, _ in
-                guard let fcmToken else { return }
-                Task { @MainActor in
-                    do {
-                        _ = try await context.account.network.registFcmDeviceToken(
-                            fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
-                        )
-                    } catch {
-                    }
+            do {
+                let fcmToken = try await Messaging.messaging().token()
+                do {
+                    _ = try await context.account.network.registFcmDeviceToken(
+                        fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
+                    )
+                } catch {
                 }
+            } catch {
             }
         }
     }
@@ -99,6 +115,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NetworkMonitor.shared.start()
         NetworkBannerView.install(on: nativeWindow)
 
+        VoIPMinimalCallBootstrap.reconcileAfterAppColdStartIfNoActiveVoIPCall()
+
 
         let statusBarHost = SceneStatusBarHost(scene: windowScene)
         let mainWindow = Window1(hostView: hostView, statusBarHost: statusBarHost)
@@ -128,10 +146,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             context = sharedContext.createAccountContext(session: savedSession, user: user, onReady: { _ in })
             self.accountContext = context
             self.hasStartedAuthFlow = true
+            VoIPAnswerAccountBridge.context = context
             self.startAuthFlow(context: context)
         } else {
+            VoIPAnswerAccountBridge.context = nil
             context = sharedContext.createUnauthorizedContext(onReady: onReady)
             self.accountContext = context
+        }
+        if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+            registerFcmDeviceWithBackendIfPossible()
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -143,6 +166,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         if let notificationResponse = connectionOptions.notificationResponse {
             let userInfo = notificationResponse.notification.request.content.userInfo
             let title = notificationResponse.notification.request.content.title
@@ -178,12 +202,19 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     private func showRoot(isLoggedIn: Bool, context: AccountContext, sharedContext: SharedAccountContext, mainWindow: Window1) {
         if isLoggedIn {
-            let rootController = sharedContext.makeMezonRootController(context: context)
-            rootController.addRootControllers()
-            self.rootController = rootController
-            mainWindow.viewController = rootController
-            requestNotificationPermission()
+            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
+                self.rootController = nil
+                mainWindow.viewController = VoIPMinimalShellViewController(context: context)
+            } else {
+                let rootController = sharedContext.makeMezonRootController(context: context)
+                rootController.addRootControllers()
+                self.rootController = rootController
+                mainWindow.viewController = rootController
+                requestNotificationPermission()
+                registerFcmDeviceWithBackendIfPossible()
+            }
         } else {
+            VoIPAnswerAccountBridge.context = nil
             self.rootController = nil
             mainWindow.viewController = sharedContext.makeLoginController(context: context)
             installMandatoryUsernameStackIfNeeded(context: context, mainWindow: mainWindow)
@@ -191,7 +222,25 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         DispatchQueue.main.async {
             ThemeManager.shared.applyStatusBarStyle()
         }
-        AppUpdateGate.scheduleVersionCheckIfNeeded(mainWindow: mainWindow)
+        if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+            AppUpdateGate.scheduleVersionCheckIfNeeded(mainWindow: mainWindow)
+        }
+    }
+
+    @objc private func handleVoIPMinimalCallChromeActivated() {
+        swapToVoIPMinimalShellIfNeeded()
+    }
+
+    private func swapToVoIPMinimalShellIfNeeded() {
+        guard VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
+        guard let ctx = accountContext, ctx.isLoggedIn else { return }
+        guard let mainWindow else { return }
+        guard !(mainWindow.viewController is VoIPMinimalShellViewController) else { return }
+        rootController = nil
+        mainWindow.viewController = VoIPMinimalShellViewController(context: ctx)
+        DispatchQueue.main.async {
+            ThemeManager.shared.applyStatusBarStyle()
+        }
     }
 
     private func installMandatoryUsernameStackIfNeeded(context: AccountContext, mainWindow: Window1) {
@@ -206,8 +255,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     private func requestNotificationPermission() {
         let authOptions: UNAuthorizationOptions = [.alert, .badge, .sound]
-        UNUserNotificationCenter.current().requestAuthorization(options: authOptions) { granted, error in
-            if let error {
+        UNUserNotificationCenter.current().requestAuthorization(options: authOptions) { _, error in
+            if error != nil {
             }
         }
         DispatchQueue.main.async {
@@ -225,7 +274,25 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     @objc private func handleWillEnterForeground() {
         accountContext?.recoverFromForeground()
+        if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
+            shell.flushPendingIncomingPeerCallIfNeeded()
+        }
+        rootController?.flushPendingIncomingPeerCallIfNeeded()
         checkPendingSharedContent()
+    }
+
+    @objc private func handleDidBecomeActive() {
+        if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
+            shell.flushPendingIncomingPeerCallIfNeeded()
+        }
+        rootController?.flushPendingIncomingPeerCallIfNeeded()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            if let shell = self?.mainWindow?.viewController as? VoIPMinimalShellViewController {
+                shell.flushPendingIncomingPeerCallIfNeeded()
+            }
+            self?.rootController?.flushPendingIncomingPeerCallIfNeeded()
+        }
+        accountContext?.recoverFromForeground()
     }
 
     private func checkPendingSharedContent() {
