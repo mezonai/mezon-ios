@@ -493,8 +493,12 @@ enum RichTextBuilder {
         let utf16Len = text.utf16.count
 
         for token in codeBlockTokens {
-            if token.start > lastIndex {
-                let beforeContent = sliceContent(content, from: lastIndex, to: token.start)
+            var beforeEnd = token.start
+            while beforeEnd > lastIndex, text.mezon_utf16Substring(from: beforeEnd - 1, to: beforeEnd) == "\n" {
+                beforeEnd -= 1
+            }
+            if beforeEnd > lastIndex {
+                let beforeContent = sliceContent(content, from: lastIndex, to: beforeEnd)
                 let attrText = build(from: beforeContent, style: s, buzzStyled: false, hashtagChannelAccess: hashtagChannelAccess)
                 if attrText.length > 0 {
                     segments.append(.text(attrText))
@@ -517,6 +521,9 @@ enum RichTextBuilder {
             segments.append(.codeBlock(codeText))
 
             lastIndex = token.end
+            while lastIndex < utf16Len, text.mezon_utf16Substring(from: lastIndex, to: lastIndex + 1) == "\n" {
+                lastIndex += 1
+            }
         }
 
         if lastIndex < utf16Len {

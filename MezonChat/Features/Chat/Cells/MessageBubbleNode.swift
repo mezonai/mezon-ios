@@ -26,6 +26,11 @@ final class MessageBubbleNode: ASDisplayNode {
     private var pollCardNode: PollCardNode?
     private var errorTextNode: ASTextNode2?
     private var editedNode: ASTextNode2?
+    private let ephemeralHighlightNode = ASDisplayNode()
+    private let ephemeralBorderNode = ASDisplayNode()
+    private let ephemeralIndicatorNode = ASDisplayNode()
+    private let ephemeralIndicatorIconNode = ASImageNode()
+    private let ephemeralIndicatorTextNode = ASTextNode2()
 
     private(set) var display: ChatMessageDisplay
     private let interaction: ChatInteraction
@@ -171,6 +176,28 @@ final class MessageBubbleNode: ASDisplayNode {
 
             mentionBorderNode.backgroundColor = UIColor(red: 240.0/255, green: 177.0/255, blue: 50.0/255, alpha: 1.0)
             mentionHighlightNode.addSubnode(mentionBorderNode)
+        } else if display.isEphemeral {
+            ephemeralHighlightNode.backgroundColor = UIColor.theme.bgViolet.withAlphaComponent(0.1)
+            ephemeralHighlightNode.isUserInteractionEnabled = false
+            addSubnode(ephemeralHighlightNode)
+
+            ephemeralBorderNode.backgroundColor = UIColor.theme.bgViolet
+            ephemeralHighlightNode.addSubnode(ephemeralBorderNode)
+
+            ephemeralIndicatorIconNode.image = UIImage(systemName: "eye.slash")?.withRenderingMode(.alwaysTemplate)
+            ephemeralIndicatorIconNode.tintColor = UIColor.theme.textDisabled
+            ephemeralIndicatorIconNode.contentMode = .scaleAspectFit
+            ephemeralIndicatorNode.addSubnode(ephemeralIndicatorIconNode)
+
+            ephemeralIndicatorTextNode.attributedText = NSAttributedString(
+                string: L(L10n.Embed.onlyVisibleToRecipient),
+                attributes: [
+                    .font: UIFont.italicSystemFont(ofSize: 12.sf),
+                    .foregroundColor: UIColor.theme.textDisabled
+                ]
+            )
+            ephemeralIndicatorNode.addSubnode(ephemeralIndicatorTextNode)
+            addSubnode(ephemeralIndicatorNode)
         }
 
         let t = UIColor.theme
@@ -348,9 +375,14 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if hasEmbeds {
             let en = MessageEmbedNode()
-            en.configure(embeds: parsed.embeds)
+            en.configure(embeds: parsed.embeds, messageId: display.id, isEphemeral: display.isEphemeral)
+            en.isUserInteractionEnabled = true
             en.onEmbedImageTapped = { [weak self] url in
                 self?.handleEmbedImageTap(url: url)
+            }
+            en.onEmbedButtonTapped = { [weak self] button, messageId in
+                guard let self else { return }
+                self.interaction.onEmbedButtonClicked?(button, messageId, self.display)
             }
             embedNode = en
             addSubnode(en)
@@ -417,6 +449,7 @@ final class MessageBubbleNode: ASDisplayNode {
         let oldFailed = self.isFailed
         self.display = newDisplay
         self.isFailed = newDisplay.isFailed
+        
 
         let t = UIColor.theme
 
@@ -818,15 +851,6 @@ final class MessageBubbleNode: ASDisplayNode {
         }
     }
 
-    private func findViewController() -> UIViewController? {
-        var responder: UIResponder? = view
-        while let next = responder?.next {
-            if let vc = next as? UIViewController { return vc }
-            responder = next
-        }
-        return nil
-    }
-
     private let highlightNode = ASDisplayNode()
     private let highlightBorderNode = ASDisplayNode()
     private let mentionHighlightNode = ASDisplayNode()
@@ -1094,6 +1118,14 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedEditedSize = .zero
         }
 
+        if display.isEphemeral {
+            let indicatorIconW: CGFloat = 12.sf
+            let indicatorGap: CGFloat = 4.sw
+            let indicatorMaxW = bodyContentWidth - indicatorIconW - indicatorGap
+            let indicatorTextSize = ephemeralIndicatorTextNode.measure(CGSize(width: indicatorMaxW, height: .greatestFiniteMagnitude))
+            totalH += max(12.sf, indicatorTextSize.height) + 4.sh
+        }
+
         totalH += 4.sh
 
         cachedTotalSize = CGSize(width: width, height: totalH)
@@ -1265,6 +1297,21 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.hasIncludeMention {
             mentionHighlightNode.frame = bounds
             mentionBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
+        } else if display.isEphemeral {
+            ephemeralHighlightNode.frame = bounds
+            ephemeralBorderNode.frame = CGRect(x: 0, y: 0, width: 2, height: bounds.height)
+
+            let indicatorIconW: CGFloat = 12.sf
+            let indicatorGap: CGFloat = 4.sw
+            let indicatorMaxW = bodyContentWidth - indicatorIconW - indicatorGap
+            let indicatorTextSize = ephemeralIndicatorTextNode.measure(CGSize(width: indicatorMaxW, height: .greatestFiniteMagnitude))
+            let indicatorH = max(12.sf, indicatorTextSize.height)
+
+            ephemeralIndicatorNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: indicatorH)
+            ephemeralIndicatorIconNode.frame = CGRect(x: 0, y: (indicatorH - 12.sf) / 2, width: 12.sf, height: 12.sf)
+            ephemeralIndicatorTextNode.frame = CGRect(x: indicatorIconW + indicatorGap, y: (indicatorH - indicatorTextSize.height) / 2, width: indicatorTextSize.width, height: indicatorTextSize.height)
+            
+            y += indicatorH + 4.sh
         }
 
         if let bar = forwardLeftBarNode, let top = forwardBarMinY, let bottom = forwardBarMaxY, bottom > top {
