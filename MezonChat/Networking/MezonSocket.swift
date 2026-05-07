@@ -495,6 +495,26 @@ final class MezonSocket: NSObject {
         envelope.incomingCallPush = push
         send(envelope)
     }
+
+    func sendMessageButtonClicked(
+        messageId: Int64,
+        channelId: Int64,
+        buttonId: String,
+        senderId: Int64,
+        userId: Int64,
+        extraData: String
+    ) {
+        var btn = Mezon_Realtime_MessageButtonClicked()
+        btn.messageID = messageId
+        btn.channelID = channelId
+        btn.buttonID = buttonId
+        btn.senderID = senderId
+        btn.userID = userId
+        btn.extraData = extraData
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.messageButtonClicked = btn
+        send(envelope)
+    }
 }
 
 extension MezonSocket: URLSessionWebSocketDelegate {

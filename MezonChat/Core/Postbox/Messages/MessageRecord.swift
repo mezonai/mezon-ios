@@ -69,7 +69,7 @@ struct MessageRecord: PostboxCoding, Equatable {
 
 extension MessageRecord {
 
-    init(from api: Mezon_Api_ChannelMessage) {
+    init(from api: Mezon_Api_ChannelMessage, customId: String? = nil) {
         let contentData = api.content.data(using: .utf8) ?? Data()
         let parsedPoll = PollData.parse(from: contentData)
         let isPoll = api.code == 18 || parsedPoll != nil
@@ -99,7 +99,7 @@ extension MessageRecord {
                 : nil
         }()
         self.init(
-            id:                "\(api.messageID)",
+            id:                customId ?? "\(api.messageID)",
             channelId:         channelId,
             clanId:            "\(api.clanID)",
             senderId:          "\(api.senderID)",
@@ -117,8 +117,8 @@ extension MessageRecord {
         )
     }
 
-    static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?) -> MessageRecord {
-        let fresh = MessageRecord(from: api)
+    static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?, customId: String? = nil) -> MessageRecord {
+        let fresh = MessageRecord(from: api, customId: customId)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
         if prev.senderId != fresh.senderId { return fresh }
         let sameBodyForMerge = prev.content == fresh.content

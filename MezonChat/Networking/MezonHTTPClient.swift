@@ -762,6 +762,30 @@ final class MezonHTTPClient {
         )
     }
 
+    func messageButtonClick(
+        messageId: Int64,
+        channelId: Int64,
+        buttonId: String,
+        senderId: Int64,
+        userId: Int64,
+        extraData: String,
+        token: String
+    ) async throws {
+        var req = Mezon_Realtime_MessageButtonClicked()
+        req.messageID = messageId
+        req.channelID = channelId
+        req.buttonID = buttonId
+        req.senderID = senderId
+        req.userID = userId
+        req.extraData = extraData
+        
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/MessageButtonClick",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func updateChannelMessage(
         clanId: Int64,
         channelId: Int64,
