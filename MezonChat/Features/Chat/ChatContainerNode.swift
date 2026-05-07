@@ -55,6 +55,7 @@ struct ChatInteraction {
     let onOpenPollDetail: (_ messageId: String, _ channelId: String) -> Void
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
+    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  // button, messageId, display
 }
 
 final class ChatContainerNode: ASDisplayNode {

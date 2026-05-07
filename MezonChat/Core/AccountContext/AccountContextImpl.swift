@@ -665,6 +665,22 @@ final class AccountContextImpl: AccountContext {
                 account.postbox.write { tx in tx.deleteMessage(id: "\(apiMessage.messageID)") }
                 return
             }
+            
+            if apiMessage.code == 12 {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonNewMessageReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": channelId,
+                        "clanId": clanId,
+                        "senderId": String(apiMessage.senderID),
+                        "serializedChannelMessage": try? apiMessage.serializedData(),
+                        "messageCode": Int64(apiMessage.code)
+                    ] as [String: Any]
+                )
+                return
+            }
+            
             let mid = "\(apiMessage.messageID)"
             let merged = account.postbox.read { tx in
                 MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid))

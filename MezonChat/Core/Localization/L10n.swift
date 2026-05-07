@@ -566,6 +566,10 @@ enum L10n {
         static let failed = "reportMessage.failed"
     }
 
+    enum Embed {
+        static let onlyVisibleToRecipient = "embed.onlyVisibleToRecipient"
+    }
+
     enum MessageAction {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
@@ -1289,6 +1293,8 @@ extension L10n {
         "channelDetail.unpinConfirmTitle": "Unpin this message?",
         "channelDetail.unpinConfirmBody": "It will be removed from pinned for everyone in this channel.",
         "channelDetail.unpinConfirmAction": "Unpin",
+
+        "embed.onlyVisibleToRecipient": "Only visible to recipient",
     ]
 
     private static let vi: [String: String] = [
@@ -1889,5 +1895,7 @@ extension L10n {
         "channelDetail.unpinConfirmTitle": "Bỏ ghim tin nhắn này?",
         "channelDetail.unpinConfirmBody": "Tin sẽ được gỡ khỏi mục ghim với mọi người trong kênh.",
         "channelDetail.unpinConfirmAction": "Bỏ ghim",
+
+        "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
     ]
 }

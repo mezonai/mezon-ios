@@ -1,9 +1,68 @@
 import Foundation
 import SwiftProtobuf
 
+
+enum EmbedComponentType: Int {
+    case button = 1
+    case select = 2
+    case input = 3
+    case datepicker = 4
+    case radio = 5
+    case animation = 6
+    case grid = 7
+}
+
+enum EmbedButtonStyle: Int {
+    case primary = 1
+    case secondary = 2
+    case success = 3
+    case danger = 4
+    case link = 5
+}
+
+struct ParsedSelectOption: Equatable {
+    let label: String
+    let value: String
+}
+
+struct ParsedRadioOption: Equatable {
+    let label: String
+    let value: String
+    let name: String?
+}
+
+struct ParsedEmbedInputComponent: Equatable {
+    let type: EmbedComponentType
+    let id: String
+    let placeholder: String?
+    let inputType: String?
+    let isTextarea: Bool
+    let defaultValue: String?
+    let selectOptions: [ParsedSelectOption]?
+    let minOptions: Int?
+    let maxOptions: Int?
+    let selectedValue: ParsedSelectOption?
+    let radioOptions: [ParsedRadioOption]?
+    let dateValue: String?
+}
+
+struct ParsedEmbedButton: Equatable {
+    let id: String
+    let label: String
+    let style: EmbedButtonStyle
+    let url: String?
+    let disabled: Bool
+}
+
+struct ParsedEmbedActionRow: Equatable {
+    let buttons: [ParsedEmbedButton]
+}
+
 struct ParsedEmbedField: Equatable {
     let name: String
     let value: String
+    let inline: Bool
+    let inputComponent: ParsedEmbedInputComponent?
 }
 
 struct ParsedEmbed {
@@ -21,6 +80,7 @@ struct ParsedEmbed {
     let authorName: String?
     let authorIconURL: String?
     let timestamp: String?
+    let actionRows: [ParsedEmbedActionRow]
 }
 
 struct ParsedContent {
@@ -76,6 +136,19 @@ struct ContentToken {
 
 enum MessageContentParser {
 
+    static func parseLocalCodeBlocks(text: String) -> ParsedContent {
+        var tokens: [ContentToken] = []
+        let pattern = "(?s)```(.*?)```"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let nsString = text as NSString
+            let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+            for match in results {
+                tokens.append(ContentToken(start: match.range.location, end: NSMaxRange(match.range), kind: .codeBlock))
+            }
+        }
+        return ParsedContent(text: text, tokens: tokens, embeds: [])
+    }
+
     static func parse(data: Data, mentionsData: Data = Data()) -> ParsedContent {
         guard !data.isEmpty,
               let str = String(data: data, encoding: .utf8),
@@ -86,7 +159,9 @@ enum MessageContentParser {
             return ParsedContent(text: str, tokens: [], embeds: [])
         }
         let text = json["t"] as? String ?? json["text"] as? String ?? ""
-        let embeds = parseEmbeds(json["embed"])
+        let embeds = parseEmbeds(json["embed"], topLevelComponents: json["components"])
+        if let embed = json["embed"] {
+        }
         if text.isEmpty && embeds.isEmpty { return ParsedContent(text: "", tokens: [], embeds: []) }
         guard !text.isEmpty else { return ParsedContent(text: "", tokens: [], embeds: embeds) }
 
@@ -304,9 +379,21 @@ enum MessageContentParser {
         return s
     }
 
-    private static func parseEmbeds(_ value: Any?) -> [ParsedEmbed] {
-        guard let arr = value as? [[String: Any]], !arr.isEmpty else { return [] }
-        return arr.compactMap { item -> ParsedEmbed? in
+    private static func parseEmbeds(_ value: Any?, topLevelComponents: Any? = nil) -> [ParsedEmbed] {
+        let topActionRows = parseActionRows(topLevelComponents)
+        guard let arr = value as? [[String: Any]], !arr.isEmpty else {
+            if !topActionRows.isEmpty {
+                return [ParsedEmbed(
+                    color: nil, title: nil, url: nil, description: nil, fields: [],
+                    imageURL: nil, imageWidth: nil, imageHeight: nil,
+                    thumbnailURL: nil, footerText: nil, footerIconURL: nil,
+                    authorName: nil, authorIconURL: nil, timestamp: nil,
+                    actionRows: topActionRows
+                )]
+            }
+            return []
+        }
+        return arr.enumerated().compactMap { (idx, item) -> ParsedEmbed? in
             let title = item["title"] as? String
             let description = item["description"] as? String
             let url = item["url"] as? String
@@ -329,21 +416,145 @@ enum MessageContentParser {
 
             let fields: [ParsedEmbedField] = (item["fields"] as? [[String: Any]])?.compactMap { f in
                 let name = ((f["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let valueRaw = f["value"] as? String else { return nil }
+                let valueRaw = (f["value"] as? String) ?? ""
                 let value = valueRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !value.isEmpty else { return nil }
-                return ParsedEmbedField(name: name, value: value)
+                let inline = (f["inline"] as? Bool) ?? false
+                let inputComponent = parseFieldInputComponent(f["inputs"] ?? f["input"])
+                if value.isEmpty && inputComponent == nil { return nil }
+                return ParsedEmbedField(name: name, value: value, inline: inline, inputComponent: inputComponent)
             } ?? []
 
-            let hasContent = title != nil || description != nil || !fields.isEmpty || imageURL != nil || thumbnailURL != nil || authorName != nil
+            let actionRows = idx == 0 ? topActionRows : []
+
+            let hasContent = title != nil || description != nil || !fields.isEmpty || imageURL != nil || thumbnailURL != nil || authorName != nil || !actionRows.isEmpty
             guard hasContent else { return nil }
 
             return ParsedEmbed(
                 color: color, title: title, url: url, description: description, fields: fields,
                 imageURL: imageURL, imageWidth: imageWidth, imageHeight: imageHeight,
                 thumbnailURL: thumbnailURL, footerText: footerText, footerIconURL: footerIconURL,
-                authorName: authorName, authorIconURL: authorIconURL, timestamp: timestamp
+                authorName: authorName, authorIconURL: authorIconURL, timestamp: timestamp,
+                actionRows: actionRows
             )
+        }
+    }
+
+
+    private static func parseFieldInputComponent(_ value: Any?) -> ParsedEmbedInputComponent? {
+        var dict: [String: Any]? = nil
+        if let d = value as? [String: Any] {
+            dict = d
+        } else if let arr = value as? [[String: Any]], let first = arr.first {
+            dict = first
+        } else if let str = value as? String, let data = str.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            dict = parsed
+        }
+        guard let dict = dict else { return nil }
+
+        guard let typeRaw = intValue(dict["type"]),
+              let type = EmbedComponentType(rawValue: typeRaw) else { return nil }
+        let id = (dict["id"] as? String) ?? ""
+
+        switch type {
+        case .input:
+            let comp = dict["component"] as? [String: Any]
+            return ParsedEmbedInputComponent(
+                type: .input, id: id,
+                placeholder: comp?["placeholder"] as? String,
+                inputType: comp?["type"] as? String,
+                isTextarea: (comp?["textarea"] as? Bool) ?? false,
+                defaultValue: stringifyValue(comp?["defaultValue"]),
+                selectOptions: nil, minOptions: nil, maxOptions: nil, selectedValue: nil,
+                radioOptions: nil, dateValue: nil
+            )
+
+        case .select:
+            let comp = dict["component"] as? [String: Any]
+            let optionsArray = (comp?["options"] as? [[String: Any]]) ?? (dict["options"] as? [[String: Any]]) ?? (dict["component"] as? [[String: Any]])
+            let opts = optionsArray?.compactMap { opt -> ParsedSelectOption? in
+                guard let label = stringifyValue(opt["label"] ?? opt["value"]) else { return nil }
+                guard let value = stringifyValue(opt["value"]) else { return nil }
+                return ParsedSelectOption(label: label, value: value)
+            }
+            let selValDict = (comp?["valueSelected"] as? [String: Any]) ?? (dict["valueSelected"] as? [String: Any]) ?? (dict["value"] as? [String: Any])
+            var selVal: ParsedSelectOption? = nil
+            if let sv = selValDict {
+                if let label = stringifyValue(sv["label"] ?? sv["value"]), let value = stringifyValue(sv["value"]) {
+                    selVal = ParsedSelectOption(label: label, value: value)
+                }
+            } else if let valStr = stringifyValue(dict["value"] ?? comp?["value"] ?? dict["defaultValue"] ?? comp?["defaultValue"]) {
+                if let match = opts?.first(where: { $0.value == valStr }) {
+                    selVal = match
+                } else {
+                    selVal = ParsedSelectOption(label: valStr, value: valStr)
+                }
+            }
+            return ParsedEmbedInputComponent(
+                type: .select, id: id,
+                placeholder: (comp?["placeholder"] as? String) ?? (dict["placeholder"] as? String),
+                inputType: nil, isTextarea: false, defaultValue: nil,
+                selectOptions: opts, minOptions: intValue(comp?["min_options"] ?? dict["min_options"]),
+                maxOptions: intValue(comp?["max_options"] ?? dict["max_options"]), selectedValue: selVal,
+                radioOptions: nil, dateValue: nil
+            )
+
+        case .datepicker:
+            let comp = dict["component"] as? [String: Any]
+            let dateVal = stringifyValue(comp?["value"])
+            return ParsedEmbedInputComponent(
+                type: .datepicker, id: id,
+                placeholder: nil, inputType: nil, isTextarea: false, defaultValue: nil,
+                selectOptions: nil, minOptions: nil, maxOptions: nil, selectedValue: nil,
+                radioOptions: nil, dateValue: dateVal
+            )
+
+        case .radio:
+            let compArr = dict["component"] as? [[String: Any]]
+            let options = compArr?.compactMap { opt -> ParsedRadioOption? in
+                guard let label = stringifyValue(opt["label"] ?? opt["value"]), let value = stringifyValue(opt["value"]) else { return nil }
+                return ParsedRadioOption(label: label, value: value, name: opt["name"] as? String)
+            }
+            let maxOpt = intValue(dict["max_options"])
+            let selectedOrDefault = stringifyValue(dict["valueSelected"] ?? dict["value"] ?? dict["defaultValue"])
+            return ParsedEmbedInputComponent(
+                type: .radio, id: id,
+                placeholder: nil, inputType: nil, isTextarea: false, defaultValue: selectedOrDefault,
+                selectOptions: nil, minOptions: nil, maxOptions: maxOpt, selectedValue: nil,
+                radioOptions: options, dateValue: nil
+            )
+
+        default:
+            return nil
+        }
+    }
+
+    private static func stringifyValue(_ v: Any?) -> String? {
+        if let s = v as? String, !s.isEmpty { return s }
+        if let n = v as? Int { return "\(n)" }
+        if let d = v as? Double { return "\(d)" }
+        return nil
+    }
+
+
+    private static func parseActionRows(_ value: Any?) -> [ParsedEmbedActionRow] {
+        guard let arr = value as? [[String: Any]], !arr.isEmpty else { return [] }
+        return arr.compactMap { row -> ParsedEmbedActionRow? in
+            guard let components = row["components"] as? [[String: Any]], !components.isEmpty else { return nil }
+            let buttons = components.compactMap { comp -> ParsedEmbedButton? in
+                guard let typeRaw = intValue(comp["type"]),
+                      typeRaw == EmbedComponentType.button.rawValue else { return nil }
+                let id = (comp["id"] as? String) ?? ""
+                guard let buttonDict = comp["component"] as? [String: Any] else { return nil }
+                let label = (buttonDict["label"] as? String) ?? ""
+                let styleRaw = intValue(buttonDict["style"]) ?? EmbedButtonStyle.primary.rawValue
+                let style = EmbedButtonStyle(rawValue: styleRaw) ?? .primary
+                let url = buttonDict["url"] as? String
+                let disabled = (buttonDict["disable"] as? Bool) ?? false
+                return ParsedEmbedButton(id: id, label: label, style: style, url: url, disabled: disabled)
+            }
+            guard !buttons.isEmpty else { return nil }
+            return ParsedEmbedActionRow(buttons: buttons)
         }
     }
 }
