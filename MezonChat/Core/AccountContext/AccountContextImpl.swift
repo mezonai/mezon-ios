@@ -730,7 +730,7 @@ final class AccountContextImpl: AccountContext {
                 account.postbox.write { tx in tx.deleteMessage(id: "\(apiMessage.messageID)") }
                 return
             }
-            
+
             if apiMessage.code == 12 {
                 NotificationCenter.default.post(
                     name: Notification.Name("MezonNewMessageReceived"),
@@ -745,13 +745,45 @@ final class AccountContextImpl: AccountContext {
                 )
                 return
             }
+
+            if apiMessage.code == 14 || apiMessage.code == 15 {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonNewMessageReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": channelId,
+                        "clanId": clanId,
+                        "senderId": String(apiMessage.senderID),
+                        "serializedChannelMessage": try? apiMessage.serializedData(),
+                        "messageCode": Int64(apiMessage.code)
+                    ] as [String: Any]
+                )
+                return
+            }
+
             
             let mid = "\(apiMessage.messageID)"
             let merged = account.postbox.read { tx in
                 MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid))
             }
             account.postbox.write { tx in tx.addMessages([merged]) }
-            guard apiMessage.code != 1 else { return }
+            
+            if apiMessage.code == 1 {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonNewMessageReceived"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": channelId,
+                        "clanId": clanId,
+                        "senderId": String(apiMessage.senderID),
+                        "serializedChannelMessage": try? apiMessage.serializedData(),
+                        "messageCode": Int64(apiMessage.code)
+                    ] as [String: Any]
+                )
+                return
+            }
+            
+            guard apiMessage.code != 0 else { return }
 
             let messageCopy = apiMessage
             Task { @MainActor [weak self] in
@@ -786,6 +818,34 @@ final class AccountContextImpl: AccountContext {
                 NotificationCenter.default.post(
                     name: Notification.Name("MezonNewMessageReceived"), object: nil, userInfo: userInfo
                 )
+            }
+
+        case .messageUpdated(let update):
+            let mid = "\(update.messageID)"
+            account.postbox.write { tx in
+                guard let existing = tx.getMessageById(mid) else { return }
+                let newContentData = update.content.data(using: .utf8) ?? Data()
+                let contentChanged = !newContentData.isEmpty && newContentData != existing.content
+                guard contentChanged else { return }
+                let updated = MessageRecord(
+                    id: existing.id,
+                    channelId: existing.channelId,
+                    clanId: existing.clanId,
+                    senderId: existing.senderId,
+                    content: newContentData,
+                    createdAt: existing.createdAt,
+                    editedAt: update.hideEditted ? existing.editedAt : Date(),
+                    isDeleted: existing.isDeleted,
+                    code: existing.code,
+                    senderDisplayName: existing.senderDisplayName,
+                    senderAvatarURL: existing.senderAvatarURL,
+                    sendingState: existing.sendingState,
+                    attachmentsJSON: existing.attachmentsJSON,
+                    reactionsJSON: existing.reactionsJSON,
+                    referencesData: existing.referencesData,
+                    mentionsJSON: existing.mentionsJSON
+                )
+                tx.addMessages([updated])
             }
 
         case .reaction(let reaction):

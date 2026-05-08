@@ -59,6 +59,8 @@ enum MezonConstants {
         case sendToken = 11
         case ephemeral = 12
         case upcomingEvent = 13
+        case updateEphemeral = 14  
+        case deleteEphemeral = 15  
         case poll = 18
     }
 }

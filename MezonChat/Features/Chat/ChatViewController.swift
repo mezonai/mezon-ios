@@ -260,6 +260,7 @@ final class ChatViewController: ViewController {
     private let stateDisposables = DisposableSet()
 
     private(set) var messages: [ChatMessageDisplay] = []
+    private var persistentMessages: [ChatMessageDisplay] = []  
     private var ephemeralMessages: [ChatMessageDisplay] = []
     private var channelLabel: String = ""
     private(set) var hasMoreOlder: Bool = true
@@ -749,41 +750,80 @@ final class ChatViewController: ViewController {
     }
     
     @objc private func handleEphemeralMessageReceived(_ notification: Notification) {
-        
-        guard let messageCode = notification.userInfo?["messageCode"] as? Int64 else {
+        guard let messageCode = notification.userInfo?["messageCode"] as? Int64 else { return }
+        guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+        guard channelId == channel.channelID else { return }
+        let userInfo = notification.userInfo
+
+        let work = { [weak self] in
+            guard let self else { return }
+            self.processMessageNotification(messageCode: messageCode, userInfo: userInfo)
+        }
+        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
+    }
+
+    private func processMessageNotification(messageCode: Int64, userInfo: [AnyHashable: Any]?) {
+
+        if messageCode == 1 {
+            let channelIdStr = storageChannelId
+            let rows = context.account.postbox.read { tx in tx.getMessages(channelId: channelIdStr) }
+            setMessages(buildDisplayMessages(from: rows))
             return
         }
-        
-        guard messageCode == MezonConstants.MessageCode.ephemeral.rawValue else {
+
+        guard let data = userInfo?["serializedChannelMessage"] as? Data,
+              let apiMessage = try? Mezon_Api_ChannelMessage(serializedBytes: data) else { return }
+
+        if messageCode == MezonConstants.MessageCode.deleteEphemeral.rawValue {
+            let targetId = "\(apiMessage.messageID)"
+            ephemeralMessages.removeAll { $0.id == targetId || $0.message.id == targetId }
+            updateMessagesWithEphemeral()
             return
         }
-        
-        guard let channelId = notification.userInfo?["channelId"] as? Int64 else {
+
+        if messageCode == MezonConstants.MessageCode.updateEphemeral.rawValue {
+            let targetId = "\(apiMessage.messageID)"
+            let record = MessageRecord(from: apiMessage, customId: targetId)
+            let parsedRaw = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
+            let parsed = enrichParsedContent(parsedRaw, fallbackClanId: record.clanId)
+            let msg = Message(
+                id: record.id, channelId: record.channelId, clanId: record.clanId,
+                senderId: record.senderId, content: .text(parsed.text),
+                createdAt: record.createdAt, editedAt: record.editedAt,
+                isDeleted: record.isDeleted, reactions: [], replyToId: nil,
+                mentionedUserIds: [], isPinned: false
+            )
+            let display = ChatMessageDisplay(
+                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
+                isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
+                replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
+                topicData: nil, locationData: nil, isMe: record.senderId == context.currentUser?.id,
+                sendingState: record.sendingState, hasIncludeMention: false,
+                isForward: false, showForwardHeader: false, messageCode: record.code,
+                clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: record.content
+            )
+            if let idx = ephemeralMessages.firstIndex(where: { $0.id == targetId || $0.message.id == targetId }) {
+                ephemeralMessages[idx] = display
+            } else {
+                ephemeralMessages.append(display)
+            }
+            updateMessagesWithEphemeral()
             return
         }
-        
-        guard channelId == channel.channelID else {
-            return
-        }
-        
-        guard let data = notification.userInfo?["serializedChannelMessage"] as? Data else {
-            return
-        }
-        
-        guard let apiMessage = try? Mezon_Api_ChannelMessage(serializedBytes: data) else {
-            return
-        }
-        
-        
-        let tempId = "ephemeral-\(apiMessage.createTimeSeconds)-\(apiMessage.senderID)"
-        
-        let record = MessageRecord(from: apiMessage, customId: tempId)
-        
+
+        guard messageCode == MezonConstants.MessageCode.ephemeral.rawValue else { return }
+
+        let targetId = "ephemeral-\(apiMessage.createTimeSeconds)-\(apiMessage.senderID)"
+        let record = MessageRecord(from: apiMessage, customId: targetId)
         let parsedRaw = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
         let parsed = enrichParsedContent(parsedRaw, fallbackClanId: record.clanId)
-        let content = parsed.text
-        let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: false)
-        
+        let msg = Message(
+            id: record.id, channelId: record.channelId, clanId: record.clanId,
+            senderId: record.senderId, content: .text(parsed.text),
+            createdAt: record.createdAt, editedAt: record.editedAt,
+            isDeleted: record.isDeleted, reactions: [], replyToId: nil,
+            mentionedUserIds: [], isPinned: false
+        )
         let display = ChatMessageDisplay(
             message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
             isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
@@ -793,15 +833,15 @@ final class ChatViewController: ViewController {
             isForward: false, showForwardHeader: false, messageCode: record.code,
             clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: record.content
         )
-        
         ephemeralMessages.append(display)
-        
         updateMessagesWithEphemeral()
     }
+
     
     private func updateMessagesWithEphemeral() {
-        let combinedMessages = (messages + ephemeralMessages).sorted { $0.message.createdAt < $1.message.createdAt }
-        setMessages(combinedMessages)
+        let combined = (persistentMessages + ephemeralMessages).sorted { $0.message.createdAt < $1.message.createdAt }
+        messages = combined
+        needsReloadPipe.putNext(())
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1123,7 +1163,8 @@ final class ChatViewController: ViewController {
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
-        messages = v
+        persistentMessages = v
+        messages = (persistentMessages + ephemeralMessages).sorted { $0.message.createdAt < $1.message.createdAt }
         let newFirstId = v.first(where: { !$0.isWelcome })?.id
         let newLastId = v.last?.id
         if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
@@ -1796,7 +1837,18 @@ final class ChatViewController: ViewController {
         } else {
             pollHash = ""
         }
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)"
+
+        let embedHash: String = {
+            let embeds = m.parsedContent.embeds
+            guard !embeds.isEmpty else { return "" }
+            return embeds.map { embed in
+                let fields = embed.fields.map { "\($0.name):\($0.value)" }.joined(separator: ",")
+                let buttons = embed.actionRows.flatMap { $0.buttons }.map { "\($0.id):\($0.label):\($0.style):\($0.disabled)" }.joined(separator: ";")
+                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
+            }.joined(separator: "§")
+        }()
+
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -3473,15 +3525,12 @@ final class ChatViewController: ViewController {
                     token: token
                 )
             } catch {
+                print("messageButtonClick failed for msgId=\(realMessageId): \(error)")
             }
         }
         
         EmbedFormState.shared.clear(messageId: messageId)
-        let wasEphemeral = ephemeralMessages.contains { $0.id == messageId }
         ephemeralMessages.removeAll { $0.id == messageId }
-        if wasEphemeral {
-            messages.removeAll { $0.id == messageId }
-        }
         updateMessagesWithEphemeral()
     }
 
