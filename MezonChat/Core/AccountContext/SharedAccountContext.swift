@@ -66,6 +66,7 @@ final class SharedAccountContextImpl: SharedAccountContext {
     }
 
     func clearAccountContext() {
+        VoIPAnswerAccountBridge.context = nil
         _accountContext = nil
         activeAccountContextPipe.putNext(nil)
     }

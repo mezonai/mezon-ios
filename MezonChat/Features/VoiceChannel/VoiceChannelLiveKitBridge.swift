@@ -15,6 +15,8 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
 
     override init() {
         super.init()
+        AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
+        AudioManager.shared.audioSession.isAutomaticDeactivationEnabled = false
         room = Room(delegate: self, roomOptions: RoomOptions(adaptiveStream: true, dynacast: true))
     }
 

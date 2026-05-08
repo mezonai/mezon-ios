@@ -152,6 +152,9 @@ fileprivate enum VoiceChannelPiPPreservedAudioRoute {
     case bluetooth
 }
 
+private let voiceChannelAudioSessionCategoryOptions: AVAudioSession.CategoryOptions =
+    [.allowBluetooth, .allowBluetoothA2DP, .mixWithOthers, .allowAirPlay]
+
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
     let session = AVAudioSession.sharedInstance()
@@ -159,15 +162,13 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
         switch route {
         case .speaker:
             AudioManager.shared.isSpeakerOutputPreferred = true
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .videoChat, options: voiceChannelAudioSessionCategoryOptions)
+            try? session.setActive(true)
             try session.overrideOutputAudioPort(.speaker)
-        case .bluetooth:
+        case .bluetooth, .earpiece:
             AudioManager.shared.isSpeakerOutputPreferred = false
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
-            try session.overrideOutputAudioPort(.none)
-        case .earpiece:
-            AudioManager.shared.isSpeakerOutputPreferred = false
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: voiceChannelAudioSessionCategoryOptions)
+            try? session.setActive(true)
             try session.overrideOutputAudioPort(.none)
         }
     } catch {
@@ -509,10 +510,22 @@ final class VoiceChannelPiPOverlay: NSObject {
 
         applyPiPChromeTheme()
         refreshContent()
+        applyVoiceChannelPreservedAudioRouteToSession(preservedAudioRoute)
         setupOverlaySystemCallPiP(rootVC: rootVC)
         applyPiPChromeTheme()
         applyVoiceChannelPreservedAudioRouteToSession(preservedAudioRoute)
+        scheduleVoicePiPDeferredAudioRouteEnforcement()
         UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    private func scheduleVoicePiPDeferredAudioRouteEnforcement() {
+        let delays: [TimeInterval] = [0.15, 0.4, 1.0]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, let route = self.preservedAudioRoute, self.isActive else { return }
+                applyVoiceChannelPreservedAudioRouteToSession(route)
+            }
+        }
     }
 
     private func applyCrossClanVoiceHomeExitFromPiPIfNeeded(alignClanId: Int64?, channelId: Int64) {
@@ -607,6 +620,9 @@ final class VoiceChannelPiPOverlay: NSObject {
                 try await b.connect(url: meetURL, token: jwt)
                 if Task.isCancelled { return }
                 refreshContent()
+                if let route = preservedAudioRoute {
+                    applyVoiceChannelPreservedAudioRouteToSession(route)
+                }
                 if let root = overlayPiPRootViewController {
                     setupOverlaySystemCallPiP(rootVC: root)
                     applyPiPChromeTheme()
@@ -614,6 +630,7 @@ final class VoiceChannelPiPOverlay: NSObject {
                 if let route = preservedAudioRoute {
                     applyVoiceChannelPreservedAudioRouteToSession(route)
                 }
+                scheduleVoicePiPDeferredAudioRouteEnforcement()
                 return
             } catch {
             }
@@ -1532,9 +1549,20 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             guard let self else { return }
-            self.syncCurrentAudioOutputFromSession()
+            let rawReason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
+            let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) ?? .unknown
+            switch reason {
+            case .newDeviceAvailable, .oldDeviceUnavailable, .override:
+                self.syncCurrentAudioOutputFromSession()
+            case .categoryChange, .routeConfigurationChange:
+                if self.liveKitBridge != nil, self.systemRoutePortMatchesPreferredOutput() == false {
+                    self.applyAudioRoute()
+                }
+            default:
+                break
+            }
             self.refreshSpeakerRouteUI()
         }
     }
@@ -2146,7 +2174,21 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         refreshParticipantRowsFromLiveKit()
         setupCallPiP()
+        applyAudioRoute()
+        scheduleVoiceRoomDeferredAudioRouteEnforcement()
         bindVoiceReactionSocketIfActive()
+    }
+
+    private func scheduleVoiceRoomDeferredAudioRouteEnforcement() {
+        let delays: [TimeInterval] = [0.15, 0.4, 1.0]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.liveKitBridge != nil else { return }
+                if self.systemRoutePortMatchesPreferredOutput() == false {
+                    self.applyAudioRoute()
+                }
+            }
+        }
     }
 
     private func pipPreservedRouteFromCurrentOutput() -> VoiceChannelPiPPreservedAudioRoute {
@@ -2411,6 +2453,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         liveKitReconnectTask = nil
         if let bridge = liveKitBridge {
             let preservedRoute = pipPreservedRouteFromCurrentOutput()
+            applyVoiceChannelPreservedAudioRouteToSession(preservedRoute)
             unbindVoiceReactionSocketForPiP()
             tearDownCallPiP()
             tearDownScreenSharePresentationAndPiP()
@@ -2558,6 +2601,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     @objc private func minimizeToPiP() {
         guard let bridge = liveKitBridge else { return }
         let preservedRoute = pipPreservedRouteFromCurrentOutput()
+        applyVoiceChannelPreservedAudioRouteToSession(preservedRoute)
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
@@ -2680,6 +2724,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
             liveKitBridge = bridge
 
+            ensureVoiceChannelAudioSessionCategory()
             try await bridge.connect(url: meetURL, token: jwt)
             guard !Task.isCancelled else {
                 await bridge.disconnect()
@@ -3161,8 +3206,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func ensureVoiceChannelAudioSessionCategory() {
         let session = AVAudioSession.sharedInstance()
+        let mode: AVAudioSession.Mode = currentAudioOutput == .speaker ? .videoChat : .voiceChat
         do {
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
+            try session.setCategory(.playAndRecord, mode: mode, options: voiceChannelAudioSessionCategoryOptions)
             try session.setActive(true)
         } catch {
         }
@@ -3238,6 +3284,25 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             systemName = "iphone.radiowaves.left.and.right"
         }
         audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 16, weight: .medium)
+    }
+
+    private func systemRoutePortMatchesPreferredOutput() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        guard let port = session.currentRoute.outputs.first?.portType else { return false }
+        switch port {
+        case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .carAudio, .airPlay:
+            return true
+        default:
+            break
+        }
+        switch currentAudioOutput {
+        case .speaker:
+            return port == .builtInSpeaker
+        case .earpiece:
+            return port == .builtInReceiver
+        case .bluetooth:
+            return Self.audioRouteHasBluetooth(session)
+        }
     }
 
     private static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {

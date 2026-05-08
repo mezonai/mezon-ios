@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import UIKit
 import AVFoundation
 
@@ -229,11 +230,7 @@ final class ImageCache {
 
 private extension String {
     var sha256Hash: String {
-        var hash: UInt64 = 5381
-        for byte in self.utf8 {
-            hash = ((hash << 5) &+ hash) &+ UInt64(byte)
-        }
-        return String(hash, radix: 16)
+        SHA256.hash(data: Data(self.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }
 

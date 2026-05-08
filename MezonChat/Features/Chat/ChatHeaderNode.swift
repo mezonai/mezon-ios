@@ -115,7 +115,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
         if isDM {
             channelIconNode.isHidden = true
-            callButtonNode.isHidden = true
+            callButtonNode.isHidden = false
             videoCallButtonNode.isHidden = true
         } else {
             channelIconNode.isHidden = false
@@ -213,7 +213,6 @@ final class ChatHeaderNode: ASDisplayNode {
         var rowChildren: [ASLayoutElement] = [backButtonNode, titleContainerNode]
         if isDM && !callButtonNode.isHidden {
             rowChildren.append(callButtonNode)
-            rowChildren.append(videoCallButtonNode)
         }
         rowChildren.append(searchButtonNode)
 
