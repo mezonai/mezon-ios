@@ -208,7 +208,14 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         subtitleLabel.text = item.activitySubtitle
 
         let raw = item.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !raw.isEmpty, let url = URL(string: raw) {
+        let resolvedURL: URL? = {
+            guard !raw.isEmpty else { return nil }
+            if let u = URL(string: raw) { return u }
+            if let encoded = raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+               let u = URL(string: encoded) { return u }
+            return nil
+        }()
+        if let url = resolvedURL {
             initialsLabel.isHidden = true
             avatarView.backgroundColor = .clear
             loadAvatar(url: url)

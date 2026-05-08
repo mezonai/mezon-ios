@@ -148,7 +148,7 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription) {
+    func configure(channel: Mezon_Api_ChannelDescription, context: AccountContext? = nil) {
         avatarPlaceholder.textColor = .mezonTextPrimary
         groupIconView.tintColor = .mezonTextSecondary
 
@@ -184,7 +184,9 @@ final class DmListItemCell: UITableViewCell {
             let isOnline = channel.onlines.contains(true)
             onlineIndicator.isHidden = !isOnline
 
-            if let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
+            let resolvedURLString = Self.resolveDmAvatarURL(channel: channel, context: context)
+
+            if let urlString = resolvedURLString, let url = URL(string: urlString) {
                 avatarPlaceholder.isHidden = true
                 avatarView.backgroundColor = .clear
                 loadImage(url: url, useInitialFallback: true)
@@ -204,6 +206,38 @@ final class DmListItemCell: UITableViewCell {
         lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+    }
+
+    private static func resolveDmAvatarURL(
+        channel: Mezon_Api_ChannelDescription,
+        context: AccountContext?
+    ) -> String? {
+        if let server = channel.avatars.first {
+            let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                if URL(string: trimmed) != nil {
+                    return trimmed
+                }
+                if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+                   URL(string: encoded) != nil {
+                    return encoded
+                }
+            }
+        }
+        let userId = channel.userIds.first ?? 0
+        guard userId != 0, let context else { return nil }
+        if let cached = context.account.postbox.read({ $0.getProfile(userId: "\(userId)") }),
+           let pbAvatar = cached.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !pbAvatar.isEmpty,
+           URL(string: pbAvatar) != nil {
+            return pbAvatar
+        }
+        if let friendAvatar = context.engine.friendsData.allFriends().first(where: { $0.user.id == userId })?.user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines),
+           !friendAvatar.isEmpty,
+           URL(string: friendAvatar) != nil {
+            return friendAvatar
+        }
+        return nil
     }
 
     private func loadImage(url: URL, useInitialFallback: Bool) {

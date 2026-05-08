@@ -296,6 +296,7 @@ final class CallKitManager: NSObject {
     }
 
     private func handleVoIPDictionary(_ payloadDict: [AnyHashable: Any], completion: @escaping () -> Void) {
+        let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: 0) ?? 0
         guard let offerValue = payloadDict["offer"] else {
             reportAndEndPlaceholderCall(reason: .failed)
             completion()
@@ -312,10 +313,20 @@ final class CallKitManager: NSObject {
         let cancelChannelId = int64(inner["channelId"]) ?? 0
         let cancelCallerId = int64(inner["callerId"]) ?? 0
         if offerStr == "CANCEL_CALL" {
+            let isSelfEcho = (myId != 0 && cancelCallerId == myId)
+            let alreadyEndedRecently = wasRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
             ensureProviderConfigured()
             let endedExisting = endStoredActiveCallViaProvider(reason: .remoteEnded)
             Self.clearStoredIncomingPayload()
             markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
+            if isSelfEcho {
+                completion()
+                return
+            }
+            if alreadyEndedRecently {
+                completion()
+                return
+            }
             if !endedExisting {
                 reportAndEndPlaceholderCall(reason: .remoteEnded)
             }
@@ -336,6 +347,21 @@ final class CallKitManager: NSObject {
 
         guard channelId != 0, callerId != 0 else {
             reportAndEndPlaceholderCall(reason: .failed)
+            completion()
+            return
+        }
+
+        let isSelfEcho = (myId != 0 && callerId == myId)
+        let alreadyEndedRecently = wasRecentlyEnded(channelId: channelId, callerId: callerId)
+        if isSelfEcho {
+            ensureProviderConfigured()
+            reportAndEndPlaceholderCall(reason: .failed)
+            completion()
+            return
+        }
+        if alreadyEndedRecently {
+            ensureProviderConfigured()
+            reportAndEndPlaceholderCall(reason: .remoteEnded)
             completion()
             return
         }
@@ -568,7 +594,7 @@ extension CallKitManager: CXProviderDelegate {
         action.fulfill()
     }
 
-    func provider(_ provider: CXProvider, timedOutPerforming _: CXAction) {
+    func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
         markRecentlyEndedFromStoredPayloadIfPossible()
         markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
