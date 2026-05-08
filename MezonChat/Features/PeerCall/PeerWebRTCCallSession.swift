@@ -74,6 +74,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     private var outgoingRingTimer: DispatchWorkItem?
     private var incomingRingTimer: DispatchWorkItem?
+    private var outgoingConnectTimeoutTimer: DispatchWorkItem?
     private var disconnectRecoveryTask: Task<Void, Never>?
     private var deferredRemoteVideoScanTask: Task<Void, Never>?
     private var rescanRemoteVideoDebounceTask: Task<Void, Never>?
@@ -95,9 +96,10 @@ final class PeerWebRTCCallSession: NSObject {
     private var isAnswerPrepared = false
     private var preparedAnswerCompressed: String?
     private var isPreWarmingNoSignal = false
+    private var preWarmInFlight = false
     private var deferredOutgoingSignaling: [(receiverId: Int64, dataType: Int32, jsonData: String)] = []
 
-    nonisolated private static let preWarmBackgroundIceFlag = PeerCallLockFlag()
+    nonisolated private let preWarmBackgroundIceFlag = PeerCallLockFlag()
     nonisolated(unsafe) private let threadSafePreWarmSignaling = PeerCallThreadSafeSignalingQueue()
     nonisolated private let signalingDestinationUserId: Int64
 
@@ -178,7 +180,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func setPreWarmingNoSignal(_ value: Bool) {
         isPreWarmingNoSignal = value
-        Self.preWarmBackgroundIceFlag.set(value)
+        preWarmBackgroundIceFlag.set(value)
     }
 
     private func clearPreWarmDeferralPipeline() {
@@ -190,6 +192,19 @@ final class PeerWebRTCCallSession: NSObject {
         let batch = threadSafePreWarmSignaling.takeAll()
         for item in batch {
             sendRealtimePeerSignaling(receiverId: item.0, dataType: item.1, jsonData: item.2)
+        }
+    }
+
+    private func flushPreWarmSignalingDirectly() {
+        let batch = threadSafePreWarmSignaling.takeAll()
+        for item in batch {
+            MezonSocket.shared.forwardWebrtcSignaling(
+                receiverId: item.0,
+                dataType: item.1,
+                jsonData: item.2,
+                channelId: channelId,
+                callerId: myUserId
+            )
         }
     }
 
@@ -222,11 +237,11 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func beginOutgoingCall() {
-        onStatusLabel?(direction == .outgoing ? "Ringing…" : "")
+        onStatusLabel?(direction == .outgoing ? PeerCallLocalizedStrings.statusRinging : "")
         Task {
             let micOk = await Self.requestMicPermission()
             guard micOk else {
-                onStatusLabel?("Microphone access denied")
+                onStatusLabel?(PeerCallLocalizedStrings.errorMicrophoneDenied)
                 finishCall(sendQuit: false)
                 return
             }
@@ -235,7 +250,7 @@ final class PeerWebRTCCallSession: NSObject {
                 try await startOutgoingPeerConnection()
                 scheduleOutgoingRingTimeout()
             } catch {
-                onStatusLabel?("Could not start call")
+                onStatusLabel?(PeerCallLocalizedStrings.errorCouldNotStartCall)
                 finishCall(sendQuit: false)
             }
         }
@@ -245,7 +260,7 @@ final class PeerWebRTCCallSession: NSObject {
         cancelIncomingRingTimer()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.onStatusLabel?("Missed call")
+            self.onStatusLabel?(PeerCallLocalizedStrings.statusMissed)
             self.finishCall(sendQuit: true)
         }
         incomingRingTimer = work
@@ -322,11 +337,11 @@ final class PeerWebRTCCallSession: NSObject {
         incomingAnswerFlowStarted = true
         cancelIncomingRingTimer()
         PeerCallSoundPlayer.shared.stopRinging()
-        onStatusLabel?("Connecting…")
+        onStatusLabel?(PeerCallLocalizedStrings.statusConnecting)
         Task { @MainActor in
             let micOk = await Self.requestMicPermission()
             guard micOk else {
-                onStatusLabel?("Microphone access denied")
+                onStatusLabel?(PeerCallLocalizedStrings.errorMicrophoneDenied)
                 finishCall(sendQuit: true)
                 return
             }
@@ -334,30 +349,37 @@ final class PeerWebRTCCallSession: NSObject {
                 try await waitForIncomingOfferIfNeeded()
                 await Self.waitForCallKitReadyForIncomingAnswer()
                 try await configureAudioSessionWithIncomingRetry()
+                await waitForPreWarmCompletionIfActive()
+                if !isAnswerPrepared, peerConnection != nil {
+                    resetAfterFailedPreWarm()
+                }
                 if isAnswerPrepared, peerConnection != nil {
                     try sendPreparedAnswerAndGoActive()
                 } else {
                     try await buildIncomingPeerConnectionAndAnswer()
                 }
             } catch {
-                onStatusLabel?("Could not answer call")
+                onStatusLabel?(PeerCallLocalizedStrings.errorCouldNotAnswerCall)
                 finishCall(sendQuit: true)
             }
         }
     }
 
     func prepareIncomingAnswerInBackground() async throws {
-        guard !ended, !isAnswerPrepared, peerConnection == nil else { return }
+        guard !ended, !isAnswerPrepared, peerConnection == nil, !preWarmInFlight else { return }
         guard direction == .incoming else { return }
         guard let offerCompressed = pendingOfferCompressed?.trimmingCharacters(in: .whitespacesAndNewlines),
               !offerCompressed.isEmpty else {
             return
         }
 
+        preWarmInFlight = true
         setPreWarmingNoSignal(true)
         do {
             try await performPreWarmBuild(offerCompressed: offerCompressed)
+            preWarmInFlight = false
         } catch {
+            preWarmInFlight = false
             resetAfterFailedPreWarm()
             throw error
         }
@@ -365,6 +387,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func performPreWarmBuild(offerCompressed: String) async throws {
         Self.ensureSSL()
+        try? configureAudioSession()
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
 
@@ -456,6 +479,7 @@ final class PeerWebRTCCallSession: NSObject {
             jsonData: compressedAnswer
         )
         flushDeferredOutgoingSignaling()
+        flushPreWarmSignalingDirectly()
         forwardLocalMediaStatus()
         phase = .active
         flushPendingOutgoingIceIfPossible()
@@ -466,6 +490,17 @@ final class PeerWebRTCCallSession: NSObject {
         scanTransceiversForRemoteVideo()
         scheduleDeferredRemoteVideoScan()
         scheduleRemoteVideoPostConnectWork()
+        scheduleStrayPreWarmIceFollowupFlush()
+    }
+
+    private func scheduleStrayPreWarmIceFollowupFlush() {
+        Task { @MainActor [weak self] in
+            for delayNs in [120_000_000, 360_000_000, 900_000_000] {
+                try? await Task.sleep(nanoseconds: UInt64(delayNs))
+                guard let self, !self.ended else { return }
+                self.flushPreWarmSignalingDirectly()
+            }
+        }
     }
 
     private func waitForIncomingOfferIfNeeded() async throws {
@@ -477,6 +512,15 @@ final class PeerWebRTCCallSession: NSObject {
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         throw PeerWebRTCCallSessionError.missingSDP
+    }
+
+    private func waitForPreWarmCompletionIfActive() async {
+        for _ in 0..<60 {
+            if !preWarmInFlight { return }
+            if isAnswerPrepared { return }
+            if ended { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
     }
 
     private func signalingMessageTargetsThisSession(_ msg: Mezon_Realtime_WebrtcSignalingFwd) -> Bool {
@@ -574,7 +618,7 @@ final class PeerWebRTCCallSession: NSObject {
         Task {
             let ok = await Self.requestCameraPermission()
             guard ok else {
-                onStatusLabel?("Camera access denied")
+                onStatusLabel?(PeerCallLocalizedStrings.errorCameraDenied)
                 return
             }
             await enableCameraMidCall()
@@ -670,10 +714,12 @@ final class PeerWebRTCCallSession: NSObject {
         guard !ended else { return }
         ended = true
         clearPreWarmDeferralPipeline()
+        preWarmInFlight = false
         incomingAnswerFlowStarted = false
         PeerCallSoundPlayer.shared.stopAll()
         cancelOutgoingRingTimer()
         cancelIncomingRingTimer()
+        cancelOutgoingConnectTimeout()
         disconnectRecoveryTask?.cancel()
         disconnectRecoveryTask = nil
 
@@ -783,8 +829,13 @@ final class PeerWebRTCCallSession: NSObject {
         } else {
             cfg.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
         }
-        let activateSelf = direction == .outgoing
-        rtc.isAudioEnabled = false
+        let wasActive = rtc.isActive
+        // For outgoing calls we need to activate the session ourselves.
+        // For incoming calls CallKit owns activation: passing active=false here
+        // would make WebRTC call setActive(NO) on the session CallKit just
+        // activated, which deactivates audio I/O and leaves the call connected
+        // but mute. Preserve the CallKit-activated state instead.
+        let activateSelf: Bool = (direction == .outgoing) ? true : wasActive
         try rtc.setConfiguration(cfg, active: activateSelf)
         if rtc.isActive {
             rtc.isAudioEnabled = true
@@ -801,16 +852,34 @@ final class PeerWebRTCCallSession: NSObject {
         cancelOutgoingRingTimer()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.onStatusLabel?("No answer")
+            self.onStatusLabel?(PeerCallLocalizedStrings.statusNoAnswer)
             self.finishCall(sendQuit: true)
         }
         outgoingRingTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
+        scheduleOutgoingConnectTimeout()
     }
 
     private func cancelOutgoingRingTimer() {
         outgoingRingTimer?.cancel()
         outgoingRingTimer = nil
+    }
+
+    private func scheduleOutgoingConnectTimeout() {
+        cancelOutgoingConnectTimeout()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard !self.ended, !self.didEstablishMediaConnection else { return }
+            self.onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
+            self.finishCall(sendQuit: true)
+        }
+        outgoingConnectTimeoutTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 22, execute: work)
+    }
+
+    private func cancelOutgoingConnectTimeout() {
+        outgoingConnectTimeoutTimer?.cancel()
+        outgoingConnectTimeoutTimer = nil
     }
 
     private func cancelIncomingRingTimer() {
@@ -862,9 +931,7 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func bindLocalAudioForOutbound(pc: LKRTCPeerConnection) {
-        guard let at = localAudioTrack else {
-            return
-        }
+        guard let at = localAudioTrack else { return }
         let aTx = pc.transceivers.filter { $0.mediaType == .audio && !$0.isStopped }
         var picked: LKRTCRtpTransceiver?
         for tx in aTx {
@@ -1341,7 +1408,7 @@ final class PeerWebRTCCallSession: NSObject {
         didPostConnectedStatusToUI = true
         let mediaConnectedAt = Date()
         onCallMediaConnectedAt?(mediaConnectedAt)
-        onStatusLabel?("Connected")
+        onStatusLabel?(PeerCallLocalizedStrings.statusConnected)
         NotificationCenter.default.post(
             name: .mezonPeerCallDidConnect,
             object: nil,
@@ -1687,7 +1754,7 @@ private struct MakeCallPushBody: Encodable {
 
 extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCPeerConnectionState) {
-        if Self.preWarmBackgroundIceFlag.get() { return }
+        if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             switch state {
             case .connected:
@@ -1697,6 +1764,10 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 scheduleDeferredRemoteVideoScan()
                 scheduleRemoteVideoPostConnectWork()
             case .failed:
+                if direction == .outgoing && !didEstablishMediaConnection {
+                    onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
+                    return
+                }
                 finishCall(sendQuit: true)
             default:
                 break
@@ -1705,13 +1776,14 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) {
-        if Self.preWarmBackgroundIceFlag.get() { return }
+        if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             switch state {
             case .connected, .completed:
                 disconnectRecoveryTask?.cancel()
                 disconnectRecoveryTask = nil
                 cancelOutgoingRingTimer()
+                cancelOutgoingConnectTimeout()
                 PeerCallSoundPlayer.shared.stopDialTone()
                 didEstablishMediaConnection = true
                 iceConnectedOrCompletedForUI = true
@@ -1730,11 +1802,15 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 scheduleRemoteVideoPostConnectWork()
             case .checking:
                 PeerCallSoundPlayer.shared.stopDialTone()
-                onNetworkBanner?("Connecting…")
+                onNetworkBanner?(PeerCallLocalizedStrings.statusConnecting)
             case .disconnected:
-                onNetworkBanner?("Weak network — reconnecting…")
+                onNetworkBanner?(PeerCallLocalizedStrings.bannerWeakNetwork)
                 scheduleDisconnectRecoveryIfNeeded()
             case .failed:
+                if direction == .outgoing && !didEstablishMediaConnection {
+                    onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
+                    return
+                }
                 finishCall(sendQuit: true)
             default:
                 break
@@ -1743,7 +1819,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
-        if Self.preWarmBackgroundIceFlag.get() {
+        if preWarmBackgroundIceFlag.get() {
             if let data = try? Self.iceCandidateJSONDataForWire(candidate),
                let json = String(data: data, encoding: .utf8) {
                 threadSafePreWarmSignaling.append((signalingDestinationUserId, WebRTCSignalingDataType.iceCandidate, json))
@@ -1770,7 +1846,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd rtpReceiver: LKRTCRtpReceiver, streams: [LKRTCMediaStream]) {
-        if Self.preWarmBackgroundIceFlag.get() { return }
+        if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             guard let vt = pickRemoteVideoTrack(receiver: rtpReceiver, streams: streams) else {
                 return
@@ -1780,7 +1856,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
-        if Self.preWarmBackgroundIceFlag.get() { return }
+        if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             guard transceiver.mediaType == .video else { return }
             guard let vt = transceiver.receiver.track as? LKRTCVideoTrack else {
@@ -1791,7 +1867,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
-        if Self.preWarmBackgroundIceFlag.get() { return }
+        if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             for i in 0..<stream.videoTracks.count {
                 let vt = stream.videoTracks[i]

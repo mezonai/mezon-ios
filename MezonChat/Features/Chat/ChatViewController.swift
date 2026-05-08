@@ -4125,7 +4125,7 @@ extension ChatViewController {
             channelId: channel.channelID,
             isVideo: false
         )
-        present(callVC, animated: true)
+        pushPeerCallScreen(callVC)
     }
 
     func startVideoCall() {
@@ -4146,6 +4146,14 @@ extension ChatViewController {
             channelId: channel.channelID,
             isVideo: true
         )
-        present(callVC, animated: true)
+        pushPeerCallScreen(callVC)
+    }
+
+    private func pushPeerCallScreen(_ callVC: PeerCallViewController) {
+        if let nav = navigationController {
+            nav.pushViewController(callVC, animated: true)
+        } else {
+            present(callVC, animated: true)
+        }
     }
 }

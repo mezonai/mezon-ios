@@ -241,7 +241,7 @@ final class MezonRootController: NavigationController {
         case .alreadyShowing:
             WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
             return
-        case .ready(let top):
+        case .ready:
             let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
             let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
             let vc = PeerCallViewController(
@@ -251,8 +251,19 @@ final class MezonRootController: NavigationController {
                 remoteAvatarURL: display.avatar,
                 skipIncomingRingingUI: skipRing
             )
-            top.present(vc, animated: !skipRing)
+            pushPeerCallOnSelf(vc, animated: !skipRing)
             WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+        }
+    }
+
+    private func pushPeerCallOnSelf(_ vc: PeerCallViewController, animated: Bool) {
+        let push: () -> Void = { [weak self] in
+            self?.pushViewController(vc, animated: animated)
+        }
+        if presentedViewController != nil {
+            dismiss(animated: false, completion: push)
+        } else {
+            push()
         }
     }
 
@@ -315,6 +326,9 @@ final class MezonRootController: NavigationController {
     private func peerCallIncomingPresentHost() -> PeerCallIncomingPresentHost {
         guard let root = peerCallApplicationModalRootViewController() else {
             return .noHost
+        }
+        if viewControllers.contains(where: { $0 is PeerCallViewController }) {
+            return .alreadyShowing
         }
         var top = root
         while let presented = top.presentedViewController {

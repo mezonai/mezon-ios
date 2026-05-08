@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import UIKit
 
@@ -55,22 +56,27 @@ enum VoIPMinimalCallBootstrap {
         guard UserDefaults.standard.bool(forKey: exitAfterPeerCallKey) else { return }
         UserDefaults.standard.set(false, forKey: exitAfterPeerCallKey)
         UserDefaults.standard.synchronize()
-        if deferSeconds > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + deferSeconds) {
-                Self.terminateAndRemoveFromSwitcher()
-            }
-        } else {
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, deferSeconds)) {
             Self.terminateAndRemoveFromSwitcher()
         }
     }
 
     static func terminateAndRemoveFromSwitcher() {
+        releaseLongLivedResourcesBeforeForcedExit()
         let sessions = UIApplication.shared.connectedScenes.map { $0.session }
         for session in sessions {
             UIApplication.shared.requestSceneSessionDestruction(session, options: nil, errorHandler: nil)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            exit(0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            Darwin._exit(0)
         }
+    }
+
+    private static func releaseLongLivedResourcesBeforeForcedExit() {
+        MainActor.assumeIsolated {
+            MezonSocket.shared.disconnect()
+        }
+        NetworkMonitor.shared.stop()
+        CallKitManager.shared.tearDownForForcedProcessExit()
     }
 }

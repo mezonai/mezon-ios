@@ -686,6 +686,31 @@ enum L10n {
         static let showLess           = "poll.showLess"
         static let noVotesYet         = "poll.noVotesYet"
     }
+
+    enum PeerCall {
+        static let actionEnd                 = "peerCall.actionEnd"
+        static let actionMic                 = "peerCall.actionMic"
+        static let actionSpeaker             = "peerCall.actionSpeaker"
+        static let actionCancel              = "peerCall.actionCancel"
+        static let actionOK                  = "peerCall.actionOK"
+        static let titleDefaultOutgoing      = "peerCall.titleDefaultOutgoing"
+        static let titleDefaultIncoming      = "peerCall.titleDefaultIncoming"
+        static let statusRinging             = "peerCall.statusRinging"
+        static let statusIncoming            = "peerCall.statusIncoming"
+        static let statusConnecting          = "peerCall.statusConnecting"
+        static let statusConnected           = "peerCall.statusConnected"
+        static let statusMissed              = "peerCall.statusMissed"
+        static let statusNoAnswer            = "peerCall.statusNoAnswer"
+        static let statusCouldNotConnect     = "peerCall.statusCouldNotConnect"
+        static let errorMicrophoneDenied     = "peerCall.errorMicrophoneDenied"
+        static let errorCameraDenied         = "peerCall.errorCameraDenied"
+        static let errorCouldNotStartCall    = "peerCall.errorCouldNotStartCall"
+        static let errorCouldNotAnswerCall   = "peerCall.errorCouldNotAnswerCall"
+        static let alertEndCallTitle         = "peerCall.alertEndCallTitle"
+        static let alertEndCallMessage       = "peerCall.alertEndCallMessage"
+        static let bannerWeakNetwork         = "peerCall.bannerWeakNetwork"
+        static let remoteMicOffBanner        = "peerCall.remoteMicOffBanner"
+    }
 }
 
 extension L10n {
@@ -1295,6 +1320,29 @@ extension L10n {
         "channelDetail.unpinConfirmAction": "Unpin",
 
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
+
+        "peerCall.actionEnd":               "End",
+        "peerCall.actionMic":               "Mic",
+        "peerCall.actionSpeaker":           "Speaker",
+        "peerCall.actionCancel":            "Cancel",
+        "peerCall.actionOK":                "OK",
+        "peerCall.titleDefaultOutgoing":    "Call",
+        "peerCall.titleDefaultIncoming":    "Incoming call",
+        "peerCall.statusRinging":           "Ringing…",
+        "peerCall.statusIncoming":          "Incoming…",
+        "peerCall.statusConnecting":        "Connecting…",
+        "peerCall.statusConnected":         "Connected",
+        "peerCall.statusMissed":            "Missed call",
+        "peerCall.statusNoAnswer":          "No answer",
+        "peerCall.statusCouldNotConnect":   "Could not connect",
+        "peerCall.errorMicrophoneDenied":   "Microphone access denied",
+        "peerCall.errorCameraDenied":       "Camera access denied",
+        "peerCall.errorCouldNotStartCall":  "Could not start call",
+        "peerCall.errorCouldNotAnswerCall": "Could not answer call",
+        "peerCall.alertEndCallTitle":       "End Call",
+        "peerCall.alertEndCallMessage":     "Please confirm if you would like to end the call?",
+        "peerCall.bannerWeakNetwork":       "Weak network — reconnecting…",
+        "peerCall.remoteMicOffBanner":      "%@ turned the microphone off",
     ]
 
     private static let vi: [String: String] = [
@@ -1897,5 +1945,28 @@ extension L10n {
         "channelDetail.unpinConfirmAction": "Bỏ ghim",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
+
+        "peerCall.actionEnd":               "Kết thúc",
+        "peerCall.actionMic":               "Mic",
+        "peerCall.actionSpeaker":           "Loa",
+        "peerCall.actionCancel":            "Huỷ",
+        "peerCall.actionOK":                "OK",
+        "peerCall.titleDefaultOutgoing":    "Cuộc gọi",
+        "peerCall.titleDefaultIncoming":    "Cuộc gọi đến",
+        "peerCall.statusRinging":           "Đang đổ chuông…",
+        "peerCall.statusIncoming":          "Đang gọi đến…",
+        "peerCall.statusConnecting":        "Đang kết nối…",
+        "peerCall.statusConnected":         "Đã kết nối",
+        "peerCall.statusMissed":            "Cuộc gọi nhỡ",
+        "peerCall.statusNoAnswer":          "Không có người nghe",
+        "peerCall.statusCouldNotConnect":   "Không kết nối được",
+        "peerCall.errorMicrophoneDenied":   "Quyền truy cập micro bị từ chối",
+        "peerCall.errorCameraDenied":       "Quyền truy cập camera bị từ chối",
+        "peerCall.errorCouldNotStartCall":  "Không thể bắt đầu cuộc gọi",
+        "peerCall.errorCouldNotAnswerCall": "Không thể trả lời cuộc gọi",
+        "peerCall.alertEndCallTitle":       "Kết thúc cuộc gọi",
+        "peerCall.alertEndCallMessage":     "Bạn có chắc chắn muốn kết thúc cuộc gọi không?",
+        "peerCall.bannerWeakNetwork":       "Mạng yếu — đang kết nối lại…",
+        "peerCall.remoteMicOffBanner":      "%@ đã tắt micro",
     ]
 }

@@ -438,7 +438,8 @@ final class ChannelListViewController: ViewController {
                 let vc = QRScannerViewController(context: self.context)
                 self.enclosingNavigationController?.pushViewController(vc, animated: true)
             },
-            onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) }
+            onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) },
+            onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() }
         )
         let initialClan = effectiveClanIdForChannelAppsHydration()
         let initialApps = initialClan != 0 ? channelAppsRawFromCache(clanId: initialClan) : []
@@ -898,6 +899,16 @@ final class ChannelListViewController: ViewController {
     private func setSelectedChannel(_ v: Mezon_Api_ChannelDescription?) { selectedChannel = v; selectedChannelPipe.putNext(v) }
     private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v) }
+
+    private func clearCurrentChannelSelection() {
+        guard selectedChannelId != nil || selectedChannel != nil else { return }
+        setSelectedChannelId(nil)
+        setSelectedChannel(nil)
+        if clanId != 0 {
+            context.clearPersistedSelectedChannelPreference(forClanId: clanId)
+        }
+        needsReloadPipe.putNext(())
+    }
 
     func load(clanId: Int64, clanName: String) {
         fetchDisposable.set(nil)

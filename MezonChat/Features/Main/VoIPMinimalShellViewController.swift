@@ -82,7 +82,16 @@ final class VoIPMinimalShellViewController: ViewController {
                 remoteAvatarURL: display.avatar,
                 skipIncomingRingingUI: skipRing
             )
-            top.present(vc, animated: false, completion: nil)
+            if let nav = top as? UINavigationController ?? top.navigationController {
+                let push = { nav.pushViewController(vc, animated: false) }
+                if nav.presentedViewController != nil {
+                    nav.dismiss(animated: false, completion: push)
+                } else {
+                    push()
+                }
+            } else {
+                top.present(vc, animated: false, completion: nil)
+            }
             WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
         }
     }
@@ -134,6 +143,10 @@ final class VoIPMinimalShellViewController: ViewController {
     private func peerCallIncomingPresentHost() -> PeerCallIncomingPresentHost {
         guard let root = peerCallApplicationModalRootViewController() else {
             return .noHost
+        }
+        if let nav = root as? UINavigationController,
+           nav.viewControllers.contains(where: { $0 is PeerCallViewController }) {
+            return .alreadyShowing
         }
         var top = root
         while let presented = top.presentedViewController {

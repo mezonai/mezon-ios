@@ -11,6 +11,7 @@ struct ChannelListInteraction {
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
     let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
+    let onClearCurrentChannelSelection: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -74,6 +75,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var clanLogoURL: String = ""
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
+
+    private var skipNextLoadingFinishedReveal: Bool = false
 
     private let newUnreadButton: UIButton = {
         let b = UIButton(type: .system)
@@ -187,6 +190,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         let voiceMapChanged = prevState.voiceUsersByChannel != newState.voiceUsersByChannel
         let selectedIsVoiceChannel = newState.allChannels.contains {
             $0.channelID == selectedId && Self.voiceChannelTypes.contains($0.type)
+        }
+        if loadingJustFinished && skipNextLoadingFinishedReveal {
+            skipNextLoadingFinishedReveal = false
+            if !(wasClanSwitching || selectionChanged || (selectedIsVoiceChannel && voiceMapChanged)) {
+                return
+            }
         }
         guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && voiceMapChanged) else { return }
         scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
@@ -674,7 +683,20 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func firstCategoryIndexContainingListChannel(_ channelId: Int64) -> Int? {
-        if let favIdx = state.categories.firstIndex(where: { $0.id == ChannelCategory.favoritesCategoryId }),
+        let favIdx = state.categories.firstIndex(where: { $0.id == ChannelCategory.favoritesCategoryId })
+        for s in 0..<state.categories.count {
+            if s == favIdx { continue }
+            let rows = rowsForSection(s)
+            if rows.contains(where: { row in
+                switch row {
+                case .voiceMembersCollapsed, .voiceMemberExpanded: return false
+                default: return row.channelDesc.channelID == channelId
+                }
+            }) {
+                return s
+            }
+        }
+        if let favIdx,
            let flat = state.categories[favIdx].favoriteFlatChannels,
            flat.contains(where: { $0.channelID == channelId }) {
             let rows = rowsForSection(favIdx)
@@ -685,17 +707,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
             }) {
                 return favIdx
-            }
-        }
-        for s in 0..<state.categories.count {
-            let rows = rowsForSection(s)
-            if rows.contains(where: { row in
-                switch row {
-                case .voiceMembersCollapsed, .voiceMemberExpanded: return false
-                default: return row.channelDesc.channelID == channelId
-                }
-            }) {
-                return s
             }
         }
         return nil
@@ -754,8 +765,10 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     @objc private func newUnreadButtonTapped() {
         guard let id = firstDisplayedChannelIdWithUnreadBadge() else { return }
+        skipNextLoadingFinishedReveal = true
         scrollToChannel(channelId: id, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.interaction.onClearCurrentChannelSelection?()
             self?.interaction.onRefresh?()
         }
     }

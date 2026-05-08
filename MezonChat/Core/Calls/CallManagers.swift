@@ -190,6 +190,11 @@ final class WebRTCCallManager {
         guard let ctx = VoIPAnswerAccountBridge.context else { return false }
         guard let mainWindow = ctx.sharedContextImpl.mainWindow else { return false }
         guard let native = mainWindow.hostView.nativeController?() else { return false }
+        let navStack = Self.navigationControllerForPeerCallScreen(from: native)
+        if let nav = navStack, nav.viewControllers.contains(where: { $0 is PeerCallViewController }) {
+            clearPendingIncomingPeerCallPresentation()
+            return true
+        }
         var walk: UIViewController? = native
         while let cur = walk {
             if cur is PeerCallViewController {
@@ -206,9 +211,23 @@ final class WebRTCCallManager {
             remoteAvatarURL: display.avatar,
             skipIncomingRingingUI: true
         )
-        native.present(vc, animated: false, completion: nil)
+        if let nav = navStack {
+            let push = { nav.pushViewController(vc, animated: false) }
+            if nav.presentedViewController != nil {
+                nav.dismiss(animated: false, completion: push)
+            } else {
+                push()
+            }
+        } else {
+            native.present(vc, animated: false, completion: nil)
+        }
         clearPendingIncomingPeerCallPresentation()
         return true
+    }
+
+    private static func navigationControllerForPeerCallScreen(from root: UIViewController) -> UINavigationController? {
+        if let nav = root as? UINavigationController { return nav }
+        return root.navigationController
     }
 
     func handleIncomingCallPush(_ push: Mezon_Realtime_IncomingCallPush, currentUserId: Int64) {

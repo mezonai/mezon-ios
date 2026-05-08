@@ -88,6 +88,11 @@ final class CallKitManager: NSObject {
         }
     }
 
+    func tearDownForForcedProcessExit() {
+        provider?.invalidate()
+        provider = nil
+    }
+
     private func hasStoredActiveVoIPCallUUID() -> Bool {
         guard let s = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) else { return false }
         return UUID(uuidString: s) != nil
