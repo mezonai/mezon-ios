@@ -57,7 +57,7 @@ struct ChatInteraction {
     let isGroupDMChat: () -> Bool
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
-    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  // button, messageId, display
+    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
 }
 
 final class ChatContainerNode: ASDisplayNode {
@@ -153,7 +153,6 @@ final class ChatContainerNode: ASDisplayNode {
                 self.updateHeader(state: newState)
                 self.updateLoadingState(newState)
                 self.refreshJumpButtonVisibility()
-
 
                 let isEmpty = newState.messages.isEmpty
 
@@ -437,7 +436,11 @@ final class ChatContainerNode: ASDisplayNode {
         let removedIds = oldSet.subtracting(newSet)
         let addedIds = newSet.subtracting(oldSet)
 
-        guard !addedIds.isEmpty || !removedIds.isEmpty else { return }
+        guard !addedIds.isEmpty || !removedIds.isEmpty else {
+            committedMessageIds = Array(newIds)
+            applyInPlaceUpdates(old: old, new: new, newIds: newIds, forceAll: true)
+            return
+        }
 
         var oldIndexMap: [String: Int] = [:]
         oldIndexMap.reserveCapacity(oldIds.count)
@@ -525,7 +528,16 @@ final class ChatContainerNode: ASDisplayNode {
         } else {
             pollHash = ""
         }
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)"
+        let embedHash: String = {
+            let embeds = m.parsedContent.embeds
+            guard !embeds.isEmpty else { return "" }
+            return embeds.map { embed in
+                let fields = embed.fields.map { "\($0.name):\($0.value)" }.joined(separator: ",")
+                let buttons = embed.actionRows.flatMap { $0.buttons }.map { "\($0.id):\($0.label):\($0.style):\($0.disabled)" }.joined(separator: ";")
+                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
+            }.joined(separator: "§")
+        }()
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
@@ -547,9 +559,11 @@ final class ChatContainerNode: ASDisplayNode {
 
             let changed: Bool
             if let oldEntry = oldLookup[newMsg.id] {
+                let newFingerprint = Self.listFingerprint(newMsg)
+                let fingerprintChanged = oldEntry.fingerprint != newFingerprint
                 changed = oldEntry.reactions != newMsg.reactions
                     || oldEntry.sendingState != newMsg.sendingState
-                    || oldEntry.fingerprint != Self.listFingerprint(newMsg)
+                    || fingerprintChanged
             } else {
                 changed = forceAll
             }

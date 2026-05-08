@@ -56,6 +56,7 @@ final class ChatMessageItem: ListViewItem {
             && self.display.pollData?.totalVotes == other.display.pollData?.totalVotes
             && self.display.pollData?.answerCounts == other.display.pollData?.answerCounts
             && self.relayoutVersion == other.relayoutVersion
+            && self.display.parsedContent.embeds == other.display.parsedContent.embeds
     }
 }
 
@@ -212,6 +213,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                         && editedA == editedB
                         && existing.display.pollData?.totalVotes == item.display.pollData?.totalVotes
                         && existing.display.pollData?.answerCounts == item.display.pollData?.answerCounts
+                        && existing.display.parsedContent.embeds == item.display.parsedContent.embeds
                     if bodyUnchanged {
                         existing.updateReactions(newDisplay: item.display)
                         bubble = existing
