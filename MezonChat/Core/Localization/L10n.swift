@@ -687,6 +687,21 @@ enum L10n {
         static let noVotesYet         = "poll.noVotesYet"
     }
 
+    enum CallLog {
+        static let cancel             = "callLog.cancel"
+        static let missed             = "callLog.missed"
+        static let receiverRejected   = "callLog.receiverRejected"
+        static let youRejected        = "callLog.youRejected"
+        static let audioCall          = "callLog.audioCall"
+        static let videoCall          = "callLog.videoCall"
+        static let callBack           = "callLog.callBack"
+        static let incomingCall       = "callLog.incomingCall"
+        static let outGoingCall       = "callLog.outGoingCall"
+        static let startGroupCall     = "callLog.startGroupCall"
+        static let startAudioCall     = "callLog.startAudioCall"
+        static let startVideoCall     = "callLog.startVideoCall"
+    }
+
     enum PeerCall {
         static let actionEnd                 = "peerCall.actionEnd"
         static let actionMic                 = "peerCall.actionMic"
@@ -1321,6 +1336,19 @@ extension L10n {
 
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
 
+        "callLog.cancel":           "You canceled",
+        "callLog.missed":           "You missed",
+        "callLog.receiverRejected": "Receiver rejected",
+        "callLog.youRejected":      "You rejected",
+        "callLog.audioCall":        "Audio call",
+        "callLog.videoCall":        "Video call",
+        "callLog.callBack":         "Call back",
+        "callLog.incomingCall":     "Incoming call",
+        "callLog.outGoingCall":     "Outgoing call",
+        "callLog.startGroupCall":   "%@ started a group call",
+        "callLog.startAudioCall":   "%@ started an audio call",
+        "callLog.startVideoCall":   "%@ started a video call",
+
         "peerCall.actionEnd":               "End",
         "peerCall.actionMic":               "Mic",
         "peerCall.actionSpeaker":           "Speaker",
@@ -1945,6 +1973,19 @@ extension L10n {
         "channelDetail.unpinConfirmAction": "Bỏ ghim",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
+
+        "callLog.cancel":           "Bạn đã từ chối",
+        "callLog.missed":           "Bạn bị nhỡ",
+        "callLog.receiverRejected": "Người nhận từ chối",
+        "callLog.youRejected":      "Bạn đã từ chối",
+        "callLog.audioCall":        "Cuộc gọi thoại",
+        "callLog.videoCall":        "Cuộc gọi video",
+        "callLog.callBack":         "Gọi lại",
+        "callLog.incomingCall":     "Cuộc gọi đến",
+        "callLog.outGoingCall":     "Cuộc gọi đi",
+        "callLog.startGroupCall":   "%@ đã bắt đầu 1 cuộc gọi nhóm",
+        "callLog.startAudioCall":   "%@ đã bắt đầu 1 cuộc gọi thoại",
+        "callLog.startVideoCall":   "%@ đã bắt đầu 1 cuộc gọi video",
 
         "peerCall.actionEnd":               "Kết thúc",
         "peerCall.actionMic":               "Mic",

@@ -30,13 +30,26 @@ enum PeerWebRTCStringCompression {
     }
 
     private static func gzipCompress(_ data: Data) throws -> Data {
-        var stream = z_stream()
+        guard !data.isEmpty else { return Data() }
         var inputBuffer = [UInt8](data)
-        let initStatus: Int32 = inputBuffer.withUnsafeMutableBytes { raw in
-            guard let ptr = raw.bindMemory(to: Bytef.self).baseAddress else { return Z_DATA_ERROR }
-            stream.next_in = ptr
-            stream.avail_in = UInt32(raw.count)
-            return deflateInit2_(
+        var output = Data()
+        let chunkCap = 32_768
+        let outBuf = UnsafeMutablePointer<Bytef>.allocate(capacity: chunkCap)
+        defer { outBuf.deallocate() }
+
+        var resultStatus: Int32 = Z_OK
+        let didFinish: Bool = inputBuffer.withUnsafeMutableBufferPointer { buf -> Bool in
+            guard let baseUInt8 = buf.baseAddress else {
+                resultStatus = Z_DATA_ERROR
+                return false
+            }
+            let basePtr = UnsafeMutableRawPointer(baseUInt8).assumingMemoryBound(to: Bytef.self)
+
+            var stream = z_stream()
+            stream.next_in = basePtr
+            stream.avail_in = UInt32(buf.count)
+
+            let initStatus = deflateInit2_(
                 &stream,
                 Z_DEFAULT_COMPRESSION,
                 Z_DEFLATED,
@@ -46,69 +59,91 @@ enum PeerWebRTCStringCompression {
                 ZLIB_VERSION,
                 Int32(MemoryLayout<z_stream>.size)
             )
-        }
-        guard initStatus == Z_OK else {
-            throw CompressError.zlib(initStatus)
+            guard initStatus == Z_OK else {
+                resultStatus = initStatus
+                return false
+            }
+
+            while true {
+                stream.next_out = outBuf
+                stream.avail_out = UInt32(chunkCap)
+                let deflateStatus = deflate(&stream, Z_FINISH)
+                let have = chunkCap - Int(stream.avail_out)
+                if have > 0 {
+                    output.append(UnsafeBufferPointer(start: outBuf, count: have))
+                }
+                if deflateStatus == Z_STREAM_END {
+                    deflateEnd(&stream)
+                    return true
+                }
+                guard deflateStatus == Z_OK else {
+                    deflateEnd(&stream)
+                    resultStatus = deflateStatus
+                    return false
+                }
+            }
         }
 
-        var output = Data()
-        let chunkCap = 32768
-        let outBuf = UnsafeMutablePointer<Bytef>.allocate(capacity: chunkCap)
-        defer { outBuf.deallocate() }
-        while true {
-            stream.next_out = outBuf
-            stream.avail_out = UInt32(chunkCap)
-            let deflateStatus = deflate(&stream, Z_FINISH)
-            let have = chunkCap - Int(stream.avail_out)
-            if have > 0 {
-                output.append(UnsafeBufferPointer(start: outBuf, count: have))
-            }
-            if deflateStatus == Z_STREAM_END {
-                break
-            }
-            guard deflateStatus == Z_OK else {
-                deflateEnd(&stream)
-                throw CompressError.zlib(deflateStatus)
-            }
+        if !didFinish {
+            throw CompressError.zlib(resultStatus)
         }
-        deflateEnd(&stream)
         return output
     }
 
     private static func gzipDecompress(_ data: Data) throws -> Data {
-        var stream = z_stream()
+        guard !data.isEmpty else { return Data() }
         var inputBuffer = [UInt8](data)
-        let initStatus: Int32 = inputBuffer.withUnsafeMutableBytes { raw in
-            guard let ptr = raw.bindMemory(to: Bytef.self).baseAddress else { return Z_DATA_ERROR }
-            stream.next_in = ptr
-            stream.avail_in = UInt32(raw.count)
-            return inflateInit2_(&stream, MAX_WBITS + 16, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-        }
-        guard initStatus == Z_OK else {
-            throw CompressError.zlib(initStatus)
-        }
-
         var output = Data()
-        let chunkCap = 32768
+        let chunkCap = 32_768
         let outBuf = UnsafeMutablePointer<Bytef>.allocate(capacity: chunkCap)
         defer { outBuf.deallocate() }
-        while true {
-            stream.next_out = outBuf
-            stream.avail_out = UInt32(chunkCap)
-            let inflateStatus = inflate(&stream, Z_NO_FLUSH)
-            let have = chunkCap - Int(stream.avail_out)
-            if have > 0 {
-                output.append(UnsafeBufferPointer(start: outBuf, count: have))
+
+        var resultStatus: Int32 = Z_OK
+        let didFinish: Bool = inputBuffer.withUnsafeMutableBufferPointer { buf -> Bool in
+            guard let baseUInt8 = buf.baseAddress else {
+                resultStatus = Z_DATA_ERROR
+                return false
             }
-            if inflateStatus == Z_STREAM_END {
-                break
+            let basePtr = UnsafeMutableRawPointer(baseUInt8).assumingMemoryBound(to: Bytef.self)
+
+            var stream = z_stream()
+            stream.next_in = basePtr
+            stream.avail_in = UInt32(buf.count)
+
+            let initStatus = inflateInit2_(
+                &stream,
+                MAX_WBITS + 16,
+                ZLIB_VERSION,
+                Int32(MemoryLayout<z_stream>.size)
+            )
+            guard initStatus == Z_OK else {
+                resultStatus = initStatus
+                return false
             }
-            guard inflateStatus == Z_OK else {
-                inflateEnd(&stream)
-                throw CompressError.zlib(inflateStatus)
+
+            while true {
+                stream.next_out = outBuf
+                stream.avail_out = UInt32(chunkCap)
+                let inflateStatus = inflate(&stream, Z_NO_FLUSH)
+                let have = chunkCap - Int(stream.avail_out)
+                if have > 0 {
+                    output.append(UnsafeBufferPointer(start: outBuf, count: have))
+                }
+                if inflateStatus == Z_STREAM_END {
+                    inflateEnd(&stream)
+                    return true
+                }
+                guard inflateStatus == Z_OK else {
+                    inflateEnd(&stream)
+                    resultStatus = inflateStatus
+                    return false
+                }
             }
         }
-        inflateEnd(&stream)
+
+        if !didFinish {
+            throw CompressError.zlib(resultStatus)
+        }
         return output
     }
 }

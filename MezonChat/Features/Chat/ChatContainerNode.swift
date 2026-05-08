@@ -53,6 +53,8 @@ struct ChatInteraction {
     let onSystemAllThreadsTapped: () -> Void
     let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
     let onOpenPollDetail: (_ messageId: String, _ channelId: String) -> Void
+    let onCallLogCallBackTapped: ((CallLogData) -> Void)?
+    let isGroupDMChat: () -> Bool
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
     var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  // button, messageId, display

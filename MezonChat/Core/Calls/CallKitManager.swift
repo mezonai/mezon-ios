@@ -37,6 +37,14 @@ final class CallKitManager: NSObject {
     private var provider: CXProvider?
     private let callController = CXCallController()
     private let payloadValiditySeconds: TimeInterval = 120
+    private let recentlyEndedRetention: TimeInterval = 45
+
+    private struct RecentlyEndedKey: Hashable {
+        let channelId: Int64
+        let callerId: Int64
+    }
+    private var recentlyEndedAt: [RecentlyEndedKey: Date] = [:]
+    private let recentlyEndedLock = NSLock()
 
     private(set) var voipToken: String?
 
@@ -52,6 +60,11 @@ final class CallKitManager: NSObject {
         pushRegistry.delegate = self
         pushRegistry.desiredPushTypes = [.voIP]
 
+        ensureProviderConfigured()
+    }
+
+    private func ensureProviderConfigured() {
+        guard provider == nil else { return }
         let config = CXProviderConfiguration(localizedName: "Mezon")
         config.supportsVideo = true
         config.maximumCallsPerCallGroup = 1
@@ -66,6 +79,8 @@ final class CallKitManager: NSObject {
     }
 
     func requestEndActiveVoIPCallIfNeeded() {
+        markRecentlyEndedFromStoredPayloadIfPossible()
+        markRecentlyEndedFromQuitSnapshotIfPossible()
         guard let uuidString = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
               let uuid = UUID(uuidString: uuidString)
         else { return }
@@ -76,6 +91,16 @@ final class CallKitManager: NSObject {
                 Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
             }
         }
+    }
+
+    @discardableResult
+    private func endStoredActiveCallViaProvider(reason: CXCallEndedReason) -> Bool {
+        guard let provider else { return false }
+        guard let uuidString = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
+              let uuid = UUID(uuidString: uuidString)
+        else { return false }
+        provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
+        return true
     }
 
     func endActiveCallAndExitProcessFastIfMinimalFlow() {
@@ -98,8 +123,62 @@ final class CallKitManager: NSObject {
         return UUID(uuidString: s) != nil
     }
 
+    private func markRecentlyEnded(channelId: Int64, callerId: Int64) {
+        guard channelId != 0 || callerId != 0 else { return }
+        let key = RecentlyEndedKey(channelId: channelId, callerId: callerId)
+        let now = Date()
+        recentlyEndedLock.lock()
+        recentlyEndedAt[key] = now
+        let cutoff = now.addingTimeInterval(-recentlyEndedRetention)
+        recentlyEndedAt = recentlyEndedAt.filter { $0.value >= cutoff }
+        recentlyEndedLock.unlock()
+    }
+
+    private func wasRecentlyEnded(channelId: Int64, callerId: Int64) -> Bool {
+        let key = RecentlyEndedKey(channelId: channelId, callerId: callerId)
+        let cutoff = Date().addingTimeInterval(-recentlyEndedRetention)
+        recentlyEndedLock.lock()
+        defer { recentlyEndedLock.unlock() }
+        guard let ts = recentlyEndedAt[key] else { return false }
+        return ts >= cutoff
+    }
+
+    private func markRecentlyEndedFromStoredPayloadIfPossible() {
+        guard let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) else { return }
+        let channelId = int64(info["channelId"]) ?? 0
+        let callerId = int64(info["callerId"]) ?? 0
+        markRecentlyEnded(channelId: channelId, callerId: callerId)
+    }
+
+    private func markRecentlyEndedFromQuitSnapshotIfPossible() {
+        guard let snap = Self.readVoipQuitSnapshot() else { return }
+        markRecentlyEnded(channelId: snap.channelId, callerId: snap.callerId)
+    }
+
     func clearVoipQuitSnapshot() {
         Self.clearVoipQuitSnapshotStorage()
+    }
+
+    @MainActor
+    func endRingingCallIfMatching(channelId: Int64, callerId: Int64) {
+        guard channelId != 0, callerId != 0 else { return }
+        let storedChannelId: Int64
+        let storedCallerId: Int64
+        if let info = storedUserInfoIfFresh() {
+            storedChannelId = int64(info["channelId"]) ?? 0
+            storedCallerId = int64(info["callerId"]) ?? 0
+        } else if let snap = Self.readVoipQuitSnapshot() {
+            storedChannelId = snap.channelId
+            storedCallerId = snap.callerId
+        } else {
+            return
+        }
+        guard storedChannelId == channelId, storedCallerId == callerId else { return }
+        markRecentlyEnded(channelId: channelId, callerId: callerId)
+        if !endStoredActiveCallViaProvider(reason: .remoteEnded) {
+            requestEndActiveVoIPCallIfNeeded()
+        }
+        Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
     }
 
     private static func clearVoipQuitSnapshotStorage() {
@@ -230,11 +309,14 @@ final class CallKitManager: NSObject {
         }
 
         let offerStr = inner["offer"] as? String ?? ""
+        let cancelChannelId = int64(inner["channelId"]) ?? 0
+        let cancelCallerId = int64(inner["callerId"]) ?? 0
         if offerStr == "CANCEL_CALL" {
-            let hadReportedIncoming = hasStoredActiveVoIPCallUUID()
-            requestEndActiveVoIPCallIfNeeded()
+            ensureProviderConfigured()
+            let endedExisting = endStoredActiveCallViaProvider(reason: .remoteEnded)
             Self.clearStoredIncomingPayload()
-            if !hadReportedIncoming {
+            markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
+            if !endedExisting {
                 reportAndEndPlaceholderCall(reason: .remoteEnded)
             }
             completion()
@@ -276,7 +358,11 @@ final class CallKitManager: NSObject {
 
         let hasVideo = false
 
+        if provider == nil {
+            ensureProviderConfigured()
+        }
         guard let provider else {
+            reportAndEndPlaceholderCall(reason: .failed)
             if let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: receiverId) {
                 Task { @MainActor in
                     WebRTCCallManager.shared.armIncomingSignalingBufferIfDetached(channelId: channelId, calleeUserId: myId)
@@ -367,8 +453,10 @@ final class CallKitManager: NSObject {
     }
 
     private func reportAndEndPlaceholderCall(reason: CXCallEndedReason) {
+        ensureProviderConfigured()
         guard let provider else { return }
         let placeholderUUID = UUID()
+        let alreadyEndedAt = Date(timeIntervalSinceNow: -2)
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: " ")
         update.localizedCallerName = " "
@@ -377,9 +465,8 @@ final class CallKitManager: NSObject {
         update.supportsDTMF = false
         update.supportsGrouping = false
         update.supportsUngrouping = false
-        provider.reportNewIncomingCall(with: placeholderUUID, update: update) { _ in
-            provider.reportCall(with: placeholderUUID, endedAt: nil, reason: reason)
-        }
+        provider.reportNewIncomingCall(with: placeholderUUID, update: update, completion: { _ in })
+        provider.reportCall(with: placeholderUUID, endedAt: alreadyEndedAt, reason: reason)
     }
 }
 
@@ -403,9 +490,11 @@ extension CallKitManager: PKPushRegistryDelegate {
         completion: @escaping () -> Void
     ) {
         guard type == .voIP else {
+            reportAndEndPlaceholderCall(reason: .failed)
             completion()
             return
         }
+        ensureProviderConfigured()
         handleVoIPDictionary(payload.dictionaryPayload, completion: completion)
     }
 }
@@ -457,6 +546,8 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
+        markRecentlyEndedFromStoredPayloadIfPossible()
+        markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
         Self.clearStoredIncomingPayload()
         Task { @MainActor in
@@ -478,6 +569,8 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, timedOutPerforming _: CXAction) {
+        markRecentlyEndedFromStoredPayloadIfPossible()
+        markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
         Self.clearStoredIncomingPayload()
         Task { @MainActor in

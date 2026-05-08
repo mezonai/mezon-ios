@@ -265,7 +265,18 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if let callLog = display.callLog {
             let cln = MessageCallLogNode()
-            cln.configure(callLog: callLog, isMe: display.isMe, senderName: display.senderDisplayName, contentText: parsed.text)
+            cln.configure(
+                callLog: callLog,
+                isMe: display.isMe,
+                senderName: display.senderDisplayName,
+                contentText: parsed.text,
+                isGroupChat: interaction.isGroupDMChat()
+            )
+            cln.onCallBackTapped = { [weak self] in
+                guard let self,
+                      let callLog = self.display.callLog else { return }
+                self.interaction.onCallLogCallBackTapped?(callLog)
+            }
             callLogNode = cln
             addSubnode(cln)
         }
@@ -570,7 +581,13 @@ final class MessageBubbleNode: ASDisplayNode {
             }
         }
         if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
-            cln.configure(callLog: callLog, isMe: newDisplay.isMe, senderName: newDisplay.senderDisplayName, contentText: newDisplay.parsedContent.text)
+            cln.configure(
+                callLog: callLog,
+                isMe: newDisplay.isMe,
+                senderName: newDisplay.senderDisplayName,
+                contentText: newDisplay.parsedContent.text,
+                isGroupChat: interaction.isGroupDMChat()
+            )
         }
 
         if editedChanged {

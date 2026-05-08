@@ -18,6 +18,10 @@ enum PeerCallLocalizedStrings {
     static var statusMissed: String { L(L10n.PeerCall.statusMissed) }
     static var statusNoAnswer: String { L(L10n.PeerCall.statusNoAnswer) }
     static var statusCouldNotConnect: String { L(L10n.PeerCall.statusCouldNotConnect) }
+    static var statusBusyOnAnotherCall: String { "User is currently on another call" }
+    static var statusUserOffline: String { "User is not available" }
+    static var statusRemoteDeclined: String { "Call declined" }
+    static var statusRemoteEnded: String { "Call ended" }
 
     static var errorMicrophoneDenied: String { L(L10n.PeerCall.errorMicrophoneDenied) }
     static var errorCameraDenied: String { L(L10n.PeerCall.errorCameraDenied) }

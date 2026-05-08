@@ -115,11 +115,11 @@ struct ParsedReaction: Equatable {
 }
 
 enum CallLogType: Int {
-    case timeoutCall = 0
-    case rejectCall = 1
-    case cancelCall = 2
+    case startCall = 1
+    case timeoutCall = 2
     case finishCall = 3
-    case startCall = 4
+    case rejectCall = 4
+    case cancelCall = 5
 }
 
 struct CallLogData {
@@ -672,6 +672,18 @@ final class ChatViewController: ViewController {
                         }
                     }
                 }
+            },
+            onCallLogCallBackTapped: { [weak self] callLog in
+                guard let self else { return }
+                if callLog.isVideo {
+                    self.startVideoCall()
+                } else {
+                    self.startCall()
+                }
+            },
+            isGroupDMChat: { [weak self] in
+                guard let self else { return false }
+                return self.channel.type == MezonConstants.ChannelType.group.rawValue
             },
             onMessagesReloaded: nil,
             onMessageNeedsRelayout: nil,
@@ -4117,6 +4129,12 @@ extension ChatViewController {
             return
         }
 
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
         let callVC = PeerCallViewController(
             context: context,
             remoteUserName: channel.channelLabel,
@@ -4137,6 +4155,12 @@ extension ChatViewController {
         guard remoteUserId != 0 else {
             return
         }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: true
+        )
 
         let callVC = PeerCallViewController(
             context: context,

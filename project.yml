@@ -165,6 +165,10 @@ targets:
         NSCameraUsageDescription: "Mezon app needs access to the camera to call video or take add pricture send to chat"
         NSLocationAlwaysAndWhenInUseUsageDescription: "We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app."
         NSLocationWhenInUseUsageDescription: "We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app."
+        NSLocalNetworkUsageDescription: "Mezon needs access to your local network to establish peer-to-peer voice and video calls."
+        NSBonjourServices:
+          - "_mezon-call._udp"
+          - "_mezon-call._tcp"
         NSMicrophoneUsageDescription: "Allow Mezon access to your microphone to enable voice chat"
         NSPasteboardUsageDescription: "Mezon needs access to the clipboard to paste content/images from other apps"
         NSPhotoLibraryAddUsageDescription: "Mezon app needs access to the photo library to select and send images in messages"
