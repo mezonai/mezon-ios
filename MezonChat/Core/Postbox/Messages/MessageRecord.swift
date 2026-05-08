@@ -126,7 +126,26 @@ extension MessageRecord {
             && prev.referencesData == fresh.referencesData
             && prev.mentionsJSON == fresh.mentionsJSON
             && prev.code == fresh.code
-        if !sameBodyForMerge { return fresh }
+        if !sameBodyForMerge {
+            return MessageRecord(
+                id: fresh.id,
+                channelId: fresh.channelId,
+                clanId: fresh.clanId,
+                senderId: fresh.senderId,
+                content: fresh.content,
+                createdAt: prev.createdAt,
+                editedAt: fresh.editedAt,
+                isDeleted: fresh.isDeleted,
+                code: prev.code,
+                senderDisplayName: prev.senderDisplayName.isEmpty ? fresh.senderDisplayName : prev.senderDisplayName,
+                senderAvatarURL: prev.senderAvatarURL ?? fresh.senderAvatarURL,
+                sendingState: fresh.sendingState,
+                attachmentsJSON: fresh.attachmentsJSON,
+                reactionsJSON: fresh.reactionsJSON,
+                referencesData: fresh.referencesData,
+                mentionsJSON: fresh.mentionsJSON
+            )
+        }
         let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
         let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
         if !nick.isEmpty || !clanAv.isEmpty { return fresh }

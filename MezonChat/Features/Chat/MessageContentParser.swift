@@ -65,7 +65,7 @@ struct ParsedEmbedField: Equatable {
     let inputComponent: ParsedEmbedInputComponent?
 }
 
-struct ParsedEmbed {
+struct ParsedEmbed: Equatable {
     let color: String?
     let title: String?
     let url: String?

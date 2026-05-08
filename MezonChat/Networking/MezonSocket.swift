@@ -3,6 +3,7 @@ import SwiftProtobuf
 
 enum SocketEvent {
     case messageReceived(Mezon_Api_ChannelMessage)
+    case messageUpdated(Mezon_Realtime_ChannelMessageUpdate)
     case typing(Mezon_Realtime_MessageTypingEvent)
     case reaction(Mezon_Api_MessageReaction)
     case presence(Mezon_Realtime_ChannelPresenceEvent)
@@ -361,8 +362,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.messageReceived(m))
         case .channelMessageSend:
             break
-        case .channelMessageUpdate:
-            break
+        case .channelMessageUpdate(let m):
+            eventPipe.putNext(.messageUpdated(m))
         case .channelMessageRemove(let m):
             eventPipe.putNext(.messageRemoved(m))
         case .messageTypingEvent(let m):

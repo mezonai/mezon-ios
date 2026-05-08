@@ -605,6 +605,27 @@ final class MessageBubbleNode: ASDisplayNode {
             }
         }
 
+        let embedChanged = oldDisplay.parsedContent.embeds != newDisplay.parsedContent.embeds
+        if embedChanged {
+            embedNode?.removeFromSupernode()
+            embedNode = nil
+            let newParsed = newDisplay.parsedContent
+            if !newParsed.embeds.isEmpty {
+                let en = MessageEmbedNode()
+                en.configure(embeds: newParsed.embeds, messageId: newDisplay.id, isEphemeral: newDisplay.isEphemeral)
+                en.isUserInteractionEnabled = true
+                en.onEmbedImageTapped = { [weak self] url in
+                    self?.handleEmbedImageTap(url: url)
+                }
+                en.onEmbedButtonTapped = { [weak self] button, messageId in
+                    guard let self else { return }
+                    self.interaction.onEmbedButtonClicked?(button, messageId, self.display)
+                }
+                embedNode = en
+                addSubnode(en)
+            }
+        }
+
         let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
         callLogNode?.alpha = contentAlpha
         pollCardNode?.alpha = contentAlpha
@@ -626,6 +647,7 @@ final class MessageBubbleNode: ASDisplayNode {
             || (oldFailed != newDisplay.isFailed)
             || inviteChanged || (oldWantInvite != newWantInvite)
             || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
+            || embedChanged
         if needsRelayout {
             let _ = measureSize(width: cachedTotalSize.width)
             setNeedsLayout()

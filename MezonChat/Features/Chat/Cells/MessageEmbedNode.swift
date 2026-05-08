@@ -1003,22 +1003,25 @@ private final class EmbedActionRowNode: ASDisplayNode {
     func measureSize(maxWidth: CGFloat) -> CGSize {
         guard !buttonNodes.isEmpty else { return .zero }
         let buttonSpacing: CGFloat = 8
-        let totalSpacing = buttonSpacing * CGFloat(buttonNodes.count - 1)
-        let buttonWidth = floor((maxWidth - totalSpacing) / CGFloat(buttonNodes.count))
-        let buttonHeight: CGFloat = 40
-        for node in buttonNodes { node.cachedSize = CGSize(width: buttonWidth, height: buttonHeight) }
-        cachedSize = CGSize(width: maxWidth, height: buttonHeight)
+        let buttonHeight: CGFloat = 32
+        var totalWidth: CGFloat = 0
+        for (i, node) in buttonNodes.enumerated() {
+            let bw = node.intrinsicWidth(maxWidth: maxWidth)
+            node.cachedSize = CGSize(width: bw, height: buttonHeight)
+            totalWidth += bw
+            if i > 0 { totalWidth += buttonSpacing }
+        }
+        cachedSize = CGSize(width: min(totalWidth, maxWidth), height: buttonHeight)
         return cachedSize
     }
 
     override func layout() {
         super.layout()
         let buttonSpacing: CGFloat = 8
-        let buttonWidth = floor((bounds.width - buttonSpacing * CGFloat(buttonNodes.count - 1)) / CGFloat(buttonNodes.count))
         var x: CGFloat = 0
         for node in buttonNodes {
-            node.frame = CGRect(x: x, y: 0, width: buttonWidth, height: bounds.height)
-            x += buttonWidth + buttonSpacing
+            node.frame = CGRect(x: x, y: 0, width: node.cachedSize.width, height: bounds.height)
+            x += node.cachedSize.width + buttonSpacing
         }
     }
 }
@@ -1060,6 +1063,13 @@ private final class EmbedButtonNode: ASDisplayNode {
         alpha = button.disabled ? 0.5 : 1.0
     }
 
+    func intrinsicWidth(maxWidth: CGFloat) -> CGFloat {
+        let hPadding: CGFloat = 20
+        let minWidth: CGFloat = 60
+        let labelSize = labelNode.measure(CGSize(width: maxWidth - hPadding * 2, height: 32))
+        return max(minWidth, ceil(labelSize.width) + hPadding * 2)
+    }
+
     @objc private func handleTap() {
         if let url = button.url, let u = URL(string: url) { UIApplication.shared.open(u) }
         else { onTapped?() }
@@ -1081,7 +1091,8 @@ private final class EmbedButtonNode: ASDisplayNode {
                 node.frame = bounds
             }
         }
-        let labelSize = labelNode.measure(CGSize(width: bounds.width - 16, height: bounds.height))
+        let hPadding: CGFloat = 20
+        let labelSize = labelNode.measure(CGSize(width: bounds.width - hPadding * 2, height: bounds.height))
         let x = (bounds.width - labelSize.width) / 2
         let y = (bounds.height - labelSize.height) / 2
         labelNode.frame = CGRect(x: x, y: y, width: labelSize.width, height: labelSize.height)
