@@ -92,6 +92,19 @@ final class MezonSocket: NSObject {
     private let pendingSendQueueCap = 32
     private let pendingSendStaleAge: TimeInterval = 10
 
+    private var nextCid: UInt32 = 0
+    private var pendingApiRequests: [UInt32: PendingApiRequest] = [:]
+    private var apiResponseStreams: [UInt32: Data] = [:]
+    private let defaultApiRequestTimeoutNanos: UInt64 = 10_000_000_000
+
+    private let heartbeatIntervalSeconds: TimeInterval = 15
+    private var heartbeatTask: Task<Void, Never>?
+
+    private struct PendingApiRequest {
+        let continuation: CheckedContinuation<Data, Error>
+        let timeoutTask: Task<Void, Never>
+    }
+
     var tokenProvider: (() async throws -> String)?
 
     private var reconnectWorkItem: DispatchWorkItem?
@@ -145,6 +158,7 @@ final class MezonSocket: NSObject {
     func disconnect() {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
+        stopHeartbeat()
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -154,6 +168,7 @@ final class MezonSocket: NSObject {
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
+        failAllPendingApiRequests(reason: "WebSocket disconnected")
     }
 
     func reconnectFromForeground() {
@@ -174,10 +189,12 @@ final class MezonSocket: NSObject {
     private func cleanupForReconnect() {
         isConnected = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
+        stopHeartbeat()
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
+        failAllPendingApiRequests(reason: "WebSocket reconnecting")
     }
 
     func send(_ envelope: Mezon_Realtime_Envelope) {
@@ -187,6 +204,120 @@ final class MezonSocket: NSObject {
         }
         guard let data = try? envelope.serializedData() else { return }
         task.send(.data(data)) { _ in }
+    }
+
+    func sendApiRequest(
+        apiName: String,
+        body: Data,
+        timeoutNanoseconds: UInt64? = nil
+    ) async throws -> Data {
+        guard isConnected, let task = webSocketTask else {
+            MezonRPCLog.log("send '\(apiName)' aborted: socket not connected")
+            throw MezonError.socketError("WebSocket is not connected")
+        }
+
+        let cid = generateCid()
+        var apiReq = Mezon_Realtime_ApiRequestEvent()
+        apiReq.apiName = apiName
+        apiReq.apiIndex = MezonApiNameRegistry.index(of: apiName)
+        apiReq.body = body
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.cid = Int32(bitPattern: cid)
+        envelope.apiRequestEvent = apiReq
+
+        let payload: Data
+        do {
+            payload = try envelope.serializedData()
+        } catch {
+            MezonRPCLog.log("send '\(apiName)' encode error cid=\(cid): \(error.localizedDescription)")
+            throw MezonError.socketError("Encode api_request_event failed: \(error.localizedDescription)")
+        }
+
+        let timeoutNs = timeoutNanoseconds ?? defaultApiRequestTimeoutNanos
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+            let timeoutTask = Task { @MainActor [weak self] in
+                let step: UInt64 = 50_000_000
+                var elapsed: UInt64 = 0
+                while elapsed < timeoutNs {
+                    try? await Task.sleep(nanoseconds: step)
+                    if Task.isCancelled { return }
+                    elapsed += step
+                }
+                guard let self else { return }
+                if let pending = self.pendingApiRequests.removeValue(forKey: cid) {
+                    let buffered = self.apiResponseStreams.removeValue(forKey: cid)?.count ?? 0
+                    MezonRPCLog.log("timeout cid=\(cid) api='\(apiName)' afterMs=\(timeoutNs / 1_000_000) bufferedBytes=\(buffered)")
+                    pending.continuation.resume(
+                        throwing: MezonError.socketError(
+                            "api_request_event '\(apiName)' timed out after \(timeoutNs / 1_000_000)ms"
+                        )
+                    )
+                }
+            }
+
+            pendingApiRequests[cid] = PendingApiRequest(
+                continuation: continuation,
+                timeoutTask: timeoutTask
+            )
+
+            task.send(.data(payload)) { [weak self] error in
+                guard let error else { return }
+                MezonRPCLog.log("send-callback cid=\(cid) api='\(apiName)' error=\(error.localizedDescription)")
+                Task { @MainActor in
+                    guard let self else { return }
+                    if let pending = self.pendingApiRequests.removeValue(forKey: cid) {
+                        self.apiResponseStreams.removeValue(forKey: cid)
+                        pending.timeoutTask.cancel()
+                        pending.continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    private func generateCid() -> UInt32 {
+        nextCid &+= 1
+        if nextCid == 0 || nextCid > 0xFFFF {
+            nextCid = 1
+        }
+        return nextCid
+    }
+
+    private func startHeartbeat() {
+        heartbeatTask?.cancel()
+        let intervalNs = UInt64(heartbeatIntervalSeconds * 1_000_000_000)
+        heartbeatTask = Task { @MainActor [weak self] in
+            while true {
+                try? await Task.sleep(nanoseconds: intervalNs)
+                if Task.isCancelled { return }
+                guard let self else { return }
+                guard self.isConnected, let task = self.webSocketTask else { return }
+                var envelope = Mezon_Realtime_Envelope()
+                envelope.ping = Mezon_Realtime_Ping()
+                guard let data = try? envelope.serializedData() else { continue }
+                task.send(.data(data)) { error in
+                    if let error {
+                        MezonRPCLog.log("heartbeat send error: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+    }
+
+    private func failAllPendingApiRequests(reason: String) {
+        let snapshot = pendingApiRequests
+        pendingApiRequests.removeAll()
+        apiResponseStreams.removeAll()
+        for (_, pending) in snapshot {
+            pending.timeoutTask.cancel()
+            pending.continuation.resume(throwing: MezonError.socketError(reason))
+        }
     }
 
     private func enqueuePendingSend(_ envelope: Mezon_Realtime_Envelope) {
@@ -327,6 +458,7 @@ final class MezonSocket: NSObject {
                 let nsErr = error as NSError
                 guard nsErr.code != NSURLErrorCancelled else { return }
                 Task { @MainActor in
+                    MezonRPCLog.log("ws receive-fail domain=\(nsErr.domain) code=\(nsErr.code) desc='\(nsErr.localizedDescription)' pendingRpc=\(self.pendingApiRequests.count)")
                     self.cleanupForReconnect()
                     self.eventPipe.putNext(.error(error))
                     self.scheduleReconnect()
@@ -337,7 +469,12 @@ final class MezonSocket: NSObject {
 
     private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
         switch message {
-        case .data(let data):       decodeEnvelope(data)
+        case .data(let data):
+            if let first = data.first, first == 0xFF {
+                handleFramedApiResponse(data)
+                return
+            }
+            decodeEnvelope(data)
         case .string(let text):
             guard let data = text.data(using: .utf8) else { return }
             decodeEnvelope(data)
@@ -356,7 +493,68 @@ final class MezonSocket: NSObject {
         }
     }
 
+    private func handleFramedApiResponse(_ data: Data) {
+        let headerLength = 7
+        guard data.count >= headerLength else {
+            MezonRPCLog.log("frame drop: too small bytes=\(data.count)")
+            return
+        }
+        let bytes = [UInt8](data)
+        let cid: UInt32 = (UInt32(bytes[1]) << 8) | UInt32(bytes[2])
+        let statusWord: UInt32 =
+            (UInt32(bytes[3]) << 24) |
+            (UInt32(bytes[4]) << 16) |
+            (UInt32(bytes[5]) << 8)  |
+            UInt32(bytes[6])
+        let responseCode = (statusWord >> 16) & 0xFFFF
+        let finFlag = statusWord & 0xFFFF
+        let payload = data.count > headerLength
+            ? data.subdata(in: headerLength..<data.count)
+            : Data()
+
+        var buffer = apiResponseStreams[cid] ?? Data()
+        if !payload.isEmpty {
+            buffer.append(payload)
+        }
+
+        if finFlag == 0xFF {
+            apiResponseStreams.removeValue(forKey: cid)
+            guard let pending = pendingApiRequests.removeValue(forKey: cid) else {
+                MezonRPCLog.log("frame FIN cid=\(cid) code=\(responseCode) totalBytes=\(buffer.count) (no pending)")
+                return
+            }
+            pending.timeoutTask.cancel()
+            if responseCode == 0 {
+                pending.continuation.resume(returning: buffer)
+            } else {
+                let message = String(data: buffer, encoding: .utf8) ?? ""
+                MezonRPCLog.log("recv ← cid=\(cid) error code=\(responseCode) bytes=\(buffer.count) msg='\(message.prefix(160))'")
+                pending.continuation.resume(
+                    throwing: MezonError.httpError(statusCode: Int(responseCode), message: message)
+                )
+            }
+        } else {
+            apiResponseStreams[cid] = buffer
+        }
+    }
+
     private func routeEnvelope(_ envelope: Mezon_Realtime_Envelope) {
+        let cid = UInt32(bitPattern: envelope.cid)
+        if cid != 0, pendingApiRequests[cid] != nil {
+            guard let pending = pendingApiRequests.removeValue(forKey: cid) else { return }
+            apiResponseStreams.removeValue(forKey: cid)
+            pending.timeoutTask.cancel()
+            if case .error(let err) = envelope.message {
+                MezonRPCLog.log("envelope-cid cid=\(cid) error msg='\(err.message)'")
+                pending.continuation.resume(
+                    throwing: MezonError.socketError(err.message.isEmpty ? "Server error" : err.message)
+                )
+            } else {
+                pending.continuation.resume(returning: Data())
+            }
+            return
+        }
+
         switch envelope.message {
         case .channelMessage(let m):
             eventPipe.putNext(.messageReceived(m))
@@ -585,6 +783,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.eventPipe.putNext(.connected)
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
             self.flushPendingSendQueue()
+            self.startHeartbeat()
         }
     }
 
@@ -601,12 +800,248 @@ extension MezonSocket: URLSessionWebSocketDelegate {
             self.webSocketTask = nil
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
             self.eventPipe.putNext(.disconnected)
+            self.failAllPendingApiRequests(reason: "WebSocket closed")
 
             if closeCode != .normalClosure {
                 self.scheduleReconnect()
             }
         }
     }
+}
+
+enum MezonRPCLog {
+    static func log(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("[MezonRPC] \(message())")
+        #endif
+    }
+}
+
+enum MezonApiNameRegistry {
+    static func index(of apiName: String) -> Int32 {
+        if let v = nameToIndex[apiName] { return v }
+        return -1
+    }
+
+    private static let orderedNames: [String] = [
+        "ListChannelDescs",
+        "GetAccount",
+        "ListClanDescs",
+        "ListClanUsers",
+        "ListRoles",
+        "ListEvents",
+        "GetRoleOfUserInTheClan",
+        "GetListPermission",
+        "ListUserPermissionInChannel",
+        "GetNotificationClan",
+        "ListMutedChannel",
+        "ListStreamingChannelUsers",
+        "ListQuickMenuAccess",
+        "GetNotificationChannel",
+        "ListFriends",
+        "EmojiRecentList",
+        "GetListEmojisByUserId",
+        "ListClanBadgeCount",
+        "ListChannelBadgeCount",
+        "ListLogedDevice",
+        "ListClanUsersStatus",
+        "ListChannelApps",
+        "GetListFavoriteChannel",
+        "ListCategoryDescs",
+        "ListOnboarding",
+        "GetListStickersByUserId",
+        "GetSystemMessageByClanId",
+        "GetPinMessagesList",
+        "GetChannelCanvasList",
+        "ListChannelTimeline",
+        "ListChannelMessages",
+        "ListActivity",
+        "ListChannelByUserId",
+        "ListUserClansByUserId",
+        "GetUserProfileOnClan",
+        "RegistFCMDeviceToken",
+        "IsBanned",
+        "ListThreadDescs",
+        "ListArchivedChannelDescs",
+        "ListChannelDetail",
+        "GetChannelCategoryNotiSettingsList",
+        "ListRoleUsers",
+        "ListChannelUsers",
+        "ListChannelAttachment",
+        "ListChannelVoiceUsers",
+        "ListUserOnline",
+        "ListNotifications",
+        "ListChannelUsersUC",
+        "ListWebhookByChannelId",
+        "GetPermissionByRoleIdChannelId",
+        "ListChannelSetting",
+        "ListApps",
+        "GetApp",
+        "ListForSaleItems",
+        "ListClanWebhook",
+        "GetUserStatus",
+        "ListSdTopic",
+        "AddFriends",
+        "AddChannelUsers",
+        "RegistrationEmail",
+        "BlockFriends",
+        "UnblockFriends",
+        "UploadAttachmentFile",
+        "UploadOauthFile",
+        "AddRolesChannelDesc",
+        "CreateCategoryDesc",
+        "CreateChannelDesc",
+        "CreateRole",
+        "CreateEvent",
+        "DeleteRole",
+        "DeleteEvent",
+        "DeleteRoleChannelDesc",
+        "DeleteChannelDesc",
+        "CloseDMByChannelId",
+        "OpenDMByChannelId",
+        "DeleteAccount",
+        "DeleteFriends",
+        "DeleteCategoryDesc",
+        "DeleteNotifications",
+        "DeleteClanDesc",
+        "UpdateUser",
+        "UpdateUserProfileByClan",
+        "UpdateClanOrder",
+        "RemoveChannelUsers",
+        "LeaveThread",
+        "ArchiveChannel",
+        "LinkSMS",
+        "ConfirmLinkMezonOTP",
+        "LinkEmail",
+        "CreateClanDesc",
+        "RemoveClanUsers",
+        "BanClanUsers",
+        "CreateLinkInviteUser",
+        "InviteUser",
+        "SetRoleChannelPermission",
+        "SetNotificationChannelSetting",
+        "SetMuteChannel",
+        "SetMuteCategory",
+        "SetNotificationClanSetting",
+        "SetNotificationCategorySetting",
+        "DeleteNotificationCategorySetting",
+        "DeleteNotificationChannel",
+        "CreatePinMessage",
+        "CreateMessage2Inbox",
+        "UnlinkMezon",
+        "UnlinkEmail",
+        "UpdateAccount",
+        "UpdateUsername",
+        "UpdateCategory",
+        "UpdateCategoryOrder",
+        "UpdateRoleOrder",
+        "UpdateClanDesc",
+        "UpdateChannelDesc",
+        "UpdateChannelPrivate",
+        "UpdateRole",
+        "UpdateEvent",
+        "SearchMessage",
+        "CreateClanEmoji",
+        "DeleteByIdClanEmoji",
+        "UpdateClanEmojiById",
+        "GenerateWebhook",
+        "HandleWebhook",
+        "UpdateWebhookById",
+        "DeleteWebhookById",
+        "AddClanSticker",
+        "UpdateClanStickerById",
+        "DeleteClanStickerById",
+        "ChangeChannelCategory",
+        "CheckDuplicateName",
+        "AddApp",
+        "DeleteApp",
+        "UpdateApp",
+        "AddAppToClan",
+        "CreateSystemMessage",
+        "UpdateSystemMessage",
+        "DeleteSystemMessage",
+        "StreamingServerCallback",
+        "EditChannelCanvases",
+        "GetChannelCanvasDetail",
+        "DeleteChannelCanvas",
+        "AddChannelFavorite",
+        "RemoveChannelFavorite",
+        "CreateActiviy",
+        "GetPubKeys",
+        "PushPubKey",
+        "GetChanEncryptionMethod",
+        "SetChanEncryptionMethod",
+        "GetKeyServer",
+        "ListAuditLog",
+        "GetOnboardingDetail",
+        "CreateOnboarding",
+        "UpdateOnboarding",
+        "DeleteOnboarding",
+        "ListOnboardingStep",
+        "UpdateOnboardingStep",
+        "GenerateClanWebhook",
+        "UpdateClanWebhookById",
+        "DeleteClanWebhookById",
+        "HandleClanWebhook",
+        "UpdateUserStatus",
+        "UpdateUserCustomStatus",
+        "GetTopicDetail",
+        "CreateSdTopic",
+        "DeleteSdTopic",
+        "CreateExternalMezonMeet",
+        "GenerateMeetToken",
+        "RemoveParticipantMezonMeet",
+        "MuteParticipantMezonMeet",
+        "CreateRoomChannelApps",
+        "GetMezonOauthClient",
+        "DeleteMezonOauthClient",
+        "UpdateMezonOauthClient",
+        "SearchThread",
+        "GenerateHashChannelApps",
+        "DeleteUserEvent",
+        "AddUserEvent",
+        "DeleteQuickMenuAccess",
+        "AddQuickMenuAccess",
+        "UpdateQuickMenuAccess",
+        "TransferOwnership",
+        "SendChannelMessage",
+        "UpdateChannelMessage",
+        "DeleteChannelMessage",
+        "ReportMessageAbuse",
+        "MessageButtonClick",
+        "DropdownBoxSelected",
+        "ActiveArchivedThread",
+        "UpdateChannelTimeline",
+        "AddAgentToChannel",
+        "DisconnectAgent",
+        "CreateChannelTimeline",
+        "DetailChannelTimeline",
+        "CreatePoll",
+        "VotePoll",
+        "ClosePoll",
+        "GetPoll",
+        "ReactChannelMessage",
+        "MultipartUploadAttachmentFileStart",
+        "MultipartUploadAttachmentFileFinish",
+        "SessionRefresh",
+        "SessionLogout",
+        "Healthcheck",
+        "UnbanClanUsers",
+        "ListBannedUsers",
+        "GetNotificationCategory",
+        "ListRolePermissions",
+        "IsFollower",
+        "DeletePinMessage",
+        "MarkAsRead"
+    ]
+
+    private static let nameToIndex: [String: Int32] = {
+        var dict: [String: Int32] = [:]
+        for (i, name) in orderedNames.enumerated() {
+            dict[name] = Int32(i)
+        }
+        return dict
+    }()
 }
 
 enum ChannelUnreadBadgeSync {

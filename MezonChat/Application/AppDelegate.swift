@@ -282,6 +282,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
 
     @objc private func handleDidBecomeActive() {
+        VoIPMinimalCallBootstrap.clearExitAfterPeerCallFlagOnly()
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
             shell.flushPendingIncomingPeerCallIfNeeded()
         }

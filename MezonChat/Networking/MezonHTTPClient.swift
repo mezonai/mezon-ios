@@ -1433,6 +1433,80 @@ final class MezonHTTPClient {
         auth: AuthMethod,
         allowBearerRetry: Bool = true
     ) async throws -> Response {
+        if let response: Response = try await sendOverSocketIfPossible(path: path, message: message) {
+            return response
+        }
+        return try await postProtoHTTP(
+            path: path,
+            message: message,
+            auth: auth,
+            allowBearerRetry: allowBearerRetry
+        )
+    }
+
+    private static let httpOnlyApiNames: Set<String> = [
+        "SessionRefresh",
+        "RegistFCMDeviceToken",
+        "SendChannelMessage"
+    ]
+    private static let socketWaitNanoseconds: UInt64 = 30_000_000_000
+
+    private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
+        path: String,
+        message: Request
+    ) async throws -> Response? {
+        let prefix = "/mezon.api.Mezon/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let apiName = String(path.dropFirst(prefix.count))
+
+        if Self.httpOnlyApiNames.contains(apiName) {
+            return nil
+        }
+
+        var connected = await MezonSocket.shared.isConnected
+        if !connected {
+            connected = await MezonSocket.shared.waitForConnected(timeoutNanoseconds: Self.socketWaitNanoseconds)
+        }
+        guard connected else {
+            MezonRPCLog.log("route api='\(apiName)' SOCKET unavailable after wait → throw (no HTTP fallback)")
+            throw MezonError.socketError("WebSocket unavailable for '\(apiName)'")
+        }
+
+        let body: Data
+        do {
+            body = try message.serializedData()
+        } catch {
+            MezonRPCLog.log("route api='\(apiName)' encode body failed → throw (no HTTP fallback): \(error.localizedDescription)")
+            throw MezonError.socketError("Encode body failed for '\(apiName)': \(error.localizedDescription)")
+        }
+
+        let started = Date()
+        do {
+            let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            MezonRPCLog.log("SOCKET ok api='\(apiName)' respBytes=\(respBytes.count) elapsedMs=\(ms)")
+            if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
+                return SwiftProtobuf.Google_Protobuf_Empty() as? Response
+            }
+            do {
+                return try Response(serializedBytes: respBytes)
+            } catch {
+                MezonRPCLog.log("SOCKET decode FAIL api='\(apiName)' bytes=\(respBytes.count) error=\(error.localizedDescription)")
+                throw error
+            }
+        } catch {
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            MezonRPCLog.log("SOCKET fail api='\(apiName)' elapsedMs=\(ms) error=\(error.localizedDescription)")
+            throw error
+        }
+    }
+
+    private func postProtoHTTP<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod,
+        allowBearerRetry: Bool = true
+    ) async throws -> Response {
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -1446,14 +1520,22 @@ final class MezonHTTPClient {
         }
         request.httpBody = try message.serializedData()
 
+        let started = Date()
+
         let (data, response) = try await httpData(request)
 
-        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard let http = response as? HTTPURLResponse else {
+            MezonRPCLog.log("HTTP invalid response \(path)")
+            throw MezonError.invalidResponse
+        }
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
 
         if (200..<300).contains(http.statusCode) {
+            MezonRPCLog.log("HTTP ok \(path) status=\(http.statusCode) bytes=\(data.count) elapsedMs=\(ms)")
             do {
                 return try Response(serializedBytes: data)
             } catch {
+                MezonRPCLog.log("HTTP decode FAIL \(path) bytes=\(data.count) error=\(error.localizedDescription)")
                 throw error
             }
         }
@@ -1463,7 +1545,7 @@ final class MezonHTTPClient {
             case .bearer = auth,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            return try await postProto(
+            return try await postProtoHTTP(
                 path: path,
                 message: message,
                 auth: .bearer(newToken),
@@ -1473,6 +1555,7 @@ final class MezonHTTPClient {
 
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        MezonRPCLog.log("HTTP FAIL \(path) status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 

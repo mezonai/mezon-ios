@@ -650,11 +650,11 @@ final class VoiceChannelPiPOverlay: NSObject {
         let leaveFlag = didAnnounceMeetLeave
         let route = preservedAudioRoute
         preservedAudioRoute = nil
+        pipWindow?.isHidden = true
+        pipView.removeFromSuperview()
+        pipWindow = nil
         videoView.track = nil
         systemCallPiPVideoView.track = nil
-        pipView.removeFromSuperview()
-        pipWindow?.isHidden = true
-        pipWindow = nil
         bridge = nil
         context = nil
         channel = nil
@@ -823,6 +823,12 @@ final class VoiceChannelPiPOverlay: NSObject {
             voiceChannelCrossClanExitAlignClanId: crossClanVoiceExitAlignClanId,
             existingPiPOverlay: self
         )
+        vc.loadViewIfNeeded()
+        let frame = nav.view.bounds
+        if vc.view.bounds != frame {
+            vc.view.frame = frame
+            vc.view.layoutIfNeeded()
+        }
         nav.pushViewController(vc, animated: true)
     }
 
@@ -1565,6 +1571,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
             self.refreshSpeakerRouteUI()
         }
+
+        if let pip = existingPiPOverlay,
+           let (bridge, joinFlag, leaveFlag, route) = pip.takeOverBridge() {
+            applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
+            view.layoutIfNeeded()
+            didStartVoiceConnection = true
+        }
     }
 
     private func styleHeaderCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
@@ -2222,11 +2235,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         guard !didStartVoiceConnection else { return }
         didStartVoiceConnection = true
-
-        if let pip = existingPiPOverlay, let (bridge, joinFlag, leaveFlag, route) = pip.takeOverBridge() {
-            applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
-            return
-        }
 
         connectTask = Task { @MainActor in
             await self.runVoiceConnectionPipeline()

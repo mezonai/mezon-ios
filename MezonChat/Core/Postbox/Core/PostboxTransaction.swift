@@ -70,6 +70,11 @@ final class PostboxTransaction {
         updatedClans = true
     }
 
+    func replaceAllClans(_ clans: [ClanRecord]) {
+        clanTable.replaceAllClans(clans)
+        updatedClans = true
+    }
+
     func deleteClan(id: Int64) {
         clanTable.deleteClan(id: id)
         updatedClans = true

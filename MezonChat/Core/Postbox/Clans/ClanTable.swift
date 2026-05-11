@@ -45,6 +45,22 @@ final class ClanTable: Table {
         }
     }
 
+    func replaceAllClans(_ clans: [ClanRecord]) {
+        _ = getAllClans()
+        let newIds = Set(clans.map { $0.id })
+        let staleIds = cached.keys.filter { !newIds.contains($0) }
+        for id in staleIds {
+            cached.removeValue(forKey: id)
+            pendingWrites.remove(id)
+            pendingDeletes.insert(id)
+        }
+        for c in clans {
+            cached[c.id] = c
+            pendingDeletes.remove(c.id)
+            pendingWrites.insert(c.id)
+        }
+    }
+
     func deleteClan(id: Int64) {
         cached.removeValue(forKey: id)
         pendingDeletes.insert(id)
