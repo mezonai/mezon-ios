@@ -380,7 +380,7 @@ final class ClanListViewController: ViewController {
                     let data = (try? api.serializedData()) ?? Data()
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
-                self.context.account.postbox.write { tx in tx.updateClans(records) }
+                self.context.account.postbox.write { tx in tx.replaceAllClans(records) }
                 self.completedRemoteClanListFetch = true
                 self.setClans(sorted)
                 if sorted.isEmpty {

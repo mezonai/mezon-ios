@@ -21,7 +21,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        MezonEnvironment.current = .prod
+        MezonEnvironment.current = .dev
         CallKitManager.shared.configure()
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
         NotificationCenter.default.addObserver(
@@ -282,6 +282,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
 
     @objc private func handleDidBecomeActive() {
+        VoIPMinimalCallBootstrap.clearExitAfterPeerCallFlagOnly()
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
             shell.flushPendingIncomingPeerCallIfNeeded()
         }

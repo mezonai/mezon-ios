@@ -1429,7 +1429,7 @@ final class ChannelListViewController: ViewController {
                     await MainActor.run { [weak self] in
                         guard let self, self.clanId == cid else { return }
                         let pb = self.context.account.postbox
-                        pb.write { tx in tx.updateClans(records) }
+                        pb.write { tx in tx.replaceAllClans(records) }
                         pb.setPreferenceDataSync(key: PreferencesKeys.clans, value: prefBlob)
                         if let voiceB = voicePrefBytes {
                             pb.setPreferenceDataSync(key: PreferencesKeys.clanVoiceUsers(clanId: cid), value: voiceB)
