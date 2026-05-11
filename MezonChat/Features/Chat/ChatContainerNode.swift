@@ -53,6 +53,10 @@ struct ChatInteraction {
     let onSystemAllThreadsTapped: () -> Void
     let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
     let onOpenPollDetail: (_ messageId: String, _ channelId: String) -> Void
+    let onCallLogCallBackTapped: ((CallLogData) -> Void)?
+    let isGroupDMChat: () -> Bool
+    let resolveSenderRoleColor: (_ senderId: String, _ fallback: UIColor) -> UIColor
+    let resolveSenderRoleIconURL: (_ senderId: String) -> String?
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
     var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
@@ -672,6 +676,29 @@ final class ChatContainerNode: ASDisplayNode {
             additionalScrollDistance: 0.0,
             updateSizeAndInsets: nil,
             stationaryItemRange: (itemIdx, items.count - 1),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
+    }
+
+    func forceUpdateAllMessageItems() {
+        for id in committedMessageIds {
+            self.messageRelayoutVersions[id, default: 0] += 1
+        }
+        let items = buildItems(from: self.state)
+        var updateItems: [ListViewUpdateItem] = []
+        for (idx, item) in items.enumerated() where item is ChatMessageItem {
+            updateItems.append(ListViewUpdateItem(
+                index: idx, previousIndex: idx, item: item, directionHint: nil
+            ))
+        }
+        guard !updateItems.isEmpty else { return }
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: updateItems,
+            options: [.Synchronous, .LowLatency],
+            scrollToItem: nil,
             updateOpaqueState: nil,
             completion: { _ in }
         )

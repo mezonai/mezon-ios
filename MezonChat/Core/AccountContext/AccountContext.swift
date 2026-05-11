@@ -6,6 +6,7 @@ protocol AccountContext: AnyObject {
     var sharedContext: SharedAccountContext { get }
     var account: Account { get }
     var engine: MezonEngine { get }
+    var rolePermissions: RolePermissionService { get }
 
     var session: MezonSession? { get }
     var currentUser: User? { get }

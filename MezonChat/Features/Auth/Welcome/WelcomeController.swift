@@ -202,4 +202,27 @@ extension UIColor {
             alpha: alpha
         )
     }
+
+    public convenience init?(hexString: String, alpha: CGFloat = 1) {
+        var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") { hex.removeFirst() }
+        guard hex.count == 6 || hex.count == 8 else { return nil }
+
+        var value: UInt64 = 0
+        guard Scanner(string: hex).scanHexInt64(&value) else { return nil }
+
+        let r, g, b, a: CGFloat
+        if hex.count == 8 {
+            r = CGFloat((value >> 24) & 0xFF) / 255
+            g = CGFloat((value >> 16) & 0xFF) / 255
+            b = CGFloat((value >> 8) & 0xFF) / 255
+            a = CGFloat(value & 0xFF) / 255
+        } else {
+            r = CGFloat((value >> 16) & 0xFF) / 255
+            g = CGFloat((value >> 8) & 0xFF) / 255
+            b = CGFloat(value & 0xFF) / 255
+            a = alpha
+        }
+        self.init(red: r, green: g, blue: b, alpha: a)
+    }
 }

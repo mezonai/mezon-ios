@@ -3515,27 +3515,20 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 channelId: channel.channelID,
                 token: token
             )
-            let records = response.permissions.permissions.map { PermissionRecord(from: $0) }
+            let permissions = response.permissions.permissions
+            let records = permissions.map { PermissionRecord(from: $0) }
             let channelId = channel.channelID
             context.account.postbox.writeSync { tx in
                 tx.updateChannelPermissions(records, channelId: channelId)
             }
+            context.rolePermissions.applyChannelPermissions(channelId: channelId, permissions: permissions)
         } catch {
         }
     }
 
     private func voiceChannelCanManageVoice() -> Bool {
         let clanId = channel.clanID
-
-        guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return false }
-        let maxLevel = roleList.maxLevelPermission
-
-        guard let allPerms = context.engine.clanData.getAllPermissions() else { return false }
-        guard let manageChannelPerm = allPerms.permissions.first(where: {
-            $0.slug.lowercased().replacingOccurrences(of: "_", with: "-") == "manage-channel"
-        }) else { return false }
-
-        return manageChannelPerm.level <= maxLevel
+        return context.rolePermissions.canManageChannel(clanId: clanId)
     }
 
     private func applyVoiceAgentEnabledFromServer(_ enabled: Bool) {

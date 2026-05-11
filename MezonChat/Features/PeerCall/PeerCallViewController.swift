@@ -690,6 +690,22 @@ final class PeerCallViewController: ViewController {
         session?.toggleMicrophoneEnabled()
     }
 
+    private func shouldKeepFinalStatusVisible() -> Bool {
+        guard !isCallConnected else { return false }
+        let label = subtitleLabel.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !label.isEmpty else { return false }
+        let terminalStatuses: [String] = [
+            PeerCallLocalizedStrings.statusBusyOnAnotherCall,
+            PeerCallLocalizedStrings.statusUserOffline,
+            PeerCallLocalizedStrings.statusRemoteDeclined,
+            PeerCallLocalizedStrings.statusRemoteEnded,
+            PeerCallLocalizedStrings.statusNoAnswer,
+            PeerCallLocalizedStrings.statusCouldNotConnect,
+            PeerCallLocalizedStrings.statusMissed,
+        ]
+        return terminalStatuses.contains(label)
+    }
+
     private func leaveCallScreen(animated: Bool) {
         if let nav = navigationController,
            nav.viewControllers.contains(where: { $0 === self }),
@@ -925,7 +941,14 @@ final class PeerCallViewController: ViewController {
                 CallKitManager.shared.endActiveCallAndExitProcessFastIfMinimalFlow()
                 return
             }
-            self.leaveCallScreen(animated: true)
+            let delay: TimeInterval = self.shouldKeepFinalStatusVisible() ? 1.4 : 0
+            if delay > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.leaveCallScreen(animated: true)
+                }
+            } else {
+                self.leaveCallScreen(animated: true)
+            }
         }
 
         session?.onRemoteVideoInboundActive = { [weak self] active in

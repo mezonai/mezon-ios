@@ -9,6 +9,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private let nameNode = ASTextNode2()
     private let timeNode = ASTextNode2()
+    private var roleIconNode: TransformImageNode?
 
     private var replyNode: MessageReplyNode?
     private var deletedReplyNode: MessageDeletedReplyNode?
@@ -53,9 +54,14 @@ final class MessageBubbleNode: ASDisplayNode {
     private static let anonymousIconWidth: CGFloat = 22.sf
     private static let anonymousIconHeight: CGFloat = 22.sf
     private static let contentLeading: CGFloat = 40 + 12.sw
+    private static let roleIconSide: CGFloat = 16.sf
+    private static let roleIconLeadingGap: CGFloat = 4.sw
 
     private var cachedNameSize: CGSize = .zero
     private var cachedTimeSize: CGSize = .zero
+    private var cachedRoleIconSize: CGSize = .zero
+    private var currentRoleIconURL: String?
+    private var currentNameColor: UIColor?
     private var cachedReplySize: CGSize = .zero
     private var cachedCallLogSize: CGSize = .zero
     private var cachedTopicSize: CGSize = .zero
@@ -216,11 +222,13 @@ final class MessageBubbleNode: ASDisplayNode {
             ]
         )
 
+        let resolvedNameColor = interaction.resolveSenderRoleColor(display.message.senderId, t.textRoleLink)
+        currentNameColor = resolvedNameColor
         nameNode.attributedText = NSAttributedString(
             string: display.senderDisplayName,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
-                .foregroundColor: t.textRoleLink,
+                .foregroundColor: resolvedNameColor,
             ]
         )
         nameNode.maximumNumberOfLines = 1
@@ -238,7 +246,15 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(nameNode)
             addSubnode(timeNode)
             loadAvatar()
+            applyRoleIcon(for: display)
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRolesDidChange),
+            name: .mezonRolesDidChange,
+            object: nil
+        )
 
         if let ref = display.replyRef {
             let rn = MessageReplyNode()
@@ -265,7 +281,18 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if let callLog = display.callLog {
             let cln = MessageCallLogNode()
-            cln.configure(callLog: callLog, isMe: display.isMe, senderName: display.senderDisplayName, contentText: parsed.text)
+            cln.configure(
+                callLog: callLog,
+                isMe: display.isMe,
+                senderName: display.senderDisplayName,
+                contentText: parsed.text,
+                isGroupChat: interaction.isGroupDMChat()
+            )
+            cln.onCallBackTapped = { [weak self] in
+                guard let self,
+                      let callLog = self.display.callLog else { return }
+                self.interaction.onCallLogCallBackTapped?(callLog)
+            }
             callLogNode = cln
             addSubnode(cln)
         }
@@ -440,6 +467,8 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(rn)
         }
 
+        refreshSenderDisplay()
+
         let _ = measureSize(width: cachedTotalSize.width)
         setNeedsLayout()
     }
@@ -493,8 +522,9 @@ final class MessageBubbleNode: ASDisplayNode {
             || nameChanged
             || textChanged
 
+        let senderChanged = oldDisplay.message.senderId != newDisplay.message.senderId
         if !isCombine {
-            if nameChanged {
+            if nameChanged || senderChanged {
                 avatarPlaceholderNode.attributedText = NSAttributedString(
                     string: String(newDisplay.senderDisplayName.prefix(1)).uppercased(),
                     attributes: [
@@ -502,13 +532,19 @@ final class MessageBubbleNode: ASDisplayNode {
                         .foregroundColor: UIColor.white,
                     ]
                 )
+                let resolvedNameColor = interaction.resolveSenderRoleColor(
+                    newDisplay.message.senderId, t.textRoleLink
+                )
+                currentNameColor = resolvedNameColor
                 nameNode.attributedText = NSAttributedString(
                     string: newDisplay.senderDisplayName,
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
-                        .foregroundColor: t.textRoleLink,
+                        .foregroundColor: resolvedNameColor,
                     ]
                 )
+            } else {
+                refreshSenderDisplay()
             }
             if timeChanged {
                 timeNode.attributedText = NSAttributedString(
@@ -519,6 +555,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     ]
                 )
             }
+            applyRoleIcon(for: newDisplay)
         }
 
         if !newWantInvite {
@@ -570,7 +607,13 @@ final class MessageBubbleNode: ASDisplayNode {
             }
         }
         if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
-            cln.configure(callLog: callLog, isMe: newDisplay.isMe, senderName: newDisplay.senderDisplayName, contentText: newDisplay.parsedContent.text)
+            cln.configure(
+                callLog: callLog,
+                isMe: newDisplay.isMe,
+                senderName: newDisplay.senderDisplayName,
+                contentText: newDisplay.parsedContent.text,
+                isGroupChat: interaction.isGroupDMChat()
+            )
         }
 
         if editedChanged {
@@ -644,6 +687,7 @@ final class MessageBubbleNode: ASDisplayNode {
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
             || mentionHighlightChanged
+            || senderChanged
             || (oldFailed != newDisplay.isFailed)
             || inviteChanged || (oldWantInvite != newWantInvite)
             || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
@@ -817,6 +861,67 @@ final class MessageBubbleNode: ASDisplayNode {
         } else {
             avatarImageNode.reset()
             avatarPlaceholderNode.isHidden = false
+        }
+    }
+
+    private func applyRoleIcon(for display: ChatMessageDisplay) {
+        let urlString = interaction.resolveSenderRoleIconURL(display.message.senderId)
+        guard let urlString, !urlString.isEmpty else {
+            roleIconNode?.removeFromSupernode()
+            roleIconNode = nil
+            currentRoleIconURL = nil
+            return
+        }
+        if currentRoleIconURL == urlString, roleIconNode != nil { return }
+        currentRoleIconURL = urlString
+
+        let node = roleIconNode ?? TransformImageNode()
+        if roleIconNode == nil {
+            roleIconNode = node
+            addSubnode(node)
+        }
+        let side = Self.roleIconSide
+        let proxyURL = ImgproxyURL.create(from: urlString, width: 60, height: 60)
+        let args = TransformImageArguments(
+            corners: ImageCorners(radius: 0),
+            imageSize: CGSize(width: side, height: side),
+            boundingSize: CGSize(width: side, height: side),
+            intrinsicInsets: .zero
+        )
+        node.reset()
+        node.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: false)
+        let apply = node.asyncLayout()(args)
+        apply()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleRolesDidChange() {
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshSenderDisplay()
+        }
+    }
+
+    func refreshSenderDisplay() {
+        guard !isCombine else { return }
+        let t = UIColor.theme
+        let resolvedNameColor = interaction.resolveSenderRoleColor(display.message.senderId, t.textRoleLink)
+        let hadRoleIcon = roleIconNode != nil
+        applyRoleIcon(for: display)
+        let hasRoleIconNow = roleIconNode != nil
+        currentNameColor = resolvedNameColor
+        nameNode.attributedText = NSAttributedString(
+            string: display.senderDisplayName,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
+                .foregroundColor: resolvedNameColor,
+            ]
+        )
+        if hadRoleIcon != hasRoleIconNow {
+            let _ = measureSize(width: cachedTotalSize.width)
+            setNeedsLayout()
         }
     }
 
@@ -1019,9 +1124,16 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if !isCombine {
             cachedTimeSize = timeNode.measure(CGSize(width: contentWidth, height: 30))
-            let nameMaxW = contentWidth - cachedTimeSize.width - 4.sw
+            let hasRoleIcon = roleIconNode != nil
+            cachedRoleIconSize = hasRoleIcon
+                ? CGSize(width: Self.roleIconSide, height: Self.roleIconSide)
+                : .zero
+            let roleIconBlockWidth: CGFloat = hasRoleIcon
+                ? Self.roleIconSide + Self.roleIconLeadingGap
+                : 0
+            let nameMaxW = contentWidth - cachedTimeSize.width - 4.sw - roleIconBlockWidth
             cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: 30))
-            totalH += max(cachedNameSize.height, cachedTimeSize.height) + vertSpacing
+            totalH += max(cachedNameSize.height, max(cachedTimeSize.height, cachedRoleIconSize.height)) + vertSpacing
         }
 
         if let lbl = forwardHeaderLabelNode {
@@ -1198,8 +1310,20 @@ final class MessageBubbleNode: ASDisplayNode {
             )
 
             nameNode.frame = CGRect(x: contentX, y: y, width: cachedNameSize.width, height: cachedNameSize.height)
-            let timeX = contentX + cachedNameSize.width + 4.sw
-            let nameRowH = max(cachedNameSize.height, cachedTimeSize.height)
+            let nameRowH = max(cachedNameSize.height, max(cachedTimeSize.height, cachedRoleIconSize.height))
+            var afterNameX = contentX + cachedNameSize.width
+            if let roleIconNode, cachedRoleIconSize.height > 0 {
+                let roleIconX = afterNameX + Self.roleIconLeadingGap
+                let roleIconY = y + (nameRowH - cachedRoleIconSize.height) / 2
+                roleIconNode.frame = CGRect(
+                    x: roleIconX,
+                    y: roleIconY,
+                    width: cachedRoleIconSize.width,
+                    height: cachedRoleIconSize.height
+                )
+                afterNameX = roleIconX + cachedRoleIconSize.width
+            }
+            let timeX = afterNameX + 4.sw
             timeNode.frame = CGRect(x: timeX, y: y + nameRowH - cachedTimeSize.height, width: cachedTimeSize.width, height: cachedTimeSize.height)
             y += nameRowH + vertSpacing
         }

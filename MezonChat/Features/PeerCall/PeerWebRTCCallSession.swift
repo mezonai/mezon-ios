@@ -89,6 +89,10 @@ final class PeerWebRTCCallSession: NSObject {
 
     private var ended = false
     private(set) var didEstablishMediaConnection = false
+    private var mediaConnectedAt: Date?
+    private var ringTimeoutFired = false
+    private var connectTimeoutFired = false
+    private var remoteQuitBeforeConnect = false
     private var didPostConnectedStatusToUI = false
     private var iceConnectedOrCompletedForUI = false
     private var peerConnectionReportedConnectedForUI = false
@@ -125,12 +129,38 @@ final class PeerWebRTCCallSession: NSObject {
         config.iceCandidatePoolSize = 10
         config.continualGatheringPolicy = .gatherContinually
         config.iceServers = [
-            LKRTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"], username: nil, credential: nil),
             LKRTCIceServer(
-                urlStrings: [MezonConfig.webRTCIceServerURL],
+                urlStrings: [
+                    "stun:stun.l.google.com:19302",
+                    "stun:stun1.l.google.com:19302",
+                ],
+                username: nil,
+                credential: nil
+            ),
+            LKRTCIceServer(
+                urlStrings: Self.expandedTurnURLStrings(from: MezonConfig.webRTCIceServerURL),
                 username: MezonConfig.webRTCIceUsername,
                 credential: MezonConfig.webRTCIceCredential
             ),
+        ]
+    }
+
+    private static func expandedTurnURLStrings(from base: String) -> [String] {
+        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        if trimmed.contains("?transport=") || trimmed.hasPrefix("turns:") {
+            return [trimmed]
+        }
+        let core: String = {
+            if trimmed.hasPrefix("turn:") {
+                return String(trimmed.dropFirst("turn:".count))
+            }
+            return trimmed
+        }()
+        return [
+            "turn:\(core)?transport=udp",
+            "turn:\(core)?transport=tcp",
+            "turns:\(core)?transport=tcp",
         ]
     }
 
@@ -568,8 +598,33 @@ final class PeerWebRTCCallSession: NSObject {
         case WebRTCSignalingDataType.sdpStatusRemoteMedia:
             guard msg.callerID == peerUserId else { return }
             applyRemoteMediaWire(msg.jsonData)
-        case WebRTCSignalingDataType.sdpQuit, WebRTCSignalingDataType.sdpTimeout, WebRTCSignalingDataType.sdpNotAvailable,
-             WebRTCSignalingDataType.sdpJoinedOtherCall, WebRTCSignalingDataType.clearCall:
+        case WebRTCSignalingDataType.sdpJoinedOtherCall:
+            if !didEstablishMediaConnection {
+                remoteQuitBeforeConnect = true
+                onStatusLabel?(PeerCallLocalizedStrings.statusBusyOnAnotherCall)
+            }
+            finishCall(sendQuit: false)
+        case WebRTCSignalingDataType.sdpNotAvailable:
+            if !didEstablishMediaConnection {
+                remoteQuitBeforeConnect = true
+                onStatusLabel?(PeerCallLocalizedStrings.statusUserOffline)
+            }
+            finishCall(sendQuit: false)
+        case WebRTCSignalingDataType.sdpTimeout:
+            if !didEstablishMediaConnection {
+                ringTimeoutFired = true
+                onStatusLabel?(PeerCallLocalizedStrings.statusNoAnswer)
+            }
+            finishCall(sendQuit: false)
+        case WebRTCSignalingDataType.sdpQuit:
+            if !didEstablishMediaConnection {
+                remoteQuitBeforeConnect = true
+                onStatusLabel?(PeerCallLocalizedStrings.statusRemoteDeclined)
+            } else {
+                onStatusLabel?(PeerCallLocalizedStrings.statusRemoteEnded)
+            }
+            finishCall(sendQuit: false)
+        case WebRTCSignalingDataType.clearCall:
             finishCall(sendQuit: false)
         default:
             break
@@ -723,6 +778,29 @@ final class PeerWebRTCCallSession: NSObject {
         disconnectRecoveryTask?.cancel()
         disconnectRecoveryTask = nil
 
+        if direction == .outgoing {
+            let reason: PeerCallEndReason
+            let durationSeconds: Int?
+            if didEstablishMediaConnection, let connectedAt = mediaConnectedAt {
+                reason = .finished
+                durationSeconds = max(0, Int(Date().timeIntervalSince(connectedAt)))
+            } else if remoteQuitBeforeConnect {
+                reason = .remoteReject
+                durationSeconds = nil
+            } else if ringTimeoutFired || connectTimeoutFired {
+                reason = .timeout
+                durationSeconds = nil
+            } else {
+                reason = .userCancel
+                durationSeconds = nil
+            }
+            PeerCallLogMessage.updateCallLogForOutgoing(
+                channelId: channelId,
+                reason: reason,
+                durationSeconds: durationSeconds
+            )
+        }
+
         if direction == .outgoing && sendQuit && !didEstablishMediaConnection {
             let body: [String: Any] = ["offer": "CANCEL_CALL"]
             if let data = try? JSONSerialization.data(withJSONObject: body),
@@ -852,6 +930,7 @@ final class PeerWebRTCCallSession: NSObject {
         cancelOutgoingRingTimer()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            self.ringTimeoutFired = true
             self.onStatusLabel?(PeerCallLocalizedStrings.statusNoAnswer)
             self.finishCall(sendQuit: true)
         }
@@ -870,6 +949,7 @@ final class PeerWebRTCCallSession: NSObject {
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard !self.ended, !self.didEstablishMediaConnection else { return }
+            self.connectTimeoutFired = true
             self.onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
             self.finishCall(sendQuit: true)
         }
@@ -1785,6 +1865,9 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 cancelOutgoingRingTimer()
                 cancelOutgoingConnectTimeout()
                 PeerCallSoundPlayer.shared.stopDialTone()
+                if !didEstablishMediaConnection {
+                    mediaConnectedAt = Date()
+                }
                 didEstablishMediaConnection = true
                 iceConnectedOrCompletedForUI = true
                 tryPresentFullyConnectedCallUI()

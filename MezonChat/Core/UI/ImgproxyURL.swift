@@ -62,6 +62,9 @@ enum ImgproxyURL {
         guard s.hasPrefix("http://") || s.hasPrefix("https://") else {
             return s
         }
+        guard cdnHosts.contains(where: { s.contains($0) }) else {
+            return s
+        }
         let ext = (s as NSString).pathExtension.lowercased()
         if ext == "gif" {
             return s

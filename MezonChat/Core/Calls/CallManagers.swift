@@ -234,15 +234,45 @@ final class WebRTCCallManager {
         guard push.callerID != currentUserId else {
             return
         }
-        guard signalingSession == nil else {
-            return
-        }
         guard push.receiverID == currentUserId || push.receiverID == 0 else {
             return
         }
         guard push.channelID != 0, push.callerID != 0 else { return }
+        if Self.incomingCallPushIsCancel(push.jsonData) {
+            if let session = signalingSession,
+               session.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
+                session.hangUp()
+            }
+            if let warm = preWarmedIncomingSession,
+               warm.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
+                warm.hangUp()
+                preWarmedIncomingSession = nil
+                preWarmedIncomingKey = nil
+            }
+            bufferedSignaling.removeAll()
+            awaitingIncomingAttachment = false
+            expectedIncomingBufferKey = nil
+            pendingIncomingPeerCallUserInfo = nil
+            CallKitManager.shared.endRingingCallIfMatching(
+                channelId: push.channelID,
+                callerId: push.callerID
+            )
+            return
+        }
+        guard signalingSession == nil else {
+            return
+        }
         awaitingIncomingAttachment = true
         expectedIncomingBufferKey = (push.channelID, currentUserId)
+    }
+
+    private static func incomingCallPushIsCancel(_ jsonData: String) -> Bool {
+        let trimmed = jsonData.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        return (obj["offer"] as? String) == "CANCEL_CALL"
     }
 
     func handleSignalingMessage(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) {
@@ -256,6 +286,7 @@ final class WebRTCCallManager {
         }
 
         if Self.isTerminalSignalingDataType(msg.dataType) {
+            handleTerminalSignalingWithoutSession(msg, currentUserId: currentUserId)
             return
         }
 
@@ -277,6 +308,28 @@ final class WebRTCCallManager {
             return
         }
 
+    }
+
+    private func handleTerminalSignalingWithoutSession(
+        _ msg: Mezon_Realtime_WebrtcSignalingFwd,
+        currentUserId: Int64
+    ) {
+        guard msg.callerID != currentUserId, msg.callerID != 0, msg.channelID != 0 else { return }
+        guard msg.receiverID == currentUserId || msg.receiverID == 0 else { return }
+        bufferedSignaling.removeAll()
+        awaitingIncomingAttachment = false
+        expectedIncomingBufferKey = nil
+        pendingIncomingPeerCallUserInfo = nil
+        if let warm = preWarmedIncomingSession,
+           warm.isSameIncomingPeerCall(channelId: msg.channelID, callerId: msg.callerID) {
+            warm.hangUp()
+            preWarmedIncomingSession = nil
+            preWarmedIncomingKey = nil
+        }
+        CallKitManager.shared.endRingingCallIfMatching(
+            channelId: msg.channelID,
+            callerId: msg.callerID
+        )
     }
 
     private static func isTerminalSignalingDataType(_ dt: Int32) -> Bool {
@@ -424,5 +477,193 @@ enum IncomingPeerCallPayloadParser {
         guard let sdp else { return false }
         return sdp.range(of: "\nm=video ", options: .literal) != nil
                 || sdp.uppercased().contains("M=VIDEO")
+    }
+}
+
+enum PeerCallEndReason {
+    case finished
+    case timeout
+    case userCancel
+    case remoteReject
+}
+
+@MainActor
+enum PeerCallLogMessage {
+
+    private struct OutgoingEntry {
+        let messageId: Int64
+        let isVideoCall: Bool
+        let mode: Int32
+        let isPublic: Bool
+    }
+
+    private static var outgoingByChannelId: [Int64: OutgoingEntry] = [:]
+
+    static func sendStartCallLog(
+        context: AccountContext,
+        channel: Mezon_Api_ChannelDescription,
+        isVideoCall: Bool
+    ) {
+        let channelId = channel.channelID
+        let mode = streamMode(for: channel)
+        let isPublic = channel.channelPrivate == 0
+        Task { @MainActor in
+            let ack = await sendStartCallLogAndReturnAck(
+                context: context,
+                channel: channel,
+                isVideoCall: isVideoCall,
+                mode: mode,
+                isPublic: isPublic
+            )
+            guard let ack, ack.messageID != 0 else { return }
+            outgoingByChannelId[channelId] = OutgoingEntry(
+                messageId: ack.messageID,
+                isVideoCall: isVideoCall,
+                mode: mode,
+                isPublic: isPublic
+            )
+        }
+    }
+
+    static func updateCallLogForOutgoing(
+        channelId: Int64,
+        reason: PeerCallEndReason,
+        durationSeconds: Int?
+    ) {
+        guard let entry = outgoingByChannelId[channelId] else { return }
+        guard let context = VoIPAnswerAccountBridge.context else { return }
+        outgoingByChannelId.removeValue(forKey: channelId)
+
+        let callLogType: CallLogType
+        let titleText: String
+        switch reason {
+        case .finished:
+            callLogType = .finishCall
+            if let s = durationSeconds, s >= 0 {
+                let m = s / 60
+                let r = s % 60
+                titleText = "\(m) mins \(r) secs"
+            } else {
+                titleText = ""
+            }
+        case .timeout:
+            callLogType = .timeoutCall
+            titleText = ""
+        case .userCancel:
+            callLogType = .cancelCall
+            titleText = ""
+        case .remoteReject:
+            callLogType = .rejectCall
+            titleText = ""
+        }
+
+        Task { @MainActor in
+            try? await updateMessage(
+                context: context,
+                channelId: channelId,
+                messageId: entry.messageId,
+                mode: entry.mode,
+                isPublic: entry.isPublic,
+                isVideoCall: entry.isVideoCall,
+                callLogType: callLogType,
+                titleText: titleText
+            )
+        }
+    }
+
+    private static func streamMode(for channel: Mezon_Api_ChannelDescription) -> Int32 {
+        if channel.type == MezonConstants.ChannelType.group.rawValue {
+            return MezonConstants.ChannelStreamMode.group.rawValue
+        }
+        return MezonConstants.ChannelStreamMode.dm.rawValue
+    }
+
+    private static func sendStartCallLogAndReturnAck(
+        context: AccountContext,
+        channel: Mezon_Api_ChannelDescription,
+        isVideoCall: Bool,
+        mode: Int32,
+        isPublic: Bool
+    ) async -> Mezon_Realtime_ChannelMessageAck? {
+        guard let token = await context.getToken() else { return nil }
+
+        let username = context.currentUser?.username ?? ""
+        let mediaWord = isVideoCall ? "video" : "audio"
+        let titleText = "\(username) started a \(mediaWord) call"
+
+        let callLogObj: [String: Any] = [
+            "isVideo": isVideoCall,
+            "callLogType": CallLogType.startCall.rawValue,
+        ]
+        let contentObj: [String: Any] = [
+            "t": titleText,
+            "callLog": callLogObj,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: contentObj),
+              let contentStr = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        do {
+            let ack = try await context.account.network.sendChannelMessage(
+                clanId: 0,
+                channelId: channel.channelID,
+                mode: mode,
+                isPublic: isPublic,
+                content: contentStr,
+                mentions: [],
+                attachments: [],
+                references: [],
+                anonymous: false,
+                mentionEveryone: false,
+                avatar: "",
+                topicId: 0,
+                token: token
+            )
+            return ack
+        } catch {
+            return nil
+        }
+    }
+
+    private static func updateMessage(
+        context: AccountContext,
+        channelId: Int64,
+        messageId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        isVideoCall: Bool,
+        callLogType: CallLogType,
+        titleText: String
+    ) async throws {
+        guard let token = await context.getToken() else { return }
+
+        let callLogObj: [String: Any] = [
+            "isVideo": isVideoCall,
+            "callLogType": callLogType.rawValue,
+        ]
+        let contentObj: [String: Any] = [
+            "t": titleText,
+            "callLog": callLogObj,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: contentObj),
+              let contentStr = String(data: data, encoding: .utf8) else {
+            return
+        }
+
+        _ = try await context.account.network.updateChannelMessage(
+            clanId: 0,
+            channelId: channelId,
+            mode: mode,
+            isPublic: isPublic,
+            messageId: messageId,
+            content: contentStr,
+            mentions: [],
+            attachments: [],
+            hideEditted: true,
+            topicId: 0,
+            isUpdateMsgTopic: false,
+            token: token
+        )
     }
 }

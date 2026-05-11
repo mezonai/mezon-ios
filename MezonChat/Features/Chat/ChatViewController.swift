@@ -115,11 +115,11 @@ struct ParsedReaction: Equatable {
 }
 
 enum CallLogType: Int {
-    case timeoutCall = 0
-    case rejectCall = 1
-    case cancelCall = 2
+    case startCall = 1
+    case timeoutCall = 2
     case finishCall = 3
-    case startCall = 4
+    case rejectCall = 4
+    case cancelCall = 5
 }
 
 struct CallLogData {
@@ -673,6 +673,35 @@ final class ChatViewController: ViewController {
                         }
                     }
                 }
+            },
+            onCallLogCallBackTapped: { [weak self] callLog in
+                guard let self else { return }
+                if callLog.isVideo {
+                    self.startVideoCall()
+                } else {
+                    self.startCall()
+                }
+            },
+            isGroupDMChat: { [weak self] in
+                guard let self else { return false }
+                return self.channel.type == MezonConstants.ChannelType.group.rawValue
+            },
+            resolveSenderRoleColor: { [weak self] senderId, fallback in
+                guard let self else { return fallback }
+                return self.context.rolePermissions.messageSenderNameColor(
+                    senderId: senderId,
+                    clanId: self.clanId,
+                    isClanChannel: self.isClanChannelForRoleDisplay,
+                    fallback: fallback
+                )
+            },
+            resolveSenderRoleIconURL: { [weak self] senderId in
+                guard let self else { return nil }
+                return self.context.rolePermissions.messageSenderRoleIconURL(
+                    senderId: senderId,
+                    clanId: self.clanId,
+                    isClanChannel: self.isClanChannelForRoleDisplay
+                )
             },
             onMessagesReloaded: nil,
             onMessageNeedsRelayout: nil,
@@ -1244,6 +1273,17 @@ final class ChatViewController: ViewController {
             )
         }
         stateDisposables.add(
+            (self.context.engine.clanData.clanRolesUpdated.signal()
+                |> deliverOnMainQueue)
+                .start(next: { [weak self] updatedClanId in
+                    guard let self, updatedClanId == self.clanId, self.clanId != 0 else { return }
+                    self.context.rolePermissions.invalidateRolesCache()
+                    if self.isViewLoaded {
+                        self.messagesNode.forceUpdateAllMessageItems()
+                    }
+                })
+        )
+        stateDisposables.add(
             (self.context.account.postbox.channelMetaView(channelId: channel.channelID) |> deliverOnMainQueue)
                 .start(next: { [weak self] view in
                     guard let self else { return }
@@ -1713,10 +1753,12 @@ final class ChatViewController: ViewController {
             let token = resolvedToken
             do {
                 let response = try await self.context.account.network.listUserPermissionInChannel(clanId: clanId, channelId: channelId, token: token)
-                let records = response.permissions.permissions.map { PermissionRecord(from: $0) }
+                let permissions = response.permissions.permissions
+                let records = permissions.map { PermissionRecord(from: $0) }
                 self.context.account.postbox.write { tx in
                     tx.updateChannelPermissions(records, channelId: channelId)
                 }
+                self.context.rolePermissions.applyChannelPermissions(channelId: channelId, permissions: permissions)
             } catch {
             }
         }
@@ -3604,15 +3646,12 @@ final class ChatViewController: ViewController {
             || channel.type == MezonConstants.ChannelType.group.rawValue
     }
 
+    var isClanChannelForRoleDisplay: Bool {
+        clanId != 0 && !isDirectMessageStreamChannel
+    }
+
     private func userHasDeleteMessagePermissionInClan() -> Bool {
-        guard clanId != 0 else { return false }
-        guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return false }
-        let maxLevel = roleList.maxLevelPermission
-        guard let allPerms = context.engine.clanData.getAllPermissions() else { return false }
-        guard let perm = allPerms.permissions.first(where: {
-            $0.slug.lowercased().replacingOccurrences(of: "_", with: "-") == "delete-message"
-        }) else { return false }
-        return perm.level <= maxLevel
+        return context.rolePermissions.canDeleteMessage(clanId: clanId, channelId: channel.channelID)
     }
 
     private func messageActionCanShowDelete(for display: ChatMessageDisplay, isOwn: Bool) -> Bool {
@@ -4166,6 +4205,12 @@ extension ChatViewController {
             return
         }
 
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
         let callVC = PeerCallViewController(
             context: context,
             remoteUserName: channel.channelLabel,
@@ -4186,6 +4231,12 @@ extension ChatViewController {
         guard remoteUserId != 0 else {
             return
         }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: true
+        )
 
         let callVC = PeerCallViewController(
             context: context,

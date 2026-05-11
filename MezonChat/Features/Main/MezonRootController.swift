@@ -15,6 +15,18 @@ final class MezonRootController: NavigationController {
     init(context: AccountContext) {
         self.context = context
         super.init(mode: .single, theme: Self.makeNavTheme())
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleThemeDidChange),
+            name: ThemeManager.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleThemeDidChange() {
+        let newTheme = Self.makeNavTheme()
+        self.updateTheme(newTheme)
+        ThemeManager.shared.applyStatusBarStyle()
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -651,7 +663,7 @@ final class MezonRootController: NavigationController {
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
         let actualTheme = theme ?? ThemeManager.shared.current
-        let isDark = actualTheme == .dark || (actualTheme == .system && UITraitCollection.current.userInterfaceStyle == .dark)
+        let isDark = actualTheme.usesLightStatusBarContent
         return NavigationControllerTheme(
             statusBar: isDark ? .white : .black,
             navigationBar: NavigationBarTheme(
