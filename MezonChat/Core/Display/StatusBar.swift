@@ -43,7 +43,7 @@ private final class StatusBarView: UITracingLayerView {
 }
 
 public final class StatusBar: ASDisplayNode {
-    private var _statusBarStyle: StatusBarStyle = .Black
+    private var _statusBarStyle: StatusBarStyle = .Ignore
 
     public var statusBarStyle: StatusBarStyle {
         get {

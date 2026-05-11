@@ -12,6 +12,16 @@ final class AccountContextImpl: AccountContext {
 
     let account: Account
     let engine: MezonEngine
+    private(set) lazy var rolePermissions: RolePermissionService = {
+        let service = RolePermissionService(
+            engine: self.engine,
+            userIdProvider: { [weak self] in self?.currentUser?.id },
+            currentClanIdProvider: { [weak self] in self?.currentClanId ?? 0 },
+            tokenProvider: { [weak self] in await self?.getToken() }
+        )
+        service.start()
+        return service
+    }()
 
     private var socketEventsDisposable: Disposable?
     private let isLoggedInPipe = ValuePipe<Bool>()
@@ -212,6 +222,8 @@ final class AccountContextImpl: AccountContext {
         self.engine = MezonEngine(account: account)
         self.session = session
         self.currentUser = user
+
+        _ = self.rolePermissions
 
         if let session {
             restoreAndRefreshSession(saved: session, onReady: onReady)
