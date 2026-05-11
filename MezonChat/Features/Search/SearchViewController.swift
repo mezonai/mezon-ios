@@ -1664,6 +1664,8 @@ final class ChannelSearchCellNode: ASCellNode {
                 iconName = chType.icon
                 if chType == .text && channel.channelPrivate == 1 {
                     iconName = "Channel/channelPrivate"
+                } else if chType == .text && channel.ageRestricted == 1 {
+                    iconName = "Channel/channelWarning"
                 }
             }
 
