@@ -291,14 +291,15 @@ final class MessageReactionsNode: ASDisplayNode {
 final class ReactionPillNode: ASDisplayNode {
 
     private let emojiImageNode: ASDisplayNode = {
-        let node = ASDisplayNode { UIImageView() }
+        let node = ASDisplayNode { AnimatedEmojiImageView() }
         node.clipsToBounds = true
         return node
     }()
     private let emojiFallbackNode = ASTextNode2()
     private let countNode = ASTextNode2()
 
-    private var pendingImage: UIImage?
+    private var pendingData: Data?
+    private var pendingDataKey: String?
     private var imageTask: URLSessionDataTask?
     private var retryCount = 0
     private static let maxRetries = 2
@@ -362,8 +363,11 @@ final class ReactionPillNode: ASDisplayNode {
 
     override func didLoad() {
         super.didLoad()
-        if let pendingImage {
-            (emojiImageNode.view as? UIImageView)?.image = pendingImage
+        if let pendingData, let key = pendingDataKey {
+            let scale = UIScreen.main.scale
+            let pixel = Self.emojiSize * scale
+            (emojiImageNode.view as? AnimatedEmojiImageView)?
+                .setData(pendingData, displayPixelMaxSide: pixel, cacheKey: key)
         }
     }
 
@@ -371,10 +375,14 @@ final class ReactionPillNode: ASDisplayNode {
         imageTask?.cancel()
     }
 
-    private func applyImage(_ image: UIImage) {
-        pendingImage = image
+    private func applyEmojiData(_ data: Data, key: String) {
+        pendingData = data
+        pendingDataKey = key
         if emojiImageNode.isNodeLoaded {
-            (emojiImageNode.view as? UIImageView)?.image = image
+            let scale = UIScreen.main.scale
+            let pixel = Self.emojiSize * scale
+            (emojiImageNode.view as? AnimatedEmojiImageView)?
+                .setData(data, displayPixelMaxSide: pixel, cacheKey: key)
         }
     }
 
@@ -417,9 +425,10 @@ final class ReactionPillNode: ASDisplayNode {
             if priorEmojiId != reaction.emojiId {
                 retryCount = 0
                 imageTask?.cancel()
-                pendingImage = nil
+                pendingData = nil
+                pendingDataKey = nil
                 if emojiImageNode.isNodeLoaded {
-                    (emojiImageNode.view as? UIImageView)?.image = nil
+                    (emojiImageNode.view as? AnimatedEmojiImageView)?.reset()
                 }
                 emojiFallbackNode.isHidden = true
                 emojiImageNode.isHidden = false
@@ -442,13 +451,15 @@ final class ReactionPillNode: ASDisplayNode {
 
     private func loadEmojiImage() {
         imageTask?.cancel()
-        imageTask = ReactionEmojiImageLoader.loadEmojiBestEffort(
-            emojiId: emojiId, imgproxyFitSide: 100
-        ) { [weak self] image in
-            guard let self else { return }
-            if let image {
+        let currentId = emojiId
+        let cacheKey = "reactionEmoji.\(currentId).100"
+        imageTask = ReactionEmojiImageLoader.loadDataBestEffort(
+            emojiId: currentId, imgproxyFitSide: 100
+        ) { [weak self] data in
+            guard let self, self.emojiId == currentId else { return }
+            if let data {
                 self.retryCount = 0
-                self.applyImage(image)
+                self.applyEmojiData(data, key: cacheKey)
                 self.emojiImageNode.isHidden = false
                 self.emojiFallbackNode.isHidden = true
             } else if self.retryCount < Self.maxRetries {

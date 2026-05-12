@@ -93,7 +93,27 @@ final class MessageTable: Table {
         )
     }
 
-    func getMessageById(_ messageId: String) -> MessageRecord? {
+    func getMessageById(_ messageId: String, channelId: String? = nil) -> MessageRecord? {
+        if let channelId {
+            if let m = cache[channelId]?.first(where: { $0.id == messageId && !$0.isDeleted }) {
+                return m
+            }
+            let rows = db.query(
+                """
+                SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
+                       is_deleted, sender_display_name, sender_avatar_url, sending_state,
+                       attachments_json, reactions_json, references_data, mentions_json, code
+                FROM messages
+                WHERE id = ? AND channel_id = ? AND is_deleted = 0
+                LIMIT 1
+                """,
+                { s in
+                    sqlite3_bind_text(s, 1, messageId, -1, nil)
+                    sqlite3_bind_text(s, 2, channelId, -1, nil)
+                }
+            ) { stmt in self.readMessageRow(stmt) }
+            return rows.compactMap { $0 }.first
+        }
         for (_, msgs) in cache {
             if let m = msgs.first(where: { $0.id == messageId && !$0.isDeleted }) {
                 return m

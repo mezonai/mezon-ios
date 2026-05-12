@@ -190,7 +190,100 @@ enum SessionStore {
     private static let service = "mezon.session.store"
     private static let sessionAccount = "mezon.session"
     private static let idTokenBackupAccount = "mezon.session.id_token_backup"
+    private static let installationIdAccount = "mezon.installation_instance"
+    private static let installationIdUserDefaultsKey = "mezon.installation_instance.ud"
     private static let configKey = "mezon.config"
+
+    static func prepareInstallationScopedKeychainIfNeeded() {
+        let ud = UserDefaults.standard
+        let udInst = ud.string(forKey: installationIdUserDefaultsKey)
+        let kcInst = loadInstallationIdFromKeychain()
+
+        if udInst == nil, kcInst == nil {
+            if load() != nil {
+                let newId = UUID().uuidString
+                ud.set(newId, forKey: installationIdUserDefaultsKey)
+                saveInstallationIdToKeychain(newId)
+                return
+            }
+            clearOrphanKeychainAfterReinstall()
+            let newId = UUID().uuidString
+            ud.set(newId, forKey: installationIdUserDefaultsKey)
+            saveInstallationIdToKeychain(newId)
+            return
+        }
+
+        if udInst == nil, kcInst != nil {
+            clearOrphanKeychainAfterReinstall()
+            let newId = UUID().uuidString
+            ud.set(newId, forKey: installationIdUserDefaultsKey)
+            saveInstallationIdToKeychain(newId)
+            return
+        }
+
+        if let udInst, kcInst == nil {
+            saveInstallationIdToKeychain(udInst)
+            return
+        }
+
+        if let udInst, let kcInst, udInst != kcInst {
+            clearOrphanKeychainAfterReinstall()
+            let newId = UUID().uuidString
+            ud.set(newId, forKey: installationIdUserDefaultsKey)
+            saveInstallationIdToKeychain(newId)
+            return
+        }
+    }
+
+    private static func loadInstallationIdFromKeychain() -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: installationIdAccount,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let s = String(data: data, encoding: .utf8),
+              !s.isEmpty else { return nil }
+        return s
+    }
+
+    private static func saveInstallationIdToKeychain(_ id: String) {
+        guard let data = id.data(using: .utf8) else { return }
+        let del: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: installationIdAccount,
+        ]
+        SecItemDelete(del as CFDictionary)
+        let add: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: installationIdAccount,
+            kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    private static func deleteInstallationIdFromKeychain() {
+        let del: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: installationIdAccount,
+        ]
+        SecItemDelete(del as CFDictionary)
+    }
+
+    private static func clearOrphanKeychainAfterReinstall() {
+        clear()
+        deleteInstallationIdFromKeychain()
+        KeychainHelper.shared.removeAllDatabaseEncryptionKeys()
+        MmnWalletStore.shared.clear()
+    }
 
     private struct IdTokenBackupPayload: Codable {
         let userId: String

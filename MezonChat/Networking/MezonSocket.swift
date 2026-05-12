@@ -101,6 +101,7 @@ final class MezonSocket: NSObject {
     private var heartbeatTask: Task<Void, Never>?
 
     private struct PendingApiRequest {
+        let apiName: String
         let continuation: CheckedContinuation<Data, Error>
         let timeoutTask: Task<Void, Never>
     }
@@ -257,6 +258,7 @@ final class MezonSocket: NSObject {
             }
 
             pendingApiRequests[cid] = PendingApiRequest(
+                apiName: apiName,
                 continuation: continuation,
                 timeoutTask: timeoutTask
             )
@@ -538,17 +540,44 @@ final class MezonSocket: NSObject {
         }
     }
 
+    private func serializedPayloadForCompletedApiRequest(
+        envelope: Mezon_Realtime_Envelope,
+        apiName: String
+    ) -> Data? {
+        guard let msg = envelope.message else { return nil }
+        switch msg {
+        case .listDataSocket(let wrapper):
+            switch apiName {
+            case "ListChannelBadgeCount":
+                guard wrapper.hasChannelBadgeCount else { return nil }
+                return try? wrapper.channelBadgeCount.serializedData()
+            case "ListClanBadgeCount":
+                guard wrapper.hasClanBadgeCount else { return nil }
+                return try? wrapper.clanBadgeCount.serializedData()
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
     private func routeEnvelope(_ envelope: Mezon_Realtime_Envelope) {
         let cid = UInt32(bitPattern: envelope.cid)
         if cid != 0, pendingApiRequests[cid] != nil {
             guard let pending = pendingApiRequests.removeValue(forKey: cid) else { return }
             apiResponseStreams.removeValue(forKey: cid)
             pending.timeoutTask.cancel()
-            if case .error(let err) = envelope.message {
+            if case .some(.error(let err)) = envelope.message {
                 MezonRPCLog.log("envelope-cid cid=\(cid) error msg='\(err.message)'")
                 pending.continuation.resume(
                     throwing: MezonError.socketError(err.message.isEmpty ? "Server error" : err.message)
                 )
+            } else if let payload = serializedPayloadForCompletedApiRequest(
+                envelope: envelope,
+                apiName: pending.apiName
+            ) {
+                pending.continuation.resume(returning: payload)
             } else {
                 pending.continuation.resume(returning: Data())
             }
@@ -1058,17 +1087,22 @@ enum ChannelUnreadBadgeSync {
                 channels[i].lastSeenMessage = b.lastSeenMessage
             }
             if b.hasLastSentMessage {
-                var inc = b.lastSentMessage
-                if channels[i].hasLastSentMessage {
-                    let ex = channels[i].lastSentMessage
-                    if inc.content.isEmpty, !ex.content.isEmpty {
-                        inc.content = ex.content
-                        if inc.senderID == 0 { inc.senderID = ex.senderID }
-                        if inc.id == 0 { inc.id = ex.id }
+                let bi = b.lastSentMessage
+                let badgeSignalsActivity =
+                    bi.timestampSeconds > 0 || !bi.content.isEmpty || bi.id != 0 || bi.senderID != 0
+                if badgeSignalsActivity || channels[i].hasLastSentMessage {
+                    var inc = bi
+                    if channels[i].hasLastSentMessage {
+                        let ex = channels[i].lastSentMessage
+                        if inc.content.isEmpty, !ex.content.isEmpty {
+                            inc.content = ex.content
+                            if inc.senderID == 0 { inc.senderID = ex.senderID }
+                            if inc.id == 0 { inc.id = ex.id }
+                        }
+                        inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
                     }
-                    inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
+                    channels[i].lastSentMessage = inc
                 }
-                channels[i].lastSentMessage = inc
             }
         }
     }

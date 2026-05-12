@@ -462,7 +462,7 @@ final class EmojiTextView: UIView {
         return tv
     }()
 
-    private var emojiOverlays: [UIImageView] = []
+    private var emojiOverlays: [AnimatedEmojiImageView] = []
 
     var attributedText: NSAttributedString? {
         didSet {
@@ -488,7 +488,7 @@ final class EmojiTextView: UIView {
     }
 
     private func rebuildEmojiOverlays() {
-        emojiOverlays.forEach { $0.removeFromSuperview() }
+        emojiOverlays.forEach { $0.reset(); $0.removeFromSuperview() }
         emojiOverlays = []
 
         guard let attrText = attributedText else { return }
@@ -496,12 +496,12 @@ final class EmojiTextView: UIView {
         attrText.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attrText.length)) { value, _, _ in
             guard let emoji = value as? EmojiTextAttachment else { return }
 
-            let imageView = UIImageView()
-            imageView.contentMode = .scaleAspectFit
-            addSubview(imageView)
-            emojiOverlays.append(imageView)
+            let view = AnimatedEmojiImageView()
+            view.contentsGravity = .resizeAspect
+            addSubview(view)
+            emojiOverlays.append(view)
 
-            loadAnimatedEmoji(emojiId: emoji.emojiId, imgproxyFitSide: emoji.imgproxyFitSide, into: imageView)
+            loadAnimatedEmoji(emojiId: emoji.emojiId, imgproxyFitSide: emoji.imgproxyFitSide, displayPxSide: emoji.emojiSize, into: view)
         }
     }
 
@@ -530,13 +530,14 @@ final class EmojiTextView: UIView {
         }
     }
 
-    private func loadAnimatedEmoji(emojiId: String, imgproxyFitSide: Int, into imageView: UIImageView) {
-        ReactionEmojiImageLoader.loadEmojiBestEffort(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) { [weak self, weak imageView] image in
-            guard let imageView, imageView.superview != nil else { return }
-            if let image {
-                imageView.image = image
-                self?.setNeedsLayout()
-            }
+    private func loadAnimatedEmoji(emojiId: String, imgproxyFitSide: Int, displayPxSide: CGFloat, into view: AnimatedEmojiImageView) {
+        let scale = UIScreen.main.scale
+        let pixelSide = max(displayPxSide * scale, CGFloat(imgproxyFitSide))
+        let cacheKey = "emoji.\(emojiId).\(imgproxyFitSide)"
+        ReactionEmojiImageLoader.loadDataBestEffort(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) { [weak self, weak view] data in
+            guard let view, view.superview != nil else { return }
+            view.setData(data, displayPixelMaxSide: pixelSide, cacheKey: cacheKey)
+            self?.setNeedsLayout()
         }
     }
 }

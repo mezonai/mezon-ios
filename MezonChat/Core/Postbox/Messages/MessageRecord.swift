@@ -127,6 +127,13 @@ extension MessageRecord {
             && prev.mentionsJSON == fresh.mentionsJSON
             && prev.code == fresh.code
         if !sameBodyForMerge {
+            let mergedDisplayName: String = {
+                if !fresh.senderDisplayName.isEmpty && fresh.senderDisplayName != "\(api.senderID)" {
+                    return fresh.senderDisplayName
+                }
+                return prev.senderDisplayName.isEmpty ? fresh.senderDisplayName : prev.senderDisplayName
+            }()
+            let mergedAvatarURL: String? = fresh.senderAvatarURL ?? prev.senderAvatarURL
             return MessageRecord(
                 id: fresh.id,
                 channelId: fresh.channelId,
@@ -137,8 +144,8 @@ extension MessageRecord {
                 editedAt: fresh.editedAt,
                 isDeleted: fresh.isDeleted,
                 code: prev.code,
-                senderDisplayName: prev.senderDisplayName.isEmpty ? fresh.senderDisplayName : prev.senderDisplayName,
-                senderAvatarURL: prev.senderAvatarURL ?? fresh.senderAvatarURL,
+                senderDisplayName: mergedDisplayName,
+                senderAvatarURL: mergedAvatarURL,
                 sendingState: fresh.sendingState,
                 attachmentsJSON: fresh.attachmentsJSON,
                 reactionsJSON: fresh.reactionsJSON,
@@ -167,6 +174,12 @@ extension MessageRecord {
 
         let effectiveEditedAt: Date? = isLogicallyPoll ? nil : fresh.editedAt
 
+        let finalDisplayName: String = {
+            if !fresh.senderDisplayName.isEmpty && fresh.senderDisplayName != "\(api.senderID)" {
+                return fresh.senderDisplayName
+            }
+            return prev.senderDisplayName.isEmpty ? fresh.senderDisplayName : prev.senderDisplayName
+        }()
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,
@@ -177,8 +190,8 @@ extension MessageRecord {
             editedAt: effectiveEditedAt,
             isDeleted: fresh.isDeleted,
             code: fresh.code,
-            senderDisplayName: prev.senderDisplayName,
-            senderAvatarURL: prev.senderAvatarURL ?? fresh.senderAvatarURL,
+            senderDisplayName: finalDisplayName,
+            senderAvatarURL: fresh.senderAvatarURL ?? prev.senderAvatarURL,
             sendingState: fresh.sendingState,
             attachmentsJSON: fresh.attachmentsJSON,
             reactionsJSON: fresh.reactionsJSON,

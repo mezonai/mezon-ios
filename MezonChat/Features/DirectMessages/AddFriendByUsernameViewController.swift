@@ -193,7 +193,7 @@ final class AddFriendByUsernameViewController: ViewController {
                 self.query = ""
                 self.friendByUsername.removeAll()
                 self.needsReloadPipe.putNext(())
-                await self.context.engine.friendsData.refreshFromNetwork(token: token)
+                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
                 Toast.success(L(L10n.FriendRequest.toastSendSuccess))
             } catch {
                 Toast.error(L(L10n.FriendRequest.toastSelfAddError), title: "")
@@ -205,7 +205,7 @@ final class AddFriendByUsernameViewController: ViewController {
     private func ensureFriendLookup(token: String) async {
         var map = context.engine.friendsData.lookupByUsername()
         if map.isEmpty {
-            await context.engine.friendsData.refreshFromNetwork(token: token)
+            await context.engine.friendsData.refreshFromNetwork(token: token, force: true)
             map = context.engine.friendsData.lookupByUsername()
         }
         friendByUsername = map

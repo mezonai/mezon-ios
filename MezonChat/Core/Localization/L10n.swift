@@ -700,6 +700,7 @@ enum L10n {
         static let startGroupCall     = "callLog.startGroupCall"
         static let startAudioCall     = "callLog.startAudioCall"
         static let startVideoCall     = "callLog.startVideoCall"
+        static let callDurationPrefix = "callLog.callDurationPrefix"
     }
 
     enum PeerCall {
@@ -1226,7 +1227,7 @@ extension L10n {
         "profile.sendTokenErrSendFailed": "Transfer failed. Please try again.",
         "profile.sendTokenErrSessionExpired": "Your session has expired",
         "profile.sendTokenErrLoginAgain": "Please log in again to continue.",
-        "profile.sendTokenLogLinePrefix": "Funds Transferred",
+        "profile.sendTokenLogLinePrefix": "Funds Transferred:",
         "profile.mezonTransfer":      "Mezon transfer",
         "profile.historyTransaction": "History Transaction",
         "profile.aboutMe": "About Me",
@@ -1348,6 +1349,7 @@ extension L10n {
         "callLog.startGroupCall":   "%@ started a group call",
         "callLog.startAudioCall":   "%@ started an audio call",
         "callLog.startVideoCall":   "%@ started a video call",
+        "callLog.callDurationPrefix": "Call duration: ",
 
         "peerCall.actionEnd":               "End",
         "peerCall.actionMic":               "Mic",
@@ -1986,6 +1988,7 @@ extension L10n {
         "callLog.startGroupCall":   "%@ đã bắt đầu 1 cuộc gọi nhóm",
         "callLog.startAudioCall":   "%@ đã bắt đầu 1 cuộc gọi thoại",
         "callLog.startVideoCall":   "%@ đã bắt đầu 1 cuộc gọi video",
+        "callLog.callDurationPrefix": "Thời lượng cuộc gọi: ",
 
         "peerCall.actionEnd":               "Kết thúc",
         "peerCall.actionMic":               "Mic",

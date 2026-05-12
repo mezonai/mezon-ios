@@ -453,25 +453,68 @@ final class Postbox {
 
     func clearAll() {
         queue.async { [self] in
-            authDb.rawExecute("DELETE FROM auth_sessions")
-            messagesDb.rawExecute("DELETE FROM messages")
-            clansDb.rawExecute("DELETE FROM channels")
-            clansDb.rawExecute("DELETE FROM clans")
-            clansDb.rawExecute("DELETE FROM channel_meta")
-            clansDb.rawExecute("DELETE FROM notification_settings")
-            profileDb.rawExecute("DELETE FROM profile")
-            settingsDb.rawExecute("DELETE FROM settings")
-            notificationsDb.rawExecute("DELETE FROM notifications")
-            notificationsDb.rawExecute("DELETE FROM topics")
-            authTable.clearMemoryCache()
-            messageTable.clearMemoryCache()
-            channelTable.clearMemoryCache()
-            clanTable.clearMemoryCache()
-            profileTable.clearMemoryCache()
-            settingsTable.clearMemoryCache()
-            notificationSettingTable.clearMemoryCache()
-            notificationTable.clearMemoryCache()
-            topicTable.clearMemoryCache()
+            Self.runClearAllDatabases(
+                authDb: authDb, messagesDb: messagesDb, clansDb: clansDb, profileDb: profileDb,
+                settingsDb: settingsDb, notificationsDb: notificationsDb,
+                authTable: authTable, messageTable: messageTable, channelTable: channelTable,
+                clanTable: clanTable, profileTable: profileTable, settingsTable: settingsTable,
+                notificationSettingTable: notificationSettingTable, notificationTable: notificationTable,
+                topicTable: topicTable, clanMemberTable: clanMemberTable
+            )
         }
+    }
+
+    func clearAllSync() {
+        queue.sync { [self] in
+            Self.runClearAllDatabases(
+                authDb: authDb, messagesDb: messagesDb, clansDb: clansDb, profileDb: profileDb,
+                settingsDb: settingsDb, notificationsDb: notificationsDb,
+                authTable: authTable, messageTable: messageTable, channelTable: channelTable,
+                clanTable: clanTable, profileTable: profileTable, settingsTable: settingsTable,
+                notificationSettingTable: notificationSettingTable, notificationTable: notificationTable,
+                topicTable: topicTable, clanMemberTable: clanMemberTable
+            )
+        }
+    }
+
+    private static func runClearAllDatabases(
+        authDb: SqliteDatabase,
+        messagesDb: SqliteDatabase,
+        clansDb: SqliteDatabase,
+        profileDb: SqliteDatabase,
+        settingsDb: SqliteDatabase,
+        notificationsDb: SqliteDatabase,
+        authTable: AuthTable,
+        messageTable: MessageTable,
+        channelTable: ChannelTable,
+        clanTable: ClanTable,
+        profileTable: ProfileTable,
+        settingsTable: SettingsTable,
+        notificationSettingTable: NotificationSettingTable,
+        notificationTable: NotificationTable,
+        topicTable: TopicTable,
+        clanMemberTable: ClanMemberTable
+    ) {
+        authDb.rawExecute("DELETE FROM auth_sessions")
+        messagesDb.rawExecute("DELETE FROM messages")
+        clansDb.rawExecute("DELETE FROM channels")
+        clansDb.rawExecute("DELETE FROM clans")
+        clansDb.rawExecute("DELETE FROM channel_meta")
+        clansDb.rawExecute("DELETE FROM clan_members")
+        clansDb.rawExecute("DELETE FROM notification_settings")
+        profileDb.rawExecute("DELETE FROM profile")
+        settingsDb.rawExecute("DELETE FROM settings")
+        notificationsDb.rawExecute("DELETE FROM notifications")
+        notificationsDb.rawExecute("DELETE FROM topics")
+        authTable.clearMemoryCache()
+        messageTable.clearMemoryCache()
+        channelTable.clearMemoryCache()
+        clanTable.clearMemoryCache()
+        profileTable.clearMemoryCache()
+        settingsTable.clearMemoryCache()
+        notificationSettingTable.clearMemoryCache()
+        notificationTable.clearMemoryCache()
+        topicTable.clearMemoryCache()
+        clanMemberTable.clearMemoryCache()
     }
 }

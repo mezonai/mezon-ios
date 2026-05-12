@@ -47,6 +47,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             object: nil
         )
 
+        SessionStore.prepareInstallationScopedKeychainIfNeeded()
+
         return true
     }
 
@@ -73,19 +75,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         Task { @MainActor in
             guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
             guard let context = self.accountContext else { return }
-            guard let authToken = await context.getToken() else { return }
-            let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-            let voipToken = CallKitManager.shared.voipToken ?? ""
-            do {
-                let fcmToken = try await Messaging.messaging().token()
-                do {
-                    _ = try await context.account.network.registFcmDeviceToken(
-                        fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
-                    )
-                } catch {
-                }
-            } catch {
-            }
+            context.registerFCMDeviceTokenIfNeededExternally()
         }
     }
 

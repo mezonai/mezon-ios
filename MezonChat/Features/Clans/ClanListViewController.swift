@@ -79,8 +79,6 @@ final class ClanListViewController: ViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         clanListNode.applyTheme()
-        loadClans()
-        fetchUnreadDMs()
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification,
             object: nil)
@@ -102,6 +100,8 @@ final class ClanListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleAccountCurrentUserDidChange),
             name: .mezonAccountCurrentUserDidChange, object: nil)
+        loadClans()
+        fetchUnreadDMs()
     }
 
     @objc private func handleAccountCurrentUserDidChange() {
@@ -123,6 +123,13 @@ final class ClanListViewController: ViewController {
 
     @objc private func handleSocketStatusForClanBadges(_ notification: Notification) {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+        if clans.isEmpty && !completedRemoteClanListFetch {
+            lastLoadClansAt = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self, self.clans.isEmpty, !self.completedRemoteClanListFetch else { return }
+                self.loadClans()
+            }
+        }
         Task { @MainActor in
             await self.refreshClanSidebarBadgesFromSocket()
             self.fetchUnreadDMs()
@@ -130,22 +137,34 @@ final class ClanListViewController: ViewController {
     }
 
 
+    private var refreshClanSidebarBadgesTask: Task<Void, Never>?
+    private var lastRefreshClanSidebarBadgesAt: Date?
+    private let refreshClanSidebarBadgesCooldown: TimeInterval = 2.0
+
     @MainActor
     private func refreshClanSidebarBadgesFromSocket() async {
-        guard let token = await context.getToken() else {
-            return
-        }
-        do {
-            let rows = try await context.account.network.listClanBadgeCount(token: token).listBadge
-            guard !rows.isEmpty else {
-                return
+        if refreshClanSidebarBadgesTask != nil { return }
+        if let last = lastRefreshClanSidebarBadgesAt,
+           Date().timeIntervalSince(last) < refreshClanSidebarBadgesCooldown { return }
+        let task = Task<Void, Never> { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.refreshClanSidebarBadgesTask = nil
+                self.lastRefreshClanSidebarBadgesAt = Date()
             }
-            var next = clans
-            ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
-            setClans(next)
-            persistClanRecordsToPostbox(next)
-        } catch {
+            guard let token = await self.context.getToken() else { return }
+            do {
+                let rows = try await self.context.account.network.listClanBadgeCount(token: token).listBadge
+                guard !rows.isEmpty else { return }
+                var next = self.clans
+                ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
+                self.setClans(next)
+                self.persistClanRecordsToPostbox(next)
+            } catch {
+            }
         }
+        refreshClanSidebarBadgesTask = task
+        _ = await task.value
     }
 
     private func persistClanRecordsToPostbox(_ sorted: [Mezon_Api_ClanDesc]) {
@@ -359,11 +378,18 @@ final class ClanListViewController: ViewController {
         showDiscoverEmptyOverlayPipe.putNext(show)
     }
 
+    private var loadClansTask: Task<Void, Never>?
+    private var lastLoadClansAt: Date?
+    private let loadClansCooldown: TimeInterval = 2.0
+
     func loadClans() {
+        if loadClansTask != nil { return }
+        if let last = lastLoadClansAt, Date().timeIntervalSince(last) < loadClansCooldown { return }
         setIsLoading(true)
         error = nil
-        Task { @MainActor [weak self] in
+        let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.loadClansTask = nil }
             guard let token = await self.context.getToken() else {
                 self.completedRemoteClanListFetch = false
                 self.setIsLoading(false)
@@ -382,6 +408,7 @@ final class ClanListViewController: ViewController {
                 }
                 self.context.account.postbox.write { tx in tx.replaceAllClans(records) }
                 self.completedRemoteClanListFetch = true
+                self.lastLoadClansAt = Date()
                 self.setClans(sorted)
                 if sorted.isEmpty {
                     self.setSelectedClanId(nil)
@@ -405,7 +432,11 @@ final class ClanListViewController: ViewController {
                     await self.refreshClanSidebarBadgesFromSocket()
                 }
             } catch {
-                self.completedRemoteClanListFetch = true
+                if self.clans.isEmpty {
+                    self.completedRemoteClanListFetch = false
+                } else {
+                    self.completedRemoteClanListFetch = true
+                }
                 self.error = error.localizedDescription
                 if !self.clans.isEmpty {
                     self.clansLoadedPromise.set(true)
@@ -415,6 +446,7 @@ final class ClanListViewController: ViewController {
                 }
             }
         }
+        loadClansTask = task
     }
 
     func select(clan: Mezon_Api_ClanDesc) {
@@ -439,9 +471,22 @@ final class ClanListViewController: ViewController {
         setUnreadDMs(merged)
     }
 
+    private var fetchUnreadDMsTask: Task<Void, Never>?
+    private var lastFetchUnreadDMsAt: Date?
+    private let fetchUnreadDMsCooldown: TimeInterval = 2.0
+
     func fetchUnreadDMs() {
-        Task { @MainActor [weak self] in
+        if fetchUnreadDMsTask != nil { return }
+        if let last = lastFetchUnreadDMsAt, Date().timeIntervalSince(last) < fetchUnreadDMsCooldown {
+            applyUnreadDMsFromCache()
+            return
+        }
+        let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                self.fetchUnreadDMsTask = nil
+                self.lastFetchUnreadDMsAt = Date()
+            }
             guard let token = await self.context.getToken() else {
                 self.applyUnreadDMsFromCache()
                 return
@@ -462,6 +507,7 @@ final class ClanListViewController: ViewController {
                 self.applyUnreadDMsFromCache()
             }
         }
+        fetchUnreadDMsTask = task
     }
 
 

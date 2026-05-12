@@ -562,21 +562,45 @@ final class ChannelListViewController: ViewController {
         return true
     }
 
+    private var inflightBadgeCountTask: [Int64: Task<[Mezon_Api_ChannelDescription], Never>] = [:]
+    private var lastBadgeCountFetchAtByClanId: [Int64: Date] = [:]
+    private let badgeCountFetchCooldown: TimeInterval = 5.0
+
     @MainActor
     private func fetchMergedChannelsWithBadgeCounts(base: [Mezon_Api_ChannelDescription], clanId: Int64) async -> [Mezon_Api_ChannelDescription] {
         guard clanId != 0 else { return base }
         guard clanId == self.clanId else { return base }
+
+        if let inflight = inflightBadgeCountTask[clanId] {
+            let rows = await inflight.value
+            guard clanId == self.clanId else { return base }
+            guard !rows.isEmpty else { return base }
+            var merged = base
+            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &merged, badgeRows: rows)
+            return merged
+        }
+
+        if let last = lastBadgeCountFetchAtByClanId[clanId],
+           Date().timeIntervalSince(last) < badgeCountFetchCooldown {
+            return base
+        }
+
         let token = await context.getToken()
         guard clanId == self.clanId else { return base }
         guard let token else { return base }
-        let rows: [Mezon_Api_ChannelDescription]
-        do {
-            rows = try await Task.detached(priority: .utility) {
-                try await MezonHTTPClient.shared.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
-            }.value
-        } catch {
-            return base
+
+        let task: Task<[Mezon_Api_ChannelDescription], Never> = Task.detached(priority: .utility) {
+            do {
+                return try await MezonHTTPClient.shared.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
+            } catch {
+                return []
+            }
         }
+        inflightBadgeCountTask[clanId] = task
+        let rows = await task.value
+        inflightBadgeCountTask[clanId] = nil
+        lastBadgeCountFetchAtByClanId[clanId] = Date()
+
         guard clanId == self.clanId else { return base }
         guard !rows.isEmpty else { return base }
         var merged = base
@@ -711,6 +735,8 @@ final class ChannelListViewController: ViewController {
         errorMessage = nil
 
         needsReloadPipe.putNext(())
+        lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+        lastBadgeCountFetchAtByClanId.removeValue(forKey: clanId)
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: true)
     }
 
@@ -971,6 +997,10 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    private var inflightChannelFetchClanId: Int64 = 0
+    private var lastChannelFetchAtByClanId: [Int64: Date] = [:]
+    private let channelFetchCooldown: TimeInterval = 5.0
+
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
             isLoading = false
@@ -986,7 +1016,17 @@ final class ChannelListViewController: ViewController {
             return
         }
         let clanId = self.clanId
-        scheduleBackgroundClanListAndVoiceRefresh()
+        if inflightChannelFetchClanId == clanId { return }
+        if let last = lastChannelFetchAtByClanId[clanId],
+           Date().timeIntervalSince(last) < channelFetchCooldown {
+            isLoading = false
+            isLoadingPipe.putNext(false)
+            channelListNode.setChannelAppsLoadingIndicator(false)
+            needsReloadPipe.putNext(())
+            return
+        }
+        inflightChannelFetchClanId = clanId
+        lastChannelFetchAtByClanId[clanId] = Date()
 
         let signal = channelListSignal(clanId: clanId)
             |> map { payload -> FetchResult in .success(payload.channels, payload.categoryDescs, payload.favoriteChannelIds) }
@@ -997,7 +1037,10 @@ final class ChannelListViewController: ViewController {
         let hadCachedChannels = !self.allChannels.isEmpty
         fetchDisposable.set(signal.start(next: { [weak self] result in
                 guard let self else { return }
-                guard self.clanId == clanId else { return }
+                guard self.clanId == clanId else {
+                    self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                    return
+                }
                 self.isLoading = false
                 switch result {
                 case .success(let channels, let categoryDescs, let favoriteIds):
@@ -1010,11 +1053,15 @@ final class ChannelListViewController: ViewController {
                         Task { @MainActor [weak self] in
                             await self?.applyChannelBadgeCounts(clanId: clanId)
                         }
+                        self.clearInflightChannelFetchIfMatches(clanId: clanId)
                         return
                     }
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        guard self.clanId == clanId else { return }
+                        guard self.clanId == clanId else {
+                            self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                            return
+                        }
                         let merged = await self.fetchMergedChannelsWithBadgeCounts(base: channels, clanId: clanId)
                         self.channelListCategoryDescs = categoryDescs
                         self.channelListFavoriteIds = favoriteIds
@@ -1042,6 +1089,7 @@ final class ChannelListViewController: ViewController {
                         self.channelListNode.endRefreshing()
                         self.isLoadingPipe.putNext(false)
                         self.needsReloadPipe.putNext(())
+                        self.clearInflightChannelFetchIfMatches(clanId: clanId)
                     }
                     return
                 case .failure(let msg):
@@ -1055,7 +1103,14 @@ final class ChannelListViewController: ViewController {
                 self.channelListNode.endRefreshing()
                 self.isLoadingPipe.putNext(false)
                 self.needsReloadPipe.putNext(())
+                self.clearInflightChannelFetchIfMatches(clanId: clanId)
             }))
+    }
+
+    private func clearInflightChannelFetchIfMatches(clanId: Int64) {
+        if inflightChannelFetchClanId == clanId {
+            inflightChannelFetchClanId = 0
+        }
     }
 
     func toggleCollapse(categoryId: Int64) {
@@ -1394,68 +1449,6 @@ final class ChannelListViewController: ViewController {
             }
             return ActionDisposable { task.cancel() }
         }
-    }
-
-    private func scheduleBackgroundClanListAndVoiceRefresh() {
-        guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
-        let cid = clanId
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.resolveAuthTokenPreferringUnexpiredSessionStore() else { return }
-            Task.detached(priority: .utility) {
-                let net = MezonHTTPClient.shared
-                do {
-                    let rawClans = try await net.listClanDescs(token: token)
-                    let sorted = rawClans.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
-                    let records: [ClanRecord] = sorted.map { api -> ClanRecord in
-                        let data = (try? api.serializedData()) ?? Data()
-                        return ClanRecord(
-                            id: api.clanID,
-                            name: api.clanName,
-                            icon: api.logo.isEmpty ? nil : api.logo,
-                            ownerId: api.creatorID == 0 ? nil : String(api.creatorID),
-                            data: data
-                        )
-                    }
-                    let voicePrefBytes: Data?
-                    if cid != 0,
-                       let v = try? await net.listChannelVoiceUsers(clanId: cid, token: token),
-                       let d = try? v.serializedData() {
-                        voicePrefBytes = d
-                    } else {
-                        voicePrefBytes = nil
-                    }
-                    let prefBlob = Self.encodeClanDescsPreferenceBlob(sorted)
-                    await MainActor.run { [weak self] in
-                        guard let self, self.clanId == cid else { return }
-                        let pb = self.context.account.postbox
-                        pb.write { tx in tx.replaceAllClans(records) }
-                        pb.setPreferenceDataSync(key: PreferencesKeys.clans, value: prefBlob)
-                        if let voiceB = voicePrefBytes {
-                            pb.setPreferenceDataSync(key: PreferencesKeys.clanVoiceUsers(clanId: cid), value: voiceB)
-                            NotificationCenter.default.post(
-                                name: .mezonVoicePresenceChanged,
-                                object: nil,
-                                userInfo: ["clanId": NSNumber(value: cid)]
-                            )
-                        }
-                    }
-                } catch {}
-            }
-        }
-    }
-
-    nonisolated private static func encodeClanDescsPreferenceBlob(_ items: [Mezon_Api_ClanDesc]) -> Data {
-        var result = Data()
-        var count = UInt32(items.count)
-        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
-        for item in items {
-            guard let d = try? item.serializedData() else { continue }
-            var len = UInt32(d.count)
-            result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
-            result.append(d)
-        }
-        return result
     }
 
     nonisolated private static func listCategoryDescsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Mezon_Api_CategoryDesc] {

@@ -1783,7 +1783,8 @@ final class ChatViewController: ViewController {
                         channelType: parentChannelType,
                         token: token
                     )
-                    let parentMembers = parentResponse.channelUsers.map { ChannelMemberRecord(from: $0) }
+                    let parentMembers = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                        parentResponse.channelUsers, postbox: self.context.account.postbox)
                     let parentHasCached = !(self.context.account.postbox.read { tx in
                         tx.getChannelMeta(channelId: self.channel.parentID)?.members ?? []
                     }).isEmpty
@@ -1795,19 +1796,62 @@ final class ChatViewController: ViewController {
                 }
 
                 if channel.channelPrivate != 0 || channel.parentID != 0 {
-                    let response = try await self.context.account.network.listChannelUsers(
-                        clanId: clanId,
-                        channelId: channelId,
-                        channelType: channelType,
-                        token: token
+                    let isDmOrGroup = clanId == 0 && (
+                        channelType == MezonConstants.ChannelType.dm.rawValue
+                            || channelType == MezonConstants.ChannelType.group.rawValue
                     )
-                    let members = response.channelUsers.map { ChannelMemberRecord(from: $0) }
-                    let hasCached = !(self.context.account.postbox.read { tx in
-                        tx.getChannelMeta(channelId: channelId)?.members ?? []
-                    }).isEmpty
-                    if !(members.isEmpty && hasCached) {
-                        self.context.account.postbox.write { tx in
-                            tx.updateChannelMembers(members, channelId: channelId)
+                    if isDmOrGroup {
+                        var synced = false
+                        do {
+                            let uc = try await self.context.account.network.listChannelUsersUC(
+                                channelId: channelId, limit: 500, token: token)
+                            if !uc.userIds.isEmpty {
+                                let labels = channel.dmMemberLabelsForChannelList()
+                                self.context.account.postbox.write { tx in
+                                    tx.applyAllUsersAddChannelResponse(
+                                        uc, channelId: channelId, dmMemberLabelByUserId: labels)
+                                }
+                                synced = true
+                            }
+                        } catch {
+                        }
+                        if !synced {
+                            do {
+                                let response = try await self.context.account.network.listChannelUsers(
+                                    clanId: clanId,
+                                    channelId: channelId,
+                                    channelType: channelType,
+                                    token: token
+                                )
+                                let members = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                                    response.channelUsers, postbox: self.context.account.postbox)
+                                let hasCached = !(self.context.account.postbox.read { tx in
+                                    tx.getChannelMeta(channelId: channelId)?.members ?? []
+                                }).isEmpty
+                                if !(members.isEmpty && hasCached) {
+                                    self.context.account.postbox.write { tx in
+                                        tx.updateChannelMembers(members, channelId: channelId)
+                                    }
+                                }
+                            } catch {
+                            }
+                        }
+                    } else {
+                        let response = try await self.context.account.network.listChannelUsers(
+                            clanId: clanId,
+                            channelId: channelId,
+                            channelType: channelType,
+                            token: token
+                        )
+                        let members = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                            response.channelUsers, postbox: self.context.account.postbox)
+                        let hasCached = !(self.context.account.postbox.read { tx in
+                            tx.getChannelMeta(channelId: channelId)?.members ?? []
+                        }).isEmpty
+                        if !(members.isEmpty && hasCached) {
+                            self.context.account.postbox.write { tx in
+                                tx.updateChannelMembers(members, channelId: channelId)
+                            }
                         }
                     }
                 }
@@ -2193,7 +2237,7 @@ final class ChatViewController: ViewController {
 
     private func messageRecord(from api: Mezon_Api_ChannelMessage) -> MessageRecord {
         let mid = "\(api.messageID)"
-        let existing = context.account.postbox.read { tx in tx.getMessageById(mid) }
+        let existing = context.account.postbox.read { tx in tx.getMessageById(mid, channelId: storageChannelId) }
         var record = MessageRecord.fromApi(api, merging: existing)
         if topicId != 0 {
             record = MessageRecord(

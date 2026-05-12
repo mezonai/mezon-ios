@@ -22,4 +22,13 @@ enum AnonymousMessageStore {
         setEnabled(next, clanId: clanId)
         return next
     }
+
+    static func removeAllClanToggles() {
+        let keys = UserDefaults.standard.dictionaryRepresentation().keys.filter {
+            $0.hasPrefix("MezonChat.anonymousMessage.clan.")
+        }
+        for key in keys {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
 }

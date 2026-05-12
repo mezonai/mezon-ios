@@ -160,7 +160,7 @@ final class ProfileContainerNode: ASDisplayNode {
         return iv
     }()
 
-    private var friendAvatarFetchTask: Task<Void, Never>?
+    private var friendsUpdatedDisposable: Disposable?
     private var walletFetchTask: Task<Void, Never>?
     private var walletDetail: WalletDetail?
     private var currentAvatarLoadKey: String?
@@ -293,7 +293,7 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     deinit {
-        friendAvatarFetchTask?.cancel()
+        friendsUpdatedDisposable?.dispose()
         walletFetchTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
@@ -316,6 +316,11 @@ final class ProfileContainerNode: ASDisplayNode {
         setupCopyCard()
 
         updateContent()
+
+        friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] _ in
+                self?.applyFriendAvatarsFromFriendsData()
+            })
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
@@ -722,41 +727,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
         friendsTitleLabel.text = L(L10n.Profile.yourFriends)
 
-        friendAvatarFetchTask?.cancel()
-        friendAvatarFetchTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let token = await context.getToken() ?? ""
-            guard !token.isEmpty else {
-                setupFriendAvatars(previews: [])
-                return
-            }
-            do {
-                let list = try await context.account.network.listFriends(token: token, limit: 100, state: 0)
-                let previews: [(avatarURL: String?, displayName: String)] = Array(
-                    list.friends
-                        .filter { $0.state == 0 && $0.hasUser }
-                        .prefix(5)
-                        .map { f -> (avatarURL: String?, displayName: String) in
-                            let u = f.user
-                            let url = u.avatarURL.isEmpty ? nil : u.avatarURL
-                            let name: String
-                            if !u.username.isEmpty {
-                                name = u.username
-                            } else if !u.displayName.isEmpty {
-                                name = u.displayName
-                            } else {
-                                name = "?"
-                            }
-                            return (avatarURL: url, displayName: name)
-                        }
-                )
-                guard !Task.isCancelled else { return }
-                setupFriendAvatars(previews: previews)
-            } catch {
-                guard !Task.isCancelled else { return }
-                setupFriendAvatars(previews: [])
-            }
-        }
+        applyFriendAvatarsFromFriendsData()
 
         copyRow.configure(
             text: L(L10n.Profile.copyUserId),
@@ -769,6 +740,29 @@ final class ProfileContainerNode: ASDisplayNode {
             let safeTop = layout.safeInsets.top
             layoutContent(width: layout.size.width, height: layout.size.height, safeTop: safeTop)
         }
+    }
+
+    private func applyFriendAvatarsFromFriendsData() {
+        let list = context.engine.friendsData.allFriends()
+        let previews: [(avatarURL: String?, displayName: String)] = Array(
+            list
+                .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser }
+                .prefix(5)
+                .map { f -> (avatarURL: String?, displayName: String) in
+                    let u = f.user
+                    let url = u.avatarURL.isEmpty ? nil : u.avatarURL
+                    let name: String
+                    if !u.username.isEmpty {
+                        name = u.username
+                    } else if !u.displayName.isEmpty {
+                        name = u.displayName
+                    } else {
+                        name = "?"
+                    }
+                    return (avatarURL: url, displayName: name)
+                }
+        )
+        setupFriendAvatars(previews: previews)
     }
 
     private func fetchWalletDetail() {

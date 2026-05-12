@@ -54,7 +54,7 @@ final class MemberListNode: ASDisplayNode {
             return resolvedT
         }()
         self.channelType = effectiveType
-        self.dmMemberLabelByUserId = Self.dmMemberLabels(from: channelDescription)
+        self.dmMemberLabelByUserId = channelDescription.dmMemberLabelsForChannelList()
         self.useClanListWhenChannelUsersEmpty =
             clanId > 0
             && channelDescription.channelPrivate == 0
@@ -77,27 +77,6 @@ final class MemberListNode: ASDisplayNode {
         loadClanData()
         observeMembers()
         fetchMembersIfNeeded()
-    }
-
-    private static func dmMemberLabels(from channel: Mezon_Api_ChannelDescription) -> [Int64: String] {
-        let dm = MezonConstants.ChannelType.dm.rawValue
-        let group = MezonConstants.ChannelType.group.rawValue
-        guard channel.type == dm || channel.type == group else { return [:] }
-
-        var result: [Int64: String] = [:]
-        let ids = channel.userIds
-        let displayNames = channel.displayNames
-        let usernames = channel.usernames
-        for i in ids.indices {
-            let id = ids[i]
-            let dn = i < displayNames.count ? displayNames[i] : ""
-            let un = i < usernames.count ? usernames[i] : ""
-            let label = !dn.isEmpty ? dn : un
-            if !label.isEmpty {
-                result[id] = label
-            }
-        }
-        return result
     }
 
     private func resolvedChannelMemberListName(_ record: ChannelMemberRecord) -> String {
@@ -173,46 +152,9 @@ final class MemberListNode: ASDisplayNode {
     }
 
     private func applyGroupMemberList(_ res: Mezon_Api_AllUsersAddChannelResponse) {
-        let userIds = res.userIds
-        guard !userIds.isEmpty else { return }
-        context.account.postbox.write { tx in
-            var members: [ChannelMemberRecord] = []
-            for (i, uid) in userIds.enumerated() {
-                let displayName = i < res.displayNames.count ? res.displayNames[i] : ""
-                let username = i < res.usernames.count ? res.usernames[i] : ""
-                let avatar = i < res.avatars.count ? res.avatars[i] : ""
-                let isOnline = i < res.onlines.count ? res.onlines[i] : false
-                let uidStr = String(uid)
-                let existing = tx.getProfile(userId: uidStr)
-                let profileDisplayName = displayName.isEmpty ? existing?.displayName : displayName
-                let profileUsername = username.isEmpty ? (existing?.username ?? "") : username
-                let profileAvatar: String? = avatar.isEmpty ? existing?.avatarUrl : avatar
-                tx.updateProfile(ProfileRecord(
-                    userId: uidStr,
-                    username: profileUsername,
-                    displayName: profileDisplayName,
-                    avatarUrl: profileAvatar,
-                    status: existing?.status ?? 0,
-                    isOnline: isOnline
-                ))
-                let resolvedDisplayName = profileDisplayName ?? ""
-                let resolvedUsername = profileUsername
-                let label = self.dmMemberLabelByUserId[uid]
-                let finalDisplayName = resolvedDisplayName.isEmpty
-                    ? (label ?? resolvedUsername) : resolvedDisplayName
-                let finalUsername = resolvedUsername.isEmpty
-                    ? (label ?? "") : resolvedUsername
-                members.append(ChannelMemberRecord(
-                    id: uid, userId: uid, roleIds: [],
-                    threadId: 0, clanNick: "",
-                    clanAvatar: avatar, clanId: 0,
-                    isBanned: false, expiredBanTime: 0,
-                    isOnline: isOnline,
-                    displayName: finalDisplayName,
-                    username: finalUsername
-                ))
-            }
-            tx.updateChannelMembers(members, channelId: self.channelId)
+        context.account.postbox.write { [channelId, dmMemberLabelByUserId] tx in
+            tx.applyAllUsersAddChannelResponse(
+                res, channelId: channelId, dmMemberLabelByUserId: dmMemberLabelByUserId)
         }
     }
 
