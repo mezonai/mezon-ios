@@ -491,6 +491,7 @@ enum L10n {
         static let topic          = "channel.topic"
         static let delete         = "channel.delete"
         static let deleteConfirm  = "channel.deleteConfirm"
+        static let deleteThreadConfirm = "channel.deleteThreadConfirm"
     }
 
     enum ChannelAction {
@@ -499,9 +500,36 @@ enum L10n {
         static let unmarkFavorite       = "channel.action.unmarkFavorite"
         static let copyLink             = "channel.action.copyLink"
         static let mute                 = "channel.action.mute"
+        static let muteThread           = "channel.action.muteThread"
         static let unmute               = "channel.action.unmute"
+        static let unmuteThread         = "channel.action.unmuteThread"
         static let notificationSettings = "channel.action.notificationSettings"
         static let editChannel          = "channel.action.editChannel"
+        static let editThread           = "channel.action.editThread"
+        static let leaveThread          = "channel.action.leaveThread"
+        static let leaveThreadConfirm   = "channel.action.leaveThreadConfirm"
+        static let deleteThread         = "channel.action.deleteThread"
+    }
+
+    enum MuteDuration {
+        static let title              = "muteDuration.title"
+        static let titleThread        = "muteDuration.titleThread"
+        static let for15Minutes       = "muteDuration.for15Minutes"
+        static let for1Hour           = "muteDuration.for1Hour"
+        static let for3Hours          = "muteDuration.for3Hours"
+        static let for8Hours          = "muteDuration.for8Hours"
+        static let for24Hours         = "muteDuration.for24Hours"
+        static let untilTurnedOff     = "muteDuration.untilTurnedOff"
+        static let notificationSettings = "muteDuration.notificationSettings"
+        static let description        = "muteDuration.description"
+    }
+
+    enum NotificationSettings {
+        static let title            = "notifSettings.title"
+        static let useDefault       = "notifSettings.useDefault"
+        static let allMessages      = "notifSettings.allMessages"
+        static let mentionsOnly     = "notifSettings.mentionsOnly"
+        static let nothing          = "notifSettings.nothing"
     }
 
     enum ChannelSetting {
@@ -1061,15 +1089,40 @@ extension L10n {
         "channel.topic":  "Channel Topic",
         "channel.delete": "Delete Channel",
         "channel.deleteConfirm": "Are you sure you want to delete this channel?",
+        "channel.deleteThreadConfirm": "Are you sure you want to delete this thread?",
 
         "channel.action.markAsRead":           "Mark as Read",
         "channel.action.markFavorite":         "Mark Favorite",
         "channel.action.unmarkFavorite":       "Unmark Favorite",
         "channel.action.copyLink":             "Copy Link",
         "channel.action.mute":                 "Mute Channel",
+        "channel.action.muteThread":           "Mute Thread",
         "channel.action.unmute":               "Unmute Channel",
+        "channel.action.unmuteThread":         "Unmute Thread",
         "channel.action.notificationSettings": "Notification Settings",
         "channel.action.editChannel":          "Edit Channel",
+        "channel.action.editThread":           "Edit Thread",
+        "channel.action.leaveThread":          "Leave Thread",
+        "channel.action.leaveThreadConfirm":   "Are you sure you want to leave this thread?",
+        "channel.action.deleteThread":         "Delete Thread",
+
+        "emojiPicker.title":                   "Emojis",
+        "muteDuration.title":              "Mute this channel",
+        "muteDuration.titleThread":        "Mute this thread",
+        "muteDuration.for15Minutes":       "For 15 minutes",
+        "muteDuration.for1Hour":           "For 1 hour",
+        "muteDuration.for3Hours":          "For 3 hours",
+        "muteDuration.for8Hours":          "For 8 hours",
+        "muteDuration.for24Hours":         "For 24 hours",
+        "muteDuration.untilTurnedOff":     "Until I turn it back on",
+        "muteDuration.notificationSettings": "Notification Settings",
+        "muteDuration.description":        "You are receiving notifications from all messages in this clan, but you can change settings here",
+
+        "notifSettings.title":          "Notification Settings",
+        "notifSettings.useDefault":     "Use default settings",
+        "notifSettings.allMessages":    "All messages",
+        "notifSettings.mentionsOnly":   "Only @mention",
+        "notifSettings.nothing":        "Nothing",
 
         "channel.setting.changeCategory":       "Change Category",
         "channel.setting.permissions":          "Channel Permissions",
@@ -1598,7 +1651,7 @@ extension L10n {
         "discover.detail.dateUnavailable": "—",
 
         "clan.action.invite":               "Mời",
-        "clan.action.markAsRead":           "Đánh dấu đã đọc",
+        "clan.action.markAsRead":           "Đánh dấu là đã đọc",
         "clan.action.createEvent":          "Tạo sự kiện",
         "clan.action.createCategory":       "Tạo danh mục",
         "clan.action.editClanProfile":      "Chỉnh sửa hồ sơ Clan",
@@ -1698,15 +1751,40 @@ extension L10n {
         "channel.topic":  "Chủ đề kênh",
         "channel.delete": "Xóa kênh",
         "channel.deleteConfirm": "Bạn có chắc chắn muốn xóa kênh này không?",
+        "channel.deleteThreadConfirm": "Bạn có chắc chắn muốn xóa chủ đề này không?",
 
-        "channel.action.markAsRead":           "Đánh dấu đã đọc",
-        "channel.action.markFavorite":         "Yêu thích",
-        "channel.action.unmarkFavorite":       "Bỏ yêu thích",
+        "channel.action.markAsRead":           "Đánh dấu là đã đọc",
+        "channel.action.markFavorite":         "Thêm vào yêu thích",
+        "channel.action.unmarkFavorite":       "Bỏ khỏi yêu thích",
         "channel.action.copyLink":             "Sao chép liên kết",
         "channel.action.mute":                 "Tắt thông báo kênh",
+        "channel.action.muteThread":           "Tắt thông báo chủ đề",
         "channel.action.unmute":               "Bật thông báo kênh",
+        "channel.action.unmuteThread":         "Bật thông báo chủ đề",
         "channel.action.notificationSettings": "Cài đặt thông báo",
         "channel.action.editChannel":          "Chỉnh sửa kênh",
+        "channel.action.editThread":           "Chỉnh sửa chủ đề",
+        "channel.action.leaveThread":          "Rời khỏi chủ đề",
+        "channel.action.leaveThreadConfirm":   "Bạn có chắc chắn muốn rời khỏi chủ đề này không?",
+        "channel.action.deleteThread":         "Xóa chủ đề",
+
+        "emojiPicker.title":                   "Cảm xúc",
+        "muteDuration.title":              "Tắt thông báo kênh này",
+        "muteDuration.titleThread":        "Tắt thông báo chủ đề này",
+        "muteDuration.for15Minutes":       "Trong 15 phút",
+        "muteDuration.for1Hour":           "Trong 1 giờ",
+        "muteDuration.for3Hours":          "Trong 3 giờ",
+        "muteDuration.for8Hours":          "Trong 8 giờ",
+        "muteDuration.for24Hours":         "Trong 24 giờ",
+        "muteDuration.untilTurnedOff":     "Cho đến khi bật lại",
+        "muteDuration.notificationSettings": "Cài đặt thông báo",
+        "muteDuration.description":        "Bạn đang nhận được thông báo từ tất cả tin nhắn trong clan này, nhưng bạn có thể thay đổi cài đặt tại đây",
+
+        "notifSettings.title":          "Cài đặt thông báo",
+        "notifSettings.useDefault":     "Sử dụng cài đặt mặc định",
+        "notifSettings.allMessages":    "Tất cả",
+        "notifSettings.mentionsOnly":   "Chỉ @mention",
+        "notifSettings.nothing":        "Không có gì",
 
         "channel.setting.changeCategory":       "Thay đổi danh mục",
         "channel.setting.permissions":          "Quyền hạn kênh",

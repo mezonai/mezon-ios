@@ -88,6 +88,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func leaveThread(clanId: Int64, channelId: Int64, token: String) async throws {
+        var req = Mezon_Api_LeaveThreadRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/LeaveThread",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private func stripDefaultPort(_ urlString: String) -> String {
         guard var components = URLComponents(string: urlString) else { return urlString }
         let isHTTPS = components.scheme?.lowercased() == "https"
@@ -1565,12 +1576,44 @@ final class MezonHTTPClient {
         auth: AuthMethod,
         allowBearerRetry: Bool = true
     ) async throws {
-        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
-            path: path,
-            message: message,
-            auth: auth,
-            allowBearerRetry: allowBearerRetry
-        )
+        let url = protoBaseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/proto", forHTTPHeaderField: "Accept")
+        switch auth {
+        case .serverKey:
+            request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
+        case .bearer(let token):
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try message.serializedData()
+
+        let (data, response) = try await httpData(request)
+
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+
+        if (200..<300).contains(http.statusCode) {
+            return
+        }
+
+        if allowBearerRetry,
+            http.statusCode == 401 || http.statusCode == 403,
+            case .bearer = auth,
+            let recovery = bearerUnauthorizedRecovery,
+           let newToken = try await recovery() {
+            try await postProtoIgnoringBody(
+                path: path,
+                message: message,
+                auth: .bearer(newToken),
+                allowBearerRetry: false
+            )
+            return
+        }
+
+        let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+            ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
     enum AuthMethod {
@@ -1685,6 +1728,86 @@ final class MezonHTTPClient {
         req.channelID = channelId
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/ClosePoll",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func markAsRead(channelId: Int64, clanId: Int64, categoryId: Int64 = 0, token: String) async throws {
+        var req = Mezon_Api_MarkAsReadRequest()
+        req.channelID = channelId
+        req.clanID = clanId
+        req.categoryID = categoryId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/MarkAsRead",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func addFavoriteChannel(channelId: Int64, clanId: Int64, token: String) async throws -> Mezon_Api_AddFavoriteChannelResponse {
+        var req = Mezon_Api_AddFavoriteChannelRequest()
+        req.channelID = channelId
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/AddChannelFavorite",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func removeFavoriteChannel(channelId: Int64, clanId: Int64, token: String) async throws {
+        var req = Mezon_Api_RemoveFavoriteChannelRequest()
+        req.channelID = channelId
+        req.clanID = clanId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/RemoveChannelFavorite",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteChannelDesc(channelId: Int64, clanId: Int64, token: String) async throws {
+        var req = Mezon_Api_DeleteChannelDescRequest()
+        req.channelID = channelId
+        req.clanID = clanId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func setMuteChannel(id: Int64, clanId: Int64, muteTime: Int32, active: Int32, token: String) async throws {
+        var req = Mezon_Api_SetMuteRequest()
+        req.id = id
+        req.clanID = clanId
+        req.muteTime = muteTime
+        req.active = active
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/SetMuteChannel",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func setNotificationChannel(channelId: Int64, notificationType: Int32, clanId: Int64, token: String) async throws {
+        var req = Mezon_Api_SetNotificationRequest()
+        req.channelCategoryID = channelId
+        req.notificationType = notificationType
+        req.clanID = clanId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/SetNotificationChannelSetting",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteNotificationChannel(channelId: Int64, token: String) async throws {
+        var req = Mezon_Api_NotificationChannel()
+        req.channelID = channelId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteNotificationChannel",
             message: req,
             auth: .bearer(token)
         )
