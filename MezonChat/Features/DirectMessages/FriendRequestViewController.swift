@@ -149,12 +149,12 @@ final class FriendRequestViewController: ViewController {
         setReceivedRequests(context.engine.friendsData.pendingIncomingFriends())
     }
 
-    private func refreshFromNetwork() {
+    private func refreshFromNetwork(force: Bool = false) {
         refreshTask?.cancel()
         refreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
-            await self.context.engine.friendsData.refreshFromNetwork(token: token)
+            await self.context.engine.friendsData.refreshFromNetwork(token: token, force: force)
         }
     }
 
@@ -176,7 +176,7 @@ final class FriendRequestViewController: ViewController {
                     self.setReceivedRequests(updatedList)
                 }
                 self.context.engine.friendsData.removePendingRequest(userId: userId)
-                self.refreshFromNetwork()
+                self.refreshFromNetwork(force: true)
             } catch {
                 Toast.error(error.localizedDescription)
             }
@@ -201,7 +201,7 @@ final class FriendRequestViewController: ViewController {
                     self.setReceivedRequests(updatedList)
                 }
                 self.context.engine.friendsData.removePendingRequest(userId: userId)
-                self.refreshFromNetwork()
+                self.refreshFromNetwork(force: true)
             } catch {
                 Toast.error(error.localizedDescription)
             }

@@ -58,11 +58,32 @@ extension MezonEngine {
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
 
+        private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
+        private var lastFetchAllAtByClanId: [Int64: Date] = [:]
+        private let fetchAllCooldownInterval: TimeInterval = 2.0
+
         init(engine: MezonEngine) { self.engine = engine }
 
+        func resetForLogout() {
+            for (_, task) in inflightFetchAllByClanId {
+                task.cancel()
+            }
+            inflightFetchAllByClanId.removeAll()
+            lastFetchAllAtByClanId.removeAll()
+        }
+
         func fetchAllClanData(clanId: Int64, token: String) {
-            Task { @MainActor [weak self] in
+            guard clanId != 0 else { return }
+            if let existing = inflightFetchAllByClanId[clanId], !existing.isCancelled { return }
+            if let last = lastFetchAllAtByClanId[clanId], Date().timeIntervalSince(last) < fetchAllCooldownInterval {
+                return
+            }
+            let task = Task { @MainActor [weak self] in
                 guard let self else { return }
+                defer {
+                    self.inflightFetchAllByClanId[clanId] = nil
+                    self.lastFetchAllAtByClanId[clanId] = Date()
+                }
 
                 async let usersResult = self.fetchClanUsers(clanId: clanId, token: token)
                 async let rolesResult = self.fetchRoles(clanId: clanId, token: token)
@@ -74,14 +95,12 @@ extension MezonEngine {
                 async let badgeResult = self.fetchBadgeCount(clanId: clanId, token: token)
                 async let notifResult = self.fetchDefaultNotification(clanId: clanId, token: token)
                 async let catNotifResult = self.fetchCategoryNotification(clanId: clanId, token: token)
-                async let channelAppsCacheResult = self.fetchChannelAppsCache(clanId: clanId, token: token)
-                async let favoriteChannelsCacheResult = self.fetchFavoriteChannelsCache(clanId: clanId, token: token)
                 _ = await (
                     usersResult, rolesResult, eventsResult, userPermsResult, allPermsResult,
-                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult,
-                    channelAppsCacheResult, favoriteChannelsCacheResult
+                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult
                 )
             }
+            inflightFetchAllByClanId[clanId] = task
         }
 
         private func fetchClanUsers(clanId: Int64, token: String) async {
@@ -208,38 +227,6 @@ extension MezonEngine {
                 let response = try await network.getChannelCategoryNotiSettingsList(clanId: clanId, token: token)
                 if let data = try? response.serializedData() {
                     postbox.setPreferenceData(key: PreferencesKeys.clanCategoryNotification(clanId: clanId), value: data)
-                }
-            } catch {
-            }
-        }
-
-        private func fetchChannelAppsCache(clanId: Int64, token: String) async {
-            do {
-                let apps = try await network.listChannelApps(clanId: clanId, token: token)
-                let cacheKey = PreferencesKeys.channelApps(clanId: clanId)
-                let previousData = postbox.getPreferenceData(key: cacheKey)
-                let previousNonEmpty: Bool = {
-                    guard let previousData, !previousData.isEmpty else { return false }
-                    return !Mezon_Api_ListChannelAppsResponse.decodeChannelApps(previousData).isEmpty
-                }()
-                if apps.isEmpty && previousNonEmpty {
-                    return
-                }
-                let data = Mezon_Api_ListChannelAppsResponse.encodeChannelApps(apps)
-                if previousData != data {
-                    postbox.setPreferenceDataSync(key: cacheKey, value: data)
-                }
-            } catch {
-            }
-        }
-
-        private func fetchFavoriteChannelsCache(clanId: Int64, token: String) async {
-            do {
-                let ids = try await network.listFavoriteChannelIds(clanId: clanId, token: token)
-                var resp = Mezon_Api_ListFavoriteChannelResponse()
-                resp.channelIds = ids
-                if let data = try? resp.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.favoriteChannelIds(clanId: clanId), value: data)
                 }
             } catch {
             }
@@ -498,14 +485,29 @@ extension MezonEngine {
         private var socketDisposable: Disposable?
         private var socketRefreshTask: Task<Void, Never>?
         private var tokenProvider: (() async -> String?)?
+        private var inflightNetworkRefreshTask: Task<Void, Never>?
+        private var lastFriendsNetworkRefreshAt: Date?
+        private let friendsNetworkRefreshCooldown: TimeInterval = 3.0
 
         init(engine: MezonEngine) {
             self.engine = engine
         }
 
+        func resetForLogout() {
+            socketDisposable?.dispose()
+            socketDisposable = nil
+            socketRefreshTask?.cancel()
+            socketRefreshTask = nil
+            inflightNetworkRefreshTask?.cancel()
+            inflightNetworkRefreshTask = nil
+            tokenProvider = nil
+            lastFriendsNetworkRefreshAt = nil
+        }
+
         deinit {
             socketDisposable?.dispose()
             socketRefreshTask?.cancel()
+            inflightNetworkRefreshTask?.cancel()
         }
 
         func start(tokenProvider: @escaping () async -> String?) {
@@ -545,22 +547,37 @@ extension MezonEngine {
             return result
         }
 
-        func refreshFromNetwork(token: String) async {
-            let states: [Int32] = [
-                EStateFriend.friend.rawValue,
-                EStateFriend.otherPending.rawValue,
-                EStateFriend.myPending.rawValue,
-                EStateFriend.block.rawValue
-            ]
+        func refreshFromNetwork(token: String, force: Bool = false) async {
+            if let inflight = inflightNetworkRefreshTask {
+                _ = await inflight.value
+                if !force { return }
+            }
+            if !force,
+               let last = lastFriendsNetworkRefreshAt,
+               Date().timeIntervalSince(last) < friendsNetworkRefreshCooldown {
+                return
+            }
+            let task = Task<Void, Never> { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.inflightNetworkRefreshTask = nil }
+                await self.performRefreshFromNetwork(token: token)
+                self.lastFriendsNetworkRefreshAt = Date()
+            }
+            inflightNetworkRefreshTask = task
+            _ = await task.value
+        }
+
+        private func performRefreshFromNetwork(token: String) async {
+            let net = network
+            async let friendList = (try? net.listFriends(token: token, state: EStateFriend.friend.rawValue))?.friends
+            async let otherPendingList = (try? net.listFriends(token: token, state: EStateFriend.otherPending.rawValue))?.friends
+            async let myPendingList = (try? net.listFriends(token: token, state: EStateFriend.myPending.rawValue))?.friends
+            async let blockList = (try? net.listFriends(token: token, state: EStateFriend.block.rawValue))?.friends
 
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
-            for state in states {
-                do {
-                    let response = try await network.listFriends(token: token, state: state)
-                    for friend in response.friends {
-                        dedupByUserId[friend.user.id] = friend
-                    }
-                } catch {
+            for list in [await friendList, await otherPendingList, await myPendingList, await blockList].compactMap({ $0 }) {
+                for friend in list {
+                    dedupByUserId[friend.user.id] = friend
                 }
             }
 
@@ -587,7 +604,7 @@ extension MezonEngine {
                 guard let self else { return }
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 guard let tokenProvider = self.tokenProvider, let token = await tokenProvider() else { return }
-                await self.refreshFromNetwork(token: token)
+                await self.refreshFromNetwork(token: token, force: true)
             }
         }
 

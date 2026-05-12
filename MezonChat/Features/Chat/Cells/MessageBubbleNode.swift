@@ -1346,7 +1346,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
 
         if let callLogNode {
-            callLogNode.frame = CGRect(x: contentInnerX, y: y, width: bodyContentWidth, height: cachedCallLogSize.height)
+            callLogNode.frame = CGRect(x: contentInnerX, y: y, width: cachedCallLogSize.width, height: cachedCallLogSize.height)
             noteForwardBlock(topY: y, height: cachedCallLogSize.height)
             y += cachedCallLogSize.height + vertSpacing
         }

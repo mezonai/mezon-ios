@@ -343,7 +343,6 @@ final class DirectMessagesViewController: ViewController {
             guard let token = await self.context.getToken() else { return }
             self.fetchDirectMessages()
             await self.context.engine.friendsData.refreshFromNetwork(token: token)
-            await self.fetchUserActivities(token: token)
         }
     }
     
@@ -359,15 +358,35 @@ final class DirectMessagesViewController: ViewController {
         }
     }
 
+    private var fetchUserActivitiesTask: Task<Void, Never>?
+    private var lastFetchUserActivitiesAt: Date?
+    private let fetchUserActivitiesCooldown: TimeInterval = 2.0
+
     private func fetchUserActivities(token: String) async {
-        do {
-            let res = try await context.account.network.listUserActivity(token: token)
-            userActivities = res.activities
-            needsReloadPipe.putNext(())
-        } catch {
-            userActivities = []
-            needsReloadPipe.putNext(())
+        if let existing = fetchUserActivitiesTask {
+            _ = await existing.value
+            return
         }
+        if let last = lastFetchUserActivitiesAt, Date().timeIntervalSince(last) < fetchUserActivitiesCooldown {
+            return
+        }
+        let task = Task<Void, Never> { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.fetchUserActivitiesTask = nil
+                self.lastFetchUserActivitiesAt = Date()
+            }
+            do {
+                let res = try await self.context.account.network.listUserActivity(token: token)
+                self.userActivities = res.activities
+                self.needsReloadPipe.putNext(())
+            } catch {
+                self.userActivities = []
+                self.needsReloadPipe.putNext(())
+            }
+        }
+        fetchUserActivitiesTask = task
+        _ = await task.value
     }
 
     private func openDirectMessageFromActivity(_ item: DmMessageActivityItem) {
@@ -497,7 +516,16 @@ final class DirectMessagesViewController: ViewController {
         setErrorMessage(nil)
     }
 
+    private var fetchDirectMessagesTask: Task<Void, Never>?
+    private var lastFetchDirectMessagesAt: Date?
+    private let fetchDirectMessagesCooldown: TimeInterval = 2.0
+
     func fetchDirectMessages() {
+        if fetchDirectMessagesTask != nil { return }
+        if let last = lastFetchDirectMessagesAt, Date().timeIntervalSince(last) < fetchDirectMessagesCooldown {
+            applyDmListFromCache()
+            return
+        }
         applyDmListFromCache()
         if !NetworkMonitor.shared.isConnected {
             setIsLoading(false)
@@ -506,9 +534,13 @@ final class DirectMessagesViewController: ViewController {
         setIsLoading(true)
         setErrorMessage(nil)
 
-        Task { @MainActor [weak self] in
+        let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.setIsLoading(false) }
+            defer {
+                self.setIsLoading(false)
+                self.fetchDirectMessagesTask = nil
+                self.lastFetchDirectMessagesAt = Date()
+            }
             guard let token = await self.context.getToken() else { return }
             await self.fetchUserActivities(token: token)
             do {
@@ -532,6 +564,7 @@ final class DirectMessagesViewController: ViewController {
                 }
             }
         }
+        fetchDirectMessagesTask = task
     }
 
     private func refreshDirectMessages() {

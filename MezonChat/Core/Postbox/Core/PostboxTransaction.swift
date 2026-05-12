@@ -84,8 +84,8 @@ final class PostboxTransaction {
         messageTable.getMessages(channelId: channelId, limit: limit)
     }
 
-    func getMessageById(_ messageId: String) -> MessageRecord? {
-        messageTable.getMessageById(messageId)
+    func getMessageById(_ messageId: String, channelId: String? = nil) -> MessageRecord? {
+        messageTable.getMessageById(messageId, channelId: channelId)
     }
 
     func addMessages(_ messages: [MessageRecord]) {

@@ -94,6 +94,13 @@ final class ImageCache {
         return try? Data(contentsOf: fileURL)
     }
 
+    func persistData(_ data: Data, forKey key: String) {
+        let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
+        ioQueue.async {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
     func clearDiskCache() {
         ioQueue.async { [diskCacheURL] in
             try? FileManager.default.removeItem(at: diskCacheURL)

@@ -73,4 +73,12 @@ final class KeychainHelper {
         guard status == errSecSuccess else { return nil }
         return result as? Data
     }
+
+    func removeAllDatabaseEncryptionKeys() {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
 }

@@ -1147,6 +1147,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     @objc private func handleRefresh(_ sender: UIRefreshControl) {
+        skipNextLoadingFinishedReveal = true
         interaction.onRefresh?()
     }
 

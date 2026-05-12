@@ -284,7 +284,8 @@ final class SearchViewController: ViewController {
                     token: token
                 )
 
-                let members = response.channelUsers.map { ChannelMemberRecord(from: $0) }
+                let members = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                    response.channelUsers, postbox: context.account.postbox)
                 context.account.postbox.write { tx in
                     tx.updateChannelMembers(members, channelId: channelId)
                 }

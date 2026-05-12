@@ -247,6 +247,7 @@ final class AccountContextImpl: AccountContext {
         hasCompletedInitialSetup = true
         lastRecoverTime = Date()
         markSessionReady()
+        rolePermissions.start()
 
         Task { @MainActor in
             do {
@@ -264,6 +265,9 @@ final class AccountContextImpl: AccountContext {
     func logout() {
         heavyAccountBootstrapTask?.cancel()
         heavyAccountBootstrapTask = nil
+        fcmRegistrationTask?.cancel()
+        fcmRegistrationTask = nil
+        lastRegisteredFcmKey = nil
         if VoIPAnswerAccountBridge.context === self {
             VoIPAnswerAccountBridge.context = nil
         }
@@ -277,17 +281,24 @@ final class AccountContextImpl: AccountContext {
         if let s = s {
             Task { try? await engine.auth.sessionLogout(session: s, deviceId: deviceId, platform: "ios") }
         }
+        engine.friendsData.resetForLogout()
+        engine.clanData.resetForLogout()
+        rolePermissions.resetForLogout()
         SessionStore.clear()
         MandatoryUsernamePendingStore.clearPending()
         MmnWalletStore.shared.clear()
         SessionRefreshManager.shared.reset()
+        account.network.resetProtoBaseURLToDefault()
         session = nil
         currentUser = nil
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
         currentClanId = 0
         currentChannel = nil
-        account.postbox.clearAll()
+        account.postbox.clearAllSync()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
+        UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_email")
+        UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_phone")
+        AnonymousMessageStore.removeAllClanToggles()
 
         UserDefaults(suiteName: "group.mezon.mobile")?.set(0, forKey: "badgeCount")
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
@@ -301,18 +312,40 @@ final class AccountContextImpl: AccountContext {
         hasCompletedInitialSetup = false
     }
 
+    private var fcmRegistrationTask: Task<Void, Never>?
+    private var lastRegisteredFcmKey: String?
+
+    func registerFCMDeviceTokenIfNeededExternally() {
+        registerFCMTokenIfNeeded()
+    }
+
     private func registerFCMTokenIfNeeded() {
-        guard let fcmToken = Messaging.messaging().fcmToken else {
-            return
-        }
+        guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
+        if let existing = fcmRegistrationTask, !existing.isCancelled { return }
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        Task {
+        fcmRegistrationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.fcmRegistrationTask = nil }
             guard let authToken = await self.getToken() else { return }
             let voipToken = CallKitManager.shared.voipToken ?? ""
+            let fcmToken: String
+            if let cached = Messaging.messaging().fcmToken, !cached.isEmpty {
+                fcmToken = cached
+            } else {
+                do {
+                    fcmToken = try await Messaging.messaging().token()
+                } catch {
+                    return
+                }
+            }
+            guard !fcmToken.isEmpty else { return }
+            let key = "\(fcmToken)|\(voipToken)|\(deviceId)|\(authToken)"
+            if key == self.lastRegisteredFcmKey { return }
             do {
-                _ = try await account.network.registFcmDeviceToken(
+                _ = try await self.account.network.registFcmDeviceToken(
                     fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
                 )
+                self.lastRegisteredFcmKey = key
             } catch {
             }
         }
@@ -419,10 +452,6 @@ final class AccountContextImpl: AccountContext {
                 if let s = self.session {
                     self.setLoggedIn(!s.created)
                 }
-                // Skip FCM registration during the VoIP answer cold-launch:
-                // it adds an unnecessary network round-trip while we're racing
-                // to deliver the WebRTC answer SDP. The real registration runs
-                // again on next normal app launch.
                 if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
                     self.registerFCMTokenIfNeeded()
                 }
@@ -775,8 +804,9 @@ final class AccountContextImpl: AccountContext {
 
             
             let mid = "\(apiMessage.messageID)"
+            let msgChannelId = apiMessage.topicID != 0 ? "topic-\(apiMessage.topicID)" : "\(apiMessage.channelID)"
             let merged = account.postbox.read { tx in
-                MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid))
+                MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid, channelId: msgChannelId))
             }
             account.postbox.write { tx in tx.addMessages([merged]) }
             
@@ -795,8 +825,6 @@ final class AccountContextImpl: AccountContext {
                 return
             }
             
-            guard apiMessage.code != 0 else { return }
-
             let messageCopy = apiMessage
             Task { @MainActor [weak self] in
                 guard let self else { return }

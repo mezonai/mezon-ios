@@ -88,6 +88,13 @@ final class RolePermissionService {
         socketDisposable = nil
     }
 
+    func resetForLogout() {
+        stop()
+        cachedClanRoles = nil
+        channelPermissionsCache.removeAll()
+        pendingChannelPermissionFetch.removeAll()
+    }
+
     func invalidateRolesCache() {
         cachedClanRoles = nil
         NotificationCenter.default.post(name: .mezonRolesDidChange, object: nil)

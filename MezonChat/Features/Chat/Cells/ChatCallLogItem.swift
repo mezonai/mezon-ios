@@ -9,7 +9,6 @@ final class MessageCallLogNode: ASDisplayNode {
     private static let wrapperPadding: CGFloat = 10.sw
     private static let descriptionTopSpacing: CGFloat = 6.sh
     private static let descriptionGap: CGFloat = 4.sw
-    private static let iconTopOffset: CGFloat = 2.sh
     private static let iconSize: CGFloat = 17.sf
     private static let dividerHeight: CGFloat = 1
     private static let callBackVerticalPadding: CGFloat = 8.sh
@@ -29,6 +28,7 @@ final class MessageCallLogNode: ASDisplayNode {
     private var cachedDescriptionSize: CGSize = .zero
     private var cachedCallBackSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
+    private var cachedInnerContentWidth: CGFloat = 0
     private var showsCallBack: Bool = false
     private var hasTitle: Bool = false
 
@@ -55,6 +55,8 @@ final class MessageCallLogNode: ASDisplayNode {
         containerNode.backgroundColor = t.border
         containerNode.cornerRadius = Self.containerCornerRadius
         containerNode.clipsToBounds = true
+        containerNode.borderWidth = 1 / max(UIScreen.main.scale, 1)
+        containerNode.borderColor = t.borderDim.cgColor
 
         let title = Self.titleText(callLog: callLog, isMe: isMe, senderName: senderName, isGroupChat: isGroupChat)
         hasTitle = !title.isEmpty
@@ -64,7 +66,7 @@ final class MessageCallLogNode: ASDisplayNode {
                 string: title,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: Self.titleFontSize, weight: .bold),
-                    .foregroundColor: isFailed ? Self.redStrong : t.text,
+                    .foregroundColor: isFailed ? Self.redStrong : t.textStrong,
                 ]
             )
             titleNode.maximumNumberOfLines = 0
@@ -83,7 +85,7 @@ final class MessageCallLogNode: ASDisplayNode {
             iconNode.isHidden = true
         }
 
-        let description = Self.descriptionText(callLog: callLog, contentText: contentText)
+        let description = Self.descriptionText(callLog: callLog, contentText: contentText, isMe: isMe)
         descriptionNode.attributedText = NSAttributedString(
             string: description,
             attributes: [
@@ -116,35 +118,70 @@ final class MessageCallLogNode: ASDisplayNode {
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
         let outerInset = Self.containerHorizontalInset
-        let containerWidth = max(maxWidth - outerInset * 2, 1)
         let pad = Self.wrapperPadding
-        let contentWidth = max(containerWidth - pad * 2, 1)
+        let maxInner = max(1, maxWidth - outerInset * 2 - pad * 2)
+
+        let titleW: CGFloat = {
+            guard hasTitle else { return 0 }
+            let s = titleNode.measure(CGSize(width: maxInner, height: .greatestFiniteMagnitude))
+            return s.width
+        }()
+
+        let descIntrinsic = descriptionNode.measure(
+            CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        )
+        let hasIcon = !iconNode.isHidden
+        let descRowNatural: CGFloat = {
+            if hasIcon {
+                return descIntrinsic.width + Self.descriptionGap + Self.iconSize
+            }
+            return descIntrinsic.width
+        }()
+        let descRowW = min(descRowNatural, maxInner)
+
+        let cbW: CGFloat = {
+            guard showsCallBack else { return 0 }
+            let s = callBackButton.measure(
+                CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+            )
+            return min(s.width, maxInner)
+        }()
+
+        var innerW = max(titleW, descRowW, cbW, 1)
+        innerW = min(innerW, maxInner)
 
         if hasTitle {
-            cachedTitleSize = titleNode.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
+            cachedTitleSize = titleNode.measure(CGSize(width: innerW, height: .greatestFiniteMagnitude))
         } else {
             cachedTitleSize = .zero
         }
 
-        let descMaxWidth = max(contentWidth - Self.iconSize - Self.descriptionGap, 1)
-        cachedDescriptionSize = descriptionNode.measure(CGSize(width: descMaxWidth, height: .greatestFiniteMagnitude))
+        let descReserveTrailing = hasIcon ? (Self.descriptionGap + Self.iconSize) : 0
+        let descTextW = max(1, min(descIntrinsic.width, innerW - descReserveTrailing))
+        cachedDescriptionSize = descriptionNode.measure(CGSize(width: descTextW, height: .greatestFiniteMagnitude))
 
-        let descriptionRowHeight = max(cachedDescriptionSize.height, Self.iconSize + Self.iconTopOffset)
-        var wrapperHeight = pad * 2 + descriptionRowHeight
+        let descriptionRowHeight: CGFloat = {
+            if hasIcon {
+                return max(cachedDescriptionSize.height, Self.iconSize)
+            }
+            return cachedDescriptionSize.height
+        }()
+        var totalHeight = pad * 2 + descriptionRowHeight
         if hasTitle {
-            wrapperHeight += cachedTitleSize.height + Self.descriptionTopSpacing
+            totalHeight += cachedTitleSize.height + Self.descriptionTopSpacing
         }
 
-        var totalHeight = wrapperHeight
         if showsCallBack {
-            cachedCallBackSize = callBackButton.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
+            cachedCallBackSize = callBackButton.measure(CGSize(width: innerW, height: .greatestFiniteMagnitude))
             let callBackRowHeight = Self.callBackVerticalPadding * 2 + max(cachedCallBackSize.height, Self.callBackFontSize)
             totalHeight += Self.dividerHeight + callBackRowHeight
         } else {
             cachedCallBackSize = .zero
         }
 
-        cachedTotalSize = CGSize(width: maxWidth, height: totalHeight)
+        cachedInnerContentWidth = innerW
+        let containerOuterW = innerW + pad * 2 + outerInset * 2
+        cachedTotalSize = CGSize(width: min(containerOuterW, maxWidth), height: totalHeight)
         return cachedTotalSize
     }
 
@@ -152,10 +189,12 @@ final class MessageCallLogNode: ASDisplayNode {
         super.layout()
         let outerInset = Self.containerHorizontalInset
         let pad = Self.wrapperPadding
+        let innerW = cachedInnerContentWidth
+        let containerW = innerW + pad * 2
         let containerFrame = CGRect(
             x: outerInset,
             y: 0,
-            width: max(bounds.width - outerInset * 2, 0),
+            width: containerW,
             height: bounds.height
         )
         containerNode.frame = containerFrame
@@ -166,35 +205,39 @@ final class MessageCallLogNode: ASDisplayNode {
             titleNode.frame = CGRect(
                 x: pad,
                 y: y,
-                width: containerFrame.width - pad * 2,
+                width: innerW,
                 height: cachedTitleSize.height
             )
             y += cachedTitleSize.height + Self.descriptionTopSpacing
         }
 
-        let descriptionRowHeight = max(cachedDescriptionSize.height, Self.iconSize + Self.iconTopOffset)
-        iconNode.frame = CGRect(
-            x: pad,
-            y: y + Self.iconTopOffset,
-            width: Self.iconSize,
-            height: Self.iconSize
-        )
+        let descriptionRowHeight = max(cachedDescriptionSize.height, !iconNode.isHidden ? Self.iconSize : 0)
         descriptionNode.frame = CGRect(
-            x: pad + Self.iconSize + Self.descriptionGap,
+            x: pad,
             y: y + (descriptionRowHeight - cachedDescriptionSize.height) / 2,
-            width: max(containerFrame.width - pad * 2 - Self.iconSize - Self.descriptionGap, 0),
+            width: cachedDescriptionSize.width,
             height: cachedDescriptionSize.height
         )
+        if !iconNode.isHidden {
+            iconNode.frame = CGRect(
+                x: pad + cachedDescriptionSize.width + Self.descriptionGap,
+                y: y + (descriptionRowHeight - Self.iconSize) / 2,
+                width: Self.iconSize,
+                height: Self.iconSize
+            )
+        } else {
+            iconNode.frame = .zero
+        }
         y += descriptionRowHeight + pad
 
         if showsCallBack {
-            dividerNode.frame = CGRect(x: 0, y: y, width: containerFrame.width, height: Self.dividerHeight)
+            dividerNode.frame = CGRect(x: 0, y: y, width: containerW, height: Self.dividerHeight)
             y += Self.dividerHeight
             let callBackRowHeight = Self.callBackVerticalPadding * 2 + max(cachedCallBackSize.height, Self.callBackFontSize)
             callBackButton.frame = CGRect(
                 x: 0,
                 y: y,
-                width: containerFrame.width,
+                width: containerW,
                 height: callBackRowHeight
             )
         } else {
@@ -227,11 +270,31 @@ final class MessageCallLogNode: ASDisplayNode {
         }
     }
 
-    private static func descriptionText(callLog: CallLogData, contentText: String) -> String {
+    private static func descriptionText(callLog: CallLogData, contentText: String, isMe: Bool) -> String {
         if callLog.callLogType == .finishCall {
-            return contentText
+            let body = normalizeFinishDurationBody(contentText)
+            if isMe {
+                return body
+            }
+            return L(L10n.CallLog.callDurationPrefix) + body
         }
         return callLog.isVideo ? L(L10n.CallLog.videoCall) : L(L10n.CallLog.audioCall)
+    }
+
+    private static func normalizeFinishDurationBody(_ raw: String) -> String {
+        var t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = [
+            L(L10n.CallLog.callDurationPrefix),
+            "Call duration:",
+            "Thời lượng cuộc gọi:",
+        ]
+        for p in candidates {
+            let needle = p.trimmingCharacters(in: .whitespaces)
+            guard !needle.isEmpty, let r = t.range(of: needle, options: [.anchored, .caseInsensitive]) else { continue }
+            t = String(t[r.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            break
+        }
+        return t
     }
 
     private static func isFailedTitle(_ type: CallLogType) -> Bool {

@@ -350,7 +350,7 @@ enum RichTextBuilder {
                     let iconStr = NSMutableAttributedString(attachment: att)
                     iconStr.addAttributes(tagAttrs, range: NSRange(location: 0, length: iconStr.length))
                     result.append(iconStr)
-                    result.append(NSAttributedString(string: "\u{2009}", attributes: tagAttrs))
+                    result.append(NSAttributedString(string: "\u{00A0}", attributes: tagAttrs))
                     result.append(NSAttributedString(string: namePart, attributes: tagAttrs))
                 } else {
                     result.append(NSAttributedString(string: "#\(namePart)", attributes: tagAttrs))
@@ -393,7 +393,7 @@ enum RichTextBuilder {
                     let iconStr = NSMutableAttributedString(attachment: att)
                     iconStr.addAttributes(tagAttrs, range: NSRange(location: 0, length: iconStr.length))
                     result.append(iconStr)
-                    result.append(NSAttributedString(string: "\u{2009}", attributes: tagAttrs))
+                    result.append(NSAttributedString(string: "\u{00A0}", attributes: tagAttrs))
                     result.append(NSAttributedString(string: namePart, attributes: tagAttrs))
                 } else {
                     result.append(NSAttributedString(string: "#\(namePart)", attributes: tagAttrs))

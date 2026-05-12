@@ -2097,21 +2097,38 @@ final class SendMessageInputViewController: UIViewController {
         guard #available(iOS 13.0, *) else { return }
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
+            let channelIdForStore = self.channel.channelID
+            let labels = channel.dmMemberLabelsForChannelList()
+            var didSync = false
             do {
-                let channelType = channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue
-                let res = try await context.account.network.listChannelUsers(
-                    clanId: 0, channelId: channel.channelID, channelType: channelType, token: token)
-                let members = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
-                let channelIdForStore = self.channel.channelID
-                context.account.postbox.write { [channelIdForStore] tx in
-                    tx.updateChannelMembers(members, channelId: channelIdForStore)
+                let uc = try await context.account.network.listChannelUsersUC(
+                    channelId: channelIdForStore, limit: 500, token: token)
+                if !uc.userIds.isEmpty {
+                    context.account.postbox.write { tx in
+                        tx.applyAllUsersAddChannelResponse(
+                            uc, channelId: channelIdForStore, dmMemberLabelByUserId: labels)
+                    }
+                    didSync = true
                 }
-                if let records = mergedChannelMemberRecordsForMentions() {
-                    buildMentionMembers(from: records)
-                }
-                rebuildMentionSuggestionItems()
             } catch {
             }
+            if !didSync {
+                do {
+                    let channelType = channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue
+                    let res = try await context.account.network.listChannelUsers(
+                        clanId: 0, channelId: channel.channelID, channelType: channelType, token: token)
+                    let members = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                        res.channelUsers, postbox: context.account.postbox)
+                    context.account.postbox.write { tx in
+                        tx.updateChannelMembers(members, channelId: channelIdForStore)
+                    }
+                } catch {
+                }
+            }
+            if let records = mergedChannelMemberRecordsForMentions() {
+                buildMentionMembers(from: records)
+            }
+            rebuildMentionSuggestionItems()
         }
     }
 
@@ -2134,7 +2151,8 @@ final class SendMessageInputViewController: UIViewController {
                         channelType: parentType, token: token)
                     let skipParentWrite = parentRes.channelUsers.isEmpty && parentHasCached
                     if !skipParentWrite {
-                        let parentMembers = Self.enrichChannelUsers(parentRes.channelUsers, postbox: context.account.postbox)
+                        let parentMembers = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                            parentRes.channelUsers, postbox: context.account.postbox)
                         context.account.postbox.write { [parentIdForStore] tx in
                             tx.updateChannelMembers(parentMembers, channelId: parentIdForStore)
                         }
@@ -2143,7 +2161,8 @@ final class SendMessageInputViewController: UIViewController {
                 let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
                 let res = try await context.account.network.listChannelUsers(
                     clanId: clanId, channelId: channel.channelID, channelType: channelType, token: token)
-                let members = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+                let members = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                    res.channelUsers, postbox: context.account.postbox)
                 let channelIdForStore = self.channel.channelID
                 context.account.postbox.write { [channelIdForStore] tx in
                     tx.updateChannelMembers(members, channelId: channelIdForStore)
@@ -2181,7 +2200,8 @@ final class SendMessageInputViewController: UIViewController {
                 let res = try await context.account.network.listChannelUsers(
                     clanId: clanId, channelId: channel.channelID, channelType: preferred, token: token)
                 guard !res.channelUsers.isEmpty else { return }
-                let records = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+                let records = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                    res.channelUsers, postbox: context.account.postbox)
                 let cid = channel.channelID
                 context.account.postbox.write { tx in
                     tx.updateChannelMembers(records, channelId: cid)
@@ -2251,13 +2271,28 @@ final class SendMessageInputViewController: UIViewController {
             return Set(rows.map(\.userId))
         }
         if !cached.isEmpty { return cached }
+        if clanId == 0 {
+            do {
+                let uc = try await context.account.network.listChannelUsersUC(
+                    channelId: channelId, limit: 500, token: token)
+                if !uc.userIds.isEmpty {
+                    let labels = channelId == channel.channelID ? channel.dmMemberLabelsForChannelList() : [:]
+                    context.account.postbox.write { tx in
+                        tx.applyAllUsersAddChannelResponse(uc, channelId: channelId, dmMemberLabelByUserId: labels)
+                    }
+                    return Set(uc.userIds)
+                }
+            } catch {
+            }
+        }
         let preferred: Int32 = channelId == channel.channelID && channel.type != 0
             ? channel.type
             : context.engine.clanData.resolvedListChannelUsersType(channelId: channelId)
         let res = try await context.account.network.listChannelUsers(
             clanId: clanId, channelId: channelId, channelType: preferred, token: token)
         guard !res.channelUsers.isEmpty else { return [] }
-        let records = Self.enrichChannelUsers(res.channelUsers, postbox: context.account.postbox)
+        let records = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+            res.channelUsers, postbox: context.account.postbox)
         context.account.postbox.write { tx in
             tx.updateChannelMembers(records, channelId: channelId)
         }
@@ -2330,7 +2365,8 @@ final class SendMessageInputViewController: UIViewController {
             channelId: threadId, userIds: Array(toAdd), token: token)
         let refresh = try await context.account.network.listChannelUsers(
             clanId: clanId, channelId: threadId, channelType: threadType, token: token)
-        let merged = Self.enrichChannelUsers(refresh.channelUsers, postbox: context.account.postbox)
+        let merged = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+            refresh.channelUsers, postbox: context.account.postbox)
         context.account.postbox.write { tx in
             tx.updateChannelMembers(merged, channelId: threadId)
         }
@@ -2473,27 +2509,54 @@ final class SendMessageInputViewController: UIViewController {
 
     private func buildMentionMembers(from records: [ChannelMemberRecord]) {
         let filtered = records.filter { !$0.isBanned }
+        let cid = clanId
         allMentionMembers = context.account.postbox.read { tx -> [MentionMember] in
+            let clanByUser: [Int64: ClanMemberRecord] = {
+                guard cid > 0 else { return [:] }
+                var d: [Int64: ClanMemberRecord] = [:]
+                for m in tx.getClanMembers(clanId: cid) {
+                    d[m.userId] = m
+                }
+                return d
+            }()
             var seen = Set<Int64>()
             var out: [MentionMember] = []
             out.reserveCapacity(filtered.count)
             for r in filtered {
                 guard seen.insert(r.userId).inserted else { continue }
                 let profile = tx.getProfile(userId: String(r.userId))
+                let cm = clanByUser[r.userId]
+                let rd = r.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let ru = r.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                let cd = cm?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let cu = cm?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let mergedDisplay = rd.isEmpty ? cd : rd
+                let mergedUsername = ru.isEmpty ? cu : ru
                 let display = Self.layeredClanVisibleName(
                     clanNick: r.clanNick,
-                    displayName: r.displayName,
-                    username: r.username,
+                    displayName: mergedDisplay,
+                    username: mergedUsername,
                     userId: r.userId,
                     profile: profile,
                     sender: nil
                 )
-                let un = r.username.isEmpty ? (profile?.username ?? "") : r.username
+                let un: String = {
+                    if !mergedUsername.isEmpty { return mergedUsername }
+                    return profile?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }()
                 let av: String?
                 if !r.clanAvatar.isEmpty {
                     av = r.clanAvatar
                 } else if let u = profile?.avatarUrl, !u.isEmpty {
                     av = u
+                } else if let cm {
+                    let ca = cm.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !ca.isEmpty {
+                        av = ca
+                    } else {
+                        let ua = cm.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                        av = ua.isEmpty ? nil : ua
+                    }
                 } else {
                     av = nil
                 }
@@ -2530,31 +2593,6 @@ final class SendMessageInputViewController: UIViewController {
                 username: user.username,
                 avatarURL: av
             )
-        }
-    }
-
-    private static func enrichChannelUsers(
-        _ users: [Mezon_Api_ChannelUserList.ChannelUser],
-        postbox: Postbox
-    ) -> [ChannelMemberRecord] {
-        postbox.read { tx in
-            users.map { u in
-                let profile = tx.getProfile(userId: String(u.userID))
-                return ChannelMemberRecord(
-                    id: u.id,
-                    userId: u.userID,
-                    roleIds: u.roleID,
-                    threadId: u.threadID,
-                    clanNick: u.clanNick,
-                    clanAvatar: u.clanAvatar,
-                    clanId: u.clanID,
-                    isBanned: u.isBanned,
-                    expiredBanTime: u.expiredBanTime,
-                    isOnline: profile?.isOnline ?? false,
-                    displayName: profile?.displayName ?? "",
-                    username: profile?.username ?? ""
-                )
-            }
         }
     }
 

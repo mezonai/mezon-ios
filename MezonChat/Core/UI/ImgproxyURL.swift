@@ -9,7 +9,7 @@ enum ImgproxyURL {
     private static let cdnHosts = ["cdn.mezon", "profile.mezon"]
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
-    private static let attachmentOutputSuffix = "@jpeg"
+    private static let attachmentOutputSuffix = "@webp"
 
     static func attachmentURL(
         from sourceURL: String,
@@ -19,6 +19,10 @@ enum ImgproxyURL {
     ) -> String {
         guard !sourceURL.isEmpty else { return sourceURL }
         guard cdnHosts.contains(where: { sourceURL.contains($0) }) else {
+            return sourceURL
+        }
+        let ext = (sourceURL as NSString).pathExtension.lowercased()
+        if skipExtensions.contains(ext) {
             return sourceURL
         }
         let w = max(1, width)
