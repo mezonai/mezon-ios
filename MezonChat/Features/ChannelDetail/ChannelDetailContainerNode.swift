@@ -151,16 +151,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         backButtonNode.contentVerticalAlignment = .center
 
         let title = channel.channelLabel
-        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
-
-        let iconName: String
-        if isThread {
-            iconName =
-                channel.channelPrivate != 0
-                ? "Channel/channelThreadPrivate" : "Channel/channelThread"
-        } else {
-            iconName = "Channel/channel"
-        }
+        let iconName = channel.channelListIconAssetName()
 
         channelIconNode.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
         channelIconNode.tintColor = UIColor.theme.textStrong
