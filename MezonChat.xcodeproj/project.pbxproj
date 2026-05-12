@@ -359,6 +359,8 @@
 		B1D07DAE1CFA9E7D29D1C3EB /* PinnedMessagesNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12D75E55562023B8AA717C57 /* PinnedMessagesNode.swift */; };
 		B2178ADF745E1D703DF9C34F /* HomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75893DF34997CEC77A9E2240 /* HomeViewController.swift */; };
 		B399287BC00A4B05717CFEAE /* ChannelActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37BB4471F6CF213C42E3ECBF /* ChannelActionSheet.swift */; };
+		F2E1D0C9B8A7F6E5D4C3B2A1 /* MuteDurationSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* MuteDurationSheetController.swift */; };
+		C3D4E5F6A7B8C9D0E1F2A3B4 /* NotificationSettingsSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* NotificationSettingsSheetController.swift */; };
 		B47F7138A4BB90103FB87738 /* VStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B88CFE33BA172F374CEE369 /* VStack.swift */; };
 		B480EC16F711CD9D565AD59E /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE4AFCAFC81E709D0F8E5E0A /* Color.swift */; };
 		B4C7FE062A636293AD75E4B0 /* Multicast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB2999E4CD60069A40CC551 /* Multicast.swift */; };
@@ -656,6 +658,8 @@
 		35553E12B08B93AA967439BF /* TopicTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicTable.swift; sourceTree = "<group>"; };
 		370F8E652B05C58A0120CF3C /* NavigationBarContentNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarContentNode.swift; sourceTree = "<group>"; };
 		37BB4471F6CF213C42E3ECBF /* ChannelActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelActionSheet.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* MuteDurationSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuteDurationSheetController.swift; sourceTree = "<group>"; };
+		D4E5F6A7B8C9D0E1F2A3B4C5 /* NotificationSettingsSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsSheetController.swift; sourceTree = "<group>"; };
 		380217E26784374B78348BC8 /* NotificationSettingRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingRecord.swift; sourceTree = "<group>"; };
 		386A788D50FF0B389BEB44C7 /* SSignal+Combine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SSignal+Combine.h"; sourceTree = "<group>"; };
 		38EBD3DE736872C6AC2D4D66 /* ChatWelcomeItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWelcomeItem.swift; sourceTree = "<group>"; };
@@ -1604,6 +1608,8 @@
 			isa = PBXGroup;
 			children = (
 				37BB4471F6CF213C42E3ECBF /* ChannelActionSheet.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* MuteDurationSheetController.swift */,
+				D4E5F6A7B8C9D0E1F2A3B4C5 /* NotificationSettingsSheetController.swift */,
 				B23BEA15E0F21603451529E0 /* ChannelBannerView.swift */,
 				4CDB4E4964AC3AA188D73679 /* ChannelItemCellNode.swift */,
 				0086350E45925F120C897BFC /* ChannelListContainerNode.swift */,
@@ -2688,6 +2694,8 @@
 				8C5D3B8CC8BF821B238EFE17 /* CanvasWebViewController.swift in Sources */,
 				E4B469F3E24858A8F3A6FBDC /* CardComponent.swift in Sources */,
 				B399287BC00A4B05717CFEAE /* ChannelActionSheet.swift in Sources */,
+				F2E1D0C9B8A7F6E5D4C3B2A1 /* MuteDurationSheetController.swift in Sources */,
+				C3D4E5F6A7B8C9D0E1F2A3B4 /* NotificationSettingsSheetController.swift in Sources */,
 				EAA9B6AFE1645E28873B8112 /* ChannelAppNodes.swift in Sources */,
 				2E05E1CCD65E94F669DB09C3 /* ChannelAppWebViewController.swift in Sources */,
 				63B9DB4C96206F1EFE41364E /* ChannelBannerView.swift in Sources */,

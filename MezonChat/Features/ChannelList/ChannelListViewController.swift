@@ -669,25 +669,320 @@ final class ChannelListViewController: ViewController {
     }
 
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
+        let isMuted = context.account.postbox.read { tx -> Bool in
+            guard let record = tx.getNotificationSetting(entityId: channel.channelID) else { return false }
+            return record.timeMuteSeconds != 0
+        }
+        
+        let isFavorite = self.channelListFavoriteIds.contains(channel.channelID)
+        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
+
+        let welcomeChannelId = context.account.postbox.read { tx -> Int64? in
+            guard let data = tx.getClan(id: self.clanId)?.data, !data.isEmpty,
+                  let desc = try? Mezon_Api_ClanDesc(serializedBytes: data) else { return nil }
+            return desc.welcomeChannelID
+        }
+        let isGeneralChannel = (channel.channelID == welcomeChannelId)
+
+        let canManage: Bool
+        if isThread {
+            let currentUserId = Int64(self.context.account.id) ?? 0
+            let isCreator = channel.creatorID == currentUserId
+            let isOwner = self.context.rolePermissions.isClanOwner(clanId: self.clanId)
+            let isAdmin = self.context.rolePermissions.hasClanPermission(.administrator, clanId: self.clanId)
+            let canManageThread = self.context.rolePermissions.canManageThread(clanId: self.clanId, channelId: channel.channelID)
+            
+            canManage = (isCreator && canManageThread) || isAdmin || isOwner
+        } else {
+            canManage = self.context.rolePermissions.canManageChannel(clanId: self.clanId)
+        }
+
         let actionSheet = ChannelActionSheetController(
+            channelId: channel.channelID,
             channelName: channel.channelLabel,
             clanName: clanName,
             clanAvatarURL: clanLogoURL,
+            isFavorite: isFavorite,
+            isMuted: isMuted,
+            isThread: isThread,
+            channelType: channel.type,
+            canManageChannel: canManage,
+            isGeneralChannel: isGeneralChannel,
             onAction: { [weak self] action in
                 guard let self else { return }
                 switch action {
+                case .markAsRead:
+                    self.handleMarkAsRead(channel)
+                case .markFavorite:
+                    self.handleMarkFavorite(channel)
+                case .unmarkFavorite:
+                    self.handleUnmarkFavorite(channel)
+                case .copyLink:
+                    let link = "https://mezon.ai/chat/clans/\(channel.clanID)/channels/\(channel.channelID)"
+                    UIPasteboard.general.string = link
+                    Toast.success(L(L10n.MessageAction.copied))
+                case .mute:
+                    self.presentMuteDurationSheet(channel)
+                case .unmute:
+                    self.handleMuteChannel(channel, mute: false)
+                case .notificationSettings:
+                    self.presentNotificationSettings(channel)
+                case .threads:
+                    let vc = ThreadListViewController(
+                        context: self.context,
+                        clanId: channel.clanID,
+                        parentChannelId: channel.channelID,
+                        parentCategoryId: channel.categoryID,
+                        parentChannelLabel: channel.channelLabel,
+                        composerParentChannel: channel
+                    )
+                    self.enclosingNavigationController?.pushViewController(vc, animated: true)
                 case .editChannel:
                     self.presentChannelSettings(channel)
                 case .deleteChannel:
-                    break
-                default:
-                    break
+                    self.presentDeleteChannelConfirm(channel)
+                case .leaveThread:
+                    self.presentLeaveThreadConfirm(channel)
                 }
             }
         )
         if let window = self.view.window as? WindowHost {
             window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
             actionSheet.animateIn()
+        }
+        
+        fetchNotificationSettingForBottomsheet(channelId: channel.channelID)
+    }
+    
+    private func fetchNotificationSettingForBottomsheet(channelId: Int64) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let noti = try await MezonHTTPClient.shared.getNotificationChannel(channelId: channelId, token: token)
+                let record = NotificationSettingRecord(id: 0, entityId: channelId, scope: .channel, notificationSettingType: noti.notificationSettingType, timeMuteSeconds: UInt32(bitPattern: noti.timeMuteSeconds), active: noti.active)
+                context.account.postbox.write { tx in
+                    tx.updateNotificationSetting(record)
+                }
+
+                NotificationCenter.default.post(
+                    name: Notification.Name("NotificationSettingDidUpdate"),
+                    object: nil,
+                    userInfo: ["channelId": channelId, "record": record]
+                )
+            } catch {
+            }
+        }
+    }
+
+    private func handleMarkAsRead(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.markAsRead(channelId: channel.channelID, clanId: channel.clanID, categoryId: channel.categoryID, token: token)
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonChannelMarkedAsRead"),
+                    object: nil,
+                    userInfo: ["channelId": channel.channelID, "clanId": channel.clanID]
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleMarkFavorite(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let _ = try await MezonHTTPClient.shared.addFavoriteChannel(channelId: channel.channelID, clanId: channel.clanID, token: token)
+                channelListFavoriteIds.insert(channel.channelID)
+                
+                let built = buildChannelCategories(
+                    allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteChannelIds: channelListFavoriteIds,
+                    collapsedIds: loadCollapsedCategoryIds()
+                )
+                let cats = applyBuiltCategoriesPreservingCollapse(built)
+                categories = cats
+                categoriesPipe.putNext(cats)
+                persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+                needsReloadPipe.putNext(())
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleUnmarkFavorite(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.removeFavoriteChannel(channelId: channel.channelID, clanId: channel.clanID, token: token)
+                channelListFavoriteIds.remove(channel.channelID)
+                
+                let built = buildChannelCategories(
+                    allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteChannelIds: channelListFavoriteIds,
+                    collapsedIds: loadCollapsedCategoryIds()
+                )
+                let cats = applyBuiltCategoriesPreservingCollapse(built)
+                categories = cats
+                categoriesPipe.putNext(cats)
+                persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+                needsReloadPipe.putNext(())
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func presentMuteDurationSheet(_ channel: Mezon_Api_ChannelDescription) {
+        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
+        let vc = MuteDurationViewController(
+            channelName: channel.channelLabel,
+            channelId: channel.channelID,
+            clanId: channel.clanID,
+            context: self.context,
+            isThread: isThread
+        ) { [weak self] duration in
+            self?.handleMuteChannel(channel, muteTimeSeconds: duration.seconds)
+        }
+        self.enclosingNavigationController?.pushViewController(vc)
+    }
+
+    private func handleMuteChannel(_ channel: Mezon_Api_ChannelDescription, mute: Bool) {
+        handleMuteChannel(channel, muteTimeSeconds: 0)
+    }
+
+    private func handleMuteChannel(_ channel: Mezon_Api_ChannelDescription, muteTimeSeconds: Int32) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.setMuteChannel(
+                    id: channel.channelID,
+                    clanId: channel.clanID,
+                    muteTime: muteTimeSeconds,
+                    active: 0,
+                    token: token
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func presentNotificationSettings(_ channel: Mezon_Api_ChannelDescription) {
+        let currentTypeInt = context.account.postbox.read { tx in
+            tx.getNotificationSetting(entityId: channel.channelID)?.notificationSettingType
+        }
+        let currentType: ChannelNotificationType
+        if let typeInt = currentTypeInt, let type = ChannelNotificationType(rawValue: typeInt) {
+            currentType = type
+        } else {
+            currentType = .useDefault
+        }
+        
+        let sheet = NotificationSettingsSheetController(
+            channelId: channel.channelID,
+            clanId: channel.clanID,
+            context: context,
+            currentType: currentType,
+            defaultLabel: L(L10n.NotificationSettings.allMessages)
+        )
+        if let window = self.view.window as? WindowHost {
+            window.present(sheet, on: .root, blockInteraction: false, completion: {})
+            sheet.animateIn()
+        }
+    }
+
+    private func presentDeleteChannelConfirm(_ channel: Mezon_Api_ChannelDescription) {
+        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
+        let title = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
+        let message = isThread ? L(L10n.Channel.deleteThreadConfirm) : L(L10n.Channel.deleteConfirm)
+
+        let alert = UIAlertController(
+            title: title,
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: title, style: .destructive, handler: { [weak self] _ in
+            self?.handleDeleteChannel(channel)
+        }))
+        if let rootVC = self.view.window?.rootViewController {
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController { topVC = presented }
+            topVC.present(alert, animated: true)
+        }
+    }
+
+    private func presentLeaveThreadConfirm(_ channel: Mezon_Api_ChannelDescription) {
+        let title = L(L10n.ChannelAction.leaveThread)
+        let message = L(L10n.ChannelAction.leaveThreadConfirm)
+
+        let alert = UIAlertController(
+            title: title,
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: title, style: .destructive, handler: { [weak self] _ in
+            self?.handleLeaveThread(channel)
+        }))
+        if let rootVC = self.view.window?.rootViewController {
+            var topVC = rootVC
+            while let presented = topVC.presentedViewController { topVC = presented }
+            topVC.present(alert, animated: true)
+        }
+    }
+
+    private func handleDeleteChannel(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
+                allChannels.removeAll { $0.channelID == channel.channelID }
+                
+                let built = buildChannelCategories(
+                    allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteChannelIds: channelListFavoriteIds,
+                    collapsedIds: loadCollapsedCategoryIds()
+                )
+                let cats = applyBuiltCategoriesPreservingCollapse(built)
+                categories = cats
+                categoriesPipe.putNext(cats)
+                persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+                needsReloadPipe.putNext(())
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleLeaveThread(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
+                allChannels.removeAll { $0.channelID == channel.channelID }
+                
+                let built = buildChannelCategories(
+                    allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteChannelIds: channelListFavoriteIds,
+                    collapsedIds: loadCollapsedCategoryIds()
+                )
+                let cats = applyBuiltCategoriesPreservingCollapse(built)
+                categories = cats
+                categoriesPipe.putNext(cats)
+                persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+                needsReloadPipe.putNext(())
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
         }
     }
 

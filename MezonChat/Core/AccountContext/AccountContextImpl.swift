@@ -949,6 +949,19 @@ final class AccountContextImpl: AccountContext {
                 subscribeSocketRoomsForMergedChannel(desc)
             }
 
+        case .notiUserChannel(let m):
+            let record = NotificationSettingRecord(from: m)
+            account.postbox.write { tx in
+                tx.updateNotificationSetting(record)
+            }
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: Notification.Name("NotificationSettingDidUpdate"),
+                    object: nil,
+                    userInfo: ["channelId": m.channelID, "record": record]
+                )
+            }
+
         default:
             break
         }

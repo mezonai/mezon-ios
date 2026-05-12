@@ -1366,11 +1366,17 @@ extension ChannelListContainerNode: ASTableDataSource {
                 && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
             return {
                 let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers)
+                node.onLongPress = { [weak self] in
+                    self?.interaction.onLongPressChannel(ch)
+                }
                 return node
             }
         case .thread(let ch, let isLast, let inFav):
             return {
                 let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
+                node.onLongPress = { [weak self] in
+                    self?.interaction.onLongPressChannel(ch)
+                }
                 return node
             }
         case .voiceMembersCollapsed(_, let userIds):

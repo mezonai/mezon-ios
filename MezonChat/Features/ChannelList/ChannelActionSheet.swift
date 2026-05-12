@@ -12,6 +12,7 @@ enum ChannelAction: CaseIterable {
     case threads
     case editChannel
     case deleteChannel
+    case leaveThread
 
     var title: String {
         switch self {
@@ -25,6 +26,7 @@ enum ChannelAction: CaseIterable {
         case .threads: return L(L10n.Channel.thread)
         case .editChannel: return L(L10n.ChannelAction.editChannel)
         case .deleteChannel: return L(L10n.Channel.delete)
+        case .leaveThread: return L(L10n.ChannelAction.leaveThread)
         }
     }
 
@@ -34,33 +36,56 @@ enum ChannelAction: CaseIterable {
         case .markFavorite, .unmarkFavorite: return "ChannelSetting/Favorite"
         case .copyLink: return "ClanSetting/Invite"
         case .mute: return "ChannelSetting/MuteChannel"
-        case .unmute: return "ChannelSetting/UnmuteChannel"
+        case .unmute: return "ChannelSetting/UmuteChannelIcon"
         case .notificationSettings: return "ChannelSetting/NotificationSettings"
         case .threads: return "Channel/channelThread"
         case .editChannel: return "Profile/SettingIcon"
         case .deleteChannel: return "ChannelSetting/DeleteIcon"
+        case .leaveThread: return "ChannelSetting/DeleteIcon" 
         }
     }
 
     var isDestructive: Bool {
-        self == .deleteChannel
+        self == .deleteChannel || self == .leaveThread
     }
 }
 
 final class ChannelActionSheetController: ViewController {
+    private let channelId: Int64
     private let channelName: String
     private let clanName: String
     private let clanAvatarURL: String
     private let isFavorite: Bool
     private let isMuted: Bool
+    private let isThread: Bool
+    private let channelType: Int32
+    private let canManageChannel: Bool
+    private let isGeneralChannel: Bool
     private let onAction: (ChannelAction) -> Void
 
-    init(channelName: String, clanName: String, clanAvatarURL: String, isFavorite: Bool = false, isMuted: Bool = false, onAction: @escaping (ChannelAction) -> Void) {
+    init(
+        channelId: Int64,
+        channelName: String,
+        clanName: String,
+        clanAvatarURL: String,
+        isFavorite: Bool = false,
+        isMuted: Bool = false,
+        isThread: Bool = false,
+        channelType: Int32,
+        canManageChannel: Bool = false,
+        isGeneralChannel: Bool = false,
+        onAction: @escaping (ChannelAction) -> Void
+    ) {
+        self.channelId = channelId
         self.channelName = channelName
         self.clanName = clanName
         self.clanAvatarURL = clanAvatarURL
         self.isFavorite = isFavorite
         self.isMuted = isMuted
+        self.isThread = isThread
+        self.channelType = channelType
+        self.canManageChannel = canManageChannel
+        self.isGeneralChannel = isGeneralChannel
         self.onAction = onAction
         super.init(navigationBarPresentationData: nil)
         self.statusBar.statusBarStyle = .Ignore
@@ -74,20 +99,41 @@ final class ChannelActionSheetController: ViewController {
 
     override func loadDisplayNode() {
         displayNode = ChannelActionSheetNode(
+            channelId: channelId,
             channelName: channelName,
             clanName: clanName,
             clanAvatarURL: clanAvatarURL,
             isFavorite: isFavorite,
             isMuted: isMuted,
+            isThread: isThread,
+            channelType: channelType,
+            canManageChannel: canManageChannel,
+            isGeneralChannel: isGeneralChannel,
             onAction: { [weak self] action in
-                self?.onAction(action)
-                self?.dismiss()
+                guard let self else { return }
+                switch action {
+                case .copyLink:
+                    self.onAction(action)
+                    self.dismiss()
+                default:
+                    self.dismissThenCallAction(action)
+                }
             },
             onDismiss: { [weak self] in
                 self?.dismiss()
             }
         )
         self.displayNodeDidLoad()
+    }
+
+    private func dismissThenCallAction(_ action: ChannelAction) {
+        let callback = self.onAction
+        actionSheetNode.animateOut { [weak self] in
+            self?.dismiss(animated: false)
+            DispatchQueue.main.async {
+                callback(action)
+            }
+        }
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -112,11 +158,16 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let handleNode = ASDisplayNode()
     private let scrollNode = ASScrollNode()
 
+    private let channelId: Int64
     private let channelName: String
     private let clanName: String
     private let clanAvatarURL: String
     private let isFavorite: Bool
-    private let isMuted: Bool
+    private var isMuted: Bool
+    private let isThread: Bool
+    private let channelType: Int32
+    private let canManageChannel: Bool
+    private let isGeneralChannel: Bool
     private let onAction: (ChannelAction) -> Void
     private let onDismiss: () -> Void
 
@@ -125,12 +176,30 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private var validLayout: ContainerViewLayout?
     private var didBuildContent = false
 
-    init(channelName: String, clanName: String, clanAvatarURL: String, isFavorite: Bool, isMuted: Bool, onAction: @escaping (ChannelAction) -> Void, onDismiss: @escaping () -> Void) {
+    init(
+        channelId: Int64,
+        channelName: String,
+        clanName: String,
+        clanAvatarURL: String,
+        isFavorite: Bool,
+        isMuted: Bool,
+        isThread: Bool,
+        channelType: Int32,
+        canManageChannel: Bool,
+        isGeneralChannel: Bool,
+        onAction: @escaping (ChannelAction) -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.channelId = channelId
         self.channelName = channelName
         self.clanName = clanName
         self.clanAvatarURL = clanAvatarURL
         self.isFavorite = isFavorite
         self.isMuted = isMuted
+        self.isThread = isThread
+        self.channelType = channelType
+        self.canManageChannel = canManageChannel
+        self.isGeneralChannel = isGeneralChannel
         self.onAction = onAction
         self.onDismiss = onDismiss
         super.init()
@@ -162,6 +231,32 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         panGesture.delegate = self
         containerNode.view.addGestureRecognizer(panGesture)
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNotificationSettingUpdated(_:)), name: Notification.Name("NotificationSettingDidUpdate"), object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleNotificationSettingUpdated(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let updatedChannelId = userInfo["channelId"] as? Int64,
+              updatedChannelId == self.channelId,
+              let record = userInfo["record"] as? NotificationSettingRecord else { return }
+        
+        let timeMute = record.timeMuteSeconds
+        let newIsMuted = timeMute != 0
+        
+        if self.isMuted != newIsMuted {
+            self.isMuted = newIsMuted
+            
+            self.scrollNode.view.subviews.forEach { $0.removeFromSuperview() }
+            self.didBuildContent = false
+            if let layout = self.validLayout {
+                self.updateLayout(layout: layout, transition: .immediate)
+            }
+        }
     }
 
     @objc private func handleDimTap() { onDismiss() }
@@ -173,7 +268,12 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let contentW = layout.size.width
         let safeBottom = layout.intrinsicInsets.bottom
 
-        let groupsH: CGFloat = (1 * 48.sh + 12.sh) + (2 * 48.sh + 12.sh) + (2 * 48.sh + 12.sh) + (1 * 48.sh + 12.sh) + (2 * 48.sh + 40.sh)
+        let groups = getGroups()
+        var groupsH: CGFloat = 0
+
+        for group in groups {
+            groupsH += CGFloat(group.count) * 48.sh + 12.sh
+        }
         let totalContentH = 48.swh + 16.sh + 24.sh + groupsH + safeBottom
 
         let maxContainerH = layout.size.height * 0.9
@@ -199,13 +299,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         header.frame = CGRect(x: 16.sw, y: 24.sh, width: width - 32.sw, height: 56.swh)
         containerNode.view.addSubview(header)
 
-        let groups: [[ChannelAction]] = [
-            [.markAsRead],
-            [isFavorite ? .unmarkFavorite : .markFavorite, .copyLink],
-            [isMuted ? .unmute : .mute, .notificationSettings],
-            [.threads],
-            [.editChannel, .deleteChannel]
-        ]
+        let groups = getGroups()
 
         let stack = UIStackView()
         stack.axis = .vertical
@@ -222,6 +316,42 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let stackH = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).height
         stack.frame.size.height = stackH
         scrollNode.view.contentSize = CGSize(width: width, height: stackH + 20.sh)
+    }
+
+    private func getGroups() -> [[ChannelAction]] {
+        var groups: [[ChannelAction]] = []
+        
+        let type = MezonConstants.ChannelType(rawValue: channelType)
+        let shouldHideMarkAsRead = (type == .mezonVoice || type == .streaming)
+        let shouldHideThreads = (type == .app || type == .mezonVoice || type == .streaming || isThread)
+        
+        if !shouldHideMarkAsRead {
+            groups.append([.markAsRead])
+        }
+        
+        var secondGroup: [ChannelAction] = []
+        if !isThread {
+            secondGroup.append(isFavorite ? .unmarkFavorite : .markFavorite)
+        }
+        secondGroup.append(.copyLink)
+        groups.append(secondGroup)
+        
+        groups.append([isMuted ? .unmute : .mute, .notificationSettings])
+        
+        if !shouldHideThreads {
+            groups.append([.threads])
+        }
+        
+        if canManageChannel {
+            if isGeneralChannel {
+                groups.append([.editChannel])
+            } else {
+                groups.append([.editChannel, .deleteChannel])
+            }
+        } else if isThread {
+            groups.append([.leaveThread])
+        }
+        return groups
     }
 
     private func buildHeader(width: CGFloat) -> UIView {
@@ -319,7 +449,21 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         ])
 
         let l = UILabel()
-        l.text = action.title
+        
+        var actionTitle = action.title
+        if isThread {
+            if action == .editChannel {
+                actionTitle = L(L10n.ChannelAction.editThread)
+            } else if action == .deleteChannel {
+                actionTitle = L(L10n.ChannelAction.deleteThread)
+            } else if action == .mute {
+                actionTitle = L(L10n.ChannelAction.muteThread)
+            } else if action == .unmute {
+                actionTitle = L(L10n.ChannelAction.unmuteThread)
+            }
+        }
+        l.text = actionTitle
+        
         l.font = .systemFont(ofSize: 14.sf, weight: .medium)
         l.textColor = action.isDestructive ? .mezonError : UIColor.theme.textStrong
         v.addSubview(l)
