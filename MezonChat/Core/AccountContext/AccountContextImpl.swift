@@ -452,10 +452,6 @@ final class AccountContextImpl: AccountContext {
                 if let s = self.session {
                     self.setLoggedIn(!s.created)
                 }
-                // Skip FCM registration during the VoIP answer cold-launch:
-                // it adds an unnecessary network round-trip while we're racing
-                // to deliver the WebRTC answer SDP. The real registration runs
-                // again on next normal app launch.
                 if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
                     self.registerFCMTokenIfNeeded()
                 }
