@@ -91,7 +91,7 @@ enum ChannelType: Int32 {
     var icon: String {
         switch self {
         case .text: return "Channel/channel"
-        case .voice: return "Channel/channelVoice"
+        case .voice: return "Chat/SpeakerIcon"
         case .thread: return "Channel/ChevronRight"
         case .streaming: return "Channel/channelStream"
         case .app: return "Channel/channelApp"

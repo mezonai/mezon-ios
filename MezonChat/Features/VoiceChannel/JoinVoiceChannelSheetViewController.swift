@@ -117,7 +117,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
         iconView.isUserInteractionEnabled = false
-        iconView.image = (UIImage(named: "Channel/channelVoice") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+        iconView.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
             .withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor.theme.textStrong
 

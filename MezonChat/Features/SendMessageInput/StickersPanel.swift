@@ -100,7 +100,7 @@ final class StickersPanel: UIView {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
         let fallback = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .medium))
-        let voiceImg = UIImage(named: "Channel/channelVoice")?.withRenderingMode(.alwaysTemplate) ?? fallback
+        let voiceImg = UIImage(named: "Chat/SpeakerIcon")?.withRenderingMode(.alwaysTemplate) ?? fallback
         b.setImage(voiceImg, for: .normal)
         b.imageView?.contentMode = .scaleAspectFit
         b.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)

@@ -1787,7 +1787,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         let emojiBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Chat/FaceIcon"), fallbackSystemName: "face.smiling")
         emojiBtn.addTarget(self, action: #selector(voiceMoreToolsEmojiTapped), for: .touchUpInside)
-        let soundBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Channel/channelVoice"), fallbackSystemName: "speaker.wave.2.fill")
+        let soundBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Chat/SpeakerIcon"), fallbackSystemName: "speaker.wave.2.fill")
         soundBtn.addTarget(self, action: #selector(voiceMoreToolsSoundTapped), for: .touchUpInside)
         stack.addArrangedSubview(emojiBtn)
         stack.addArrangedSubview(soundBtn)

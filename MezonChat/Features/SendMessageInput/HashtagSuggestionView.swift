@@ -138,7 +138,7 @@ extension Mezon_Api_ChannelDescription {
     static func channelListIconAssetName(type: Int32, channelPrivate: Int32, ageRestricted: Int32) -> String {
         switch type {
         case MezonConstants.ChannelType.mezonVoice.rawValue:
-            return "Channel/channelVoice"
+            return "Chat/SpeakerIcon"
         case MezonConstants.ChannelType.streaming.rawValue:
             return "Channel/channelStream"
         case MezonConstants.ChannelType.app.rawValue:

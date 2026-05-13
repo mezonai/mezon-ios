@@ -1,0 +1,16 @@
+{
+  "images" : [
+    {
+      "filename" : "SpeakerIcon.pdf",
+      "idiom" : "universal",
+      "template-rendering-intent" : "template"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "properties" : {
+    "preserves-vector-representation" : true
+  }
+}

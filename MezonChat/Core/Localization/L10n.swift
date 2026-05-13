@@ -344,6 +344,7 @@ enum L10n {
         static let uploadWordmark = "clan.uploadWordmark"
         static let members        = "clan.members"
         static let settings       = "clan.settings"
+        static let duplicateName  = "clan.duplicateName"
     }
 
     enum Discover {
@@ -966,6 +967,7 @@ extension L10n {
         "clan.uploadWordmark": "UPLOAD",
         "clan.members":     "Members",
         "clan.settings":    "Clan Settings",
+        "clan.duplicateName": "The clan name already exists. Please enter another name.",
 
         "discover.communityOnMezon": "Community on Mezon",
         "discover.exploreCommunities": "Explore communities",
@@ -1630,6 +1632,7 @@ extension L10n {
         "clan.uploadWordmark": "TẢI LÊN",
         "clan.members":     "Thành viên",
         "clan.settings":    "Cài đặt Clan",
+        "clan.duplicateName": "Tên Clan đã tồn tại. Vui lòng nhập tên khác.",
 
         "discover.communityOnMezon": "Cộng đồng trên Mezon",
         "discover.exploreCommunities": "Khám phá cộng đồng",
