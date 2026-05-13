@@ -30,6 +30,7 @@ final class AccountContextImpl: AccountContext {
     private(set) var session: MezonSession?
     private(set) var currentUser: User?
     private(set) var isLoggedIn: Bool = false
+    private(set) var sessionEpoch: Int = 1
     private var hasCompletedInitialSetup = false
     private(set) var isSessionReady: Bool = false
     private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
@@ -49,6 +50,10 @@ final class AccountContextImpl: AccountContext {
     func applyCurrentUser(_ user: User) {
         currentUser = user
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
+    }
+
+    func isStillCurrentSession(epoch: Int) -> Bool {
+        sessionEpoch == epoch
     }
 
     func refreshAccountProfile() async {
@@ -241,6 +246,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     func login(user: User, session: MezonSession) {
+        sessionEpoch &+= 1
         VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
@@ -263,6 +269,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     func logout() {
+        sessionEpoch &+= 1
         heavyAccountBootstrapTask?.cancel()
         heavyAccountBootstrapTask = nil
         fcmRegistrationTask?.cancel()
@@ -295,6 +302,8 @@ final class AccountContextImpl: AccountContext {
         currentClanId = 0
         currentChannel = nil
         account.postbox.clearAllSync()
+        ImageCache.shared.purgeAccountScopedCaches()
+        EmbedFormState.shared.removeAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_email")
         UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_phone")
@@ -530,15 +539,19 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func performHeavyAccountBootstrap(token: String) async {
+        let startEpoch = sessionEpoch
         do {
             let apiAccount = try await engine.auth.getAccount(token: token)
+            guard isStillCurrentSession(epoch: startEpoch) else { return }
             if let data = try? apiAccount.serializedData() {
                 account.postbox.setPreferenceData(key: PreferencesKeys.account, value: data)
             }
             applyCurrentUser(mapAccountToUser(apiAccount))
         } catch {
+            guard isStillCurrentSession(epoch: startEpoch) else { return }
             applyCachedAccountIfAvailable()
         }
+        guard isStillCurrentSession(epoch: startEpoch) else { return }
         fetchAllUserClansAndChannels(token: token)
     }
 
@@ -572,16 +585,19 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func fetchAllUserClansAndChannels(token: String) {
-        Task { @MainActor in
+        let startEpoch = sessionEpoch
+        Task { @MainActor [weak self] in
+            guard let self else { return }
             do {
-                async let usersResult = account.network.listUserClansByUserId(token: token)
-                async let channelsResult = account.network.listChannelByUserId(token: token)
+                async let usersResult = self.account.network.listUserClansByUserId(token: token)
+                async let channelsResult = self.account.network.listChannelByUserId(token: token)
                 let (users, channels) = try await (usersResult, channelsResult)
+                guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 if let data = try? users.serializedData() {
-                    account.postbox.setPreferenceData(key: PreferencesKeys.allUserClans, value: data)
+                    self.account.postbox.setPreferenceData(key: PreferencesKeys.allUserClans, value: data)
                 }
                 if let data = try? channels.serializedData() {
-                    account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+                    self.account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
                 }
                 Task { [weak self] in
                     await self?.engine.prefetchMediaPanelCaches(token: token)

@@ -96,6 +96,7 @@ final class PeerWebRTCCallSession: NSObject {
     private var didPostConnectedStatusToUI = false
     private var iceConnectedOrCompletedForUI = false
     private var peerConnectionReportedConnectedForUI = false
+    private var didSendConnectedCallerCancelPush = false
 
     private var isAnswerPrepared = false
     private var preparedAnswerCompressed: String?
@@ -326,6 +327,10 @@ final class PeerWebRTCCallSession: NSObject {
 
     func isRingingIncomingPeerCallMatching(channelId ch: Int64, callerId peer: Int64) -> Bool {
         direction == .incoming && channelId == ch && peerUserId == peer && phase == .ringing
+    }
+
+    func isMatchingPeerCall(channelId ch: Int64, callerId peer: Int64) -> Bool {
+        return channelId == ch && peerUserId == peer
     }
 
     private static func waitForCallKitReadyForIncomingAnswer() async {
@@ -743,9 +748,9 @@ final class PeerWebRTCCallSession: NSObject {
                 needsRenegotiation = true
             }
             localVideoTrack?.isEnabled = true
-            localCameraEnabled = true
             try? configureAudioSession()
             try startCameraCaptureIfNeeded()
+            localCameraEnabled = true
             bindLocalVideoForOutbound(pc: pc)
             forwardLocalMediaStatus()
             onLocalMedia?(localMicEnabled, localCameraEnabled)
@@ -761,6 +766,13 @@ final class PeerWebRTCCallSession: NSObject {
                 }
             }
         } catch {
+            callLog("enableCameraMidCall FAILED error=\(error)")
+            videoCapturer?.stopCapture(completionHandler: {})
+            localVideoTrack?.isEnabled = false
+            localCameraEnabled = false
+            onLocalVideoTrack?(nil)
+            onLocalMedia?(localMicEnabled, false)
+            onStatusLabel?(PeerCallLocalizedStrings.errorCouldNotStartCall)
         }
     }
 
@@ -846,6 +858,7 @@ final class PeerWebRTCCallSession: NSObject {
                 "callerId": "\(myUserId)",
                 "channelId": "\(channelId)",
                 "receiverId": "\(peerUserId)",
+                "sentAt": "\(Int64(Date().timeIntervalSince1970 * 1000))",
             ]
             if let data = try? JSONSerialization.data(withJSONObject: body),
                let s = String(data: data, encoding: .utf8) {
@@ -1102,7 +1115,52 @@ final class PeerWebRTCCallSession: NSObject {
             return
         }
         let vTx = pc.transceivers.filter { $0.mediaType == .video && !$0.isStopped }
-        guard let tx = vTx.first else {
+        guard !vTx.isEmpty else {
+            return
+        }
+        var picked: LKRTCRtpTransceiver?
+        for tx in vTx where (tx.sender.track as? LKRTCVideoTrack) === vt {
+            picked = tx
+            break
+        }
+        func currentDir(_ tx: LKRTCRtpTransceiver) -> LKRTCRtpTransceiverDirection {
+            var cur = LKRTCRtpTransceiverDirection.inactive
+            if tx.currentDirection(&cur) {
+                return cur
+            }
+            return .inactive
+        }
+        func allowsOutboundSend(_ tx: LKRTCRtpTransceiver) -> Bool {
+            currentDir(tx) != .recvOnly
+        }
+        if picked == nil {
+            for tx in vTx.reversed() {
+                guard allowsOutboundSend(tx) else { continue }
+                if tx.sender.track == nil || (tx.sender.track as? LKRTCVideoTrack) === vt {
+                    picked = tx
+                    break
+                }
+            }
+        }
+        if picked == nil {
+            for tx in vTx {
+                guard allowsOutboundSend(tx) else { continue }
+                if tx.sender.track == nil || (tx.sender.track as? LKRTCVideoTrack) === vt {
+                    picked = tx
+                    break
+                }
+            }
+        }
+        if picked == nil {
+            for tx in vTx.reversed() where tx.sender.track == nil && allowsOutboundSend(tx) {
+                picked = tx
+                break
+            }
+        }
+        if picked == nil {
+            picked = vTx.last
+        }
+        guard let tx = picked else {
             return
         }
         tx.sender.track = vt
@@ -1110,6 +1168,7 @@ final class PeerWebRTCCallSession: NSObject {
             tx.sender.streamIds = ["mezon_local_video"]
         }
         rtpTransceiverSetSendRecv(tx)
+        vt.isEnabled = localCameraEnabled
     }
 
     private func attachLocalTracksAfterRemoteOffer(offerHasVideo: Bool) {
@@ -1203,7 +1262,8 @@ final class PeerWebRTCCallSession: NSObject {
             callerName: callerDisplayNameForPush,
             callerAvatar: callerAvatarURLStringForPush,
             callerId: "\(myUserId)",
-            channelId: "\(channelId)"
+            channelId: "\(channelId)",
+            sentAt: "\(Int64(Date().timeIntervalSince1970 * 1000))"
         )
         let pushData = try JSONEncoder().encode(pushBody)
         guard let pushJson = String(data: pushData, encoding: .utf8) else {
@@ -1540,6 +1600,28 @@ final class PeerWebRTCCallSession: NSObject {
             jsonData: ""
         )
         forwardLocalMediaStatus()
+    }
+
+    private func sendConnectedOutgoingCallerCancelPushIfNeeded() {
+        guard direction == .outgoing else { return }
+        guard !didSendConnectedCallerCancelPush else { return }
+        guard !ended else { return }
+        didSendConnectedCallerCancelPush = true
+        let body: [String: Any] = [
+            "offer": "CANCEL_CALL",
+            "isConnected": true,
+            "sentAt": "\(Int64(Date().timeIntervalSince1970 * 1000))",
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: body),
+              let jsonData = String(data: data, encoding: .utf8)
+        else { return }
+        callLog("makeCallPush CANCEL_CALL isConnected=true receiverId=\(peerUserId) callerId=\(myUserId) channelId=\(channelId)")
+        MezonSocket.shared.makeCallPush(
+            receiverId: peerUserId,
+            jsonData: jsonData,
+            channelId: channelId,
+            callerId: myUserId
+        )
     }
 
     private func postConnectedStatusToUIIfNeeded() {
@@ -1891,6 +1973,7 @@ private struct MakeCallPushBody: Encodable {
     let callerAvatar: String
     let callerId: String
     let channelId: String
+    let sentAt: String
 }
 
 extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
@@ -1937,6 +2020,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 tryPresentFullyConnectedCallUI()
                 onNetworkBanner?(nil)
                 forwardSignalingConnectedHandshake()
+                sendConnectedOutgoingCallerCancelPushIfNeeded()
                 try? configureAudioSession()
                 if let pc = peerConnection {
                     bindLocalAudioForOutbound(pc: pc)

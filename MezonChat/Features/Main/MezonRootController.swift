@@ -186,8 +186,7 @@ final class MezonRootController: NavigationController {
 
     @objc private func handleQRNavigateToDM(_ notification: Notification) {
         guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
-        let title = notification.userInfo?["title"] as? String
-        navigateToDM(channelIdStr: channelIdStr, title: title)
+        navigateToDM(channelIdStr: channelIdStr)
     }
 
     @objc private func handleNavigateToChannel(_ notification: Notification) {
@@ -195,14 +194,13 @@ final class MezonRootController: NavigationController {
         AppDelegate.recordNavigationInstanceHandled(userInfo: notification.userInfo)
         let clanIdStr = notification.userInfo?["clanId"] as? String
         let isDM = notification.userInfo?["isDM"] as? Bool ?? false
-        let title = notification.userInfo?["title"] as? String
 
         AppDelegate.pendingNavigation = nil
 
         if isDM {
-            navigateToDM(channelIdStr: channelIdStr, title: title)
+            navigateToDM(channelIdStr: channelIdStr)
         } else {
-            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, pushTitle: title)
+            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
         }
     }
 
@@ -355,7 +353,7 @@ final class MezonRootController: NavigationController {
         flushPendingIncomingPeerCallIfNeeded()
     }
 
-    private func navigateToDM(channelIdStr: String, title: String?) {
+    private func navigateToDM(channelIdStr: String) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
         rootTabController?.selectedIndex = 1
 
@@ -388,7 +386,7 @@ final class MezonRootController: NavigationController {
         }()
 
         pushViewController(
-            ChatViewController(clanId: 0, channel: resolvedChannel, context: context, fallbackChannelLabel: title),
+            ChatViewController(clanId: 0, channel: resolvedChannel, context: context),
             animated: false
         )
 
@@ -422,7 +420,7 @@ final class MezonRootController: NavigationController {
         return fallbackClanId
     }
 
-    private func navigateToChannel(channelIdStr: String, clanIdStr: String?, pushTitle: String? = nil) {
+    private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
         if bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
 
@@ -447,8 +445,7 @@ final class MezonRootController: NavigationController {
                 parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == cachedChannel.parentID })?.channelLabel
             }
             let chatVC = ChatViewController(
-                clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName,
-                fallbackChannelLabel: pushTitle
+                clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName
             )
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
@@ -470,8 +467,7 @@ final class MezonRootController: NavigationController {
                 parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
             }
             let chatVC = ChatViewController(
-                clanId: resolvedClanId, channel: ch, context: context, parentName: parentName,
-                fallbackChannelLabel: pushTitle
+                clanId: resolvedClanId, channel: ch, context: context, parentName: parentName
             )
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
@@ -491,8 +487,7 @@ final class MezonRootController: NavigationController {
                 parentName = homeVC.channelListVC.allChannels.first(where: { $0.channelID == ch.parentID })?.channelLabel
             }
             let chatVC = ChatViewController(
-                clanId: resolvedClanId, channel: ch, context: context, parentName: parentName,
-                fallbackChannelLabel: pushTitle
+                clanId: resolvedClanId, channel: ch, context: context, parentName: parentName
             )
             pushViewController(chatVC, animated: false)
             return
@@ -514,7 +509,7 @@ final class MezonRootController: NavigationController {
             minimal.channelID = channelIdInt
             minimal.clanID = notificationClanId
             let chatVC = ChatViewController(
-                clanId: notificationClanId, channel: minimal, context: context, fallbackChannelLabel: pushTitle
+                clanId: notificationClanId, channel: minimal, context: context
             )
             pushViewController(chatVC, animated: false)
 
@@ -547,7 +542,7 @@ final class MezonRootController: NavigationController {
             minimal.channelID = channelIdInt
             minimal.clanID = targetClanId
             let chatVC = ChatViewController(
-                clanId: targetClanId, channel: minimal, context: self.context, fallbackChannelLabel: pushTitle
+                clanId: targetClanId, channel: minimal, context: self.context
             )
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: targetClanId, selectChannelId: channelIdInt)
@@ -581,9 +576,12 @@ final class MezonRootController: NavigationController {
     private func fetchClanChannelsInBackground(clanId: Int64, selectChannelId: Int64? = nil) {
         guard clanId != 0 else { return }
         Task { @MainActor [weak self] in
-            guard let self, let token = await self.context.getToken() else { return }
+            guard let self else { return }
+            let startEpoch = self.context.sessionEpoch
+            guard let token = await self.context.getToken() else { return }
             do {
                 let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 let hadCache = (self.context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))?.isEmpty == false)
                 if channels.isEmpty && hadCache {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId,

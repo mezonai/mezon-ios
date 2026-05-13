@@ -213,7 +213,6 @@ final class MezonSocket: NSObject {
         timeoutNanoseconds: UInt64? = nil
     ) async throws -> Data {
         guard isConnected, let task = webSocketTask else {
-            MezonRPCLog.log("send '\(apiName)' aborted: socket not connected")
             throw MezonError.socketError("WebSocket is not connected")
         }
 
@@ -230,7 +229,6 @@ final class MezonSocket: NSObject {
         do {
             payload = try envelope.serializedData()
         } catch {
-            MezonRPCLog.log("send '\(apiName)' encode error cid=\(cid): \(error.localizedDescription)")
             throw MezonError.socketError("Encode api_request_event failed: \(error.localizedDescription)")
         }
 
@@ -247,8 +245,7 @@ final class MezonSocket: NSObject {
                 }
                 guard let self else { return }
                 if let pending = self.pendingApiRequests.removeValue(forKey: cid) {
-                    let buffered = self.apiResponseStreams.removeValue(forKey: cid)?.count ?? 0
-                    MezonRPCLog.log("timeout cid=\(cid) api='\(apiName)' afterMs=\(timeoutNs / 1_000_000) bufferedBytes=\(buffered)")
+                    self.apiResponseStreams.removeValue(forKey: cid)
                     pending.continuation.resume(
                         throwing: MezonError.socketError(
                             "api_request_event '\(apiName)' timed out after \(timeoutNs / 1_000_000)ms"
@@ -265,7 +262,6 @@ final class MezonSocket: NSObject {
 
             task.send(.data(payload)) { [weak self] error in
                 guard let error else { return }
-                MezonRPCLog.log("send-callback cid=\(cid) api='\(apiName)' error=\(error.localizedDescription)")
                 Task { @MainActor in
                     guard let self else { return }
                     if let pending = self.pendingApiRequests.removeValue(forKey: cid) {
@@ -298,11 +294,7 @@ final class MezonSocket: NSObject {
                 var envelope = Mezon_Realtime_Envelope()
                 envelope.ping = Mezon_Realtime_Ping()
                 guard let data = try? envelope.serializedData() else { continue }
-                task.send(.data(data)) { error in
-                    if let error {
-                        MezonRPCLog.log("heartbeat send error: \(error.localizedDescription)")
-                    }
-                }
+                task.send(.data(data)) { _ in }
             }
         }
     }
@@ -460,7 +452,7 @@ final class MezonSocket: NSObject {
                 let nsErr = error as NSError
                 guard nsErr.code != NSURLErrorCancelled else { return }
                 Task { @MainActor in
-                    MezonRPCLog.log("ws receive-fail domain=\(nsErr.domain) code=\(nsErr.code) desc='\(nsErr.localizedDescription)' pendingRpc=\(self.pendingApiRequests.count)")
+                    MezonRPCLog.response("ws receive-fail domain=\(nsErr.domain) code=\(nsErr.code) desc='\(nsErr.localizedDescription)' pendingRpc=\(self.pendingApiRequests.count)")
                     self.cleanupForReconnect()
                     self.eventPipe.putNext(.error(error))
                     self.scheduleReconnect()
@@ -498,7 +490,7 @@ final class MezonSocket: NSObject {
     private func handleFramedApiResponse(_ data: Data) {
         let headerLength = 7
         guard data.count >= headerLength else {
-            MezonRPCLog.log("frame drop: too small bytes=\(data.count)")
+            MezonRPCLog.response("frame drop: too small bytes=\(data.count)")
             return
         }
         let bytes = [UInt8](data)
@@ -522,7 +514,7 @@ final class MezonSocket: NSObject {
         if finFlag == 0xFF {
             apiResponseStreams.removeValue(forKey: cid)
             guard let pending = pendingApiRequests.removeValue(forKey: cid) else {
-                MezonRPCLog.log("frame FIN cid=\(cid) code=\(responseCode) totalBytes=\(buffer.count) (no pending)")
+                MezonRPCLog.response("frame FIN cid=\(cid) code=\(responseCode) totalBytes=\(buffer.count) (no pending)")
                 return
             }
             pending.timeoutTask.cancel()
@@ -530,7 +522,7 @@ final class MezonSocket: NSObject {
                 pending.continuation.resume(returning: buffer)
             } else {
                 let message = String(data: buffer, encoding: .utf8) ?? ""
-                MezonRPCLog.log("recv ← cid=\(cid) error code=\(responseCode) bytes=\(buffer.count) msg='\(message.prefix(160))'")
+                MezonRPCLog.response("recv ← cid=\(cid) error code=\(responseCode) bytes=\(buffer.count) msg='\(message.prefix(160))'")
                 pending.continuation.resume(
                     throwing: MezonError.httpError(statusCode: Int(responseCode), message: message)
                 )
@@ -569,7 +561,7 @@ final class MezonSocket: NSObject {
             apiResponseStreams.removeValue(forKey: cid)
             pending.timeoutTask.cancel()
             if case .some(.error(let err)) = envelope.message {
-                MezonRPCLog.log("envelope-cid cid=\(cid) error msg='\(err.message)'")
+                MezonRPCLog.response("envelope-cid cid=\(cid) error msg='\(err.message)'")
                 pending.continuation.resume(
                     throwing: MezonError.socketError(err.message.isEmpty ? "Server error" : err.message)
                 )
@@ -839,7 +831,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
 }
 
 enum MezonRPCLog {
-    static func log(_ message: @autoclosure () -> String) {
+    static func response(_ message: @autoclosure () -> String) {
         #if DEBUG
         print("[MezonRPC] \(message())")
         #endif

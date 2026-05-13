@@ -73,6 +73,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var channelListStateApplyScheduled = false
 
     private var clanLogoURL: String = ""
+    private var headerClanId: Int64 = 0
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
 
@@ -827,6 +828,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
         headerUIView.onSearchTapped = interaction.onSearchTapped
+        headerUIView.onClanHeaderLongPress = { [weak self] in
+            self?.presentClanActionSheetIfNeeded()
+        }
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
 
@@ -1038,7 +1042,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         committedSectionCount = totalSections
     }
 
-    func configure(clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+    func configure(clanName: String, clanId: Int64 = 0, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+        self.headerClanId = clanId
         self.clanLogoURL = logoURL ?? ""
         self.isCommunity = isCommunity
         self.memberCount = memberCount
@@ -1123,6 +1128,11 @@ final class ChannelListContainerNode: ASDisplayNode {
     func updateMemberCount(_ count: Int) {
         self.memberCount = count
         headerUIView.updateMemberCount(count)
+    }
+
+    private func presentClanActionSheetIfNeeded() {
+        guard headerClanId != 0 else { return }
+        presentClanActionSheet()
     }
 
     private func presentClanActionSheet() {
@@ -1689,6 +1699,7 @@ final class ChannelListHeaderView: UIView {
     var onTap: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onQRTapped: (() -> Void)?
+    var onClanHeaderLongPress: (() -> Void)?
 
     var title: String {
         return titleLabel.text ?? ""
@@ -1830,16 +1841,27 @@ final class ChannelListHeaderView: UIView {
         actionRow.alignment = .center
         actionRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let mainStack = UIStackView(arrangedSubviews: [titleStack, infoRow, actionRow])
+        let clanTitleBlock = UIStackView(arrangedSubviews: [titleStack, infoRow])
+        clanTitleBlock.axis = .vertical
+        clanTitleBlock.spacing = 4
+        clanTitleBlock.setCustomSpacing(2, after: titleStack)
+        clanTitleBlock.translatesAutoresizingMaskIntoConstraints = false
+
+        let mainStack = UIStackView(arrangedSubviews: [clanTitleBlock, actionRow])
         mainStack.axis = .vertical
         mainStack.spacing = 4
-        mainStack.setCustomSpacing(2, after: titleStack)
-        mainStack.setCustomSpacing(10, after: infoRow)
+        mainStack.setCustomSpacing(10, after: clanTitleBlock)
         mainStack.translatesAutoresizingMaskIntoConstraints = false
 
         let mainTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleHeaderTap))
         mainStack.addGestureRecognizer(mainTapGesture)
+        let clanHeaderLongPress = UILongPressGestureRecognizer(target: self, action: #selector(handleClanHeaderLongPress(_:)))
+        clanHeaderLongPress.minimumPressDuration = 0.45
+        clanHeaderLongPress.cancelsTouchesInView = false
+        clanTitleBlock.addGestureRecognizer(clanHeaderLongPress)
+        mainTapGesture.require(toFail: clanHeaderLongPress)
         mainStack.isUserInteractionEnabled = true
+        clanTitleBlock.isUserInteractionEnabled = true
 
         addSubview(mainStack)
         addSubview(separator)
@@ -1942,5 +1964,10 @@ final class ChannelListHeaderView: UIView {
 
     @objc private func handleHeaderTap() {
         onTap?()
+    }
+
+    @objc private func handleClanHeaderLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        onClanHeaderLongPress?()
     }
 }

@@ -391,6 +391,8 @@ private final class ClanCell: UICollectionViewCell {
     }()
 
     private var imageTask: URLSessionDataTask?
+    private var boundClanId: Int64?
+    private var avatarGeneration = 0
     private static let sz: CGFloat = ClanListContainerNode.iconSize
 
     override init(frame: CGRect) {
@@ -435,6 +437,8 @@ private final class ClanCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
+        imageTask = nil
+        boundClanId = nil
         avatarImageView.image = nil
         initialsLabel.text = nil
         avatarContainer.backgroundColor = .clear
@@ -444,21 +448,28 @@ private final class ClanCell: UICollectionViewCell {
     }
 
     func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool) {
+        avatarGeneration += 1
+        let generation = avatarGeneration
+        boundClanId = clan.clanID
+        let expectClanId = clan.clanID
+        let clanName = clan.clanName
+
         avatarContainer.layer.cornerRadius = 8.swh
 
         let accentColor = UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1)
         indicatorBar.backgroundColor = accentColor
         indicatorBar.isHidden = !isSelected
 
-        initialsLabel.text = initials(for: clan.clanName)
+        initialsLabel.text = initials(for: clanName)
 
         if !clan.logo.isEmpty, let url = URL(string: clan.logo) {
             avatarContainer.backgroundColor = .clear
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
-            loadImage(url: url)
+            loadExpectingClan(
+                clanId: expectClanId, generation: generation, clanName: clanName, url: url)
         } else {
-            avatarContainer.backgroundColor = colorFor(name: clan.clanName)
+            avatarContainer.backgroundColor = colorFor(name: clanName)
             avatarImageView.isHidden = true
             initialsLabel.isHidden = false
         }
@@ -475,14 +486,36 @@ private final class ClanCell: UICollectionViewCell {
         }
     }
 
-    private func loadImage(url: URL) {
+    private func loadExpectingClan(clanId: Int64, generation: Int, clanName: String, url: URL) {
+        imageTask?.cancel()
+        imageTask = nil
         let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            guard boundClanId == clanId, avatarGeneration == generation else { return }
             avatarImageView.image = cached
+            avatarImageView.isHidden = false
+            initialsLabel.isHidden = true
+            avatarContainer.backgroundColor = .clear
+            contentView.layoutIfNeeded()
             return
         }
+        avatarImageView.image = nil
         imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
-            self?.avatarImageView.image = image
+            guard let self else { return }
+            guard self.boundClanId == clanId, self.avatarGeneration == generation else { return }
+            if let image {
+                self.avatarImageView.image = image
+                self.avatarImageView.isHidden = false
+                self.initialsLabel.isHidden = true
+                self.avatarContainer.backgroundColor = .clear
+            } else {
+                self.avatarImageView.isHidden = true
+                self.initialsLabel.isHidden = false
+                self.initialsLabel.text = self.initials(for: clanName)
+                self.avatarContainer.backgroundColor = self.colorFor(name: clanName)
+            }
+            self.contentView.setNeedsLayout()
+            self.contentView.layoutIfNeeded()
         }
     }
 
@@ -670,6 +703,8 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
     }()
 
     private var imageTask: URLSessionDataTask?
+    private var boundChannelId: Int64?
+    private var dmAvatarGeneration = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -718,6 +753,8 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
+        imageTask = nil
+        boundChannelId = nil
         avatarImageView.image = nil
         initialsLabel.text = nil
         groupIconView.isHidden = true
@@ -728,6 +765,11 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
     }
 
     func configure(with dm: Mezon_Api_ChannelDescription) {
+        dmAvatarGeneration += 1
+        let generation = dmAvatarGeneration
+        let expectChannelId = dm.channelID
+        boundChannelId = expectChannelId
+
         let name = dm.channelLabel.isEmpty ? "DM" : dm.channelLabel
         let colors: [UIColor] = [
             UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
@@ -753,26 +795,32 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             let proxyURL = ImgproxyURL.create(from: avatarURL, width: 150, height: 150)
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
+            imageTask?.cancel()
+            imageTask = nil
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
+                guard boundChannelId == expectChannelId, dmAvatarGeneration == generation else { return }
                 avatarImageView.image = cached
+                contentView.layoutIfNeeded()
             } else {
+                avatarImageView.image = nil
                 imageTask = ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    self?.avatarImageView.image = image
+                    guard let self else { return }
+                    guard self.boundChannelId == expectChannelId, self.dmAvatarGeneration == generation else { return }
+                    if let image {
+                        self.avatarImageView.image = image
+                        self.avatarImageView.isHidden = false
+                        self.initialsLabel.isHidden = true
+                    } else {
+                        self.applyDmAvatarFallback(
+                            isDM: isDM, placeholderBg: placeholderBg, name: name)
+                    }
+                    self.contentView.setNeedsLayout()
+                    self.contentView.layoutIfNeeded()
                 }
             }
         } else {
             avatarImageView.isHidden = true
-            if isDM {
-                groupIconView.isHidden = true
-                avatarContainer.backgroundColor = placeholderBg
-                initialsLabel.isHidden = false
-                initialsLabel.text = String(name.prefix(1)).uppercased()
-            } else {
-                avatarContainer.backgroundColor = Self.groupPlaceholderOrange
-                initialsLabel.isHidden = true
-                groupIconView.tintColor = .white
-                groupIconView.isHidden = false
-            }
+            applyDmAvatarFallback(isDM: isDM, placeholderBg: placeholderBg, name: name)
         }
 
         let count = dm.countMessUnread
@@ -784,6 +832,21 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             badgeLabel.isHidden = true
             badgeLabel.layer.borderWidth = 0
             badgeLabel.layer.borderColor = nil
+        }
+    }
+
+    private func applyDmAvatarFallback(isDM: Bool, placeholderBg: UIColor, name: String) {
+        avatarImageView.isHidden = true
+        if isDM {
+            groupIconView.isHidden = true
+            avatarContainer.backgroundColor = placeholderBg
+            initialsLabel.isHidden = false
+            initialsLabel.text = String(name.prefix(1)).uppercased()
+        } else {
+            avatarContainer.backgroundColor = Self.groupPlaceholderOrange
+            initialsLabel.isHidden = true
+            groupIconView.tintColor = .white
+            groupIconView.isHidden = false
         }
     }
 }

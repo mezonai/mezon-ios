@@ -15,6 +15,7 @@ final class EmbedFormState {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
     func clear(messageId: String) { state.removeValue(forKey: messageId) }
+    func removeAll() { state.removeAll() }
 }
 
 final class MessageEmbedNode: ASDisplayNode {

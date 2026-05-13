@@ -88,6 +88,12 @@ final class MessageBubbleNode: ASDisplayNode {
     private static let forwardHeaderIconSide: CGFloat = 15
     private static let forwardHeaderIconGap: CGFloat = 4
 
+    private static func messageBodyContentAlpha(for display: ChatMessageDisplay) -> CGFloat {
+        if display.isFailed { return 0.6 }
+        if display.isSending { return 0.55 }
+        return 1.0
+    }
+
     init(display: ChatMessageDisplay, interaction: ChatInteraction) {
         self.display = display
         self.interaction = interaction
@@ -447,6 +453,7 @@ final class MessageBubbleNode: ASDisplayNode {
         applyEditedNode(for: display)
 
         self.isFailed = display.isFailed
+        applyMessageBodyAlpha()
     }
 
     func updateReactions(newDisplay: ChatMessageDisplay) {
@@ -669,20 +676,7 @@ final class MessageBubbleNode: ASDisplayNode {
             }
         }
 
-        let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
-        callLogNode?.alpha = contentAlpha
-        pollCardNode?.alpha = contentAlpha
-        topicNode?.alpha = contentAlpha
-        textContentNode?.alpha = contentAlpha
-        mediaContentNode?.alpha = contentAlpha
-        audioAttachmentNode?.alpha = contentAlpha
-        fileAttachmentNode?.alpha = contentAlpha
-        embedNode?.alpha = contentAlpha
-        locationNode?.alpha = contentAlpha
-        clanInviteLinkNode?.alpha = contentAlpha
-        forwardHeaderIconNode?.alpha = contentAlpha
-        forwardHeaderLabelNode?.alpha = contentAlpha
-        forwardLeftBarNode?.alpha = contentAlpha
+        applyMessageBodyAlpha()
 
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
@@ -692,6 +686,7 @@ final class MessageBubbleNode: ASDisplayNode {
             || inviteChanged || (oldWantInvite != newWantInvite)
             || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
             || embedChanged
+            || oldDisplay.isSending != newDisplay.isSending
         if needsRelayout {
             let _ = measureSize(width: cachedTotalSize.width)
             setNeedsLayout()
@@ -1467,20 +1462,34 @@ final class MessageBubbleNode: ASDisplayNode {
             forwardLeftBarNode?.isHidden = true
         }
 
-        let contentAlpha: CGFloat = isFailed ? 0.6 : 1.0
-        callLogNode?.alpha = contentAlpha
-        pollCardNode?.alpha = contentAlpha
-        topicNode?.alpha = contentAlpha
-        textContentNode?.alpha = contentAlpha
-        mediaContentNode?.alpha = contentAlpha
-        audioAttachmentNode?.alpha = contentAlpha
-        fileAttachmentNode?.alpha = contentAlpha
-        embedNode?.alpha = contentAlpha
-        locationNode?.alpha = contentAlpha
-        forwardHeaderIconNode?.alpha = contentAlpha
-        forwardHeaderLabelNode?.alpha = contentAlpha
-        forwardLeftBarNode?.alpha = contentAlpha
-        clanInviteLinkNode?.alpha = contentAlpha
+        applyMessageBodyAlpha()
+    }
+
+    private func applyMessageBodyAlpha() {
+        let a = Self.messageBodyContentAlpha(for: display)
+        replyNode?.alpha = a
+        deletedReplyNode?.alpha = a
+        avatarContainerNode.alpha = a
+        nameNode.alpha = a
+        timeNode.alpha = a
+        roleIconNode?.alpha = a
+        callLogNode?.alpha = a
+        pollCardNode?.alpha = a
+        sendTokenLogNode?.alpha = a
+        topicNode?.alpha = a
+        textContentNode?.alpha = a
+        mediaContentNode?.alpha = a
+        audioAttachmentNode?.alpha = a
+        fileAttachmentNode?.alpha = a
+        embedNode?.alpha = a
+        locationNode?.alpha = a
+        clanInviteLinkNode?.alpha = a
+        forwardHeaderIconNode?.alpha = a
+        forwardHeaderLabelNode?.alpha = a
+        forwardLeftBarNode?.alpha = a
+        reactionsNode?.alpha = a
+        editedNode?.alpha = a
+        errorTextNode?.alpha = 1
     }
 
     private static func hasClanInviteCard(for display: ChatMessageDisplay) -> Bool {
@@ -1548,6 +1557,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private static func reactionStripAllowed(for display: ChatMessageDisplay) -> Bool {
         if display.isFailed { return false }
+        if display.isSending { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
         if display.isPollMessage { return false }

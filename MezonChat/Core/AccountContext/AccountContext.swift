@@ -17,6 +17,9 @@ protocol AccountContext: AnyObject {
     var currentClanId: Int64 { get set }
     var currentChannel: Mezon_Api_ChannelDescription? { get set }
 
+    var sessionEpoch: Int { get }
+    func isStillCurrentSession(epoch: Int) -> Bool
+
     func login(user: User, session: MezonSession)
     func logout()
     func refreshSession() async throws

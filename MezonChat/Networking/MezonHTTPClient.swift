@@ -1464,8 +1464,7 @@ final class MezonHTTPClient {
     }
 
     private static let httpOnlyApiNames: Set<String> = [
-        "SessionRefresh",
-        "RegistFCMDeviceToken",
+        "SessionRefresh"
     ]
     private static let socketFailureHttpFallbackApiNames: Set<String> = [
         "SendChannelMessage",
@@ -1484,21 +1483,17 @@ final class MezonHTTPClient {
         let allowHttpFallbackAfterSocketFailure = Self.socketFailureHttpFallbackApiNames.contains(apiName)
 
         if Self.httpOnlyApiNames.contains(apiName) {
-            MezonRPCLog.log("route api='\(apiName)' → HTTP (forced)")
             return nil
         }
 
         var connected = await MezonSocket.shared.isConnected
         if !connected {
-            MezonRPCLog.log("route api='\(apiName)' socket not connected, waiting up to \(Self.socketWaitNanoseconds / 1_000_000)ms")
             connected = await MezonSocket.shared.waitForConnected(timeoutNanoseconds: Self.socketWaitNanoseconds)
         }
         guard connected else {
             if allowHttpFallbackAfterSocketFailure {
-                MezonRPCLog.log("route api='\(apiName)' SOCKET unavailable after wait → HTTP fallback")
                 return nil
             }
-            MezonRPCLog.log("route api='\(apiName)' SOCKET unavailable after wait → throw (no HTTP fallback)")
             throw MezonError.socketError("WebSocket unavailable for '\(apiName)'")
         }
 
@@ -1506,25 +1501,22 @@ final class MezonHTTPClient {
         do {
             body = try message.serializedData()
         } catch {
-            MezonRPCLog.log("route api='\(apiName)' encode body failed → throw (no HTTP fallback): \(error.localizedDescription)")
             throw MezonError.socketError("Encode body failed for '\(apiName)': \(error.localizedDescription)")
         }
 
         let started = Date()
-        MezonRPCLog.log("route api='\(apiName)' → SOCKET (bodyBytes=\(body.count))")
         do {
             let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            MezonRPCLog.log("route api='\(apiName)' SOCKET ok respBytes=\(respBytes.count) elapsedMs=\(ms)")
+            MezonRPCLog.response("route api='\(apiName)' SOCKET ok respBytes=\(respBytes.count) elapsedMs=\(ms)")
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
             }
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
-                MezonRPCLog.log("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription)")
+                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription)")
                 if allowHttpFallbackAfterSocketFailure {
-                    MezonRPCLog.log("route api='\(apiName)' → HTTP fallback (decode)")
                     return nil
                 }
                 throw error
@@ -1532,10 +1524,10 @@ final class MezonHTTPClient {
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             if allowHttpFallbackAfterSocketFailure {
-                MezonRPCLog.log("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
+                MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
                 return nil
             }
-            MezonRPCLog.log("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) (rethrow, no HTTP fallback)")
+            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) (rethrow, no HTTP fallback)")
             throw error
         }
     }
@@ -1560,22 +1552,21 @@ final class MezonHTTPClient {
         request.httpBody = try message.serializedData()
 
         let started = Date()
-        MezonRPCLog.log("HTTP → POST \(path) bodyBytes=\(request.httpBody?.count ?? 0)")
 
         let (data, response) = try await httpData(request)
 
         guard let http = response as? HTTPURLResponse else {
-            MezonRPCLog.log("HTTP \(path) invalid response")
+            MezonRPCLog.response("HTTP \(path) invalid response")
             throw MezonError.invalidResponse
         }
         let ms = Int(Date().timeIntervalSince(started) * 1000)
 
         if (200..<300).contains(http.statusCode) {
-            MezonRPCLog.log("HTTP \(path) ok status=\(http.statusCode) bytes=\(data.count) elapsedMs=\(ms)")
+            MezonRPCLog.response("HTTP \(path) ok status=\(http.statusCode) bytes=\(data.count) elapsedMs=\(ms)")
             do {
                 return try Response(serializedBytes: data)
             } catch {
-                MezonRPCLog.log("HTTP \(path) decode FAIL bytes=\(data.count) error=\(error.localizedDescription)")
+                MezonRPCLog.response("HTTP \(path) decode FAIL bytes=\(data.count) error=\(error.localizedDescription)")
                 throw error
             }
         }
@@ -1585,7 +1576,6 @@ final class MezonHTTPClient {
             case .bearer = auth,
             let recovery = bearerUnauthorizedRecovery,
            let newToken = try await recovery() {
-            MezonRPCLog.log("HTTP \(path) status=\(http.statusCode) → token refreshed, retry")
             return try await postProtoHTTP(
                 path: path,
                 message: message,
@@ -1596,7 +1586,7 @@ final class MezonHTTPClient {
 
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
             ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
-        MezonRPCLog.log("HTTP \(path) FAIL status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
+        MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 

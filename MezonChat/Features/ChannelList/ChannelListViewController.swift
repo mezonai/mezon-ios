@@ -295,6 +295,8 @@ private enum FetchResult {
 final class ChannelListViewController: ViewController {
 
     private let context: AccountContext
+    private let initialSessionEpoch: Int
+    private var isCurrentSessionAlive: Bool { context.isStillCurrentSession(epoch: initialSessionEpoch) }
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
@@ -419,6 +421,7 @@ final class ChannelListViewController: ViewController {
 
     init(context: AccountContext) {
         self.context = context
+        self.initialSessionEpoch = context.sessionEpoch
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -573,6 +576,7 @@ final class ChannelListViewController: ViewController {
 
         if let inflight = inflightBadgeCountTask[clanId] {
             let rows = await inflight.value
+            guard isCurrentSessionAlive else { return base }
             guard clanId == self.clanId else { return base }
             guard !rows.isEmpty else { return base }
             var merged = base
@@ -601,6 +605,7 @@ final class ChannelListViewController: ViewController {
         inflightBadgeCountTask[clanId] = nil
         lastBadgeCountFetchAtByClanId[clanId] = Date()
 
+        guard isCurrentSessionAlive else { return base }
         guard clanId == self.clanId else { return base }
         guard !rows.isEmpty else { return base }
         var merged = base
@@ -613,7 +618,16 @@ final class ChannelListViewController: ViewController {
         guard clanId != 0 else { return }
         guard clanId == self.clanId else { return }
         let updated = await fetchMergedChannelsWithBadgeCounts(base: allChannels, clanId: clanId)
-        guard !channelListRowsVisuallyEqual(allChannels, updated) else { return }
+        guard isCurrentSessionAlive else { return }
+        if channelListRowsVisuallyEqual(allChannels, updated) {
+            let total = updated.reduce(Int32(0)) { $0 + $1.countMessUnread }
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonClanChannelUnreadDerived"),
+                object: nil,
+                userInfo: ["clanId": clanId, "totalUnread": total]
+            )
+            return
+        }
         allChannels = updated
         let storedCollapsed = loadCollapsedCategoryIds()
         let built = buildChannelCategories(
@@ -633,6 +647,7 @@ final class ChannelListViewController: ViewController {
             categories: cats
         )
         needsReloadPipe.putNext(())
+        postClanSidebarUnreadDerivedFromCurrentChannels()
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -643,7 +658,7 @@ final class ChannelListViewController: ViewController {
     func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         self.clanLogoURL = logoURL ?? ""
         guard clanId != self.clanId else {
-            channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+            channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
             if clanId != 0 && !channelListNode.hasDisplayedChannelApps {
                 hydrateChannelAppsFromCacheForEffectiveClan()
             }
@@ -660,7 +675,7 @@ final class ChannelListViewController: ViewController {
             restoreCachedChannelApps(clanId: clanId)
         }
         channelListNode.markClanSwitching()
-        channelListNode.configure(clanName: clanName, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+        channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
         load(clanId: clanId, clanName: clanName)
     }
 
@@ -693,20 +708,24 @@ final class ChannelListViewController: ViewController {
     }
 
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
-        let isMuted = context.account.postbox.read { tx -> Bool in
-            guard let record = tx.getNotificationSetting(entityId: channel.channelID) else { return false }
-            return record.timeMuteSeconds != 0
+        let (isMuted, welcomeChannelId): (Bool, Int64?) = context.account.postbox.read { tx in
+            let muted: Bool = {
+                guard let record = tx.getNotificationSetting(entityId: channel.channelID) else { return false }
+                return record.timeMuteSeconds != 0
+            }()
+            let welcome: Int64? = {
+                guard let data = tx.getClan(id: self.clanId)?.data, !data.isEmpty,
+                      let desc = try? Mezon_Api_ClanDesc(serializedBytes: data) else { return nil }
+                return desc.welcomeChannelID
+            }()
+            return (muted, welcome)
         }
-        
         let isFavorite = self.channelListFavoriteIds.contains(channel.channelID)
         let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
-
-        let welcomeChannelId = context.account.postbox.read { tx -> Int64? in
-            guard let data = tx.getClan(id: self.clanId)?.data, !data.isEmpty,
-                  let desc = try? Mezon_Api_ClanDesc(serializedBytes: data) else { return nil }
-            return desc.welcomeChannelID
-        }
-        let isGeneralChannel = (channel.channelID == welcomeChannelId)
+        let isGeneralChannel: Bool = {
+            guard let welcomeChannelId else { return false }
+            return channel.channelID == welcomeChannelId
+        }()
 
         let canManage: Bool
         if isThread {
@@ -772,7 +791,6 @@ final class ChannelListViewController: ViewController {
         )
         if let window = self.view.window as? WindowHost {
             window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
-            actionSheet.animateIn()
         }
         
         fetchNotificationSettingForBottomsheet(channelId: channel.channelID)
@@ -780,9 +798,11 @@ final class ChannelListViewController: ViewController {
     
     private func fetchNotificationSettingForBottomsheet(channelId: Int64) {
         Task { @MainActor in
+            let startEpoch = context.sessionEpoch
             guard let token = await context.getToken() else { return }
             do {
                 let noti = try await MezonHTTPClient.shared.getNotificationChannel(channelId: channelId, token: token)
+                guard context.isStillCurrentSession(epoch: startEpoch) else { return }
                 let record = NotificationSettingRecord(id: 0, entityId: channelId, scope: .channel, notificationSettingType: noti.notificationSettingType, timeMuteSeconds: UInt32(bitPattern: noti.timeMuteSeconds), active: noti.active)
                 context.account.postbox.write { tx in
                     tx.updateNotificationSetting(record)
@@ -1201,6 +1221,17 @@ final class ChannelListViewController: ViewController {
         categories = cats
         categoriesPipe.putNext(cats)
         needsReloadPipe.putNext(())
+        postClanSidebarUnreadDerivedFromCurrentChannels()
+    }
+
+    private func postClanSidebarUnreadDerivedFromCurrentChannels() {
+        guard clanId != 0 else { return }
+        let total = allChannels.reduce(Int32(0)) { $0 + $1.countMessUnread }
+        NotificationCenter.default.post(
+            name: Notification.Name("MezonClanChannelUnreadDerived"),
+            object: nil,
+            userInfo: ["clanId": clanId, "totalUnread": total]
+        )
     }
 
     @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
@@ -1286,6 +1317,9 @@ final class ChannelListViewController: ViewController {
         }
         isLoading = pendingCache == nil && clanId != 0 && NetworkMonitor.shared.isConnected
         needsReloadPipe.putNext(())
+        if clanId != 0, !allChannels.isEmpty {
+            postClanSidebarUnreadDerivedFromCurrentChannels()
+        }
 
         if NetworkMonitor.shared.isConnected {
             fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
@@ -1332,6 +1366,10 @@ final class ChannelListViewController: ViewController {
         let hadCachedChannels = !self.allChannels.isEmpty
         fetchDisposable.set(signal.start(next: { [weak self] result in
                 guard let self else { return }
+                guard self.isCurrentSessionAlive else {
+                    self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                    return
+                }
                 guard self.clanId == clanId else {
                     self.clearInflightChannelFetchIfMatches(clanId: clanId)
                     return
@@ -1353,6 +1391,10 @@ final class ChannelListViewController: ViewController {
                     }
                     Task { @MainActor [weak self] in
                         guard let self else { return }
+                        guard self.isCurrentSessionAlive else {
+                            self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                            return
+                        }
                         guard self.clanId == clanId else {
                             self.clearInflightChannelFetchIfMatches(clanId: clanId)
                             return
@@ -1384,6 +1426,7 @@ final class ChannelListViewController: ViewController {
                         self.channelListNode.endRefreshing()
                         self.isLoadingPipe.putNext(false)
                         self.needsReloadPipe.putNext(())
+                        self.postClanSidebarUnreadDerivedFromCurrentChannels()
                         self.clearInflightChannelFetchIfMatches(clanId: clanId)
                     }
                     return
@@ -1419,7 +1462,9 @@ final class ChannelListViewController: ViewController {
     func select(channel: Mezon_Api_ChannelDescription) {
         setSelectedChannelId(channel.channelID)
         setSelectedChannel(channel)
-        self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
+        if isCurrentSessionAlive {
+            self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
+        }
         needsReloadPipe.putNext(())
     }
 
@@ -1630,10 +1675,12 @@ final class ChannelListViewController: ViewController {
         if let ch = allChannels.first(where: { $0.channelID == channelId }) {
             selectedChannel = ch
         }
-        context.account.postbox.setPreferenceData(
-            key: PreferencesKeys.selectedChannelId(clanId: clanId),
-            value: encodeChannelId(channelId)
-        )
+        if isCurrentSessionAlive {
+            context.account.postbox.setPreferenceData(
+                key: PreferencesKeys.selectedChannelId(clanId: clanId),
+                value: encodeChannelId(channelId)
+            )
+        }
 
         needsReloadPipe.putNext(())
     }
@@ -1652,6 +1699,7 @@ final class ChannelListViewController: ViewController {
         channelsLoadedPromise.set(true)
         categoriesPipe.putNext(cats)
         needsReloadPipe.putNext(())
+        postClanSidebarUnreadDerivedFromCurrentChannels()
     }
 
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
@@ -1711,14 +1759,18 @@ final class ChannelListViewController: ViewController {
         let context = self.context
         return Signal { subscriber in
             let task = Task {
-                let token: String?
-                if let s = SessionStore.load(), !s.token.isEmpty, !s.isExpired {
-                    token = s.token
-                } else {
-                    token = await Task { @MainActor in await context.getToken() }.value
-                }
+                let startEpoch = await MainActor.run { context.sessionEpoch }
+                let token = await Task { @MainActor in
+                    await context.getToken()
+                }.value
                 guard let token else {
-                    await MainActor.run { subscriber.putError(.noSession) }
+                    await MainActor.run {
+                        guard context.isStillCurrentSession(epoch: startEpoch) else {
+                            subscriber.putCompletion()
+                            return
+                        }
+                        subscriber.putError(.noSession)
+                    }
                     return
                 }
                 let network = MezonHTTPClient.shared
@@ -1735,11 +1787,21 @@ final class ChannelListViewController: ViewController {
                         favoriteChannelIds: favoriteIds
                     )
                     await MainActor.run {
+                        guard context.isStillCurrentSession(epoch: startEpoch) else {
+                            subscriber.putCompletion()
+                            return
+                        }
                         subscriber.putNext(payload)
                         subscriber.putCompletion()
                     }
                 } catch {
-                    await MainActor.run { subscriber.putError(.network(error)) }
+                    await MainActor.run {
+                        guard context.isStillCurrentSession(epoch: startEpoch) else {
+                            subscriber.putCompletion()
+                            return
+                        }
+                        subscriber.putError(.network(error))
+                    }
                 }
             }
             return ActionDisposable { task.cancel() }
@@ -1813,7 +1875,9 @@ final class ChannelListViewController: ViewController {
                 }
             }
             guard let self else { return }
+            let startEpoch = self.context.sessionEpoch
             guard let token = await self.resolveAuthTokenPreferringUnexpiredSessionStore() else { return }
+            guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
             guard self.clanId == clanId else { return }
 
             let key = PreferencesKeys.channelApps(clanId: clanId)
@@ -1823,6 +1887,7 @@ final class ChannelListViewController: ViewController {
                 let apps = try await Task.detached(priority: .utility) {
                     try await MezonHTTPClient.shared.listChannelApps(clanId: clanId, token: token)
                 }.value
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 guard self.clanId == clanId else { return }
                 let hasNonEmptyCache: Bool = {
                     guard let cachedData, !cachedData.isEmpty else { return false }
@@ -1906,6 +1971,7 @@ final class ChannelListViewController: ViewController {
     }
 
     private func persistFavoriteChannelIds(_ ids: Set<Int64>, clanId: Int64) {
+        guard isCurrentSessionAlive else { return }
         var resp = Mezon_Api_ListFavoriteChannelResponse()
         resp.channelIds = Array(ids)
         if let data = try? resp.serializedData() {
@@ -1969,10 +2035,7 @@ final class ChannelListViewController: ViewController {
     }
 
     private func resolveAuthTokenPreferringUnexpiredSessionStore() async -> String? {
-        if let s = SessionStore.load(), !s.token.isEmpty, !s.isExpired {
-            return s.token
-        }
-        return await context.getToken()
+        await context.getToken()
     }
 
     private func applyChannelCachePayload(channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?) {
@@ -1996,6 +2059,7 @@ final class ChannelListViewController: ViewController {
         categoriesPipe.putNext(categories)
         syncSelectedChannelFromStoredPreferences()
         refreshChannelAppsLabelsFromChannelList()
+        postClanSidebarUnreadDerivedFromCurrentChannels()
     }
 
     private struct ChannelListCachedMeta {
@@ -2065,6 +2129,7 @@ final class ChannelListViewController: ViewController {
         favoriteIds: Set<Int64>,
         categories: [ChannelCategory]
     ) {
+        guard isCurrentSessionAlive else { return }
         guard clanId != 0 else { return }
         context.account.postbox.setPreferenceDataSync(
             key: PreferencesKeys.channelList(clanId: clanId),
@@ -2301,6 +2366,7 @@ final class ChannelListViewController: ViewController {
     }
 
     private func persistCollapseState() {
+        guard isCurrentSessionAlive else { return }
         let collapsed = Set(categories.filter(\.isCollapsed).map(\.id))
         let encoded = encodeCollapsedIds(collapsed)
         context.account.postbox.setPreferenceData(key: PreferencesKeys.collapsedCategories(clanId: clanId), value: encoded)

@@ -108,6 +108,17 @@ final class ImageCache {
         }
     }
 
+    func purgeAccountScopedCaches() {
+        memoryCache.removeAllObjects()
+        inflightLock.lock()
+        inflightCallbacks.removeAll()
+        inflightLock.unlock()
+        ioQueue.sync {
+            try? FileManager.default.removeItem(at: diskCacheURL)
+            try? FileManager.default.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
+        }
+    }
+
     func trimDiskCache(maxAge: TimeInterval = 7 * 24 * 3600) {
         ioQueue.async { [diskCacheURL] in
             guard let files = try? FileManager.default.contentsOfDirectory(
