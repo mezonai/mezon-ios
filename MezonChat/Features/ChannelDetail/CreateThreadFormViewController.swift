@@ -31,7 +31,7 @@ final class CreateThreadFormViewController: UIViewController {
     private let visibilityCard = UIView()
     private let visibilityHeadlineLabel = UILabel()
     private let visibilityDetailLabel = UILabel()
-    private let visibilitySwitch = UISwitch()
+    private let visibilityCheckbox = UIButton(type: .system)
     private let visibilityRow = UIStackView()
     private var threadIsPrivate = false
 
@@ -148,7 +148,7 @@ final class CreateThreadFormViewController: UIViewController {
 
         nameField.delegate = self
 
-        visibilitySwitch.translatesAutoresizingMaskIntoConstraints = false
+        visibilityCheckbox.translatesAutoresizingMaskIntoConstraints = false
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.keyboardDismissMode = .interactive
@@ -176,11 +176,13 @@ final class CreateThreadFormViewController: UIViewController {
         visibilityRow.spacing = 12.sw
         visibilityRow.translatesAutoresizingMaskIntoConstraints = false
         visibilityRow.addArrangedSubview(textColumn)
-        visibilityRow.addArrangedSubview(visibilitySwitch)
-        visibilitySwitch.setContentHuggingPriority(.required, for: .horizontal)
-        visibilitySwitch.addTarget(self, action: #selector(visibilitySwitchChanged(_:)), for: .valueChanged)
+        visibilityRow.addArrangedSubview(visibilityCheckbox)
+        visibilityCheckbox.setContentHuggingPriority(.required, for: .horizontal)
 
         visibilityCard.addSubview(visibilityRow)
+        let tap = UITapGestureRecognizer(target: self, action: #selector(visibilityCheckboxTapped))
+        visibilityCard.addGestureRecognizer(tap)
+        visibilityCheckbox.isUserInteractionEnabled = false
 
         composerChrome.translatesAutoresizingMaskIntoConstraints = false
         composerChrome.clipsToBounds = true
@@ -392,8 +394,8 @@ final class CreateThreadFormViewController: UIViewController {
         }
     }
 
-    @objc private func visibilitySwitchChanged(_ sender: UISwitch) {
-        threadIsPrivate = sender.isOn
+    @objc private func visibilityCheckboxTapped() {
+        threadIsPrivate.toggle()
         refreshVisibilityLabels()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
@@ -410,14 +412,13 @@ final class CreateThreadFormViewController: UIViewController {
     }
 
     private func refreshVisibilityLabels() {
-        if threadIsPrivate {
-            visibilityHeadlineLabel.text = L(L10n.ThreadList.createThreadPrivateTitle)
-            visibilityDetailLabel.text = L(L10n.ThreadList.createThreadPrivateSubtitle)
-        } else {
-            visibilityHeadlineLabel.text = L(L10n.ThreadList.createThreadPublicTitle)
-            visibilityDetailLabel.text = L(L10n.ThreadList.createThreadPublicSubtitle)
-        }
-        visibilitySwitch.setOn(threadIsPrivate, animated: false)
+        visibilityHeadlineLabel.text = L(L10n.ThreadList.createThreadPrivateTitle)
+        visibilityDetailLabel.text = L(L10n.ThreadList.createThreadPrivateSubtitle)
+        
+        let iconName = threadIsPrivate ? "checkmark.square.fill" : "square"
+        visibilityCheckbox.setImage(UIImage(systemName: iconName), for: .normal)
+        let t = UIColor.theme
+        visibilityCheckbox.tintColor = threadIsPrivate ? t.iconPrimary : t.textDisabled
     }
 
     private func applyTheme() {

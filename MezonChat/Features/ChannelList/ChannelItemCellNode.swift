@@ -56,7 +56,7 @@ final class ChannelItemCellNode: ASCellNode {
         if chType.isSystemImage {
             var iconName = chType.icon
             if chType == .voice && isVoiceActive {
-                iconName = "Channel/channelVoiceActive"
+                iconName = "Chat/SpeakerIcon"
             }
             if chType == .text && channel.channelPrivate == 1 {
                 iconName = "Channel/channelPrivate"

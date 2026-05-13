@@ -112,7 +112,7 @@ final class WelcomeCellNode: ASDisplayNode {
 
             let iconName: String
             switch channelType {
-            case 10: iconName = "Channel/channelVoice"
+            case 10: iconName = "Chat/SpeakerIcon"
             case 4: iconName = "Channel/ChevronRight"
             case 6: iconName = "Channel/channelStream"
             case 8: iconName = "Channel/channelApp"
