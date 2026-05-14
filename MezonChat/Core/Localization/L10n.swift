@@ -135,6 +135,35 @@ enum L10n {
         static let deleteAccountCancel = "accountSetting.deleteAccountAlert.noConfirm"
         static let deleteAccountSuccess = "accountSetting.toast.deleteAccount.success"
         static let deleteAccountError = "accountSetting.toast.deleteAccount.error"
+
+        static let requireLinkEmailTitle = "accountSetting.requireLinkEmail.title"
+        static let requireLinkEmailMessage = "accountSetting.requireLinkEmail.description"
+        static let requireLinkEmailAction = "accountSetting.requireLinkEmail.action"
+    }
+
+    enum SetPassword {
+        static let title                       = "setPassword.title"
+        static let save                        = "setPassword.save"
+        static let email                       = "setPassword.email"
+        static let currentPassword             = "setPassword.currentPassword"
+        static let currentPasswordPlaceholder  = "setPassword.currentPasswordPlaceholder"
+        static let password                    = "setPassword.password"
+        static let passwordPlaceholder         = "setPassword.passwordPlaceholder"
+        static let confirmPassword             = "setPassword.confirmPassword"
+        static let confirmPasswordPlaceholder  = "setPassword.confirmPasswordPlaceholder"
+        static let description                 = "setPassword.description"
+        static let errorCharacters             = "setPassword.error.characters"
+        static let errorUppercase              = "setPassword.error.uppercase"
+        static let errorLowercase              = "setPassword.error.lowercase"
+        static let errorNumber                 = "setPassword.error.number"
+        static let errorSymbol                 = "setPassword.error.symbol"
+        static let errorSamePass               = "setPassword.error.samePass"
+        static let errorNotEqual               = "setPassword.error.notEqual"
+        static let errorIncorrectCurrent       = "setPassword.error.incorrectCurrent"
+        static let errorUpdateFail             = "setPassword.error.updateFail"
+        static let errorCreateFail             = "setPassword.error.createFail"
+        static let toastSuccess                = "setPassword.toast.success"
+        static let toastError                  = "setPassword.toast.error"
     }
 
     enum EmailSetting {
@@ -345,6 +374,7 @@ enum L10n {
         static let members        = "clan.members"
         static let settings       = "clan.settings"
         static let duplicateName  = "clan.duplicateName"
+        static let invalidName    = "clan.invalidName"
     }
 
     enum Discover {
@@ -896,6 +926,32 @@ extension L10n {
         "accountSetting.deleteAccountAlert.noConfirm": "No",
         "accountSetting.toast.deleteAccount.success": "Account deleted successfully",
         "accountSetting.toast.deleteAccount.error": "You are the owner of the clan",
+        "accountSetting.requireLinkEmail.title": "Link Email Required",
+        "accountSetting.requireLinkEmail.description": "You need to link an email before changing your password.",
+        "accountSetting.requireLinkEmail.action": "Link Email",
+
+        "setPassword.title": "Set Password",
+        "setPassword.save": "Save",
+        "setPassword.email": "Email",
+        "setPassword.currentPassword": "Current Password",
+        "setPassword.currentPasswordPlaceholder": "Enter your current password",
+        "setPassword.password": "Password",
+        "setPassword.passwordPlaceholder": "Enter your new password",
+        "setPassword.confirmPassword": "Confirm Password",
+        "setPassword.confirmPasswordPlaceholder": "Confirm your new password",
+        "setPassword.description": "Your password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., !@#$%^&*).",
+        "setPassword.error.characters": "Password must be at least 8 characters",
+        "setPassword.error.uppercase": "Password must include an uppercase letter",
+        "setPassword.error.lowercase": "Password must include a lowercase letter",
+        "setPassword.error.number": "Password must include a number",
+        "setPassword.error.symbol": "Password must include a special character",
+        "setPassword.error.samePass": "New password must be different from current password",
+        "setPassword.error.notEqual": "Passwords do not match",
+        "setPassword.error.incorrectCurrent": "Current password is incorrect",
+        "setPassword.error.updateFail": "Failed to update password",
+        "setPassword.error.createFail": "Failed to set password",
+        "setPassword.toast.success": "Password updated successfully",
+        "setPassword.toast.error": "Something went wrong. Please try again.",
 
         "emailSetting.updateEmailTitle": "Update Email",
         "emailSetting.newEmail": "New Email",
@@ -1044,6 +1100,7 @@ extension L10n {
         "clan.members":     "Members",
         "clan.settings":    "Clan Settings",
         "clan.duplicateName": "The clan name already exists. Please enter another name.",
+        "clan.invalidName": "Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).",
 
         "discover.communityOnMezon": "Community on Mezon",
         "discover.exploreCommunities": "Explore communities",
@@ -1634,6 +1691,32 @@ extension L10n {
         "accountSetting.deleteAccountAlert.noConfirm": "Không",
         "accountSetting.toast.deleteAccount.success": "Đã xóa tài khoản thành công",
         "accountSetting.toast.deleteAccount.error": "Bạn đang là chủ clan",
+        "accountSetting.requireLinkEmail.title": "Yêu cầu liên kết Email",
+        "accountSetting.requireLinkEmail.description": "Bạn cần liên kết email trước khi đặt mật khẩu.",
+        "accountSetting.requireLinkEmail.action": "Liên kết Email",
+
+        "setPassword.title": "Đặt mật khẩu",
+        "setPassword.save": "Lưu",
+        "setPassword.email": "Email",
+        "setPassword.currentPassword": "Mật khẩu hiện tại",
+        "setPassword.currentPasswordPlaceholder": "Nhập mật khẩu hiện tại",
+        "setPassword.password": "Mật khẩu",
+        "setPassword.passwordPlaceholder": "Nhập mật khẩu mới",
+        "setPassword.confirmPassword": "Xác nhận mật khẩu",
+        "setPassword.confirmPasswordPlaceholder": "Xác nhận mật khẩu mới",
+        "setPassword.description": "Mật khẩu phải có ít nhất 8 ký tự và bao gồm ít nhất một chữ hoa, một chữ thường, một số và một ký tự đặc biệt (ví dụ: !@#$%^&*).",
+        "setPassword.error.characters": "Mật khẩu phải có ít nhất 8 ký tự",
+        "setPassword.error.uppercase": "Mật khẩu phải có ít nhất một chữ hoa",
+        "setPassword.error.lowercase": "Mật khẩu phải có ít nhất một chữ thường",
+        "setPassword.error.number": "Mật khẩu phải có ít nhất một số",
+        "setPassword.error.symbol": "Mật khẩu phải có ít nhất một ký tự đặc biệt",
+        "setPassword.error.samePass": "Mật khẩu mới phải khác mật khẩu hiện tại",
+        "setPassword.error.notEqual": "Mật khẩu không khớp",
+        "setPassword.error.incorrectCurrent": "Mật khẩu hiện tại không đúng",
+        "setPassword.error.updateFail": "Không thể cập nhật mật khẩu",
+        "setPassword.error.createFail": "Không thể đặt mật khẩu",
+        "setPassword.toast.success": "Cập nhật mật khẩu thành công",
+        "setPassword.toast.error": "Đã xảy ra lỗi. Vui lòng thử lại.",
 
         "emailSetting.updateEmailTitle": "Cập nhật Email",
         "emailSetting.newEmail": "Email mới",
@@ -1782,6 +1865,7 @@ extension L10n {
         "clan.members":     "Thành viên",
         "clan.settings":    "Cài đặt Clan",
         "clan.duplicateName": "Tên Clan đã tồn tại. Vui lòng nhập tên khác.",
+        "clan.invalidName": "Vui lòng nhập tên clan hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
 
         "discover.communityOnMezon": "Cộng đồng trên Mezon",
         "discover.exploreCommunities": "Khám phá cộng đồng",
