@@ -470,15 +470,16 @@ private struct PinRowContent {
             if !pin.attachment.isEmpty, combined.isEmpty {
                 return L(L10n.ChannelDetail.pinAttachmentPreview)
             }
-            if let d = pin.content.data(using: .utf8),
-                let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                let t = json["t"] as? String
-            {
-                let tTrim = t.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !tTrim.isEmpty { return tTrim }
-            }
             let raw = pin.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return raw.isEmpty ? nil : raw
+            guard !raw.isEmpty else { return nil }
+            if let d = raw.data(using: .utf8),
+               let jo = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+            {
+                let tStr = (jo["t"] as? String ?? jo["text"] as? String ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return tStr.isEmpty ? nil : tStr
+            }
+            return raw
         }()
 
         return PinRowContent(

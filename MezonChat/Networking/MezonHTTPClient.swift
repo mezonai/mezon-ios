@@ -981,6 +981,47 @@ final class MezonHTTPClient {
         )
     }
 
+    func createRole(request: Mezon_Api_CreateRoleRequest, token: String) async throws -> Mezon_Api_Role {
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateRole",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateRole(request: Mezon_Api_UpdateRoleRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateRole",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteRole(roleId: Int64, clanId: Int64, channelId: Int64 = 0, roleLabel: String = "", token: String) async throws {
+        var req = Mezon_Api_DeleteRoleRequest()
+        req.roleID = roleId
+        req.clanID = clanId
+        req.channelID = channelId
+        req.roleLabel = roleLabel
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteRole",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listRoleUsers(roleId: Int64, limit: Int32 = 100, cursor: String = "", token: String) async throws -> Mezon_Api_RoleUserList {
+        var req = Mezon_Api_ListRoleUsersRequest()
+        req.roleID = roleId
+        req.limit = limit
+        req.cursor = cursor
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListRoleUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listEvents(clanId: Int64, token: String) async throws -> Mezon_Api_EventList {
         var req = Mezon_Api_ListEventsRequest()
         req.clanID = clanId
