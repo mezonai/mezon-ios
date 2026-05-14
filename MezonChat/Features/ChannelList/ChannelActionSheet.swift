@@ -50,6 +50,20 @@ enum ChannelAction: CaseIterable {
     }
 }
 
+private enum ChannelActionAssetCache {
+    private static var originals: [String: UIImage] = [:]
+    private static let lock = NSLock()
+
+    static func image(named name: String) -> UIImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = originals[name] { return cached }
+        guard let image = UIImage(named: name) else { return nil }
+        originals[name] = image
+        return image
+    }
+}
+
 final class ChannelActionSheetController: ViewController {
     private let channelId: Int64
     private let channelName: String
@@ -62,6 +76,7 @@ final class ChannelActionSheetController: ViewController {
     private let canManageChannel: Bool
     private let isGeneralChannel: Bool
     private let onAction: (ChannelAction) -> Void
+    private var didRunEntranceAnimation = false
 
     init(
         channelId: Int64,
@@ -139,9 +154,8 @@ final class ChannelActionSheetController: ViewController {
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         actionSheetNode.updateLayout(layout: layout, transition: transition)
-    }
-
-    func animateIn() {
+        guard !didRunEntranceAnimation, layout.size.width > 1, layout.size.height > 1 else { return }
+        didRunEntranceAnimation = true
         actionSheetNode.animateIn()
     }
 
@@ -429,7 +443,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         let icon = UIImageView()
         if let iconName = action.icon {
-            guard let base = UIImage(named: iconName) else { return v }
+            guard let base = ChannelActionAssetCache.image(named: iconName) else { return v }
             if action.isDestructive {
                 icon.image = base.withRenderingMode(.alwaysTemplate)
                 icon.tintColor = .mezonError
@@ -495,7 +509,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let toY = layout.size.height - containerHeight
         containerNode.frame.origin.y = layout.size.height
         dimNode.alpha = 0
-        UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseOut) {
+        UIView.animate(withDuration: 0.1, delay: 0, options: .curveEaseOut) {
             self.containerNode.frame.origin.y = toY
             self.dimNode.alpha = 1
         }

@@ -4045,29 +4045,38 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, let sender = context.currentUser {
-            let referencesData: Data = {
-                guard let ref = replyRef else { return Data() }
-                var list = Mezon_Api_MessageRefList()
-                list.refs = [ref]
-                return (try? list.serializedData()) ?? Data()
-            }()
-
-            let senderId = Int64(sender.id) ?? 0
+        let pendingReferencesData: Data = {
+            guard let ref = replyRef else { return Data() }
+            var list = Mezon_Api_MessageRefList()
+            list.refs = [ref]
+            return (try? list.serializedData()) ?? Data()
+        }()
+        let pendingSenderDisplayName: String
+        let pendingSenderAvatarURL: String?
+        if let sender = context.currentUser {
+            let senderIdInt = Int64(sender.id) ?? 0
             let isDmOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
                 || channel.type == MezonConstants.ChannelType.group.rawValue
             let resolved = resolvePendingSenderDisplay(
-                clanId: clanId, sender: sender, senderId: senderId, isDmOrGroup: isDmOrGroup)
+                clanId: clanId, sender: sender, senderId: senderIdInt, isDmOrGroup: isDmOrGroup)
+            pendingSenderDisplayName = resolved.name
+            pendingSenderAvatarURL = resolved.avatar
+        } else {
+            pendingSenderDisplayName = ""
+            pendingSenderAvatarURL = nil
+        }
+        let pendingCreatedAt = Date()
 
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, let sender = context.currentUser {
             let pendingRecord = MessageRecord.pending(
                 localId: localId,
                 text: displayText,
                 channelId: channelIdStr,
                 clanId: clanId,
                 sender: sender,
-                displayName: resolved.name,
-                avatarURL: resolved.avatar,
-                referencesData: referencesData,
+                displayName: pendingSenderDisplayName,
+                avatarURL: pendingSenderAvatarURL,
+                referencesData: pendingReferencesData,
                 mentionsData: mentionsPayload,
                 contentData: outgoingContentData
             )
@@ -4217,6 +4226,8 @@ final class SendMessageInputViewController: UIViewController {
                         token: token
                     )
                     if !sendAsAnonymous {
+                        let fallbackSenderId = self.context.currentUser?.id ?? ""
+                        let fallbackClanId: String? = clanId == 0 ? nil : "\(clanId)"
                         self.context.account.postbox.write { tx in
                             guard ack.messageID != 0 else {
                                 let msgs = tx.getMessages(channelId: channelIdStr)
@@ -4225,38 +4236,37 @@ final class SendMessageInputViewController: UIViewController {
                                 }
                                 return
                             }
-                            guard let pending = tx.getMessageById(localId) else {
-                                return
-                            }
+                            let pending = tx.getMessageById(localId)
+                            let baseAttachmentsJSON = pending?.attachmentsJSON ?? Data()
                             let attachmentsJSON: Data = {
-                                guard !uploadedAttachments.isEmpty else { return pending.attachmentsJSON }
+                                guard !uploadedAttachments.isEmpty else { return baseAttachmentsJSON }
                                 var list = Mezon_Api_MessageAttachmentList()
                                 list.attachments = uploadedAttachments
-                                return (try? list.serializedData()) ?? pending.attachmentsJSON
+                                return (try? list.serializedData()) ?? baseAttachmentsJSON
                             }()
                             let createdAt: Date = ack.createTimeSeconds > 0
                                 ? Date(timeIntervalSince1970: TimeInterval(ack.createTimeSeconds))
-                                : pending.createdAt
+                                : (pending?.createdAt ?? pendingCreatedAt)
                             let editedAt: Date? = ack.updateTimeSeconds > ack.createTimeSeconds && ack.updateTimeSeconds > 0
                                 ? Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
                                 : nil
                             let merged = MessageRecord(
                                 id: "\(ack.messageID)",
-                                channelId: pending.channelId,
-                                clanId: pending.clanId,
-                                senderId: pending.senderId,
-                                content: pending.content,
+                                channelId: pending?.channelId ?? channelIdStr,
+                                clanId: pending?.clanId ?? fallbackClanId,
+                                senderId: pending?.senderId ?? fallbackSenderId,
+                                content: pending?.content ?? outgoingContentData,
                                 createdAt: createdAt,
                                 editedAt: editedAt,
-                                isDeleted: pending.isDeleted,
+                                isDeleted: pending?.isDeleted ?? false,
                                 code: ack.code,
-                                senderDisplayName: pending.senderDisplayName,
-                                senderAvatarURL: pending.senderAvatarURL,
+                                senderDisplayName: pending?.senderDisplayName ?? pendingSenderDisplayName,
+                                senderAvatarURL: pending?.senderAvatarURL ?? pendingSenderAvatarURL,
                                 sendingState: .sent,
                                 attachmentsJSON: attachmentsJSON,
-                                reactionsJSON: pending.reactionsJSON,
-                                referencesData: pending.referencesData,
-                                mentionsJSON: pending.mentionsJSON
+                                reactionsJSON: pending?.reactionsJSON ?? Data(),
+                                referencesData: pending?.referencesData ?? pendingReferencesData,
+                                mentionsJSON: pending?.mentionsJSON ?? mentionsPayload
                             )
                             tx.replaceMessage(pendingId: localId, with: merged)
                         }

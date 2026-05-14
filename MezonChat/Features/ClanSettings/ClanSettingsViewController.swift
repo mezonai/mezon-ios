@@ -38,6 +38,11 @@ final class ClanSettingsViewController: BaseViewController {
                 self?.dismiss(animated: true)
             }
         }
+        node.onSelectRoles = { [weak self] in
+            guard let self else { return }
+            let vc = ClanRolesViewController(context: self.context, clanId: self.clanId)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 

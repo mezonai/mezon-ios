@@ -158,6 +158,7 @@ struct ChatMessageDisplay: Identifiable {
     let pollData: PollData?
     let rawContentData: Data?
     var isFailed: Bool { sendingState == .failed }
+    var isSending: Bool { sendingState == .pending }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var isSendTokenLog: Bool { messageCode == MezonConstants.MessageCode.sendToken.rawValue }
     var isPollMessage: Bool { pollData != nil }
@@ -395,18 +396,14 @@ final class ChatViewController: ViewController {
 
     init(
         clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext,
-        parentName: String? = nil,
-        fallbackChannelLabel: String? = nil
+        parentName: String? = nil
     ) {
         self.clanId = clanId
         self.channel = channel
         self.context = context
         self.initialParentName = parentName
-        let trimmed = fallbackChannelLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
         if !channel.channelLabel.isEmpty {
             self.channelLabel = channel.channelLabel
-        } else if let trimmed, !trimmed.isEmpty {
-            self.channelLabel = trimmed
         } else {
             self.channelLabel = "channel"
         }
@@ -574,12 +571,11 @@ final class ChatViewController: ViewController {
                 guard let ref = display.replyRef, ref.messageRefID != 0 else { return }
                 self.jumpToMessage(id: "\(ref.messageRefID)")
             },
-            onSystemThreadTapped: { [weak self] threadChannelId, threadTitle in
+            onSystemThreadTapped: { [weak self] threadChannelId, _ in
                 guard let self, threadChannelId != 0 else { return }
                 AppDelegate.navigateToChannel(
                     channelId: "\(threadChannelId)",
-                    clanId: "\(self.clanId)",
-                    title: threadTitle.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+                    clanId: "\(self.clanId)"
                 )
             },
             onSystemAllThreadsTapped: { [weak self] in

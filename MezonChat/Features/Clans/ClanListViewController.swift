@@ -14,6 +14,8 @@ struct ClanListState {
 final class ClanListViewController: ViewController {
 
     private let context: AccountContext
+    private let initialSessionEpoch: Int
+    private var isCurrentSessionAlive: Bool { context.isStillCurrentSession(epoch: initialSessionEpoch) }
     private let disposables = DisposableSet()
 
     private let clansPipe = ValuePipe<[Mezon_Api_ClanDesc]>()
@@ -45,6 +47,7 @@ final class ClanListViewController: ViewController {
 
     private var debouncedUnreadDmFetchWorkItem: DispatchWorkItem?
     private var clanSidebarLastLayoutSize: CGSize = .zero
+    private var clanListBoundAccountUserId: String?
 
     var onLogoTapped: (() -> Void)?
     var onClanSelected: (() -> Void)?
@@ -55,6 +58,7 @@ final class ClanListViewController: ViewController {
 
     init(context: AccountContext) {
         self.context = context
+        self.initialSessionEpoch = context.sessionEpoch
         super.init(navigationBarPresentationData: nil)
         restoreFromPostbox()
     }
@@ -92,6 +96,9 @@ final class ClanListViewController: ViewController {
             self, selector: #selector(handleMentionReceived(_:)),
             name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(handleClanChannelUnreadDerived(_:)),
+            name: Notification.Name("MezonClanChannelUnreadDerived"), object: nil)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(handleSocketStatusForClanBadges(_:)),
             name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(
@@ -100,12 +107,36 @@ final class ClanListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleAccountCurrentUserDidChange),
             name: .mezonAccountCurrentUserDidChange, object: nil)
+        clanListBoundAccountUserId = context.currentUser?.id
         loadClans()
         fetchUnreadDMs()
     }
 
     @objc private func handleAccountCurrentUserDidChange() {
-        needsReloadPipe.putNext(())
+        defer { needsReloadPipe.putNext(()) }
+        guard let uid = context.currentUser?.id, !uid.isEmpty else {
+            clanListBoundAccountUserId = nil
+            return
+        }
+        guard let prev = clanListBoundAccountUserId else {
+            clanListBoundAccountUserId = uid
+            return
+        }
+        guard prev != uid else { return }
+        clanListBoundAccountUserId = uid
+        loadClansTask?.cancel()
+        loadClansTask = nil
+        lastLoadClansAt = nil
+        completedRemoteClanListFetch = false
+        setClans([])
+        setSelectedClanId(nil)
+        context.currentClanId = 0
+        UserDefaults.standard.removeObject(forKey: Self.selectedClanIdUserDefaultsKey)
+        context.account.postbox.writeSync { tx in tx.replaceAllClans([]) }
+        context.account.postbox.setPreferenceData(key: PreferencesKeys.clans, value: Data())
+        context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: Data())
+        loadClans()
+        fetchUnreadDMs()
     }
 
     @objc private func handleMezonQRSelectClan(_ notification: Notification) {
@@ -119,6 +150,22 @@ final class ClanListViewController: ViewController {
             setSelectedClanId(clanId)
             loadClans()
         }
+    }
+
+    @objc private func handleClanChannelUnreadDerived(_ notification: Notification) {
+        guard let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
+        let total: Int32 = {
+            if let n = notification.userInfo?["totalUnread"] as? Int32 { return n }
+            if let n = notification.userInfo?["totalUnread"] as? Int { return Int32(n) }
+            if let n = notification.userInfo?["totalUnread"] as? NSNumber { return n.int32Value }
+            return 0
+        }()
+        guard let idx = clans.firstIndex(where: { $0.clanID == clanId }) else { return }
+        guard clans[idx].badgeCount < total else { return }
+        clans[idx].badgeCount = total
+        clansPipe.putNext(clans)
+        persistClanRecordsToPostbox(clans)
+        needsReloadPipe.putNext(())
     }
 
     @objc private func handleSocketStatusForClanBadges(_ notification: Notification) {
@@ -142,10 +189,13 @@ final class ClanListViewController: ViewController {
     private let refreshClanSidebarBadgesCooldown: TimeInterval = 2.0
 
     @MainActor
-    private func refreshClanSidebarBadgesFromSocket() async {
-        if refreshClanSidebarBadgesTask != nil { return }
-        if let last = lastRefreshClanSidebarBadgesAt,
+    private func refreshClanSidebarBadgesFromSocket(force: Bool = false) async {
+        if let existing = refreshClanSidebarBadgesTask {
+            await existing.value
+        }
+        if !force, let last = lastRefreshClanSidebarBadgesAt,
            Date().timeIntervalSince(last) < refreshClanSidebarBadgesCooldown { return }
+        let startEpoch = context.sessionEpoch
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -153,8 +203,10 @@ final class ClanListViewController: ViewController {
                 self.lastRefreshClanSidebarBadgesAt = Date()
             }
             guard let token = await self.context.getToken() else { return }
+            guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
             do {
                 let rows = try await self.context.account.network.listClanBadgeCount(token: token).listBadge
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 guard !rows.isEmpty else { return }
                 var next = self.clans
                 ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
@@ -168,6 +220,7 @@ final class ClanListViewController: ViewController {
     }
 
     private func persistClanRecordsToPostbox(_ sorted: [Mezon_Api_ClanDesc]) {
+        guard isCurrentSessionAlive else { return }
         let records = sorted.map { api -> ClanRecord in
             let data = (try? api.serializedData()) ?? Data()
             return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
@@ -387,26 +440,30 @@ final class ClanListViewController: ViewController {
         if let last = lastLoadClansAt, Date().timeIntervalSince(last) < loadClansCooldown { return }
         setIsLoading(true)
         error = nil
+        let startEpoch = context.sessionEpoch
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer { self.loadClansTask = nil }
             guard let token = await self.context.getToken() else {
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.completedRemoteClanListFetch = false
                 self.setIsLoading(false)
-                if !self.clans.isEmpty {
-                    self.clansLoadedPromise.set(true)
-                }
                 return
             }
-            defer { self.setIsLoading(false) }
+            defer {
+                if self.context.isStillCurrentSession(epoch: startEpoch) {
+                    self.setIsLoading(false)
+                }
+            }
             do {
                 let result = try await self.context.account.network.listClanDescs(token: token)
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 let sorted = result.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
                 let records = sorted.map { api -> ClanRecord in
                     let data = (try? api.serializedData()) ?? Data()
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
                 }
-                self.context.account.postbox.write { tx in tx.replaceAllClans(records) }
+                self.context.account.postbox.writeSync { tx in tx.replaceAllClans(records) }
                 self.completedRemoteClanListFetch = true
                 self.lastLoadClansAt = Date()
                 self.setClans(sorted)
@@ -429,9 +486,10 @@ final class ClanListViewController: ViewController {
                 }
                 self.clansLoadedPromise.set(true)
                 Task { @MainActor in
-                    await self.refreshClanSidebarBadgesFromSocket()
+                    await self.refreshClanSidebarBadgesFromSocket(force: true)
                 }
             } catch {
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if self.clans.isEmpty {
                     self.completedRemoteClanListFetch = false
                 } else {
@@ -481,6 +539,7 @@ final class ClanListViewController: ViewController {
             applyUnreadDMsFromCache()
             return
         }
+        let startEpoch = context.sessionEpoch
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -488,14 +547,18 @@ final class ClanListViewController: ViewController {
                 self.lastFetchUnreadDMsAt = Date()
             }
             guard let token = await self.context.getToken() else {
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.applyUnreadDMsFromCache()
                 return
             }
+            guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 do {
                     let badgeRows = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                         .channeldesc
+                    guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
                 } catch {
                 }
@@ -504,6 +567,7 @@ final class ClanListViewController: ViewController {
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
+                guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.applyUnreadDMsFromCache()
             }
         }
@@ -587,6 +651,7 @@ final class ClanListViewController: ViewController {
     private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"
 
     private func syncClanDescsToClanTable(_ apiClans: [Mezon_Api_ClanDesc]) {
+        guard isCurrentSessionAlive else { return }
         guard !apiClans.isEmpty else { return }
         let records = apiClans.map { api -> ClanRecord in
             let data = (try? api.serializedData()) ?? Data()
@@ -641,6 +706,7 @@ final class ClanListViewController: ViewController {
     }
 
     private func persistToPostbox() {
+        guard isCurrentSessionAlive else { return }
         self.context.account.postbox.setPreferenceData(key: PreferencesKeys.clans, value: encodeProtoArray(clans))
         if let id = selectedClanId, id != 0 {
             UserDefaults.standard.set(Int(id), forKey: Self.selectedClanIdUserDefaultsKey)
@@ -666,18 +732,14 @@ final class ClanListViewController: ViewController {
 
             let postboxDisposable = (self.context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
                     guard let self else { return }
+                    guard self.isCurrentSessionAlive else { return }
                     let mapped = view.clans.compactMap { record -> Mezon_Api_ClanDesc? in
                         guard !record.data.isEmpty else {
                         var desc = Mezon_Api_ClanDesc(); desc.clanID = record.id; desc.clanName = record.name; return desc
                         }
                         return try? Mezon_Api_ClanDesc(serializedBytes: record.data)
                 }.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
-                    if mapped.isEmpty, !self.clans.isEmpty {
-                        subscriber.putNext(self.currentState)
-                        return
-                    }
-                    self.clans = mapped
-                    subscriber.putNext(self.currentState)
+                    self.setClans(mapped)
                 })
             let reloadDisposable = (self.needsReloadPipe.signal()
                 |> map { [weak self] _ in self?.currentState ?? .empty }

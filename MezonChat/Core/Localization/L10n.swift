@@ -401,6 +401,82 @@ enum L10n {
         static let invites              = "clan.setting.invites"
     }
 
+    enum ClanRoles {
+        static let title                  = "clanRoles.title"
+        static let roleDescription        = "clanRoles.roleDescription"
+        static let defaultRole            = "clanRoles.defaultRole"
+        static let everyone               = "clanRoles.everyone"
+        static let rolesCount             = "clanRoles.rolesCount"
+        static let members                = "clanRoles.members"
+        static let allMembers             = "clanRoles.allMembers"
+        static let noRole                 = "clanRoles.noRole"
+        static let role                   = "clanRoles.role"
+        static let save                   = "clanRoles.save"
+        static let saved                  = "clanRoles.saved"
+        static let failed                 = "clanRoles.failed"
+        static let skipStep               = "clanRoles.skipStep"
+
+        static let createTitle            = "clanRoles.create.title"
+        static let createHeading          = "clanRoles.create.heading"
+        static let createDescription      = "clanRoles.create.description"
+        static let createRoleName         = "clanRoles.create.roleName"
+        static let createNewRolePlaceholder = "clanRoles.create.placeholder"
+        static let createButton           = "clanRoles.create.button"
+        static let createSuccess          = "clanRoles.create.success"
+
+        static let detailPermissions      = "clanRoles.detail.permissions"
+        static let detailMembers          = "clanRoles.detail.members"
+        static let detailRoleName         = "clanRoles.detail.roleName"
+        static let detailDelete           = "clanRoles.detail.delete"
+        static let detailConfirmSaveTitle = "clanRoles.detail.confirmSaveTitle"
+        static let detailConfirmSaveContent = "clanRoles.detail.confirmSaveContent"
+        static let detailConfirmSaveYes   = "clanRoles.detail.confirmSaveYes"
+        static let detailConfirmSaveDiscard = "clanRoles.detail.confirmSaveDiscard"
+        static let detailDeleteTitle      = "clanRoles.detail.deleteTitle"
+        static let detailDeleteMessage    = "clanRoles.detail.deleteMessage"
+        static let detailDeleteConfirm    = "clanRoles.detail.deleteConfirm"
+
+        static let colorRow               = "clanRoles.color.row"
+        static let colorPickerTitle       = "clanRoles.color.pickerTitle"
+        static let colorReset             = "clanRoles.color.reset"
+
+        static let iconRow                = "clanRoles.icon.row"
+        static let iconUpload             = "clanRoles.icon.upload"
+        static let iconRemove             = "clanRoles.icon.remove"
+        static let iconFailed             = "clanRoles.icon.failed"
+
+        static let permissionsTitle       = "clanRoles.permissions.title"
+        static let permissionsHeading     = "clanRoles.permissions.heading"
+        static let permissionsSearch      = "clanRoles.permissions.search"
+        static let permissionsNext        = "clanRoles.permissions.next"
+        static let permissionNotAvailable = "clanRoles.permissions.notAvailable"
+
+        static let membersTitle           = "clanRoles.members.title"
+        static let membersAdd             = "clanRoles.members.add"
+        static let membersAddDescription  = "clanRoles.members.description"
+        static let membersSearch          = "clanRoles.members.search"
+        static let membersNotFound        = "clanRoles.members.notFound"
+        static let membersFinish          = "clanRoles.members.finish"
+        static let membersAdded           = "clanRoles.members.added"
+
+        // Permission slugs → titles + descriptions
+        static let permissionTitleAdministrator = "clanRoles.permissionTitle.administrator"
+        static let permissionTitleManageClan    = "clanRoles.permissionTitle.manage-clan"
+        static let permissionTitleManageChannel = "clanRoles.permissionTitle.manage-channel"
+        static let permissionTitleViewChannel   = "clanRoles.permissionTitle.view-channel"
+        static let permissionTitleSendMessage   = "clanRoles.permissionTitle.send-message"
+        static let permissionTitleManageThread  = "clanRoles.permissionTitle.manage-thread"
+        static let permissionTitleDeleteMessage = "clanRoles.permissionTitle.delete-message"
+
+        static let permissionDescAdministrator  = "clanRoles.permissionDescription.administrator"
+        static let permissionDescManageClan     = "clanRoles.permissionDescription.manage-clan"
+        static let permissionDescManageChannel  = "clanRoles.permissionDescription.manage-channel"
+        static let permissionDescViewChannel    = "clanRoles.permissionDescription.view-channel"
+        static let permissionDescSendMessage    = "clanRoles.permissionDescription.send-message"
+        static let permissionDescManageThread   = "clanRoles.permissionDescription.manage-thread"
+        static let permissionDescDeleteMessage  = "clanRoles.permissionDescription.delete-message"
+    }
+
     enum Forward {
         static let screenTitle            = "forward.screenTitle"
         static let success                = "forward.success"
@@ -1013,6 +1089,79 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+
+        "clanRoles.title":                  "Roles",
+        "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
+        "clanRoles.defaultRole":            "Default permissions for all members.",
+        "clanRoles.everyone":               "@everyone",
+        "clanRoles.rolesCount":             "Roles — %d",
+        "clanRoles.members":                "members",
+        "clanRoles.allMembers":             "All members",
+        "clanRoles.noRole":                 "No role yet. Tap + to create one.",
+        "clanRoles.role":                   "Role",
+        "clanRoles.save":                   "Save",
+        "clanRoles.saved":                  "Changes saved",
+        "clanRoles.failed":                 "Something went wrong. Try again.",
+        "clanRoles.skipStep":               "Skip this step",
+
+        "clanRoles.create.title":           "Create New Role",
+        "clanRoles.create.heading":         "Create a new role",
+        "clanRoles.create.description":     "Roles represent a set of permissions assigned to a group of clan members.",
+        "clanRoles.create.roleName":        "Role name",
+        "clanRoles.create.placeholder":     "New role",
+        "clanRoles.create.button":          "Create",
+        "clanRoles.create.success":         "Role \"%@\" created",
+
+        "clanRoles.detail.permissions":     "Permissions",
+        "clanRoles.detail.members":         "Members",
+        "clanRoles.detail.roleName":        "Role Name",
+        "clanRoles.detail.delete":          "Delete Role",
+        "clanRoles.detail.confirmSaveTitle":   "Save changes?",
+        "clanRoles.detail.confirmSaveContent": "You have unsaved changes. Save before leaving?",
+        "clanRoles.detail.confirmSaveYes":     "Save",
+        "clanRoles.detail.confirmSaveDiscard": "Discard",
+        "clanRoles.detail.deleteTitle":     "Delete this role?",
+        "clanRoles.detail.deleteMessage":   "This action is permanent and cannot be undone.",
+        "clanRoles.detail.deleteConfirm":   "Delete",
+
+        "clanRoles.color.row":              "Role Color",
+        "clanRoles.color.pickerTitle":      "Role Color",
+        "clanRoles.color.reset":            "Reset color",
+
+        "clanRoles.icon.row":               "Role Icon",
+        "clanRoles.icon.upload":            "Upload",
+        "clanRoles.icon.remove":            "Remove",
+        "clanRoles.icon.failed":            "Could not upload icon",
+
+        "clanRoles.permissions.title":      "Setup Permissions",
+        "clanRoles.permissions.heading":    "Choose what members of this role can do.",
+        "clanRoles.permissions.search":     "Search permission",
+        "clanRoles.permissions.next":       "Next",
+        "clanRoles.permissions.notAvailable": "No description available for this permission.",
+
+        "clanRoles.members.title":          "Add Members",
+        "clanRoles.members.add":            "Add member",
+        "clanRoles.members.description":    "Pick members to add to this role.",
+        "clanRoles.members.search":         "Search members",
+        "clanRoles.members.notFound":       "No members found",
+        "clanRoles.members.finish":         "Finish",
+        "clanRoles.members.added":          "Members updated",
+
+        "clanRoles.permissionTitle.administrator":   "Administrator",
+        "clanRoles.permissionTitle.manage-clan":     "Manage Clan",
+        "clanRoles.permissionTitle.manage-channel":  "Manage Channels",
+        "clanRoles.permissionTitle.view-channel":    "View Channels",
+        "clanRoles.permissionTitle.send-message":    "Send Messages",
+        "clanRoles.permissionTitle.manage-thread":   "Manage Threads",
+        "clanRoles.permissionTitle.delete-message":  "Delete Messages",
+
+        "clanRoles.permissionDescription.administrator":  "Members with this permission have every permission and can bypass channel restrictions.",
+        "clanRoles.permissionDescription.manage-clan":    "Allows changing the clan name, icon and other settings.",
+        "clanRoles.permissionDescription.manage-channel": "Allows creating, editing or deleting channels.",
+        "clanRoles.permissionDescription.view-channel":   "Allows members to view channels by default.",
+        "clanRoles.permissionDescription.send-message":   "Allows members to send messages in text channels.",
+        "clanRoles.permissionDescription.manage-thread":  "Allows creating, archiving and deleting threads.",
+        "clanRoles.permissionDescription.delete-message": "Allows deleting messages from other members.",
         "forward.screenTitle": "Forward to",
         "forward.success": "Messages forwarded",
         "forward.attachmentsSingular": "attachment",
@@ -1678,6 +1827,80 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+
+        "clanRoles.title":                  "Vai trò",
+        "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",
+        "clanRoles.defaultRole":            "Quyền mặc định cho tất cả thành viên.",
+        "clanRoles.everyone":               "@everyone",
+        "clanRoles.rolesCount":             "Vai trò — %d",
+        "clanRoles.members":                "thành viên",
+        "clanRoles.allMembers":             "Tất cả thành viên",
+        "clanRoles.noRole":                 "Chưa có vai trò nào. Nhấn + để tạo mới.",
+        "clanRoles.role":                   "Vai trò",
+        "clanRoles.save":                   "Lưu",
+        "clanRoles.saved":                  "Đã lưu thay đổi",
+        "clanRoles.failed":                 "Có lỗi xảy ra. Vui lòng thử lại.",
+        "clanRoles.skipStep":               "Bỏ qua bước này",
+
+        "clanRoles.create.title":           "Tạo vai trò mới",
+        "clanRoles.create.heading":         "Tạo vai trò mới",
+        "clanRoles.create.description":     "Vai trò đại diện cho tập quyền được gán cho một nhóm thành viên.",
+        "clanRoles.create.roleName":        "Tên vai trò",
+        "clanRoles.create.placeholder":     "Vai trò mới",
+        "clanRoles.create.button":          "Tạo",
+        "clanRoles.create.success":         "Đã tạo vai trò \"%@\"",
+
+        "clanRoles.detail.permissions":     "Quyền",
+        "clanRoles.detail.members":         "Thành viên",
+        "clanRoles.detail.roleName":        "Tên vai trò",
+        "clanRoles.detail.delete":          "Xoá vai trò",
+        "clanRoles.detail.confirmSaveTitle":   "Lưu thay đổi?",
+        "clanRoles.detail.confirmSaveContent": "Bạn có thay đổi chưa lưu. Lưu trước khi rời?",
+        "clanRoles.detail.confirmSaveYes":     "Lưu",
+        "clanRoles.detail.confirmSaveDiscard": "Bỏ thay đổi",
+        "clanRoles.detail.deleteTitle":     "Xoá vai trò này?",
+        "clanRoles.detail.deleteMessage":   "Hành động này không thể hoàn tác.",
+        "clanRoles.detail.deleteConfirm":   "Xoá",
+
+        "clanRoles.color.row":              "Màu vai trò",
+        "clanRoles.color.pickerTitle":      "Màu vai trò",
+        "clanRoles.color.reset":            "Đặt lại màu",
+
+        "clanRoles.icon.row":               "Biểu tượng",
+        "clanRoles.icon.upload":            "Tải lên",
+        "clanRoles.icon.remove":            "Xoá",
+        "clanRoles.icon.failed":            "Không thể tải biểu tượng",
+
+        "clanRoles.permissions.title":      "Cài đặt quyền",
+        "clanRoles.permissions.heading":    "Chọn các quyền cho thành viên có vai trò này.",
+        "clanRoles.permissions.search":     "Tìm quyền",
+        "clanRoles.permissions.next":       "Tiếp theo",
+        "clanRoles.permissions.notAvailable": "Chưa có mô tả cho quyền này.",
+
+        "clanRoles.members.title":          "Thêm thành viên",
+        "clanRoles.members.add":            "Thêm thành viên",
+        "clanRoles.members.description":    "Chọn thành viên để thêm vào vai trò.",
+        "clanRoles.members.search":         "Tìm thành viên",
+        "clanRoles.members.notFound":       "Không tìm thấy thành viên",
+        "clanRoles.members.finish":         "Hoàn tất",
+        "clanRoles.members.added":          "Đã cập nhật thành viên",
+
+        "clanRoles.permissionTitle.administrator":   "Quản trị viên",
+        "clanRoles.permissionTitle.manage-clan":     "Quản lý Clan",
+        "clanRoles.permissionTitle.manage-channel":  "Quản lý kênh",
+        "clanRoles.permissionTitle.view-channel":    "Xem kênh",
+        "clanRoles.permissionTitle.send-message":    "Gửi tin nhắn",
+        "clanRoles.permissionTitle.manage-thread":   "Quản lý thread",
+        "clanRoles.permissionTitle.delete-message":  "Xoá tin nhắn",
+
+        "clanRoles.permissionDescription.administrator":  "Thành viên có quyền này sở hữu mọi quyền và bỏ qua hạn chế của kênh.",
+        "clanRoles.permissionDescription.manage-clan":    "Cho phép đổi tên, ảnh đại diện và cài đặt khác của clan.",
+        "clanRoles.permissionDescription.manage-channel": "Cho phép tạo, sửa, xoá kênh.",
+        "clanRoles.permissionDescription.view-channel":   "Cho phép thành viên xem kênh theo mặc định.",
+        "clanRoles.permissionDescription.send-message":   "Cho phép gửi tin nhắn trong các kênh chat.",
+        "clanRoles.permissionDescription.manage-thread":  "Cho phép tạo, lưu trữ và xoá thread.",
+        "clanRoles.permissionDescription.delete-message": "Cho phép xoá tin nhắn của thành viên khác.",
+
         "forward.screenTitle": "Chuyển tiếp tới",
         "forward.success": "Đã chuyển tiếp tin nhắn",
         "forward.attachmentsSingular": "đính kèm",

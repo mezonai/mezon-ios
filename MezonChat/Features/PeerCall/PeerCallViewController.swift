@@ -576,6 +576,7 @@ final class PeerCallViewController: ViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        WebRTCCallManager.shared.notePeerCallDetailAppeared()
         guard let session else {
             return
         }
@@ -597,6 +598,11 @@ final class PeerCallViewController: ViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if isMovingFromParent || isBeingDismissed {
+            WebRTCCallManager.shared.notePeerCallDetailDisappeared()
+        } else if let nav = navigationController, nav.topViewController !== self {
+            WebRTCCallManager.shared.notePeerCallDetailDisappeared()
+        }
         pendingConnectedChromeWorkItem?.cancel()
         pendingConnectedChromeWorkItem = nil
         durationTimer?.invalidate()

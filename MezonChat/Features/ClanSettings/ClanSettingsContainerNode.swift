@@ -4,6 +4,7 @@ import UIKit
 final class ClanSettingsContainerNode: ASDisplayNode {
 
     var onClose: (() -> Void)?
+    var onSelectRoles: (() -> Void)?
 
     private let context: AccountContext
     private let clanId: Int64
@@ -92,7 +93,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
         let userActions: [SettingAction] = [
             .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon"),
-            .init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon"),
+            .init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", navigate: .roles),
             .init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite"),
         ]
         let userGroup = createGroup(actions: userActions)
@@ -332,7 +333,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
-        btn.addTarget(self, action: #selector(rowButtonTapped), for: .touchUpInside)
+        btn.tag = action.navigate?.rawValue ?? 0
+        btn.addTarget(self, action: #selector(rowButtonTapped(_:)), for: .touchUpInside)
 
         return v
     }
@@ -341,7 +343,13 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         onClose?()
     }
 
-    @objc private func rowButtonTapped() {}
+    @objc private func rowButtonTapped(_ sender: UIButton) {
+        guard let nav = ClanSettingsNavigateAction(rawValue: sender.tag) else { return }
+        switch nav {
+        case .roles:
+            onSelectRoles?()
+        }
+    }
 
     private func initials(for name: String) -> String {
         let words = name.split(separator: " ").prefix(2)
@@ -362,7 +370,18 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 }
 
+private enum ClanSettingsNavigateAction: Int {
+    case roles = 1
+}
+
 private struct SettingAction {
     let title: String
     let icon: String
+    var navigate: ClanSettingsNavigateAction?
+
+    init(title: String, icon: String, navigate: ClanSettingsNavigateAction? = nil) {
+        self.title = title
+        self.icon = icon
+        self.navigate = navigate
+    }
 }

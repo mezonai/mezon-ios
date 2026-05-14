@@ -6,6 +6,16 @@ final class WebRTCCallManager {
     static let shared = WebRTCCallManager()
     private init() {}
 
+    private(set) var isPeerCallDetailScreenActive = false
+
+    func notePeerCallDetailAppeared() {
+        isPeerCallDetailScreenActive = true
+    }
+
+    func notePeerCallDetailDisappeared() {
+        isPeerCallDetailScreenActive = false
+    }
+
     weak var signalingSession: PeerWebRTCCallSession?
 
     private var awaitingIncomingAttachment = false
@@ -271,10 +281,23 @@ final class WebRTCCallManager {
         }
         guard push.channelID != 0, push.callerID != 0 else { return }
         if Self.incomingCallPushIsCancel(push.jsonData) {
-            print("[CallKitDebug] handleIncomingCallPush CANCEL_CALL via socket channelId=\(push.channelID) callerId=\(push.callerID)")
+            let isConnectedFlag = Self.incomingCallPushIsConnectedTrue(push.jsonData)
+            print("[CallKitDebug] handleIncomingCallPush CANCEL_CALL via socket channelId=\(push.channelID) callerId=\(push.callerID) isConnected=\(isConnectedFlag)")
             if let session = signalingSession,
                session.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
-                session.hangUp()
+                let isRinging = session.isRingingIncomingPeerCallMatching(
+                    channelId: push.channelID,
+                    callerId: push.callerID
+                )
+                if isRinging {
+                    print("[CallKitDebug] handleIncomingCallPush -> session.hangUp() (still ringing)")
+                    session.hangUp()
+                } else if !isConnectedFlag {
+                    print("[CallKitDebug] handleIncomingCallPush -> session.hangUp() (active session, isConnected=false caller-cancelled)")
+                    session.hangUp()
+                } else {
+                    print("[CallKitDebug] handleIncomingCallPush -> SKIP session.hangUp() (active session, isConnected=true means caller signaling answered-elsewhere; this device is the answerer)")
+                }
             }
             if let warm = preWarmedIncomingSession,
                warm.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
@@ -288,7 +311,8 @@ final class WebRTCCallManager {
             pendingIncomingPeerCallUserInfo = nil
             CallKitManager.shared.endRingingCallIfMatching(
                 channelId: push.channelID,
-                callerId: push.callerID
+                callerId: push.callerID,
+                remoteIsConnected: isConnectedFlag
             )
             return
         }
@@ -308,12 +332,41 @@ final class WebRTCCallManager {
         return (obj["offer"] as? String) == "CANCEL_CALL"
     }
 
+    private static func incomingCallPushIsConnectedTrue(_ jsonData: String) -> Bool {
+        let trimmed = jsonData.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return false }
+        if let b = obj["isConnected"] as? Bool { return b }
+        if let n = obj["isConnected"] as? NSNumber { return n.boolValue }
+        return false
+    }
+
     func handleSignalingMessage(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) {
         deliverSignaling(msg, currentUserId: currentUserId)
     }
 
     private func deliverSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) {
         print("[DMCall] deliverSignaling dataType=\(msg.dataType) channelId=\(msg.channelID) callerId=\(msg.callerID) receiverId=\(msg.receiverID) hasSig=\(signalingSession != nil) awaitingAttachment=\(awaitingIncomingAttachment) buffered=\(bufferedSignaling.count)")
+
+        if msg.dataType == WebRTCSignalingDataType.sdpOffer,
+           msg.callerID != currentUserId,
+           msg.callerID != 0,
+           msg.channelID != 0,
+           (msg.receiverID == currentUserId || msg.receiverID == 0),
+           isBusyWithDifferentPeer(channelId: msg.channelID, callerId: msg.callerID) {
+            print("[DMCall] deliverSignaling sdpOffer from DIFFERENT peer while busy -> sdpJoinedOtherCall to caller=\(msg.callerID) channelId=\(msg.channelID)")
+            MezonSocket.shared.forwardWebrtcSignaling(
+                receiverId: msg.callerID,
+                dataType: WebRTCSignalingDataType.sdpJoinedOtherCall,
+                jsonData: "",
+                channelId: msg.channelID,
+                callerId: currentUserId
+            )
+            return
+        }
+
         if let session = signalingSession {
             print("[DMCall] deliverSignaling -> forwarding to attached session")
             session.handleIncomingSignaling(msg)
@@ -383,6 +436,18 @@ final class WebRTCCallManager {
         default:
             return false
         }
+    }
+
+    private func isBusyWithDifferentPeer(channelId: Int64, callerId: Int64) -> Bool {
+        if let session = signalingSession,
+           !session.isMatchingPeerCall(channelId: channelId, callerId: callerId) {
+            return true
+        }
+        if let warm = preWarmedIncomingSession,
+           !warm.isMatchingPeerCall(channelId: channelId, callerId: callerId) {
+            return true
+        }
+        return false
     }
 
     private func shouldBuffer(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) -> Bool {

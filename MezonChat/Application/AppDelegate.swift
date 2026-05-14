@@ -159,12 +159,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         if let notificationResponse = connectionOptions.notificationResponse {
             let userInfo = notificationResponse.notification.request.content.userInfo
-            let title = notificationResponse.notification.request.content.title
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
             if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
                 accountContext?.currentClanId = clanIdInt
             }
-            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
         }
     }
 
@@ -397,14 +396,16 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return ActiveChannelTracker.currentChannelId == chIdInt
         }()
 
-        if !isViewingChannel {
+        Task { @MainActor in
+            let suppressPeerCallToast = WebRTCCallManager.shared.isPeerCallDetailScreenActive
+            guard !isViewingChannel, !suppressPeerCallToast else { return }
             Toast.notification(title: title, message: body) {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
                         self.accountContext?.currentClanId = clanIdInt
                     }
-                    Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+                    Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
                 }
             }
         }
@@ -419,13 +420,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     ) {
         let userInfo = response.notification.request.content.userInfo
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
-        let title = response.notification.request.content.title
 
         if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
             accountContext?.currentClanId = clanIdInt
         }
 
-        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, title: title)
+        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
 
         completionHandler()
     }
@@ -433,7 +433,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     static var pendingNavigation: [String: Any]?
     static var lastHandledNavigationInstanceId: String?
 
-    static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false, title: String? = nil) {
+    static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false) {
         guard let channelId, !channelId.isEmpty else { return }
         var info: [String: Any] = [
             "channelId": channelId,
@@ -441,7 +441,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             "navigationInstanceId": UUID().uuidString,
         ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
-        if let title, !title.isEmpty { info["title"] = title }
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String

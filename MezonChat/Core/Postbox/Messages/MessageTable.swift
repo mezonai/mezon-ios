@@ -200,9 +200,14 @@ final class MessageTable: Table {
 
     func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
         let belonging = messages.filter { $0.channelId == channelId }
-        cache[channelId] = belonging.sorted { $0.createdAt < $1.createdAt }
+        let existing = cache[channelId] ?? getMessages(channelId: channelId)
+        let pendingsToKeep = existing.filter { record in
+            guard record.id.hasPrefix("pending-") else { return false }
+            return !belonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
+        }
+        cache[channelId] = (belonging + pendingsToKeep).sorted { $0.createdAt < $1.createdAt }
         pendingWrites.insert(channelId)
-        db.run("DELETE FROM messages WHERE channel_id = ?") {
+        db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
             sqlite3_bind_text($0, 1, channelId, -1, nil)
         }
     }
