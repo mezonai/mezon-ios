@@ -505,6 +505,12 @@ enum L10n {
         static let alertOK             = "sharing.alertOK"
     }
 
+    enum ChannelApp {
+        static let launchApp = "channelApp.launchApp"
+        static let help = "channelApp.help"
+        static let unavailable = "channelApp.unavailable"
+    }
+
     enum ClanInviteSheet {
         static let title                = "clan.inviteSheet.title"
         static let share                = "clan.inviteSheet.share"
@@ -631,6 +637,7 @@ enum L10n {
         static let todayAt        = "channelMessages.todayAt"
         static let yesterdayAt   = "channelMessages.yesterdayAt"
         static let writeMessage   = "channelMessages.writeMessage"
+        static let noSendPermission = "channelMessages.noSendPermission"
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
@@ -647,7 +654,7 @@ enum L10n {
         static let addFriend = "directMessage.addFriend"
 
         static let groupCreated   = "directMessage.groupCreated"
-        static let previewFile    = "directMessage.previewFile"
+        static let previewAttachment = "directMessage.previewAttachment"
         static let previewLink    = "directMessage.previewLink"
         static let previewLocation = "directMessage.previewLocation"
         static let previewContact = "directMessage.previewContact"
@@ -1287,6 +1294,7 @@ extension L10n {
         "channelMessages.todayAt": "Today at %@",
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
+        "channelMessages.noSendPermission": "You do not have permission to send messages in this channel.",
         "channelMessages.userIsTyping": "%@ is typing…",
         "channelMessages.usersAreTyping": "%@ are typing…",
         "channelMessages.severalPeopleTyping": "Several people are typing…",
@@ -1296,6 +1304,10 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
         "channelMessages.pollUnsupported": "Polls aren't supported in the app yet.",
         "channelMessages.pollComingSoon": "Coming soon.",
+
+        "channelApp.launchApp": "Launch App",
+        "channelApp.help": "Help",
+        "channelApp.unavailable": "App unavailable",
 
         "poll.selectOne": "Select one option",
         "poll.selectOneOrMore": "Select one or more options",
@@ -1324,7 +1336,7 @@ extension L10n {
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
         "directMessage.groupCreated": "Group created",
-        "directMessage.previewFile": "File",
+        "directMessage.previewAttachment": "Attachment",
         "directMessage.previewLink": "Link",
         "directMessage.previewLocation": "Location",
         "directMessage.previewContact": "Contact",
@@ -2025,6 +2037,7 @@ extension L10n {
         "channelMessages.todayAt": "Hôm nay lúc %@",
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
+        "channelMessages.noSendPermission": "Bạn không có quyền gửi tin nhắn trong kênh này.",
         "channelMessages.userIsTyping": "%@ đang nhập…",
         "channelMessages.usersAreTyping": "%@ đang nhập…",
         "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",
@@ -2034,6 +2047,10 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
         "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
         "channelMessages.pollComingSoon": "Sắp có.",
+
+        "channelApp.launchApp": "Mở app",
+        "channelApp.help": "Trợ giúp",
+        "channelApp.unavailable": "Không mở được app.",
 
         "poll.selectOne": "Chọn một tùy chọn",
         "poll.selectOneOrMore": "Chọn một hoặc nhiều tùy chọn",
@@ -2062,7 +2079,7 @@ extension L10n {
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
         "directMessage.groupCreated": "Nhóm đã được tạo",
-        "directMessage.previewFile": "Tệp",
+        "directMessage.previewAttachment": "Đính kèm",
         "directMessage.previewLink": "Liên kết",
         "directMessage.previewLocation": "Vị trí",
         "directMessage.previewContact": "Danh bạ",

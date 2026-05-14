@@ -350,6 +350,11 @@ final class ChatViewController: ViewController {
     private var advancePanelCollapsedHeight: CGFloat = 0
 
     private var inputBarHeight: CGFloat = 56
+    private let channelAppHotbar: ChannelAppHotbarBarView = {
+        let v = ChannelAppHotbarBarView()
+        v.isHidden = true
+        return v
+    }()
     private var currentKeyboardOffset: CGFloat = 0
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
@@ -939,7 +944,10 @@ final class ChatViewController: ViewController {
         let bottomOffset = max(keyboardOffset, max(emojiOffset, advanceOffset))
 
         let sendComposerH = sendInputViewController.totalHeight
-        let totalBottomH = sendComposerH
+        let showAppHotbar = shouldShowChannelAppHotbar
+        let appHotbarH: CGFloat = showAppHotbar ? ChannelAppHotbarBarView.prefersFixedHeight : 0
+        channelAppHotbar.isHidden = !showAppHotbar
+        let totalBottomH = appHotbarH + sendComposerH
         let inputY = layout.size.height - bottomInset - bottomOffset - totalBottomH
         let inputFrame = CGRect(
             x: 0,
@@ -948,7 +956,25 @@ final class ChatViewController: ViewController {
             height: sendComposerH + bottomInset
         )
         sendInputViewController.syncComposerBottomSafeInset(bottomInset)
-        transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
+        if showAppHotbar {
+            let hotbarFrame = CGRect(
+                x: 0,
+                y: inputY,
+                width: layout.size.width,
+                height: appHotbarH
+            )
+            let composerTop = inputY + appHotbarH
+            let composerFrame = CGRect(
+                x: 0,
+                y: composerTop,
+                width: layout.size.width,
+                height: sendComposerH + bottomInset
+            )
+            transition.updateFrame(view: channelAppHotbar, frame: hotbarFrame, beginWithCurrentState: true)
+            transition.updateFrame(view: sendInputViewController.view, frame: composerFrame, beginWithCurrentState: true)
+        } else {
+            transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
+        }
 
         emojiPicker.updateBottomInset(bottomInset)
         advancePanelBottomConstraint?.constant = -bottomInset
@@ -977,7 +1003,7 @@ final class ChatViewController: ViewController {
         if suppressScrollToBottomForNextKeyboardInset, rawKeyboardOffset > 0.5 {
             suppressScrollToBottomForNextKeyboardInset = false
         }
-        inputBarHeight = sendComposerH
+        inputBarHeight = totalBottomH
         currentKeyboardOffset = bottomOffset
 
         messagesNode.updateLayout(
@@ -1036,6 +1062,7 @@ final class ChatViewController: ViewController {
     @objc private func handleThemeChange() {
         messagesNode.applyTheme()
         applyRemoteTypingStripTheme()
+        channelAppHotbar.applyTheme()
     }
 
     private func applyRemoteTypingStripTheme() {
@@ -2781,6 +2808,9 @@ final class ChatViewController: ViewController {
     private func setupInputBar() {
         remoteTypingStripView.addSubview(remoteTypingLabel)
         view.addSubview(remoteTypingStripView)
+        channelAppHotbar.onLaunch = { [weak self] in self?.openChannelAppFromHotbar() }
+        channelAppHotbar.onHelp = { [weak self] in self?.openChannelAppHelpFromHotbar() }
+        view.addSubview(channelAppHotbar)
         addChild(sendInputViewController)
         view.addSubview(sendInputViewController.view)
         sendInputViewController.didMove(toParent: self)
@@ -2801,10 +2831,12 @@ final class ChatViewController: ViewController {
         ])
 
         applyRemoteTypingStripTheme()
+        channelAppHotbar.applyTheme()
         inputBarHeight = sendInputViewController.totalHeight
         remoteTypingStripView.alpha = 0
         remoteTypingStripView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
+        view.bringSubviewToFront(channelAppHotbar)
         view.bringSubviewToFront(sendInputViewController.view)
         emojiPicker.bringToFront()
         view.bringSubviewToFront(advancePanelView)
@@ -4184,6 +4216,100 @@ final class ChatViewController: ViewController {
             }
         }
     }
+
+    private var shouldShowChannelAppHotbar: Bool {
+        topicId == 0 && clanId != 0
+            && channel.type == MezonConstants.ChannelType.app.rawValue
+    }
+
+    private func loadChannelAppsFromPostboxCache() -> [Mezon_Api_ChannelAppResponse] {
+        guard clanId != 0 else { return [] }
+        let key = PreferencesKeys.channelApps(clanId: clanId)
+        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else { return [] }
+        return Mezon_Api_ListChannelAppsResponse.decodeChannelApps(data)
+    }
+
+    private func resolvedChannelAppRecord() -> Mezon_Api_ChannelAppResponse? {
+        guard shouldShowChannelAppHotbar else { return nil }
+        let list = loadChannelAppsFromPostboxCache()
+        if let hit = list.first(where: { $0.channelID == channel.channelID }) {
+            return hit
+        }
+        guard channel.appID != 0 else { return nil }
+        var syn = Mezon_Api_ChannelAppResponse()
+        syn.channelID = channel.channelID
+        syn.clanID = clanId
+        syn.appID = channel.appID
+        syn.appName = channel.channelLabel
+        return syn
+    }
+
+    private func tryResolveChannelAppViaNetwork(hint: Mezon_Api_ChannelAppResponse) async -> Mezon_Api_ChannelAppResponse? {
+        guard let token = await context.getToken() else { return nil }
+        do {
+            let apps = try await MezonHTTPClient.shared.listChannelApps(clanId: clanId, token: token)
+            if let hit = apps.first(where: { $0.channelID == channel.channelID }) { return hit }
+            if hint.appID != 0, let hit = apps.first(where: { $0.appID == hint.appID }) { return hit }
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    private func openChannelAppFromHotbar() {
+        view.endEditing(true)
+        emojiPicker.setVisible(false, collapsedHeight: 0)
+        dismissAdvancePanel()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard var working = self.resolvedChannelAppRecord() else {
+                Toast.error(L(L10n.ChannelApp.unavailable))
+                return
+            }
+            if working.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, working.appID != 0 {
+                if let fromNet = await self.tryResolveChannelAppViaNetwork(hint: working) {
+                    working = fromNet
+                }
+            }
+            guard working.appID != 0 else {
+                Toast.error(L(L10n.ChannelApp.unavailable))
+                return
+            }
+            let urlStr = working.appURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !urlStr.isEmpty else {
+                Toast.error(L(L10n.ChannelApp.unavailable))
+                return
+            }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                let webAppData = try await self.context.account.network.generateChannelAppHash(appId: working.appID, token: token)
+                guard !webAppData.isEmpty else {
+                    Toast.error(L(L10n.ChannelApp.unavailable))
+                    return
+                }
+                guard let pageURL = working.channelAppWebPageURL(webAppData: webAppData) else {
+                    Toast.error(L(L10n.ChannelApp.unavailable))
+                    return
+                }
+                let titleRaw = working.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fromChannel = self.channel.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                let pickTitle = titleRaw.isEmpty ? fromChannel : titleRaw
+                let title = pickTitle.isEmpty ? "App" : pickTitle
+                let vc = ChannelAppWebViewController(pageURL: pageURL, appTitle: title)
+                self.presentInGlobalOverlay(vc)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func openChannelAppHelpFromHotbar() {
+        guard let url = URL(string: "https://mezon.ai") else { return }
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+    }
 }
 
 extension ChatViewController: CLLocationManagerDelegate {
@@ -4296,4 +4422,87 @@ extension ChatViewController {
             present(callVC, animated: true)
         }
     }
+}
+
+private final class ChannelAppHotbarBarView: UIView {
+
+    static let prefersFixedHeight: CGFloat = 40
+
+    var onLaunch: (() -> Void)?
+    var onHelp: (() -> Void)?
+
+    private let launchButton = UIButton(type: .custom)
+    private let helpButton = UIButton(type: .custom)
+    private let stack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .fillEqually
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        configureActionButton(launchButton, titleKey: L10n.ChannelApp.launchApp)
+        configureActionButton(helpButton, titleKey: L10n.ChannelApp.help)
+        stack.addArrangedSubview(launchButton)
+        stack.addArrangedSubview(helpButton)
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
+        launchButton.addTarget(self, action: #selector(launchTapped), for: .touchUpInside)
+        helpButton.addTarget(self, action: #selector(helpTapped), for: .touchUpInside)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func applyTheme() {
+        backgroundColor = .clear
+        applyChrome(to: launchButton, titleKey: L10n.ChannelApp.launchApp)
+        applyChrome(to: helpButton, titleKey: L10n.ChannelApp.help)
+    }
+
+    private func configureActionButton(_ btn: UIButton, titleKey: String) {
+        btn.titleLabel?.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 14, weight: .medium))
+        btn.titleLabel?.adjustsFontForContentSizeCategory = true
+        btn.titleLabel?.lineBreakMode = .byTruncatingTail
+        btn.contentHorizontalAlignment = .center
+        applyChrome(to: btn, titleKey: titleKey)
+    }
+
+    private func applyChrome(to btn: UIButton, titleKey: String) {
+        let t = UIColor.theme
+        let title = L(titleKey)
+        if #available(iOS 15.0, *) {
+            var c = UIButton.Configuration.plain()
+            c.title = title
+            c.titleLineBreakMode = .byTruncatingTail
+            c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var o = incoming
+                o.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 14, weight: .medium))
+                return o
+            }
+            c.baseForegroundColor = t.text
+            c.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8)
+            var bg = UIBackgroundConfiguration.clear()
+            bg.backgroundColor = .clear
+            c.background = bg
+            btn.configuration = c
+        } else {
+            btn.setTitle(title, for: .normal)
+            btn.setImage(nil, for: .normal)
+            btn.setTitleColor(t.text, for: .normal)
+            btn.backgroundColor = .clear
+            btn.imageEdgeInsets = .zero
+            btn.titleEdgeInsets = .zero
+            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        }
+    }
+
+    @objc private func launchTapped() { onLaunch?() }
+    @objc private func helpTapped() { onHelp?() }
 }

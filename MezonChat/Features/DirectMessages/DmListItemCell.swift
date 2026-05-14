@@ -377,6 +377,29 @@ final class DmListItemCell: UITableViewCell {
 
     private static let shareContactFieldValue = "share_contact"
 
+    private static func attachmentDicts(from content: [String: Any]) -> [[String: Any]] {
+        if let arr = content["attachments"] as? [[String: Any]] { return arr }
+        if let arr = content["a"] as? [[String: Any]] { return arr }
+        if let arr = content["attachments"] as? [Any] {
+            return arr.compactMap { $0 as? [String: Any] }
+        }
+        if let arr = content["a"] as? [Any] {
+            return arr.compactMap { $0 as? [String: Any] }
+        }
+        return []
+    }
+
+    private static func bracketAttachmentPreview(from items: [[String: Any]]) -> String? {
+        guard !items.isEmpty else { return nil }
+        return "[\(L(L10n.DirectMessage.previewAttachment))]"
+    }
+
+    private static func nonEmptyEmbedString(_ embed: [String: Any], key: String) -> String? {
+        guard let s = embed[key] as? String else { return nil }
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
     private static func firstEmbed(in content: [String: Any]) -> [String: Any]? {
         if let arr = content["embed"] as? [[String: Any]] { return arr.first }
         if let arr = content["embed"] as? [Any] {
@@ -401,17 +424,18 @@ final class DmListItemCell: UITableViewCell {
 
     private static func dmPreviewBody(from content: [String: Any], channelId: Int64) -> String {
         let t = messageTextT(from: content)
+        let attachmentItems = attachmentDicts(from: content)
 
         if let embed = firstEmbed(in: content) {
-            let title = (embed["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            let desc = (embed["description"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            if let title { return title }
-            if let desc { return desc }
+            if let title = nonEmptyEmbedString(embed, key: "title") { return title }
+            if let desc = nonEmptyEmbedString(embed, key: "description") { return desc }
             if let fields = embed["fields"] as? [[String: Any]],
                fields.contains(where: { ($0["value"] as? String) == shareContactFieldValue }) {
                 return "[\(L(L10n.DirectMessage.previewContact))]"
             }
-            return ""
+            if let u = nonEmptyEmbedString(embed, key: "url"), textContainsURL(u) {
+                return "[\(L(L10n.DirectMessage.previewLink))] \(u)"
+            }
         }
 
         if isGoogleMapsLink(t) {
@@ -423,7 +447,12 @@ final class DmListItemCell: UITableViewCell {
         if !t.isEmpty {
             return t
         }
-        return ""
+
+        if let att = bracketAttachmentPreview(from: attachmentItems) {
+            return att
+        }
+
+        return "[\(L(L10n.DirectMessage.previewAttachment))]"
     }
 
     private static func textContainsURL(_ text: String) -> Bool {

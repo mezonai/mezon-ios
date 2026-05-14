@@ -367,6 +367,10 @@ final class RolePermissionService {
         channelPermissionsCache[channelId]
     }
 
+    func hasResolvedChannelOverriddenPermissionsSnapshot(channelId: Int64) -> Bool {
+        channelId != 0 && channelPermissionsCache[channelId] != nil
+    }
+
     func canSendMessage(clanId: Int64, channelId: Int64) -> Bool {
         if clanId == 0 { return true }
         if isClanOwner(clanId: clanId) { return true }
