@@ -190,6 +190,7 @@
 		5AB418F26BDF2FA5E62BF341 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCACA49E871D8CD52F95EA9C /* ShareViewController.swift */; };
 		5DA66361FDD17493D3B3574E /* NotificationSettingsSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914E58605DF47952DCCB0653 /* NotificationSettingsSheetController.swift */; };
 		5E2DADEDBECD97E691CD6EBB /* AccountSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E223C3A86A605970EEA7163D /* AccountSettingsViewController.swift */; };
+		3C8A5B1E9F2D7604E8A1B3C5 /* SetPasswordViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B3F9A2E1D4C8E5F0A6B7C3D /* SetPasswordViewController.swift */; };
 		5E4D3681E98064C508631A88 /* NetworkBannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C428DB3E4CB6BE4A7DBB3EDB /* NetworkBannerView.swift */; };
 		5E5F151A03D8C9FF6FDC3603 /* Helpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6FCBF73086932953EE28120 /* Helpers.swift */; };
 		5FE11EE26AB3D18662906BCB /* MmnWalletStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1962C0F4ACBDF65103CC9DBE /* MmnWalletStore.swift */; };
@@ -688,6 +689,7 @@
 		3C5DA8FB1CCC85930A8CB062 /* RoundedRectangle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoundedRectangle.swift; sourceTree = "<group>"; };
 		3C8EDFC6DA55BA15B9F136D3 /* Rectangle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rectangle.swift; sourceTree = "<group>"; };
 		3D08457B35F8D67AC0902501 /* UpdateEmailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateEmailViewController.swift; sourceTree = "<group>"; };
+		7B3F9A2E1D4C8E5F0A6B7C3D /* SetPasswordViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetPasswordViewController.swift; sourceTree = "<group>"; };
 		3FA554862EB1488B9F758791 /* Circle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Circle.swift; sourceTree = "<group>"; };
 		4003598D0AD0F1E26DC319A1 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
 		401F8DB37B67A9E25CE09D9C /* ZoomableContentGalleryItemNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableContentGalleryItemNode.swift; sourceTree = "<group>"; };
@@ -1158,6 +1160,7 @@
 				ACE3F1520028CFB731221677 /* LanguageSettingsViewController.swift */,
 				942246BD9C444A1F0D4FC84C /* SettingsViewController.swift */,
 				3D08457B35F8D67AC0902501 /* UpdateEmailViewController.swift */,
+				7B3F9A2E1D4C8E5F0A6B7C3D /* SetPasswordViewController.swift */,
 				445CA2DFA0A186FD2D973CC3 /* UpdatePhoneNumberViewController.swift */,
 				33647BAA1A8AE969D54BCD0A /* VerifyEmailOTPViewController.swift */,
 				59F2A05BFD0C71CF35C7AAC9 /* VerifyPhoneOTPViewController.swift */,
@@ -2728,6 +2731,7 @@
 				326FC39DC69BF761FE9606FA /* AccountContext.swift in Sources */,
 				F96CCDD82FF16FD33E2809A2 /* AccountContextImpl.swift in Sources */,
 				5E2DADEDBECD97E691CD6EBB /* AccountSettingsViewController.swift in Sources */,
+				3C8A5B1E9F2D7604E8A1B3C5 /* SetPasswordViewController.swift in Sources */,
 				AF3450372E2A6E384AE3268F /* ActionSlot.swift in Sources */,
 				535B8FC278DF434E3215DFAA /* AddFriendByUsernameViewController.swift in Sources */,
 				B87D852862153C013E5E4F29 /* AddMembersSheetController.swift in Sources */,

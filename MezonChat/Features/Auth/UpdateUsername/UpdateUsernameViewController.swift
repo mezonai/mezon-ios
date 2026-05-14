@@ -329,7 +329,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
                 nav.filterController(self, animated: true)
             }
         } catch {
-            errorLabel.text = error.localizedDescription.isEmpty ? L(L10n.UpdateUsername.errorDuplicate) : error.localizedDescription
+            errorLabel.text = L(L10n.UpdateUsername.errorDuplicate)
             errorLabel.isHidden = false
         }
         finishLoading()

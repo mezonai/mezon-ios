@@ -206,7 +206,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         nameFieldContainer.translatesAutoresizingMaskIntoConstraints = false
         nameFieldContainer.addSubview(nameField)
 
-        nameErrorLabel.text = L(L10n.Clan.clanNameInvalidFormat)
+        nameErrorLabel.text = L(L10n.Clan.invalidName)
         nameErrorLabel.textColor = .systemRed
 
         guidelinesTextView.delegate = self
@@ -368,7 +368,15 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
     }
 
     @objc private func nameChanged() {
-        nameErrorLabel.isHidden = true
+        let name = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty {
+            nameErrorLabel.isHidden = true
+        } else if !ClanCreationNameRules.isValid(name) {
+            nameErrorLabel.text = L(L10n.Clan.invalidName)
+            nameErrorLabel.isHidden = false
+        } else {
+            nameErrorLabel.isHidden = true
+        }
     }
 
     @objc private func backTapped() {
@@ -418,6 +426,37 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                     await context.engine.clanData.applyCreationTemplateChannels(clanId: newId, template: t, token: token)
                 }
                 popCreateFlowAndNotify(clanId: newId)
+            } catch let error as MezonError {
+                if case .httpError(let code, let msg) = error {
+                    var toastMsg = msg
+                    if let data = msg.data(using: .utf8),
+                       let apiErr = try? JSONDecoder().decode(APIError.self, from: data),
+                       let inner = apiErr.message, !inner.isEmpty {
+                        toastMsg = inner
+                    }
+                    if toastMsg.hasPrefix("HTTP ") {
+                        if let colonIdx = toastMsg.firstIndex(of: ":") {
+                            toastMsg = String(toastMsg[toastMsg.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
+                        } else {
+                            toastMsg = ""
+                        }
+                    }
+                    
+                    if code == 6 || code == 13 || toastMsg.lowercased().contains("exist") {
+                        toastMsg = L(L10n.Clan.duplicateName)
+                    } else if toastMsg.lowercased().contains("valid") {
+                        toastMsg = L(L10n.Clan.invalidName)
+                    } 
+                    
+                    Toast.error(toastMsg)
+                } else {
+                    Toast.error(error.localizedDescription)
+                }
+                createButton.isEnabled = true
+                nameField.isEnabled = true
+                createSpinner.stopAnimating()
+                createButton.setTitle(L(L10n.Clan.createClan), for: .normal)
+                isSubmitting = false
             } catch {
                 Toast.error(error.localizedDescription)
                 createButton.isEnabled = true
