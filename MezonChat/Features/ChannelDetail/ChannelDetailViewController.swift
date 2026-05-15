@@ -105,6 +105,8 @@ final class ChannelDetailViewController: ViewController {
             clanId: clanId,
             channelId: channel.channelID,
             categoryId: channel.parentID,
+            channelType: channel.type,
+            channelPrivate: channel.channelPrivate == 1,
             channelName: channel.channelLabel,
             channelTopic: "" // Topic from description or store?
         )

@@ -828,7 +828,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
         headerUIView.onSearchTapped = interaction.onSearchTapped
-        headerUIView.onClanHeaderLongPress = { [weak self] in
+        headerUIView.onClanTitleTap = { [weak self] in
             self?.presentClanActionSheetIfNeeded()
         }
         view.addSubview(headerUIView)
@@ -1699,7 +1699,7 @@ final class ChannelListHeaderView: UIView {
     var onTap: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onQRTapped: (() -> Void)?
-    var onClanHeaderLongPress: (() -> Void)?
+    var onClanTitleTap: (() -> Void)?
 
     var title: String {
         return titleLabel.text ?? ""
@@ -1855,11 +1855,9 @@ final class ChannelListHeaderView: UIView {
 
         let mainTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleHeaderTap))
         mainStack.addGestureRecognizer(mainTapGesture)
-        let clanHeaderLongPress = UILongPressGestureRecognizer(target: self, action: #selector(handleClanHeaderLongPress(_:)))
-        clanHeaderLongPress.minimumPressDuration = 0.45
-        clanHeaderLongPress.cancelsTouchesInView = false
-        clanTitleBlock.addGestureRecognizer(clanHeaderLongPress)
-        mainTapGesture.require(toFail: clanHeaderLongPress)
+        let clanTitleTap = UITapGestureRecognizer(target: self, action: #selector(handleClanTitleTap))
+        clanTitleTap.cancelsTouchesInView = false
+        clanTitleBlock.addGestureRecognizer(clanTitleTap)
         mainStack.isUserInteractionEnabled = true
         clanTitleBlock.isUserInteractionEnabled = true
 
@@ -1966,8 +1964,7 @@ final class ChannelListHeaderView: UIView {
         onTap?()
     }
 
-    @objc private func handleClanHeaderLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        onClanHeaderLongPress?()
+    @objc private func handleClanTitleTap() {
+        onClanTitleTap?()
     }
 }

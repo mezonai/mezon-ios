@@ -256,8 +256,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         if !isDestructive {
-            let arrow = UIImageView(image: UIImage(named: "Channel/ChevronRight"))
-            arrow.tintColor = UIColor.theme.textDisabled
+            let arrowImage =
+                UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
+                ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+            let arrow = UIImageView(image: arrowImage)
+            arrow.tintColor = UIColor.theme.textStrong
             v.addSubview(arrow)
             arrow.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([

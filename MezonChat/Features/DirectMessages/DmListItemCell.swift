@@ -106,7 +106,7 @@ final class DmListItemCell: UITableViewCell {
         let avatarSize: CGFloat = 40.swh
 
         let nameTopConstraint = nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8.sh)
-        let nameCenterYConstraint = nameLabel.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor)
+        let nameCenterYConstraint = nameLabel.centerYAnchor.constraint(equalTo: textAvatar.centerYAnchor)
         let lastMessageZeroHeightConstraint = lastMessageLabel.heightAnchor.constraint(equalToConstant: 0)
         nameCenterYConstraint.isActive = false
         lastMessageZeroHeightConstraint.isActive = false
@@ -142,7 +142,7 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.heightAnchor.constraint(equalToConstant: 14.swh),
 
             nameLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 10.sw),
-            nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8.sh),
+            nameTopConstraint,
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -6.sw),
 
             timeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),

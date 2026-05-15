@@ -435,7 +435,7 @@ extension MezonEngine {
                 }
             }
             NotificationCenter.default.post(
-                name: .mezonUserChannelAddedFromSocket,
+                name: .mezonChannelDescriptionDidUpdate,
                 object: nil,
                 userInfo: ["clanId": clanId, "channelId": channelId]
             )

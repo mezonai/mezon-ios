@@ -251,6 +251,16 @@ enum L10n {
         static let scanInstruction = "qrScanner.scanInstruction"
         static let chooseFromGallery = "qrScanner.chooseFromGallery"
         static let sharePersonalQR = "qrScanner.sharePersonalQR"
+        static let luckyMoneyTitle = "qrScanner.luckyMoneyTitle"
+        static let luckyMoneyPleaseWait = "qrScanner.luckyMoneyPleaseWait"
+        static let luckyMoneyCongratulations = "qrScanner.luckyMoneyCongratulations"
+        static let luckyMoneyClaimToWallet = "qrScanner.luckyMoneyClaimToWallet"
+        static let luckyMoneyClaimSuccess = "qrScanner.luckyMoneyClaimSuccess"
+        static let luckyMoneySuccessDone = "qrScanner.luckyMoneySuccessDone"
+        static let luckyMoneyClaimFailed = "qrScanner.luckyMoneyClaimFailed"
+        static let luckyMoneyWalletNotReady = "qrScanner.luckyMoneyWalletNotReady"
+        static let luckyMoneyServiceNotConfigured = "qrScanner.luckyMoneyServiceNotConfigured"
+        static let luckyMoneyInvalidPayload = "qrScanner.luckyMoneyInvalidPayload"
     }
 
     enum Language {
@@ -1632,6 +1642,16 @@ extension L10n {
         "qrScanner.scanInstruction": "Move camera to QR to scan or",
         "qrScanner.chooseFromGallery": "Choose from Photo Library",
         "qrScanner.sharePersonalQR": "Share personal QR code ˄",
+        "qrScanner.luckyMoneyTitle": "Lucky money",
+        "qrScanner.luckyMoneyPleaseWait": "Please wait a moment...",
+        "qrScanner.luckyMoneyCongratulations": "You received lucky money!",
+        "qrScanner.luckyMoneyClaimToWallet": "Claim to wallet",
+        "qrScanner.luckyMoneyClaimSuccess": "Claimed successfully",
+        "qrScanner.luckyMoneySuccessDone": "Done",
+        "qrScanner.luckyMoneyClaimFailed": "Could not claim. Please try again.",
+        "qrScanner.luckyMoneyWalletNotReady": "Wallet is not ready. Please try again later.",
+        "qrScanner.luckyMoneyServiceNotConfigured": "Claim service is not configured.",
+        "qrScanner.luckyMoneyInvalidPayload": "This QR code is not valid lucky money.",
 
         "error.networkError": "Network Error",
         "error.connectionFailed": "Connection failed. Please try again.",
@@ -2429,6 +2449,16 @@ extension L10n {
         "qrScanner.scanInstruction": "Di chuyển camera đến mã QR để quét hoặc",
         "qrScanner.chooseFromGallery": "Chọn từ Thư viện ảnh",
         "qrScanner.sharePersonalQR": "Chia sẻ mã QR cá nhân ˄",
+        "qrScanner.luckyMoneyTitle": "Lì xì",
+        "qrScanner.luckyMoneyPleaseWait": "Vui lòng chờ trong giây lát...",
+        "qrScanner.luckyMoneyCongratulations": "Bạn đã nhận được lì xì!",
+        "qrScanner.luckyMoneyClaimToWallet": "Nhận vào ví",
+        "qrScanner.luckyMoneyClaimSuccess": "Nhận thành công",
+        "qrScanner.luckyMoneySuccessDone": "Xong",
+        "qrScanner.luckyMoneyClaimFailed": "Không nhận được. Vui lòng thử lại.",
+        "qrScanner.luckyMoneyWalletNotReady": "Ví chưa sẵn sàng. Vui lòng thử lại sau.",
+        "qrScanner.luckyMoneyServiceNotConfigured": "Dịch vụ nhận lì xì chưa được cấu hình.",
+        "qrScanner.luckyMoneyInvalidPayload": "Mã QR không phải lì xì hợp lệ.",
 
         "error.networkError": "Lỗi kết nối mạng",
         "error.connectionFailed": "Kết nối thất bại. Vui lòng thử lại.",

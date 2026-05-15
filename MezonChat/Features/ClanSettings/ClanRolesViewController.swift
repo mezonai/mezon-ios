@@ -315,6 +315,9 @@ private final class ClanRoleCell: UITableViewCell {
     private let lockIcon = UIImageView()
     private let chevron = UIImageView()
     private var roleIconTask: URLSessionDataTask?
+    private var titleLeadingToIcon: NSLayoutConstraint!
+    private var titleLeadingToContent: NSLayoutConstraint!
+    private var titleTrailingMaxEmpty: NSLayoutConstraint!
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
@@ -379,7 +382,6 @@ private final class ClanRoleCell: UITableViewCell {
             colorIndicator.widthAnchor.constraint(equalToConstant: 12.swh),
             colorIndicator.heightAnchor.constraint(equalToConstant: 12.swh),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10.sw),
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10.sh),
 
             lockIcon.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 6.sw),
@@ -397,9 +399,24 @@ private final class ClanRoleCell: UITableViewCell {
             chevron.widthAnchor.constraint(equalToConstant: 10.swh),
             chevron.heightAnchor.constraint(equalToConstant: 14.swh)
         ])
+        titleLeadingToIcon = titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10.sw)
+        titleLeadingToContent = titleLabel.leadingAnchor.constraint(
+            equalTo: contentView.leadingAnchor,
+            constant: 6.sw + 28.swh + 10.sw)
+        titleLeadingToContent.isActive = false
+        titleLeadingToIcon.isActive = true
+        titleTrailingMaxEmpty = titleLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: contentView.trailingAnchor, constant: -14.sw)
+        titleTrailingMaxEmpty.isActive = false
     }
 
     func configureEveryone(role: Mezon_Api_Role) {
+        titleLeadingToContent.isActive = false
+        titleLeadingToIcon.isActive = true
+        titleTrailingMaxEmpty.isActive = false
+        titleLabel.textAlignment = .natural
+        titleLabel.numberOfLines = 1
+        subtitleLabel.isHidden = false
         iconView.image = UIImage(systemName: "person.3.fill")?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = .mezonTextPrimary
         iconView.isHidden = false
@@ -414,11 +431,19 @@ private final class ClanRoleCell: UITableViewCell {
     }
 
     func configure(role: Mezon_Api_Role, memberCount: Int, isLocked: Bool) {
-        loadRoleIcon(role.roleIcon)
+        titleLeadingToContent.isActive = false
+        titleLeadingToIcon.isActive = true
+        titleTrailingMaxEmpty.isActive = false
+        titleLabel.textAlignment = .natural
+        titleLabel.numberOfLines = 1
+        subtitleLabel.isHidden = false
         iconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
-        iconView.tintColor = RoleColors.uiColor(forRole: role)
-        colorIndicator.isHidden = false
-        colorIndicator.backgroundColor = RoleColors.uiColor(forRole: role)
+        let roleColor = RoleColors.uiColor(forRole: role)
+        iconView.tintColor = roleColor
+        colorIndicator.backgroundColor = roleColor
+        let hasCustomIcon = !role.roleIcon.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        colorIndicator.isHidden = hasCustomIcon
+        loadRoleIcon(role.roleIcon, fallbackColor: roleColor)
         titleLabel.text = role.title
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
@@ -434,21 +459,28 @@ private final class ClanRoleCell: UITableViewCell {
         iconView.image = nil
         iconView.isHidden = true
         colorIndicator.isHidden = true
+        titleLeadingToIcon.isActive = false
+        titleLeadingToContent.isActive = true
+        titleTrailingMaxEmpty.isActive = true
         titleLabel.text = text
         titleLabel.textColor = UIColor.theme.textDisabled
         titleLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
+        titleLabel.textAlignment = .left
+        titleLabel.numberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
         subtitleLabel.text = nil
+        subtitleLabel.isHidden = true
         lockIcon.isHidden = true
         chevron.isHidden = true
         isUserInteractionEnabled = false
     }
 
-    private func loadRoleIcon(_ urlString: String) {
+    private func loadRoleIcon(_ urlString: String, fallbackColor: UIColor) {
         roleIconTask?.cancel()
         roleIconView.image = nil
         roleIconView.isHidden = true
         iconView.isHidden = false
-        guard !urlString.isEmpty else { return }
+        guard !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let resolved = ImgproxyURL.create(from: urlString, width: 80, height: 80)
         roleIconTask = ImageCache.shared.loadImage(urlString: resolved) { [weak self] image in
             guard let self else { return }
@@ -457,6 +489,12 @@ private final class ClanRoleCell: UITableViewCell {
                     self.roleIconView.image = image
                     self.roleIconView.isHidden = false
                     self.iconView.isHidden = true
+                    self.colorIndicator.isHidden = true
+                } else {
+                    self.roleIconView.isHidden = true
+                    self.iconView.isHidden = false
+                    self.colorIndicator.isHidden = false
+                    self.colorIndicator.backgroundColor = fallbackColor
                 }
             }
         }
@@ -467,5 +505,12 @@ private final class ClanRoleCell: UITableViewCell {
         roleIconTask?.cancel()
         roleIconView.image = nil
         roleIconView.isHidden = true
+        titleLeadingToContent.isActive = false
+        titleLeadingToIcon.isActive = true
+        titleTrailingMaxEmpty.isActive = false
+        titleLabel.textAlignment = .natural
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.isHidden = false
     }
 }

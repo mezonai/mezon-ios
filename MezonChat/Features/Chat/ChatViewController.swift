@@ -762,6 +762,19 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
+    }
+
+    @objc private func handleChannelMetadataChanged(_ notification: Notification) {
+        guard let cid = notification.userInfo?["channelId"] as? Int64, cid == channel.channelID else { return }
+        if clanId == 0 {
+            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
+                channel = cached
+            }
+        } else if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
+            channel = cached
+        }
+        metadataOnlyPipe.putNext(())
     }
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
@@ -2026,6 +2039,10 @@ final class ChatViewController: ViewController {
             var lastHasMoreNewer = self.hasMoreNewer
             var lastLastSeenMessageId = self.lastSeenMessageId
             var lastParentName = self.currentState.parentName
+            var lastIsPrivate = self.currentState.isPrivate
+            var lastIsAgeRestricted = self.currentState.isAgeRestricted
+            var lastChannelLabel = self.currentState.channelLabel
+            var lastChannelType = self.currentState.channelType
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
@@ -2053,6 +2070,10 @@ final class ChatViewController: ViewController {
                         || newState.hasMoreNewer != lastHasMoreNewer
                         || newState.lastSeenMessageId != lastLastSeenMessageId
                         || newState.parentName != lastParentName
+                        || newState.isPrivate != lastIsPrivate
+                        || newState.isAgeRestricted != lastIsAgeRestricted
+                        || newState.channelLabel != lastChannelLabel
+                        || newState.channelType != lastChannelType
                     guard changed else { return }
                     lastIds = newIds
                     lastSendingStates = newSendingStates
@@ -2067,6 +2088,10 @@ final class ChatViewController: ViewController {
                     lastHasMoreNewer = newState.hasMoreNewer
                     lastLastSeenMessageId = newState.lastSeenMessageId
                     lastParentName = newState.parentName
+                    lastIsPrivate = newState.isPrivate
+                    lastIsAgeRestricted = newState.isAgeRestricted
+                    lastChannelLabel = newState.channelLabel
+                    lastChannelType = newState.channelType
                     subscriber.putNext(newState)
                 })
         }
