@@ -314,6 +314,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private let badgeIcon = UIImageView()
     private let badgeLabel = UILabel()
     private var lastAvatarURL: String?
+    private var lastParticipantIdentity: String?
     private var isDragging = false
     private var participantRefreshCallback: (() -> Void)?
 
@@ -580,6 +581,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         context = nil
         channel = nil
         lastAvatarURL = nil
+        lastParticipantIdentity = nil
         preservedAudioRoute = nil
         crossClanVoiceExitAlignClanId = nil
         applyCrossClanVoiceHomeExitFromPiPIfNeeded(alignClanId: savedAlign, channelId: savedChannelId)
@@ -681,6 +683,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         context = nil
         channel = nil
         lastAvatarURL = nil
+        lastParticipantIdentity = nil
         crossClanVoiceExitAlignClanId = nil
         return (b, joinFlag, leaveFlag, route)
     }
@@ -751,14 +754,24 @@ final class VoiceChannelPiPOverlay: NSObject {
         }
         textAvatar.isHidden = false
 
-        let key = participant.identity?.stringValue ?? ""
-        let url = resolveAvatarURL(key, participant: participant)
+        let isLocal = participant is LocalParticipant
+        let identity: String
+        if isLocal {
+            identity = context?.currentUser?.id ?? ""
+        } else {
+            identity = participant.identity?.stringValue ?? ""
+        }
+        let url = resolveAvatarURL(identity, participant: participant)
         let name = resolveDisplayName(participant)
 
-        if url != lastAvatarURL {
+        print("[VoicePiP] showAvatar: identity=\(identity), isLocal=\(isLocal), url=\(url ?? "nil"), name=\(name)")
+
+        if url != lastAvatarURL || identity != lastParticipantIdentity {
             lastAvatarURL = url
+            lastParticipantIdentity = identity
             avatarView.image = nil
             let username = resolveUsername(participant)
+            print("[VoicePiP] updating UI: username=\(username)")
             textAvatar.configure(username: username, fontSize: 20)
             if let raw = url, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
