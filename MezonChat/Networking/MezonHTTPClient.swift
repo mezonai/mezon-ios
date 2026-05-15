@@ -949,6 +949,101 @@ final class MezonHTTPClient {
         )
     }
 
+    func removeChannelUsers(channelId: Int64, userIds: [Int64], token: String) async throws {
+        var req = Mezon_Api_RemoveChannelUsersRequest()
+        req.channelID = channelId
+        req.userIds = userIds
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/RemoveChannelUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func addRoleChannelDesc(channelId: Int64, roleIds: [Int64], token: String) async throws {
+        var req = Mezon_Api_AddRoleChannelDescRequest()
+        req.channelID = channelId
+        req.roleIds = roleIds
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/AddRolesChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteRoleChannelDesc(roleId: Int64, clanId: Int64, channelId: Int64, token: String) async throws {
+        var req = Mezon_Api_DeleteRoleRequest()
+        req.roleID = roleId
+        req.clanID = clanId
+        req.channelID = channelId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteRoleChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func changeChannelPrivate(
+        clanId: Int64,
+        channelId: Int64,
+        channelPrivate: Int32,
+        userIds: [Int64] = [],
+        roleIds: [Int64] = [],
+        token: String
+    ) async throws {
+        var req = Mezon_Api_ChangeChannelPrivateRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.channelPrivate = channelPrivate
+        req.userIds = userIds
+        req.roleIds = roleIds
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateChannelPrivate",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getPermissionByRoleIdChannelId(
+        roleId: Int64,
+        channelId: Int64,
+        userId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_PermissionRoleChannelListEventResponse {
+        var req = Mezon_Api_PermissionRoleChannelListEventRequest()
+        req.roleID = roleId
+        req.channelID = channelId
+        req.userID = userId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetPermissionByRoleIdChannelId",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func setRoleChannelPermission(
+        roleId: Int64,
+        channelId: Int64,
+        userId: Int64,
+        maxPermissionId: Int64,
+        permissions: [Mezon_Api_PermissionUpdate],
+        roleLabel: String = "",
+        token: String
+    ) async throws {
+        var req = Mezon_Api_UpdateRoleChannelRequest()
+        req.roleID = roleId
+        req.channelID = channelId
+        req.userID = userId
+        req.maxPermissionID = maxPermissionId
+        req.permissionUpdate = permissions
+        req.roleLabel = roleLabel
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/SetRoleChannelPermission",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func isBanned(channelId: Int64, token: String) async throws -> Mezon_Api_IsBannedResponse {
         var req = Mezon_Api_IsBannedRequest()
         req.channelID = channelId
@@ -1508,11 +1603,21 @@ final class MezonHTTPClient {
         "SessionRefresh"
     ]
     private static let socketFailureHttpFallbackApiNames: Set<String> = [
+        "GetAccount",
+        "ListActivity",
         "SendChannelMessage",
+        "ListClanDescs",
+        "ListChannelDescs",
+        "ListCategoryDescs",
+        "GetListFavoriteChannel",
         "ListChannelBadgeCount",
         "ListClanBadgeCount",
+        "ListUserClansByUserId",
+        "ListChannelByUserId",
+        "ListFriends",
     ]
     private static let socketWaitNanoseconds: UInt64 = 30_000_000_000
+    private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
 
     private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
@@ -1529,10 +1634,15 @@ final class MezonHTTPClient {
 
         var connected = await MezonSocket.shared.isConnected
         if !connected {
-            connected = await MezonSocket.shared.waitForConnected(timeoutNanoseconds: Self.socketWaitNanoseconds)
+            let waitNanoseconds = allowHttpFallbackAfterSocketFailure
+                ? Self.socketFallbackGraceWaitNanoseconds
+                : Self.socketWaitNanoseconds
+            connected = await MezonSocket.shared.waitForConnected(timeoutNanoseconds: waitNanoseconds)
         }
         guard connected else {
             if allowHttpFallbackAfterSocketFailure {
+                let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
+                MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
                 return nil
             }
             throw MezonError.socketError("WebSocket unavailable for '\(apiName)'")

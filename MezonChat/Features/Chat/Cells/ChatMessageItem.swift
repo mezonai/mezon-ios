@@ -52,7 +52,25 @@ final class ChatMessageItem: ListViewItem {
     func isEqual(to other: ListViewItem) -> Bool {
         guard let other = other as? ChatMessageItem else { return false }
         return self.display.id == other.display.id
+            && self.display.message.senderId == other.display.message.senderId
+            && self.display.message.createdAt == other.display.message.createdAt
             && self.display.message.editedAt == other.display.message.editedAt
+            && self.display.senderDisplayName == other.display.senderDisplayName
+            && self.display.avatarURL == other.display.avatarURL
+            && self.display.isCombine == other.display.isCombine
+            && self.display.isMe == other.display.isMe
+            && self.display.sendingState == other.display.sendingState
+            && self.display.showsSendingFeedback == other.display.showsSendingFeedback
+            && self.display.hasIncludeMention == other.display.hasIncludeMention
+            && self.display.isForward == other.display.isForward
+            && self.display.showForwardHeader == other.display.showForwardHeader
+            && self.display.messageCode == other.display.messageCode
+            && self.display.clanInviteLinkCode == other.display.clanInviteLinkCode
+            && self.display.parsedContent.text == other.display.parsedContent.text
+            && self.display.attachments == other.display.attachments
+            && self.display.reactions == other.display.reactions
+            && (self.display.replyRef != nil) == (other.display.replyRef != nil)
+            && self.display.isDeletedReply == other.display.isDeletedReply
             && self.display.pollData?.totalVotes == other.display.pollData?.totalVotes
             && self.display.pollData?.answerCounts == other.display.pollData?.answerCounts
             && self.relayoutVersion == other.relayoutVersion
@@ -206,6 +224,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
 
             if let existing = existingBubble, isSameLogicalMessage, !attachmentsChanged {
                 if existing.display.sendingState == item.display.sendingState,
+                   existing.display.showsSendingFeedback == item.display.showsSendingFeedback,
                    existing.display.id == item.display.id {
                     let editedA = existing.display.message.editedAt?.timeIntervalSince1970
                     let editedB = item.display.message.editedAt?.timeIntervalSince1970

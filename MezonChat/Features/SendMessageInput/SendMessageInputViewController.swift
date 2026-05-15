@@ -3532,7 +3532,7 @@ final class SendMessageInputViewController: UIViewController {
         replyCancelButton.tintColor = t.textDisabled
         sendPermissionRestrictedChrome.backgroundColor = t.secondary
         sendPermissionRestrictedTopSep.backgroundColor = t.border
-        sendPermissionRestrictedInner.backgroundColor = t.tertiary
+        sendPermissionRestrictedInner.backgroundColor = .clear
         sendPermissionRestrictedLabel.textColor = t.textDisabled
         sendPermissionRestrictedLabel.font = .systemFont(ofSize: 14.sf, weight: .regular)
         sendPermissionRestrictedLabel.text = L(L10n.ChannelMessages.noSendPermission)

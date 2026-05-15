@@ -76,7 +76,7 @@ final class QRClanInviteNode: ASDisplayNode {
         
         noThanksButton.backgroundColor = .mezonPrimary
         noThanksButton.cornerRadius = 24
-        noThanksButton.setTitle(L(L10n.QRScanner.noThanks), with: .systemFont(ofSize: 16, weight: .bold), with: .black, for: .normal)
+        noThanksButton.setTitle(L(L10n.QRScanner.noThanks), with: .systemFont(ofSize: 16, weight: .bold), with: theme.textStrong, for: .normal)
         noThanksButton.style.height = ASDimensionMake(48)
         noThanksButton.addTarget(self, action: #selector(cancelTapped), forControlEvents: .touchUpInside)
         

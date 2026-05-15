@@ -624,6 +624,34 @@ enum L10n {
         static let privacyFooter        = "channel.setting.privacyFooter"
     }
 
+    enum ChannelPermission {
+        static let title              = "channelPermission.title"
+        static let basicView          = "channelPermission.basicView"
+        static let advancedView       = "channelPermission.advancedView"
+        static let edit               = "channelPermission.edit"
+        static let done               = "channelPermission.done"
+        static let save               = "channelPermission.save"
+        static let privateChannel     = "channelPermission.privateChannel"
+        static let basicViewDescription = "channelPermission.basicViewDescription"
+        static let addMemberAndRoles  = "channelPermission.addMemberAndRoles"
+        static let whoCanAccess       = "channelPermission.whoCanAccess"
+        static let roles              = "channelPermission.roles"
+        static let members            = "channelPermission.members"
+        static let role               = "channelPermission.role"
+        static let toastSuccess       = "channelPermission.toast.success"
+        static let toastFailed        = "channelPermission.toast.failed"
+        static let bsAddMembersOrRoles = "channelPermission.bottomSheet.addMembersOrRoles"
+        static let bsAdd              = "channelPermission.bottomSheet.add"
+        static let searchPlaceholder  = "channelPermission.bottomSheet.search"
+        static let roleAndMemberEmpty = "channelPermission.roleAndMemberEmpty"
+        static let permissionOverrides = "channelPermission.permissionOverrides"
+        static let generalChannelPermission = "channelPermission.generalChannelPermission"
+        static let warnTitle          = "channelPermission.warningChangeSettingModal.title"
+        static let warnContent        = "channelPermission.warningChangeSettingModal.content"
+        static let warnConfirm        = "channelPermission.warningChangeSettingModal.confirm"
+        static let warnCancel         = "channelPermission.warningChangeSettingModal.cancel"
+    }
+
     enum ChatWelcome {
         static let welcomeToChannel = "chatWelcome.welcomeToChannel"
         static let startOfChannel = "chatWelcome.startOfChannel"
@@ -1289,6 +1317,32 @@ extension L10n {
         "channel.setting.banList":              "Ban List",
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Change privacy settings and customize how members can interact with this channel.",
+
+        "channelPermission.title":              "Channel Permissions",
+        "channelPermission.basicView":          "Basic View",
+        "channelPermission.advancedView":       "Advanced View",
+        "channelPermission.edit":               "Edit",
+        "channelPermission.done":               "Done",
+        "channelPermission.save":               "Save",
+        "channelPermission.privateChannel":     "Private Channel",
+        "channelPermission.basicViewDescription": "By making a channel private, only selected members and roles will be able to view this channel.",
+        "channelPermission.addMemberAndRoles":  "Add members and roles",
+        "channelPermission.whoCanAccess":       "Who can access this channel?",
+        "channelPermission.roles":              "Roles",
+        "channelPermission.members":            "Members",
+        "channelPermission.role":               "Role",
+        "channelPermission.toast.success":      "Update successfully",
+        "channelPermission.toast.failed":       "Update failed",
+        "channelPermission.bottomSheet.addMembersOrRoles": "Add members or roles",
+        "channelPermission.bottomSheet.add":    "Add",
+        "channelPermission.bottomSheet.search": "Search for a member or role",
+        "channelPermission.roleAndMemberEmpty": "No roles or members. Add some from Basic View first.",
+        "channelPermission.permissionOverrides": "Permission Overrides",
+        "channelPermission.generalChannelPermission": "General Channel Permissions",
+        "channelPermission.warningChangeSettingModal.title":   "Unsaved changes",
+        "channelPermission.warningChangeSettingModal.content": "You have made changes. Are you sure you want to leave without saving?",
+        "channelPermission.warningChangeSettingModal.confirm": "Save",
+        "channelPermission.warningChangeSettingModal.cancel":  "Discard",
 
         "channelMessages.emptyMessages": "No messages yet",
         "channelMessages.todayAt": "Today at %@",
@@ -2032,6 +2086,32 @@ extension L10n {
         "channel.setting.banList":              "Danh sách chặn",
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Thay đổi cài đặt quyền riêng tư và tùy chỉnh cách các thành viên có thể tương tác với kênh này.",
+
+        "channelPermission.title":              "Quyền hạn kênh",
+        "channelPermission.basicView":          "Cơ bản",
+        "channelPermission.advancedView":       "Nâng cao",
+        "channelPermission.edit":               "Sửa",
+        "channelPermission.done":               "Xong",
+        "channelPermission.save":               "Lưu",
+        "channelPermission.privateChannel":     "Kênh riêng tư",
+        "channelPermission.basicViewDescription": "Khi đặt kênh ở chế độ riêng tư, chỉ những thành viên và vai trò được chọn mới có thể xem kênh này.",
+        "channelPermission.addMemberAndRoles":  "Thêm thành viên và vai trò",
+        "channelPermission.whoCanAccess":       "Ai có thể truy cập kênh này?",
+        "channelPermission.roles":              "Vai trò",
+        "channelPermission.members":            "Thành viên",
+        "channelPermission.role":               "Vai trò",
+        "channelPermission.toast.success":      "Cập nhật thành công",
+        "channelPermission.toast.failed":       "Cập nhật thất bại",
+        "channelPermission.bottomSheet.addMembersOrRoles": "Thêm thành viên hoặc vai trò",
+        "channelPermission.bottomSheet.add":    "Thêm",
+        "channelPermission.bottomSheet.search": "Tìm thành viên hoặc vai trò",
+        "channelPermission.roleAndMemberEmpty": "Chưa có vai trò hay thành viên nào. Hãy thêm ở mục Cơ bản trước.",
+        "channelPermission.permissionOverrides": "Tuỳ chỉnh quyền",
+        "channelPermission.generalChannelPermission": "Quyền kênh chung",
+        "channelPermission.warningChangeSettingModal.title":   "Có thay đổi chưa lưu",
+        "channelPermission.warningChangeSettingModal.content": "Bạn có thay đổi chưa lưu. Bạn có muốn lưu trước khi rời đi không?",
+        "channelPermission.warningChangeSettingModal.confirm": "Lưu",
+        "channelPermission.warningChangeSettingModal.cancel":  "Bỏ qua",
 
         "channelMessages.emptyMessages": "Chưa có tin nhắn",
         "channelMessages.todayAt": "Hôm nay lúc %@",

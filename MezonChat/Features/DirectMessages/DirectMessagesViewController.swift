@@ -124,6 +124,8 @@ final class DirectMessagesViewController: ViewController {
 
     @objc private func handleSocketReconnectForDMBadges(_ notification: Notification) {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+        lastFetchDirectMessagesAt = nil
+        fetchDirectMessages()
         Task { @MainActor in
             await self.applyDmListChannelBadgeCount()
         }
@@ -132,7 +134,7 @@ final class DirectMessagesViewController: ViewController {
     @MainActor
     private func applyDmListChannelBadgeCount() async {
         guard !directMessages.isEmpty else { return }
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
         do {
             let badgeResponse = try await context.account.network.listChannelBadgeCount(clanId: 0, token: token)
             let rows = badgeResponse.channeldesc
@@ -339,8 +341,7 @@ final class DirectMessagesViewController: ViewController {
         prefetchFriendListTask?.cancel()
         prefetchFriendListTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.context.waitForSessionReady()
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.fetchDirectMessages()
             await self.context.engine.friendsData.refreshFromNetwork(token: token)
         }
@@ -531,7 +532,9 @@ final class DirectMessagesViewController: ViewController {
             setIsLoading(false)
             return
         }
-        setIsLoading(true)
+        if directMessages.isEmpty {
+            setIsLoading(true)
+        }
         setErrorMessage(nil)
 
         let task = Task<Void, Never> { @MainActor [weak self] in
@@ -541,7 +544,7 @@ final class DirectMessagesViewController: ViewController {
                 self.fetchDirectMessagesTask = nil
                 self.lastFetchDirectMessagesAt = Date()
             }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             await self.fetchUserActivities(token: token)
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
@@ -571,7 +574,7 @@ final class DirectMessagesViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.directMessagesNode.endRefreshing() }
-            guard let token = await self.context.getToken() else {
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
                 self.applyDmListFromCache()
                 return
             }

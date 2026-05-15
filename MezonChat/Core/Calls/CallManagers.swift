@@ -68,6 +68,21 @@ final class WebRTCCallManager {
         preWarmedIncomingKey = nil
     }
 
+    func endActivePeerCallFromCallKitAction() {
+        print("[DMCall] endActivePeerCallFromCallKitAction hasSig=\(signalingSession != nil) hasWarm=\(preWarmedIncomingSession != nil)")
+        if let session = signalingSession {
+            session.hangUp()
+        } else if let warm = preWarmedIncomingSession {
+            warm.hangUp()
+            preWarmedIncomingSession = nil
+            preWarmedIncomingKey = nil
+        }
+        awaitingIncomingAttachment = false
+        expectedIncomingBufferKey = nil
+        bufferedSignaling.removeAll()
+        pendingIncomingPeerCallUserInfo = nil
+    }
+
     func preWarmIncomingPeerCallIfNeeded(
         channelId: Int64,
         callerId: Int64,

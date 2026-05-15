@@ -11,6 +11,9 @@ final class QRScannerViewController: ViewController {
     private var loginConfirmNode: QRLoginConfirmNode?
     private var clanInviteNode: QRClanInviteNode?
     private var userProfileNode: QRUserProfileNode?
+    private var externalLinkSheetController: QRExternalLinkSheetController?
+    private let captureSessionQueue = DispatchQueue(label: "mezon.qrScanner.captureSession")
+    private var shouldResumeCaptureWhenApplicationBecomesActive = false
     
     private var isFlashOn = false
     
@@ -52,22 +55,28 @@ final class QRScannerViewController: ViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
         checkCameraPermission()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         resumeCameraIfAuthorizedAfterSettings()
-        if captureSession?.isRunning == false {
-            captureSession?.startRunning()
-        }
+        startCaptureSessionIfNeeded()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if captureSession?.isRunning == true {
-            captureSession?.stopRunning()
-        }
+        stopCaptureSessionIfNeeded()
     }
     
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -105,6 +114,12 @@ final class QRScannerViewController: ViewController {
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
         guard captureSession == nil else { return }
         setupCamera()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        guard shouldResumeCaptureWhenApplicationBecomesActive else { return }
+        shouldResumeCaptureWhenApplicationBecomesActive = false
+        startCaptureSessionIfNeeded()
     }
 
     private func openAppSettingsForCamera() {
@@ -152,9 +167,24 @@ final class QRScannerViewController: ViewController {
         
         self.captureSession = session
         self.previewLayer = preview
-        
-        DispatchQueue.global(qos: .userInitiated).async {
+
+        startCaptureSessionIfNeeded()
+    }
+
+    private func startCaptureSessionIfNeeded() {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        guard let session = captureSession else { return }
+        captureSessionQueue.async {
+            guard !session.isRunning else { return }
             session.startRunning()
+        }
+    }
+
+    private func stopCaptureSessionIfNeeded() {
+        guard let session = captureSession else { return }
+        captureSessionQueue.async {
+            guard session.isRunning else { return }
+            session.stopRunning()
         }
     }
     
@@ -197,8 +227,10 @@ final class QRScannerViewController: ViewController {
     }
     
     private func handleScannedData(_ data: String) {
+        guard externalLinkSheetController == nil else { return }
+
         if data.allSatisfy({ $0.isNumber }) && data.count >= 15 {
-            captureSession?.stopRunning()
+            stopCaptureSessionIfNeeded()
             showLoginConfirm(userId: data)
             return
         }
@@ -221,7 +253,7 @@ final class QRScannerViewController: ViewController {
                 self.showClanInvite(code: code)
             } else {
                 showAlert(message: L(L10n.QRScanner.invalidQR)) { [weak self] in
-                    self?.captureSession?.startRunning()
+                    self?.startCaptureSessionIfNeeded()
                 }
             }
             return
@@ -230,31 +262,80 @@ final class QRScannerViewController: ViewController {
         if data.contains("mezon.ai/chat/") {
             guard let dataParam = extractProfileDataParam(from: data) else {
                 showAlert(message: L(L10n.QRScanner.invalidQR)) { [weak self] in
-                    self?.captureSession?.startRunning()
+                    self?.startCaptureSessionIfNeeded()
                 }
                 return
             }
             guard let profile = decodeProfileQRDataParam(dataParam) else {
                 showAlert(message: L(L10n.QRScanner.invalidQR)) { [weak self] in
-                    self?.captureSession?.startRunning()
+                    self?.startCaptureSessionIfNeeded()
                 }
                 return
             }
-            captureSession?.stopRunning()
+            stopCaptureSessionIfNeeded()
             presentUserProfile(profileData: profile)
             return
         }
         
         if let payload = MmnTransferParse.fromQRString(data) {
-            captureSession?.stopRunning()
+            stopCaptureSessionIfNeeded()
             let vc = WalletTransferViewController(context: context, payload: payload)
             navigationController?.pushViewController(vc, animated: true)
             return
         }
-        
-        showAlert(title: L(L10n.QRScanner.invalidQR), message: data) { [weak self] in
-            self?.captureSession?.startRunning()
+
+        if let url = Self.externalLinkURL(from: data) {
+            stopCaptureSessionIfNeeded()
+            presentExternalLinkSheet(url: url)
+            return
         }
+
+        showAlert(title: L(L10n.QRScanner.invalidQR), message: data) { [weak self] in
+            self?.startCaptureSessionIfNeeded()
+        }
+    }
+
+    private static func externalLinkURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let url = URL(string: trimmed),
+           let scheme = url.scheme?.lowercased(),
+           (scheme == "http" || scheme == "https"),
+           url.host != nil {
+            return url
+        }
+
+        guard trimmed.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              trimmed.contains("."),
+              let url = URL(string: "https://\(trimmed)"),
+              url.host != nil else {
+            return nil
+        }
+        return url
+    }
+
+    private func presentExternalLinkSheet(url: URL) {
+        let sheet = QRExternalLinkSheetController(url: url)
+        sheet.onDismiss = { [weak self, weak sheet] didOpen in
+            guard let self else { return }
+            if self.externalLinkSheetController === sheet {
+                self.externalLinkSheetController = nil
+            }
+            if didOpen {
+                self.shouldResumeCaptureWhenApplicationBecomesActive = true
+                UIApplication.shared.open(url, options: [:]) { [weak self] success in
+                    if !success {
+                        self?.shouldResumeCaptureWhenApplicationBecomesActive = false
+                        self?.startCaptureSessionIfNeeded()
+                    }
+                }
+            } else {
+                self.startCaptureSessionIfNeeded()
+            }
+        }
+        externalLinkSheetController = sheet
+        present(sheet, animated: false)
     }
 
     private func extractProfileDataParam(from string: String) -> String? {
@@ -293,7 +374,7 @@ final class QRScannerViewController: ViewController {
     }
     
     private func showLoginConfirm(userId: String) {
-        captureSession?.stopRunning()
+        stopCaptureSessionIfNeeded()
         
         let theme = context.sharedContext.currentPresentationTheme.attributes
         let confirmNode = QRLoginConfirmNode(theme: theme)
@@ -342,12 +423,12 @@ final class QRScannerViewController: ViewController {
         }) { _ in
             confirmNode.removeFromSupernode()
             self.loginConfirmNode = nil
-            self.captureSession?.startRunning()
+            self.startCaptureSessionIfNeeded()
         }
     }
     
     private func showClanInvite(code: String) {
-        captureSession?.stopRunning()
+        stopCaptureSessionIfNeeded()
         
         let theme = context.sharedContext.currentPresentationTheme.attributes
         let token = context.session?.token ?? ""
@@ -397,7 +478,7 @@ final class QRScannerViewController: ViewController {
             } catch {
                 await MainActor.run {
                     self.showAlert(message: error.localizedDescription) {
-                        self.captureSession?.startRunning()
+                        self.startCaptureSessionIfNeeded()
                     }
                 }
             }
@@ -411,7 +492,7 @@ final class QRScannerViewController: ViewController {
         }) { _ in
             inviteNode.removeFromSupernode()
             self.clanInviteNode = nil
-            self.captureSession?.startRunning()
+            self.startCaptureSessionIfNeeded()
         }
     }
     
@@ -465,7 +546,7 @@ final class QRScannerViewController: ViewController {
         }) { _ in
             profileNode.removeFromSupernode()
             self.userProfileNode = nil
-            self.captureSession?.startRunning()
+            self.startCaptureSessionIfNeeded()
         }
     }
     
@@ -534,6 +615,198 @@ extension QRScannerViewController: UIImagePickerControllerDelegate, UINavigation
                 self?.handleScannedData(data)
             } else {
                 self?.showAlert(message: L(L10n.QRScanner.invalidQR))
+            }
+        }
+    }
+}
+
+private final class QRExternalLinkSheetController: UIViewController {
+    private let url: URL
+    var onDismiss: ((Bool) -> Void)?
+
+    private let dimView = UIView()
+    private let contentView = UIView()
+    private let handleView = UIView()
+    private let iconContainer = UIView()
+    private let iconImageView = UIImageView()
+    private let titleLabel = UILabel()
+    private let hostLabel = UILabel()
+    private let openButton = UIButton(type: .system)
+    private let moreButton = UIButton(type: .system)
+
+    private var didAnimateIn = false
+    private var isDismissing = false
+
+    init(url: URL) {
+        self.url = url
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        view.backgroundColor = .clear
+
+        dimView.backgroundColor = UIColor.black.withAlphaComponent(0.32)
+        dimView.alpha = 0
+        dimView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dimTapped)))
+        view.addSubview(dimView)
+
+        contentView.backgroundColor = UIColor(red: 0.10, green: 0.11, blue: 0.12, alpha: 1.0)
+        contentView.layer.cornerRadius = 14
+        contentView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        contentView.clipsToBounds = true
+        view.addSubview(contentView)
+
+        handleView.backgroundColor = UIColor.white.withAlphaComponent(0.16)
+        handleView.layer.cornerRadius = 2.5
+        contentView.addSubview(handleView)
+
+        iconContainer.backgroundColor = UIColor(red: 0.26, green: 0.29, blue: 0.32, alpha: 1.0)
+        iconContainer.layer.cornerRadius = 4
+        iconContainer.clipsToBounds = true
+        contentView.addSubview(iconContainer)
+
+        iconImageView.image = UIImage(systemName: "link")
+        iconImageView.tintColor = UIColor.white.withAlphaComponent(0.14)
+        iconImageView.contentMode = .scaleAspectFit
+        iconContainer.addSubview(iconImageView)
+
+        titleLabel.text = url.absoluteString
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .white
+        contentView.addSubview(titleLabel)
+
+        hostLabel.text = hostDisplayText(for: url)
+        hostLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        hostLabel.textColor = UIColor(red: 0.37, green: 0.62, blue: 1.0, alpha: 1.0)
+        contentView.addSubview(hostLabel)
+
+        openButton.backgroundColor = UIColor(red: 0.02, green: 0.43, blue: 1.0, alpha: 1.0)
+        openButton.layer.cornerRadius = 22
+        openButton.tintColor = .white
+        openButton.setTitle(Self.openLinkTitle, for: .normal)
+        openButton.setTitleColor(.white, for: .normal)
+        openButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        openButton.setImage(UIImage(systemName: "globe"), for: .normal)
+        openButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -6, bottom: 0, right: 6)
+        openButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: -6)
+        openButton.addTarget(self, action: #selector(openTapped), for: .touchUpInside)
+        contentView.addSubview(openButton)
+
+        moreButton.backgroundColor = UIColor.white.withAlphaComponent(0.16)
+        moreButton.layer.cornerRadius = 22
+        moreButton.tintColor = .white
+        moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        moreButton.addTarget(self, action: #selector(moreTapped), for: .touchUpInside)
+        contentView.addSubview(moreButton)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        dimView.frame = view.bounds
+
+        let safeBottom = view.safeAreaInsets.bottom
+        let width = view.bounds.width
+        let horizontal: CGFloat = 16
+        let iconSize: CGFloat = 68
+        let textX = horizontal + iconSize + 18
+        let textWidth = max(0, width - textX - horizontal)
+        let titleHeight = min(44, titleLabel.sizeThatFits(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height)
+        let headerY: CGFloat = 42
+        let hostY = headerY + titleHeight + 3
+        let headerBottom = max(headerY + iconSize, hostY + 18)
+        let buttonY = headerBottom + 26
+        let sheetHeight = buttonY + 44 + 18 + safeBottom
+
+        contentView.frame = CGRect(x: 0, y: view.bounds.height - sheetHeight, width: width, height: sheetHeight)
+        handleView.frame = CGRect(x: (width - 56) / 2, y: 10, width: 56, height: 5)
+        iconContainer.frame = CGRect(x: horizontal, y: headerY, width: iconSize, height: iconSize)
+        iconImageView.frame = iconContainer.bounds.insetBy(dx: 17, dy: 17)
+        titleLabel.frame = CGRect(x: textX, y: headerY + 2, width: textWidth, height: titleHeight)
+        hostLabel.frame = CGRect(x: textX, y: hostY, width: textWidth, height: 18)
+
+        let moreSize: CGFloat = 44
+        moreButton.frame = CGRect(x: width - horizontal - moreSize, y: buttonY, width: moreSize, height: moreSize)
+        openButton.frame = CGRect(
+            x: horizontal,
+            y: buttonY,
+            width: max(0, width - horizontal * 3 - moreSize),
+            height: 44
+        )
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didAnimateIn else { return }
+        didAnimateIn = true
+        contentView.transform = CGAffineTransform(translationX: 0, y: contentView.bounds.height)
+        UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut]) {
+            self.dimView.alpha = 1
+            self.contentView.transform = .identity
+        }
+    }
+
+    private static var openLinkTitle: String {
+        let language = Locale.current.languageCode ?? ""
+        return language == "vi" ? "Mở link" : "Open link"
+    }
+
+    private static var copyLinkTitle: String {
+        let language = Locale.current.languageCode ?? ""
+        return language == "vi" ? "Sao chép link" : "Copy link"
+    }
+
+    private static var cancelTitle: String {
+        let language = Locale.current.languageCode ?? ""
+        return language == "vi" ? "Huỷ" : "Cancel"
+    }
+
+    private func hostDisplayText(for url: URL) -> String {
+        guard let host = url.host, !host.isEmpty else { return url.absoluteString }
+        if host.hasPrefix("www.") { return String(host.dropFirst(4)) }
+        return host
+    }
+
+    @objc private func dimTapped() {
+        dismissSheet(didOpen: false)
+    }
+
+    @objc private func openTapped() {
+        dismissSheet(didOpen: true)
+    }
+
+    @objc private func moreTapped() {
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: Self.copyLinkTitle, style: .default) { [weak self] _ in
+            guard let self else { return }
+            UIPasteboard.general.string = self.url.absoluteString
+        })
+        sheet.addAction(UIAlertAction(title: Self.cancelTitle, style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = moreButton
+            popover.sourceRect = moreButton.bounds
+        }
+        present(sheet, animated: true)
+    }
+
+    private func dismissSheet(didOpen: Bool) {
+        guard !isDismissing else { return }
+        isDismissing = true
+        let height = contentView.bounds.height
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseIn]) {
+            self.dimView.alpha = 0
+            self.contentView.transform = CGAffineTransform(translationX: 0, y: height)
+        } completion: { _ in
+            self.dismiss(animated: false) {
+                self.onDismiss?(didOpen)
             }
         }
     }

@@ -170,10 +170,12 @@ final class ClanListViewController: ViewController {
 
     @objc private func handleSocketStatusForClanBadges(_ notification: Notification) {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
-        if clans.isEmpty && !completedRemoteClanListFetch {
+        if clans.isEmpty {
+            completedRemoteClanListFetch = false
             lastLoadClansAt = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, self.clans.isEmpty, !self.completedRemoteClanListFetch else { return }
+                guard let self, self.clans.isEmpty else { return }
+                self.lastLoadClansAt = nil
                 self.loadClans()
             }
         }
@@ -202,7 +204,7 @@ final class ClanListViewController: ViewController {
                 self.refreshClanSidebarBadgesTask = nil
                 self.lastRefreshClanSidebarBadgesAt = Date()
             }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
             do {
                 let rows = try await self.context.account.network.listClanBadgeCount(token: token).listBadge
@@ -438,13 +440,15 @@ final class ClanListViewController: ViewController {
     func loadClans() {
         if loadClansTask != nil { return }
         if let last = lastLoadClansAt, Date().timeIntervalSince(last) < loadClansCooldown { return }
-        setIsLoading(true)
+        if clans.isEmpty {
+            setIsLoading(true)
+        }
         error = nil
         let startEpoch = context.sessionEpoch
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer { self.loadClansTask = nil }
-            guard let token = await self.context.getToken() else {
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.completedRemoteClanListFetch = false
                 self.setIsLoading(false)
@@ -546,7 +550,8 @@ final class ClanListViewController: ViewController {
                 self.fetchUnreadDMsTask = nil
                 self.lastFetchUnreadDMsAt = Date()
             }
-            guard let token = await self.context.getToken() else {
+            self.applyUnreadDMsFromCache()
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.applyUnreadDMsFromCache()
                 return
@@ -591,7 +596,7 @@ final class ClanListViewController: ViewController {
     private func fetchClanData(clanId: Int64) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
         }
     }
