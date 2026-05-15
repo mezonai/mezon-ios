@@ -267,8 +267,7 @@ final class WelcomeCellNode: ASDisplayNode {
         placeholderLetter: String,
         size: CGFloat,
         placeholderFontSize: CGFloat,
-        containerNode: ASDisplayNode? = nil,
-        opaqueBackground: UIColor? = nil
+        containerNode: ASDisplayNode? = nil
     ) {
         let args = TransformImageArguments(
             corners: ImageCorners(radius: size / 2),
@@ -283,7 +282,7 @@ final class WelcomeCellNode: ASDisplayNode {
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             imageNode.reset()
-            imageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString, opaqueBackground: opaqueBackground), attemptSynchronously: hasMem)
+            imageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: hasMem)
             let avatarLayout = imageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()

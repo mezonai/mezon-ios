@@ -348,10 +348,10 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         ])
 
         for (i, member) in visible.enumerated() {
-            let textAvatar = TextAvatarView(username: member.username, size: avatarSize, fontSize: 16)
-            textAvatar.translatesAutoresizingMaskIntoConstraints = false
-            textAvatar.layer.borderWidth = 2
-            textAvatar.layer.borderColor = UIColor.theme.secondary.cgColor
+            let container = TextAvatarView(username: member.username, size: avatarSize, fontSize: 16)
+            container.translatesAutoresizingMaskIntoConstraints = false
+            container.layer.borderWidth = 2
+            container.layer.borderColor = UIColor.theme.secondary.cgColor
 
             let imageView = UIImageView()
             imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -362,30 +362,30 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             if let av = member.avatarURL, !av.isEmpty {
                 let px = Int(avatarSize * UIScreen.main.scale)
                 let proxy = ImgproxyURL.create(from: av, width: px, height: px)
-                ImageCache.shared.loadAvatar(urlString: proxy) { [weak textAvatar] img in
+                ImageCache.shared.loadAvatar(urlString: proxy) { [weak container] img in
                     imageView.image = img
                     if img != nil {
-                        textAvatar?.showImageMode()
+                        container?.showImageMode()
                     }
                 }
             }
 
-            textAvatar.addSubview(imageView)
-            membersContainer.addSubview(textAvatar)
+            container.addSubview(imageView)
+            membersContainer.addSubview(container)
 
             let xOffset = CGFloat(i) * (avatarSize - overlap)
             NSLayoutConstraint.activate([
-                textAvatar.leadingAnchor.constraint(equalTo: membersContainer.leadingAnchor, constant: xOffset),
-                textAvatar.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
-                textAvatar.widthAnchor.constraint(equalToConstant: avatarSize),
-                textAvatar.heightAnchor.constraint(equalToConstant: avatarSize),
-                imageView.topAnchor.constraint(equalTo: textAvatar.topAnchor),
-                imageView.leadingAnchor.constraint(equalTo: textAvatar.leadingAnchor),
-                imageView.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor),
-                imageView.bottomAnchor.constraint(equalTo: textAvatar.bottomAnchor),
+                container.leadingAnchor.constraint(equalTo: membersContainer.leadingAnchor, constant: xOffset),
+                container.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
+                container.widthAnchor.constraint(equalToConstant: avatarSize),
+                container.heightAnchor.constraint(equalToConstant: avatarSize),
+                imageView.topAnchor.constraint(equalTo: container.topAnchor),
+                imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             ])
 
-            membersContainer.bringSubviewToFront(textAvatar)
+            membersContainer.bringSubviewToFront(container)
         }
 
         if showBadge {
