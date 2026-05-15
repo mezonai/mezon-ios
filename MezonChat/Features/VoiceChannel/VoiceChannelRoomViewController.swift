@@ -764,14 +764,11 @@ final class VoiceChannelPiPOverlay: NSObject {
         let url = resolveAvatarURL(identity, participant: participant)
         let name = resolveDisplayName(participant)
 
-        print("[VoicePiP] showAvatar: identity=\(identity), isLocal=\(isLocal), url=\(url ?? "nil"), name=\(name)")
-
         if url != lastAvatarURL || identity != lastParticipantIdentity {
             lastAvatarURL = url
             lastParticipantIdentity = identity
             avatarView.image = nil
             let username = resolveUsername(participant)
-            print("[VoicePiP] updating UI: username=\(username)")
             textAvatar.configure(username: username, fontSize: 20)
             if let raw = url, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
