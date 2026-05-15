@@ -4097,7 +4097,7 @@ private final class VoiceParticipantRowView: UIView {
     private var soundReactionTrailingToCard: NSLayoutConstraint?
     private var soundReactionTrailingToRaiseHand: NSLayoutConstraint?
     private var lastAvatarURL: String?
-    private var lastTileVisualState: (displayName: String, micOn: Bool, speaking: Bool, mirrorVideo: Bool, track: VideoTrack?, avatarURL: String?)?
+    private var lastTileVisualState: (username: String, displayName: String, micOn: Bool, speaking: Bool, mirrorVideo: Bool, track: VideoTrack?, avatarURL: String?)?
     private var badgeMicOn = true
     private var layoutMetrics = VoiceParticipantTileLayoutMetrics.fallback
     private var avatarWidthConstraint: NSLayoutConstraint!
@@ -4449,7 +4449,9 @@ private final class VoiceParticipantRowView: UIView {
         videoTrack: VideoTrack?,
         mirrorVideo: Bool
     ) {
+        let usernameChanged = lastTileVisualState?.username != username
         if let s = lastTileVisualState,
+           !usernameChanged,
            s.displayName == displayName,
            s.micOn == micOn,
            s.speaking == speaking,
@@ -4488,9 +4490,12 @@ private final class VoiceParticipantRowView: UIView {
             card.layer.borderColor = UIColor.theme.borderDim.cgColor
         }
 
-        if avatarURL != lastAvatarURL {
+        if avatarURL != lastAvatarURL || usernameChanged {
+            let urlChanged = avatarURL != lastAvatarURL
             lastAvatarURL = avatarURL
-            avatarView.image = nil
+            if urlChanged {
+                avatarView.image = nil
+            }
             textAvatar.configure(username: username, fontSize: layoutMetrics.initialFontSize)
             if let raw = avatarURL, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
@@ -4505,6 +4510,6 @@ private final class VoiceParticipantRowView: UIView {
                 avatarView.image = nil
             }
         }
-        lastTileVisualState = (displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL)
+        lastTileVisualState = (username, displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL)
     }
 }

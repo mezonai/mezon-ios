@@ -223,12 +223,6 @@ struct VoiceMemberDisplay {
 }
 
 private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat) -> (wrapper: ASDisplayNode, img: ASNetworkImageNode, initLabel: ASTextNode2) {
-    let wrapper = ASDisplayNode()
-    wrapper.style.preferredSize = CGSize(width: s, height: s)
-    wrapper.cornerRadius = s / 2
-    wrapper.clipsToBounds = true
-    wrapper.backgroundColor = UIColor.avatarColor(for: m.username)
-
     let imgNode = ASNetworkImageNode()
     imgNode.style.preferredSize = CGSize(width: s, height: s)
     imgNode.cornerRadius = s / 2
@@ -238,11 +232,19 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
     let initNode = ASTextNode2()
     initNode.maximumNumberOfLines = 1
 
+    let wrapper = ASDisplayNode()
+    wrapper.automaticallyManagesSubnodes = true
+    wrapper.style.preferredSize = CGSize(width: s, height: s)
+    wrapper.cornerRadius = s / 2
+    wrapper.clipsToBounds = true
+
     if let av = m.avatarURL, !av.isEmpty {
+        wrapper.backgroundColor = .clear
         let proxy = ImgproxyURL.create(from: av, width: 150, height: 150)
         imgNode.url = URL(string: proxy)
         initNode.isHidden = true
     } else {
+        wrapper.backgroundColor = UIColor.avatarColor(for: m.username)
         imgNode.isHidden = true
         let initial = String(m.username.prefix(1)).uppercased()
         let fontSize: CGFloat = s < 20 ? 8 : 10
@@ -254,8 +256,11 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
             ])
     }
 
-    wrapper.addSubnode(imgNode)
-    wrapper.addSubnode(initNode)
+    wrapper.layoutSpecBlock = { _, _ in
+        let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: initNode)
+        return ASOverlayLayoutSpec(child: center, overlay: imgNode)
+    }
+
     return (wrapper, imgNode, initNode)
 }
 
@@ -290,9 +295,6 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
     override func layout() {
         super.layout()
-        let s = Self.avatarSize
-        avatarImg.frame = CGRect(origin: .zero, size: CGSize(width: s, height: s))
-        avatarInit.frame = CGRect(origin: .zero, size: CGSize(width: s, height: s))
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -368,12 +370,6 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
 
     override func layout() {
         super.layout()
-        let s = Self.avatarSize
-        for wrapper in avatarNodes {
-            for sub in wrapper.subnodes ?? [] {
-                sub.frame = CGRect(origin: .zero, size: CGSize(width: s, height: s))
-            }
-        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
