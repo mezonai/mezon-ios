@@ -15,6 +15,7 @@ enum MezonConfig {
     static var profileImgURL: String { env.profileImgURL }
     static var mmnAPIURL: URL         { env.mmnAPIURL }
     static var zkAPIURL: URL          { env.zkAPIURL }
+    static var dongServiceAPIURL: URL { env.dongServiceAPIURL }
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
 

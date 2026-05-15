@@ -207,6 +207,10 @@ final class ChannelPermissionsViewController: BaseViewController {
         privateToggleCard.layer.cornerRadius = 12.swh
         privateToggleCard.translatesAutoresizingMaskIntoConstraints = false
 
+        let tap = UITapGestureRecognizer(target: self, action: #selector(privateCardTapped))
+        privateToggleCard.addGestureRecognizer(tap)
+        privateToggleCard.isUserInteractionEnabled = true
+
         privateToggleLabel.text = L(L10n.ChannelPermission.privateChannel)
         privateToggleLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         privateToggleLabel.textColor = .mezonTextPrimary
@@ -227,6 +231,11 @@ final class ChannelPermissionsViewController: BaseViewController {
             privateSwitch.trailingAnchor.constraint(equalTo: privateToggleCard.trailingAnchor, constant: -14.sw),
             privateSwitch.centerYAnchor.constraint(equalTo: privateToggleCard.centerYAnchor)
         ])
+    }
+
+    @objc private func privateCardTapped() {
+        privateSwitch.setOn(!privateSwitch.isOn, animated: true)
+        privateSwitchChanged()
     }
 
     private func setupDescription() {
@@ -346,7 +355,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let active = UIColor.theme.bgViolet
         let inactive = UIColor.clear
         let activeText = UIColor.white
-        let inactiveText = UIColor.theme.textDisabled
+        let inactiveText = UIColor.theme.text
         basicTabButton.backgroundColor = currentTab == .basic ? active : inactive
         basicTabButton.setTitleColor(currentTab == .basic ? activeText : inactiveText, for: .normal)
         advancedTabButton.backgroundColor = currentTab == .advanced ? active : inactive
@@ -368,6 +377,9 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func reloadLocalData() {
+        if let latest = context.engine.account.postbox.getChannelDescription(channelId: channelId)?.channel {
+            isPrivate = latest.channelPrivate == 1
+        }
         channelRoles = repository.channelRoles(clanId: clanId, channelId: channelId)
         rebuildChannelMembers()
         privateSwitch.setOn(isPrivate, animated: false)
@@ -538,8 +550,8 @@ final class ChannelPermissionsViewController: BaseViewController {
         let v = UIView()
         let l = UILabel()
         l.text = "\(title):"
-        l.font = .systemFont(ofSize: 13.sf, weight: .semibold)
-        l.textColor = UIColor.theme.text
+        l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
+        l.textColor = UIColor.theme.white
         l.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(l)
         NSLayoutConstraint.activate([

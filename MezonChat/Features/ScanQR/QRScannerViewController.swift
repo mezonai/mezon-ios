@@ -14,6 +14,7 @@ final class QRScannerViewController: ViewController {
     private var externalLinkSheetController: QRExternalLinkSheetController?
     private let captureSessionQueue = DispatchQueue(label: "mezon.qrScanner.captureSession")
     private var shouldResumeCaptureWhenApplicationBecomesActive = false
+    private var exclusiveScanHandlingActive = false
     
     private var isFlashOn = false
     
@@ -70,6 +71,9 @@ final class QRScannerViewController: ViewController {
     
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        if shouldOfferExclusiveScanHandlingResetAfterAppear() {
+            endExclusiveScanHandling()
+        }
         resumeCameraIfAuthorizedAfterSettings()
         startCaptureSessionIfNeeded()
     }
@@ -119,6 +123,7 @@ final class QRScannerViewController: ViewController {
     @objc private func applicationDidBecomeActive() {
         guard shouldResumeCaptureWhenApplicationBecomesActive else { return }
         shouldResumeCaptureWhenApplicationBecomesActive = false
+        endExclusiveScanHandling()
         startCaptureSessionIfNeeded()
     }
 
@@ -180,6 +185,23 @@ final class QRScannerViewController: ViewController {
         }
     }
 
+    private func beginExclusiveScanHandling() -> Bool {
+        if exclusiveScanHandlingActive { return false }
+        exclusiveScanHandlingActive = true
+        return true
+    }
+
+    private func endExclusiveScanHandling() {
+        exclusiveScanHandlingActive = false
+    }
+
+    private func shouldOfferExclusiveScanHandlingResetAfterAppear() -> Bool {
+        guard navigationController?.topViewController === self else { return false }
+        guard loginConfirmNode == nil, clanInviteNode == nil, userProfileNode == nil else { return false }
+        guard externalLinkSheetController == nil else { return false }
+        return true
+    }
+
     private func stopCaptureSessionIfNeeded() {
         guard let session = captureSession else { return }
         captureSessionQueue.async {
@@ -230,7 +252,6 @@ final class QRScannerViewController: ViewController {
         guard externalLinkSheetController == nil else { return }
 
         if data.allSatisfy({ $0.isNumber }) && data.count >= 15 {
-            stopCaptureSessionIfNeeded()
             showLoginConfirm(userId: data)
             return
         }
@@ -272,12 +293,22 @@ final class QRScannerViewController: ViewController {
                 }
                 return
             }
+            guard beginExclusiveScanHandling() else { return }
             stopCaptureSessionIfNeeded()
             presentUserProfile(profileData: profile)
             return
         }
+
+        if let luckyMoneyId = LuckyMoneyQRParse.luckyMoneyId(from: data) {
+            guard beginExclusiveScanHandling() else { return }
+            stopCaptureSessionIfNeeded()
+            let vc = ClaimLuckyMoneyViewController(context: context, luckyMoneyId: luckyMoneyId)
+            navigationController?.pushViewController(vc, animated: true)
+            return
+        }
         
         if let payload = MmnTransferParse.fromQRString(data) {
+            guard beginExclusiveScanHandling() else { return }
             stopCaptureSessionIfNeeded()
             let vc = WalletTransferViewController(context: context, payload: payload)
             navigationController?.pushViewController(vc, animated: true)
@@ -285,6 +316,7 @@ final class QRScannerViewController: ViewController {
         }
 
         if let url = Self.externalLinkURL(from: data) {
+            guard beginExclusiveScanHandling() else { return }
             stopCaptureSessionIfNeeded()
             presentExternalLinkSheet(url: url)
             return
@@ -327,10 +359,12 @@ final class QRScannerViewController: ViewController {
                 UIApplication.shared.open(url, options: [:]) { [weak self] success in
                     if !success {
                         self?.shouldResumeCaptureWhenApplicationBecomesActive = false
+                        self?.endExclusiveScanHandling()
                         self?.startCaptureSessionIfNeeded()
                     }
                 }
             } else {
+                self.endExclusiveScanHandling()
                 self.startCaptureSessionIfNeeded()
             }
         }
@@ -374,6 +408,7 @@ final class QRScannerViewController: ViewController {
     }
     
     private func showLoginConfirm(userId: String) {
+        guard beginExclusiveScanHandling() else { return }
         stopCaptureSessionIfNeeded()
         
         let theme = context.sharedContext.currentPresentationTheme.attributes
@@ -423,11 +458,13 @@ final class QRScannerViewController: ViewController {
         }) { _ in
             confirmNode.removeFromSupernode()
             self.loginConfirmNode = nil
+            self.endExclusiveScanHandling()
             self.startCaptureSessionIfNeeded()
         }
     }
     
     private func showClanInvite(code: String) {
+        guard beginExclusiveScanHandling() else { return }
         stopCaptureSessionIfNeeded()
         
         let theme = context.sharedContext.currentPresentationTheme.attributes
@@ -477,6 +514,7 @@ final class QRScannerViewController: ViewController {
                 }
             } catch {
                 await MainActor.run {
+                    self.endExclusiveScanHandling()
                     self.showAlert(message: error.localizedDescription) {
                         self.startCaptureSessionIfNeeded()
                     }
@@ -492,6 +530,7 @@ final class QRScannerViewController: ViewController {
         }) { _ in
             inviteNode.removeFromSupernode()
             self.clanInviteNode = nil
+            self.endExclusiveScanHandling()
             self.startCaptureSessionIfNeeded()
         }
     }
@@ -546,6 +585,7 @@ final class QRScannerViewController: ViewController {
         }) { _ in
             profileNode.removeFromSupernode()
             self.userProfileNode = nil
+            self.endExclusiveScanHandling()
             self.startCaptureSessionIfNeeded()
         }
     }
@@ -571,6 +611,7 @@ final class QRScannerViewController: ViewController {
 
 extension QRScannerViewController: AVCaptureMetadataOutputObjectsDelegate {
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard !exclusiveScanHandlingActive else { return }
         if let metadataObject = metadataObjects.first {
             guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject else { return }
             guard let stringValue = readableObject.stringValue else { return }

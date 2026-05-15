@@ -142,7 +142,7 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.heightAnchor.constraint(equalToConstant: 14.swh),
 
             nameLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 10.sw),
-            nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8.sh),
+            nameTopConstraint,
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -6.sw),
 
             timeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),

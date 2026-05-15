@@ -99,7 +99,7 @@ final class ChannelPermissionsRepository {
         try await context.engine.account.network.changeChannelPrivate(
             clanId: clanId,
             channelId: channelId,
-            channelPrivate: makePrivate ? 1 : 0,
+            channelPrivate: makePrivate ? 0 : 1,
             userIds: uid != 0 ? [uid] : [],
             roleIds: [],
             token: token

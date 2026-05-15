@@ -473,6 +473,16 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
+    }
+
+    @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
+        guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard gid == clanId, clanId != 0 else { return }
+        if let p = readChannelCachePayloadIfAvailable(clanId: clanId) {
+            applyChannelCachePayload(channels: p.channels, meta: p.meta)
+            needsReloadPipe.putNext(())
+        }
     }
 
     private func effectiveClanIdForChannelAppsHydration() -> Int64 {

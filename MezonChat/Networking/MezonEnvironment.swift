@@ -163,6 +163,17 @@ enum MezonEnvironment {
         }
     }
 
+    var dongServiceAPIURL: URL {
+        if let s = Self.infoPlistString("MEZON_DONG_API_URL") {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty, let u = URL(string: t) { return u }
+        }
+        switch self {
+        case .dev:  return URL(string: Secrets.devDongServiceAPIURL)!
+        case .prod: return URL(string: Secrets.prodDongServiceAPIURL)!
+        }
+    }
+
     var meetWebSocketURLString: String {
         if let override = Self.infoPlistString("MEET_WS_URL"), !override.isEmpty {
             return override
