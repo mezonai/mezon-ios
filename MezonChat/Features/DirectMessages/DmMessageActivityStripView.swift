@@ -114,8 +114,8 @@ private final class DmMessageActivityCell: UICollectionViewCell {
     static let reuseId = "DmMessageActivityCell"
 
     private let card = UIView()
-    private let avatarView = UIImageView()
-    private let initialsLabel = UILabel()
+    private let textAvatar = TextAvatarView(username: "", size: 36.swh, fontSize: 14.sf)
+    private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let subtitleLabel = UILabel()
     private var imageTask: URLSessionDataTask?
@@ -130,15 +130,12 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         card.layer.cornerRadius = 12.swh
         card.clipsToBounds = true
 
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.contentMode = .scaleAspectFill
-        avatarView.clipsToBounds = true
-        avatarView.layer.cornerRadius = 10.swh
+        textAvatar.translatesAutoresizingMaskIntoConstraints = false
 
-        initialsLabel.translatesAutoresizingMaskIntoConstraints = false
-        initialsLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        initialsLabel.textAlignment = .center
-        initialsLabel.isHidden = true
+        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.clipsToBounds = true
+        avatarImageView.layer.cornerRadius = 10.swh
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .systemFont(ofSize: 12.sf, weight: .semibold)
@@ -149,8 +146,8 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         subtitleLabel.numberOfLines = 1
 
         contentView.addSubview(card)
-        card.addSubview(avatarView)
-        avatarView.addSubview(initialsLabel)
+        card.addSubview(textAvatar)
+        textAvatar.addSubview(avatarImageView)
         card.addSubview(nameLabel)
         card.addSubview(subtitleLabel)
 
@@ -161,15 +158,17 @@ private final class DmMessageActivityCell: UICollectionViewCell {
             card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-            avatarView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8.sw),
-            avatarView.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: avSize),
-            avatarView.heightAnchor.constraint(equalToConstant: avSize),
+            textAvatar.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8.sw),
+            textAvatar.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            textAvatar.widthAnchor.constraint(equalToConstant: avSize),
+            textAvatar.heightAnchor.constraint(equalToConstant: avSize),
 
-            initialsLabel.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            initialsLabel.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            avatarImageView.topAnchor.constraint(equalTo: textAvatar.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: textAvatar.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: textAvatar.bottomAnchor),
 
-            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 8.sw),
+            nameLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 8.sw),
             nameLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -10.sw),
             nameLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 8.sh),
 
@@ -189,8 +188,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         avatarLoadGeneration += 1
         imageTask?.cancel()
         imageTask = nil
-        avatarView.image = nil
-        initialsLabel.isHidden = true
+        avatarImageView.image = nil
     }
 
     func applyTheme() {
@@ -198,8 +196,6 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         card.backgroundColor = t.tertiary
         nameLabel.textColor = t.textStrong
         subtitleLabel.textColor = t.textDisabled
-        initialsLabel.textColor = t.textStrong
-        avatarView.backgroundColor = t.colorActiveClan.withAlphaComponent(0.3)
     }
 
     func configure(item: DmMessageActivityItem) {
@@ -215,22 +211,18 @@ private final class DmMessageActivityCell: UICollectionViewCell {
                let u = URL(string: encoded) { return u }
             return nil
         }()
+        textAvatar.configure(username: item.username, fontSize: 14.sf)
         if let url = resolvedURL {
-            initialsLabel.isHidden = true
-            avatarView.backgroundColor = .clear
-            loadAvatar(url: url)
+            loadAvatar(url: url, fallbackUsername: item.username)
         } else {
             avatarLoadGeneration += 1
             imageTask?.cancel()
             imageTask = nil
-            avatarView.image = nil
-            avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
-            initialsLabel.isHidden = false
-            initialsLabel.text = String(item.resolvedDisplayName.prefix(1)).uppercased()
+            avatarImageView.image = nil
         }
     }
 
-    private func loadAvatar(url: URL) {
+    private func loadAvatar(url: URL, fallbackUsername: String) {
         imageTask?.cancel()
         imageTask = nil
         avatarLoadGeneration += 1
@@ -238,19 +230,18 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             guard gen == avatarLoadGeneration else { return }
-            avatarView.image = cached
+            avatarImageView.image = cached
+            textAvatar.showImageMode()
             return
         }
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
             if let image {
-                self.initialsLabel.isHidden = true
-                self.avatarView.image = image
+                self.avatarImageView.image = image
+                self.textAvatar.showImageMode()
             } else {
-                self.avatarView.image = nil
-                self.avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
-                self.initialsLabel.isHidden = false
-                self.initialsLabel.text = String((self.nameLabel.text ?? "U").prefix(1)).uppercased()
+                self.avatarImageView.image = nil
+                self.textAvatar.configure(username: fallbackUsername, fontSize: 14.sf)
             }
         }
     }

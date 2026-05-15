@@ -723,6 +723,7 @@ final class SearchViewController: ViewController {
         }.first(where: { $0.userId == uidInt })
 
         let name: String
+        let username: String
         if let m = member {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -733,8 +734,10 @@ final class SearchViewController: ViewController {
             } else {
                 return nil
             }
+            username = m.username
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
+            username = profile.username
         } else {
             return nil
         }
@@ -746,7 +749,7 @@ final class SearchViewController: ViewController {
             avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
 
-        return VoiceMemberDisplay(name: name, avatarURL: avatar)
+        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
     }
 
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
@@ -1498,7 +1501,7 @@ final class MemberSearchCellNode: ASCellNode {
 
         avatarBackplate.cornerRadius = Self.avatarSize / 2
         avatarBackplate.clipsToBounds = true
-        avatarBackplate.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
+        avatarBackplate.backgroundColor = UIColor.avatarColor(for: user.username)
 
         avatarPlaceholderNode.maximumNumberOfLines = 1
 
@@ -1531,7 +1534,7 @@ final class MemberSearchCellNode: ASCellNode {
             )
         }
 
-        let initialSource = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialSource = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialChar = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
         let side = Self.avatarSize
         let para = NSMutableParagraphStyle()
@@ -1542,7 +1545,7 @@ final class MemberSearchCellNode: ASCellNode {
             string: initialChar,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
-                .foregroundColor: UIColor.mezonTextPrimary,
+                .foregroundColor: UIColor.white,
                 .paragraphStyle: para,
             ]
         )
@@ -1553,9 +1556,12 @@ final class MemberSearchCellNode: ASCellNode {
         {
             avatarNode.url = url
             avatarNode.isHidden = false
+            avatarPlaceholderNode.isHidden = true
+            avatarBackplate.backgroundColor = .clear
         } else {
             avatarNode.url = nil
             avatarNode.isHidden = true
+            avatarPlaceholderNode.isHidden = false
         }
 
         addSubnode(avatarBackplate)

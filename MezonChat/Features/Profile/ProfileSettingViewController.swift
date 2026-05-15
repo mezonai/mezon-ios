@@ -126,7 +126,6 @@ final class ProfileSettingViewController: BaseViewController {
 
     private let avatarContainerView: UIView = {
         let v = UIView()
-        v.backgroundColor = .colorAvatarDefault
         v.clipsToBounds = true
         return v
     }()
@@ -990,14 +989,7 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     private func avatarInitialText() -> String {
-        let source: String
-        if currentTab == .userProfile {
-            source = userDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? userName : userDisplayName
-        } else {
-            let trimmedClanNick = clanNickname.trimmingCharacters(in: .whitespacesAndNewlines)
-            source = trimmedClanNick.isEmpty ? clanNicknamePreviewWhenEmpty() : trimmedClanNick
-        }
-        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = userName.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.first.map { String($0).uppercased() } ?? "?"
     }
 
@@ -1005,7 +997,7 @@ final class ProfileSettingViewController: BaseViewController {
         avatarPlaceholderLabel.text = avatarInitialText()
         avatarPlaceholderLabel.isHidden = false
         avatarImageView.image = nil
-        avatarContainerView.backgroundColor = .colorAvatarDefault
+        avatarContainerView.backgroundColor = UIColor.avatarColor(for: userName)
         bannerColorView.backgroundColor = .outgoingBubble
     }
 
@@ -1014,9 +1006,12 @@ final class ProfileSettingViewController: BaseViewController {
             showAvatarPlaceholder()
             return
         }
+        
+        avatarPlaceholderLabel.isHidden = true
+        avatarContainerView.backgroundColor = UIColor.avatarColor(for: userName)
+
         if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
             avatarImageView.image = cached
-            avatarPlaceholderLabel.isHidden = true
             avatarContainerView.backgroundColor = .clear
             bannerColorView.backgroundColor = cached.dominantColor() ?? .mezonBackground
             return

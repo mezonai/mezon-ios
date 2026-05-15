@@ -308,6 +308,7 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
     }
 }
 
+
 func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         let orig = originalURL
@@ -318,10 +319,14 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(Tran
             return EmptyDisposable
         }
 
+        func buildTransform(for image: UIImage) -> (TransformImageArguments) -> DrawingContext? {
+            return makeTransform(for: image, resizeMode: .fill)
+        }
+
         let cache = ImageCache.shared
         for key in [proxy, orig] where !key.isEmpty {
             if let cached = cache.memoryImage(forKey: key) {
-                subscriber.putNext(makeTransform(for: cached, resizeMode: .fill))
+                subscriber.putNext(buildTransform(for: cached))
                 subscriber.putCompletion()
                 return EmptyDisposable
             }
@@ -331,7 +336,7 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(Tran
 
         func emit(_ image: UIImage) {
             guard !cancelled.with({ $0 }) else { return }
-            subscriber.putNext(makeTransform(for: image, resizeMode: .fill))
+            subscriber.putNext(buildTransform(for: image))
             subscriber.putCompletion()
         }
 

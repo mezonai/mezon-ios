@@ -97,7 +97,6 @@ final class NotificationItemCell: UITableViewCell {
         iv.clipsToBounds = true
         iv.layer.cornerRadius = 18
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.backgroundColor = .colorAvatarDefault
         return iv
     }()
 
@@ -225,24 +224,37 @@ final class NotificationItemCell: UITableViewCell {
         titleLabel.text = item.subject
         contentLabel.text = item.content.isEmpty ? nil : item.content
 
-
         let avatarURLStr = item.avatarURL
         imageTask?.cancel()
-        if !avatarURLStr.isEmpty, let url = URL(string: avatarURLStr) {
-            avatarPlaceholder.isHidden = true
-            avatarView.image = nil
-            imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                guard let data, let img = UIImage(data: data) else { return }
-                DispatchQueue.main.async { self?.avatarView.image = img }
+        imageTask = nil
+
+        avatarView.backgroundColor = UIColor.avatarColor(for: item.subject)
+        avatarPlaceholder.text =
+            item.subject.first.map { String($0).uppercased() } ?? "N"
+
+        if !avatarURLStr.isEmpty, avatarURLStr != "default",
+           let url = URL(string: avatarURLStr) {
+            let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
+            if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+                avatarView.image = cached
+                avatarView.backgroundColor = .clear
+                avatarPlaceholder.isHidden = true
+            } else {
+                avatarView.image = nil
+                avatarPlaceholder.isHidden = false
+                imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] img in
+                    guard let self else { return }
+                    if let img {
+                        self.avatarView.image = img
+                        self.avatarView.backgroundColor = .clear
+                        self.avatarPlaceholder.isHidden = true
+                    }
+                }
             }
-            imageTask?.resume()
         } else {
             avatarView.image = nil
             avatarPlaceholder.isHidden = false
-            avatarPlaceholder.text =
-                item.subject.first.map { String($0).uppercased() } ?? "N"
         }
-
 
         let date = Date(timeIntervalSince1970: TimeInterval(item.createTimeSeconds))
         let diff = Int(Date().timeIntervalSince(date))
@@ -256,15 +268,13 @@ final class NotificationItemCell: UITableViewCell {
             timeLabel.text = "\(diff / 86400)d"
         }
 
-
         let t = UIColor.theme
         titleLabel.textColor = t.textStrong
         contentLabel.textColor = t.text
         timeLabel.textColor = t.textDisabled
         verticalLine.backgroundColor = t.border
         separatorLine.backgroundColor = t.borderDim
-        avatarView.backgroundColor = t.primary
-        avatarPlaceholder.textColor = t.text
+        avatarPlaceholder.textColor = .white
     }
 
     override func prepareForReuse() {

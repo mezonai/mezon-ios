@@ -152,7 +152,6 @@ private final class ClanPickerCell: UITableViewCell {
         avatarView.layer.cornerRadius = 8
 
         placeholderView.translatesAutoresizingMaskIntoConstraints = false
-        placeholderView.backgroundColor = .colorAvatarDefault
         placeholderView.layer.cornerRadius = 8
         placeholderView.clipsToBounds = true
 
@@ -205,7 +204,7 @@ private final class ClanPickerCell: UITableViewCell {
 
     private func applyCellTheme() {
         nameLabel.textColor = .mezonTextStrong
-        initialLabel.textColor = .mezonTextStrong
+        initialLabel.textColor = .white
         checkView.tintColor = .mezonSuccess
     }
 
@@ -218,10 +217,16 @@ private final class ClanPickerCell: UITableViewCell {
         checkView.isHidden = !selected
         avatarView.image = nil
         placeholderView.isHidden = false
+        placeholderView.backgroundColor = UIColor.avatarColor(for: clan.clanName)
         avatarView.isHidden = true
 
         let url = clan.logo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
+        if !url.isEmpty {
+            initialLabel.isHidden = true
+        } else {
+            initialLabel.isHidden = false
+            return
+        }
 
         if let cached = ImageCache.shared.memoryImage(forKey: url) {
             avatarView.image = cached
@@ -246,6 +251,7 @@ private final class ClanPickerCell: UITableViewCell {
         avatarView.image = nil
         placeholderView.isHidden = false
         avatarView.isHidden = true
+        initialLabel.isHidden = false
         initialLabel.text = nil
         nameLabel.text = nil
         checkView.isHidden = true
