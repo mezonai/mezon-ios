@@ -153,7 +153,7 @@ fileprivate enum VoiceChannelPiPPreservedAudioRoute {
 }
 
 private let voiceChannelAudioSessionCategoryOptions: AVAudioSession.CategoryOptions =
-    [.allowBluetooth, .allowBluetoothA2DP, .mixWithOthers, .allowAirPlay]
+    [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
 
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
@@ -205,8 +205,8 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
         NSLayoutConstraint.activate([
             stateIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stateIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stateIconView.widthAnchor.constraint(equalToConstant: 22),
-            stateIconView.heightAnchor.constraint(equalToConstant: 22),
+            stateIconView.widthAnchor.constraint(equalToConstant: 15),
+            stateIconView.heightAnchor.constraint(equalToConstant: 15),
             volumeView.topAnchor.constraint(equalTo: topAnchor),
             volumeView.bottomAnchor.constraint(equalTo: bottomAnchor),
             volumeView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -261,6 +261,10 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     func setRouteStateSymbol(systemName: String, pointSize: CGFloat, weight: UIImage.SymbolWeight) {
         let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
         stateIconView.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+    }
+
+    func setRouteStateTemplateAsset(named assetName: String) {
+        stateIconView.image = UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate)
     }
 }
 
@@ -1562,6 +1566,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             switch reason {
             case .newDeviceAvailable, .oldDeviceUnavailable, .override:
                 self.syncCurrentAudioOutputFromSession()
+                if self.liveKitBridge != nil {
+                    self.ensureVoiceChannelAudioSessionCategory()
+                }
             case .categoryChange, .routeConfigurationChange:
                 if self.liveKitBridge != nil, self.systemRoutePortMatchesPreferredOutput() == false {
                     self.applyAudioRoute()
@@ -3269,15 +3276,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func refreshSpeakerRouteUI() {
+        syncCurrentAudioOutputFromSession()
         let t = UIColor.theme.white
         audioRouteControl.applyTint(t)
         let session = AVAudioSession.sharedInstance()
         let systemName: String
         if let port = session.currentRoute.outputs.first?.portType {
             switch port {
-            case .headphones, .headsetMic:
+            case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
                 systemName = "headphones"
-                audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 16, weight: .medium)
+                audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 12, weight: .medium)
                 return
             default:
                 break
@@ -3287,11 +3295,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         if bluetooth && currentAudioOutput != .speaker {
             systemName = "headphones"
         } else if currentAudioOutput == .speaker {
-            systemName = "speaker.wave.2.fill"
+            audioRouteControl.setRouteStateTemplateAsset(named: "externalSpeaker")
+            return
         } else {
-            systemName = "iphone.radiowaves.left.and.right"
+            audioRouteControl.setRouteStateTemplateAsset(named: "internalSpeaker")
+            return
         }
-        audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 16, weight: .medium)
+        audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 12, weight: .medium)
     }
 
     private func systemRoutePortMatchesPreferredOutput() -> Bool {

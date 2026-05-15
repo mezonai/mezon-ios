@@ -649,6 +649,12 @@ final class CallKitManager: NSObject {
                 callKitUnifiedDebug("CANCEL_CALL action=NOOP_ALREADY_ENDED -> immediate-ended VoIP compliance only")
             }
 
+            if remoteIsConnected {
+                callKitUnifiedDebug("CANCEL_CALL remoteIsConnected -> skip VoIPCompliance reportNewIncomingCall, completion only")
+                completion()
+                return
+            }
+
             callKitUnifiedDebug("CANCEL_CALL -> reportImmediateEndedIncomingForVoIPCompliance(PushKit compliance)")
             reportImmediateEndedIncomingForVoIPCompliance(
                 localizedCallerName: Self.callKitComplianceDisplayLabel,
@@ -979,6 +985,9 @@ extension CallKitManager: CXProviderDelegate {
     func providerDidReset(_ resetProvider: CXProvider) {
         if resetProvider === provider {
             callKitUnifiedDebug("providerDidReset MAIN -> clearStoredIncomingPayload")
+            Task { @MainActor in
+                WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
+            }
             Self.clearStoredIncomingPayload()
         } else if resetProvider === silentReportProvider {
             callKitUnifiedDebug("providerDidReset SILENT_REPORT provider cleared")
@@ -1044,9 +1053,10 @@ extension CallKitManager: CXProviderDelegate {
         markRecentlyEndedFromStoredPayloadIfPossible()
         markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
-        Self.clearStoredIncomingPayload()
         Task { @MainActor in
+            WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
             WebRTCCallManager.shared.abandonIncomingPresentation()
+            Self.clearStoredIncomingPayload()
         }
         action.fulfill()
         callKitUnifiedDebug("CXEndCallAction fulfilled uuid=\(action.callUUID.uuidString)")
@@ -1072,9 +1082,10 @@ extension CallKitManager: CXProviderDelegate {
         markRecentlyEndedFromStoredPayloadIfPossible()
         markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
-        Self.clearStoredIncomingPayload()
         Task { @MainActor in
+            WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
             WebRTCCallManager.shared.abandonIncomingPresentation()
+            Self.clearStoredIncomingPayload()
         }
     }
 

@@ -74,7 +74,7 @@ final class QRUserProfileNode: ASDisplayNode {
         closeButton.backgroundColor = .mezonPrimary
         closeButton.setTitle(
             L(L10n.QRScanner.noThanks), with: .systemFont(ofSize: 16, weight: .bold),
-            with: .black, for: .normal)
+            with: theme.textStrong, for: .normal)
         closeButton.cornerRadius = 24
         closeButton.style.height = ASDimensionMake(48)
         closeButton.addTarget(

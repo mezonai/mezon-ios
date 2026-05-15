@@ -247,6 +247,7 @@ final class AccountContextImpl: AccountContext {
 
     func login(user: User, session: MezonSession) {
         sessionEpoch &+= 1
+        let startEpoch = sessionEpoch
         VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
@@ -260,6 +261,7 @@ final class AccountContextImpl: AccountContext {
                 try await refreshSession()
             } catch {
             }
+            guard self.isStillCurrentSession(epoch: startEpoch) else { return }
             if let freshSession = self.session {
                 applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
                 scheduleHeavyAccountBootstrapAfterYield(token: freshSession.token)
@@ -451,10 +453,12 @@ final class AccountContextImpl: AccountContext {
         setLoggedIn(!saved.created)
         account.network.updateBaseURL(from: saved)
 
+        let startEpoch = sessionEpoch
         SessionRefreshManager.shared.refreshOnAppLaunch(
             session: saved,
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
+                guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
                 self.applySession(merged, user: self.currentUser, connectSocket: !merged.created, fetchAccount: false)
                 self.scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
@@ -468,11 +472,13 @@ final class AccountContextImpl: AccountContext {
             },
             onExpired: { [weak self] in
                 guard let self else { return }
+                guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.markSessionReady()
                 SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
             },
             onReady: { [weak self] in
                 guard let self else { return }
+                guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.markSessionReady()
                 onReady(self)
             }

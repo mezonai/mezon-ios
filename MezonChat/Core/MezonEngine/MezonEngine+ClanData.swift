@@ -411,6 +411,36 @@ extension MezonEngine {
             postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
         }
 
+        func updateChannelPrivateLocally(clanId: Int64, channelId: Int64, isPrivate: Bool) {
+            let priv: Int32 = isPrivate ? 1 : 0
+            postbox.write { tx in
+                tx.updateChannelPrivate(
+                    clanId: clanId, channelId: channelId, isPrivate: isPrivate)
+            }
+            if let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)), !blob.isEmpty {
+                var arr = ChannelPreferenceListCodec.decode(blob)
+                if let idx = arr.firstIndex(where: { $0.channelID == channelId }) {
+                    arr[idx].channelPrivate = priv
+                    if let data = ChannelPreferenceListCodec.encode(arr) {
+                        postbox.setPreferenceDataSync(
+                            key: PreferencesKeys.channelList(clanId: clanId), value: data)
+                    }
+                }
+            }
+            if var list = getAllChannelsByUser(),
+                let idx = list.channeldesc.firstIndex(where: { $0.channelID == channelId }) {
+                list.channeldesc[idx].channelPrivate = priv
+                if let data = try? list.serializedData() {
+                    postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+                }
+            }
+            NotificationCenter.default.post(
+                name: .mezonUserChannelAddedFromSocket,
+                object: nil,
+                userInfo: ["clanId": clanId, "channelId": channelId]
+            )
+        }
+
         private func mergeIntoClanChannelListPreferenceIfPresent(clanId: Int64, channel: Mezon_Api_ChannelDescription) {
             guard let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)), !blob.isEmpty else { return }
             var arr = ChannelPreferenceListCodec.decode(blob)

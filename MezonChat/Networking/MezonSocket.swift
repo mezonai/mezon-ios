@@ -164,11 +164,14 @@ final class MezonSocket: NSObject {
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
         urlSession = nil
+        token = nil
+        wsHostOverride = nil
         isConnected = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         reconnectAttempts = 0
         hasTriedRefreshSinceConnect = false
         tokenProvider = nil
+        pendingSendQueue.removeAll()
         failAllPendingApiRequests(reason: "WebSocket disconnected")
     }
 
@@ -798,6 +801,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         didOpenWithProtocol protocol: String?
     ) {
         Task { @MainActor in
+            guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = true
             self.reconnectAttempts = 0
             self.hasTriedRefreshSinceConnect = false
@@ -815,6 +819,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         reason: Data?
     ) {
         Task { @MainActor in
+            guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = false
             // Drop the dead task so the connect() dedupe guard knows the
             // socket really needs to be rebuilt next time.

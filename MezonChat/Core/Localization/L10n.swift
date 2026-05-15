@@ -535,6 +535,12 @@ enum L10n {
         static let alertOK             = "sharing.alertOK"
     }
 
+    enum ChannelApp {
+        static let launchApp = "channelApp.launchApp"
+        static let help = "channelApp.help"
+        static let unavailable = "channelApp.unavailable"
+    }
+
     enum ClanInviteSheet {
         static let title                = "clan.inviteSheet.title"
         static let share                = "clan.inviteSheet.share"
@@ -648,6 +654,34 @@ enum L10n {
         static let privacyFooter        = "channel.setting.privacyFooter"
     }
 
+    enum ChannelPermission {
+        static let title              = "channelPermission.title"
+        static let basicView          = "channelPermission.basicView"
+        static let advancedView       = "channelPermission.advancedView"
+        static let edit               = "channelPermission.edit"
+        static let done               = "channelPermission.done"
+        static let save               = "channelPermission.save"
+        static let privateChannel     = "channelPermission.privateChannel"
+        static let basicViewDescription = "channelPermission.basicViewDescription"
+        static let addMemberAndRoles  = "channelPermission.addMemberAndRoles"
+        static let whoCanAccess       = "channelPermission.whoCanAccess"
+        static let roles              = "channelPermission.roles"
+        static let members            = "channelPermission.members"
+        static let role               = "channelPermission.role"
+        static let toastSuccess       = "channelPermission.toast.success"
+        static let toastFailed        = "channelPermission.toast.failed"
+        static let bsAddMembersOrRoles = "channelPermission.bottomSheet.addMembersOrRoles"
+        static let bsAdd              = "channelPermission.bottomSheet.add"
+        static let searchPlaceholder  = "channelPermission.bottomSheet.search"
+        static let roleAndMemberEmpty = "channelPermission.roleAndMemberEmpty"
+        static let permissionOverrides = "channelPermission.permissionOverrides"
+        static let generalChannelPermission = "channelPermission.generalChannelPermission"
+        static let warnTitle          = "channelPermission.warningChangeSettingModal.title"
+        static let warnContent        = "channelPermission.warningChangeSettingModal.content"
+        static let warnConfirm        = "channelPermission.warningChangeSettingModal.confirm"
+        static let warnCancel         = "channelPermission.warningChangeSettingModal.cancel"
+    }
+
     enum ChatWelcome {
         static let welcomeToChannel = "chatWelcome.welcomeToChannel"
         static let startOfChannel = "chatWelcome.startOfChannel"
@@ -661,6 +695,7 @@ enum L10n {
         static let todayAt        = "channelMessages.todayAt"
         static let yesterdayAt   = "channelMessages.yesterdayAt"
         static let writeMessage   = "channelMessages.writeMessage"
+        static let noSendPermission = "channelMessages.noSendPermission"
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
@@ -677,7 +712,7 @@ enum L10n {
         static let addFriend = "directMessage.addFriend"
 
         static let groupCreated   = "directMessage.groupCreated"
-        static let previewFile    = "directMessage.previewFile"
+        static let previewAttachment = "directMessage.previewAttachment"
         static let previewLink    = "directMessage.previewLink"
         static let previewLocation = "directMessage.previewLocation"
         static let previewContact = "directMessage.previewContact"
@@ -1340,10 +1375,37 @@ extension L10n {
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Change privacy settings and customize how members can interact with this channel.",
 
+        "channelPermission.title":              "Channel Permissions",
+        "channelPermission.basicView":          "Basic View",
+        "channelPermission.advancedView":       "Advanced View",
+        "channelPermission.edit":               "Edit",
+        "channelPermission.done":               "Done",
+        "channelPermission.save":               "Save",
+        "channelPermission.privateChannel":     "Private Channel",
+        "channelPermission.basicViewDescription": "By making a channel private, only selected members and roles will be able to view this channel.",
+        "channelPermission.addMemberAndRoles":  "Add members and roles",
+        "channelPermission.whoCanAccess":       "Who can access this channel?",
+        "channelPermission.roles":              "Roles",
+        "channelPermission.members":            "Members",
+        "channelPermission.role":               "Role",
+        "channelPermission.toast.success":      "Update successfully",
+        "channelPermission.toast.failed":       "Update failed",
+        "channelPermission.bottomSheet.addMembersOrRoles": "Add members or roles",
+        "channelPermission.bottomSheet.add":    "Add",
+        "channelPermission.bottomSheet.search": "Search for a member or role",
+        "channelPermission.roleAndMemberEmpty": "No roles or members. Add some from Basic View first.",
+        "channelPermission.permissionOverrides": "Permission Overrides",
+        "channelPermission.generalChannelPermission": "General Channel Permissions",
+        "channelPermission.warningChangeSettingModal.title":   "Unsaved changes",
+        "channelPermission.warningChangeSettingModal.content": "You have made changes. Are you sure you want to leave without saving?",
+        "channelPermission.warningChangeSettingModal.confirm": "Save",
+        "channelPermission.warningChangeSettingModal.cancel":  "Discard",
+
         "channelMessages.emptyMessages": "No messages yet",
         "channelMessages.todayAt": "Today at %@",
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
+        "channelMessages.noSendPermission": "You do not have permission to send messages in this channel.",
         "channelMessages.userIsTyping": "%@ is typing…",
         "channelMessages.usersAreTyping": "%@ are typing…",
         "channelMessages.severalPeopleTyping": "Several people are typing…",
@@ -1353,6 +1415,10 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
         "channelMessages.pollUnsupported": "Polls aren't supported in the app yet.",
         "channelMessages.pollComingSoon": "Coming soon.",
+
+        "channelApp.launchApp": "Launch App",
+        "channelApp.help": "Help",
+        "channelApp.unavailable": "App unavailable",
 
         "poll.selectOne": "Select one option",
         "poll.selectOneOrMore": "Select one or more options",
@@ -1381,7 +1447,7 @@ extension L10n {
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
         "directMessage.groupCreated": "Group created",
-        "directMessage.previewFile": "File",
+        "directMessage.previewAttachment": "Attachment",
         "directMessage.previewLink": "Link",
         "directMessage.previewLocation": "Location",
         "directMessage.previewContact": "Contact",
@@ -2105,10 +2171,37 @@ extension L10n {
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Thay đổi cài đặt quyền riêng tư và tùy chỉnh cách các thành viên có thể tương tác với kênh này.",
 
+        "channelPermission.title":              "Quyền hạn kênh",
+        "channelPermission.basicView":          "Cơ bản",
+        "channelPermission.advancedView":       "Nâng cao",
+        "channelPermission.edit":               "Sửa",
+        "channelPermission.done":               "Xong",
+        "channelPermission.save":               "Lưu",
+        "channelPermission.privateChannel":     "Kênh riêng tư",
+        "channelPermission.basicViewDescription": "Khi đặt kênh ở chế độ riêng tư, chỉ những thành viên và vai trò được chọn mới có thể xem kênh này.",
+        "channelPermission.addMemberAndRoles":  "Thêm thành viên và vai trò",
+        "channelPermission.whoCanAccess":       "Ai có thể truy cập kênh này?",
+        "channelPermission.roles":              "Vai trò",
+        "channelPermission.members":            "Thành viên",
+        "channelPermission.role":               "Vai trò",
+        "channelPermission.toast.success":      "Cập nhật thành công",
+        "channelPermission.toast.failed":       "Cập nhật thất bại",
+        "channelPermission.bottomSheet.addMembersOrRoles": "Thêm thành viên hoặc vai trò",
+        "channelPermission.bottomSheet.add":    "Thêm",
+        "channelPermission.bottomSheet.search": "Tìm thành viên hoặc vai trò",
+        "channelPermission.roleAndMemberEmpty": "Chưa có vai trò hay thành viên nào. Hãy thêm ở mục Cơ bản trước.",
+        "channelPermission.permissionOverrides": "Tuỳ chỉnh quyền",
+        "channelPermission.generalChannelPermission": "Quyền kênh chung",
+        "channelPermission.warningChangeSettingModal.title":   "Có thay đổi chưa lưu",
+        "channelPermission.warningChangeSettingModal.content": "Bạn có thay đổi chưa lưu. Bạn có muốn lưu trước khi rời đi không?",
+        "channelPermission.warningChangeSettingModal.confirm": "Lưu",
+        "channelPermission.warningChangeSettingModal.cancel":  "Bỏ qua",
+
         "channelMessages.emptyMessages": "Chưa có tin nhắn",
         "channelMessages.todayAt": "Hôm nay lúc %@",
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
+        "channelMessages.noSendPermission": "Bạn không có quyền gửi tin nhắn trong kênh này.",
         "channelMessages.userIsTyping": "%@ đang nhập…",
         "channelMessages.usersAreTyping": "%@ đang nhập…",
         "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",
@@ -2118,6 +2211,10 @@ extension L10n {
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
         "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
         "channelMessages.pollComingSoon": "Sắp có.",
+
+        "channelApp.launchApp": "Mở app",
+        "channelApp.help": "Trợ giúp",
+        "channelApp.unavailable": "Không mở được app.",
 
         "poll.selectOne": "Chọn một tùy chọn",
         "poll.selectOneOrMore": "Chọn một hoặc nhiều tùy chọn",
@@ -2146,7 +2243,7 @@ extension L10n {
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
         "directMessage.groupCreated": "Nhóm đã được tạo",
-        "directMessage.previewFile": "Tệp",
+        "directMessage.previewAttachment": "Đính kèm",
         "directMessage.previewLink": "Liên kết",
         "directMessage.previewLocation": "Vị trí",
         "directMessage.previewContact": "Danh bạ",

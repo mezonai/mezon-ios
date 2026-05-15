@@ -399,6 +399,9 @@ final class ChannelListViewController: ViewController {
     private(set) var clanName: String = ""
     private(set) var clanLogoURL: String = ""
 
+    private var pendingSkeletonRevealItem: DispatchWorkItem?
+    private let skeletonRevealDelay: TimeInterval = 0.4
+
     private var channelListCategoryDescs: [Mezon_Api_CategoryDesc] = []
 
     private var channelListFavoriteIds: Set<Int64> = []
@@ -538,7 +541,7 @@ final class ChannelListViewController: ViewController {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
         guard clanId != 0 else { return }
 
-
+        lastChannelFetchAtByClanId.removeValue(forKey: clanId)
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
     }
 
@@ -589,7 +592,7 @@ final class ChannelListViewController: ViewController {
             return base
         }
 
-        let token = await context.getToken()
+        let token = await context.getTokenPreferringCachedSkipSessionReadyWait()
         guard clanId == self.clanId else { return base }
         guard let token else { return base }
 
@@ -799,7 +802,7 @@ final class ChannelListViewController: ViewController {
     private func fetchNotificationSettingForBottomsheet(channelId: Int64) {
         Task { @MainActor in
             let startEpoch = context.sessionEpoch
-            guard let token = await context.getToken() else { return }
+            guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             do {
                 let noti = try await MezonHTTPClient.shared.getNotificationChannel(channelId: channelId, token: token)
                 guard context.isStillCurrentSession(epoch: startEpoch) else { return }
@@ -1036,6 +1039,8 @@ final class ChannelListViewController: ViewController {
             clanId: channel.clanID,
             channelId: channel.channelID,
             categoryId: channel.categoryID,
+            channelType: channel.type,
+            channelPrivate: channel.channelPrivate == 1,
             channelName: channel.channelLabel,
             channelTopic: channel.topic
         )
@@ -1249,8 +1254,34 @@ final class ChannelListViewController: ViewController {
     private func setCategories(_ v: [ChannelCategory]) { categories = v; categoriesPipe.putNext(v); needsReloadPipe.putNext(()) }
     private func setSelectedChannelId(_ v: Int64?) { selectedChannelId = v; selectedChannelIdPipe.putNext(v) }
     private func setSelectedChannel(_ v: Mezon_Api_ChannelDescription?) { selectedChannel = v; selectedChannelPipe.putNext(v) }
-    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setIsLoading(_ v: Bool) {
+        if !v { cancelDeferredSkeletonReveal() }
+        isLoading = v
+        isLoadingPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
     private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v) }
+
+    private func scheduleDeferredSkeletonRevealIfStillEmpty() {
+        let pendingClanId = clanId
+        cancelDeferredSkeletonReveal()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.clanId == pendingClanId, self.clanId != 0 else { return }
+            guard self.categories.isEmpty else { return }
+            guard NetworkMonitor.shared.isConnected else { return }
+            self.isLoading = true
+            self.isLoadingPipe.putNext(true)
+            self.needsReloadPipe.putNext(())
+        }
+        pendingSkeletonRevealItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + skeletonRevealDelay, execute: item)
+    }
+
+    private func cancelDeferredSkeletonReveal() {
+        pendingSkeletonRevealItem?.cancel()
+        pendingSkeletonRevealItem = nil
+    }
 
     private func clearCurrentChannelSelection() {
         guard selectedChannelId != nil || selectedChannel != nil else { return }
@@ -1315,7 +1346,12 @@ final class ChannelListViewController: ViewController {
         if clanId == 0 || !NetworkMonitor.shared.isConnected {
             channelListNode.setChannelAppsLoadingIndicator(false)
         }
-        isLoading = pendingCache == nil && clanId != 0 && NetworkMonitor.shared.isConnected
+        isLoading = false
+        if pendingCache == nil && clanId != 0 && NetworkMonitor.shared.isConnected {
+            scheduleDeferredSkeletonRevealIfStillEmpty()
+        } else {
+            cancelDeferredSkeletonReveal()
+        }
         needsReloadPipe.putNext(())
         if clanId != 0, !allChannels.isEmpty {
             postClanSidebarUnreadDerivedFromCurrentChannels()
@@ -1332,12 +1368,14 @@ final class ChannelListViewController: ViewController {
 
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
+            cancelDeferredSkeletonReveal()
             isLoading = false
             channelListNode.setChannelAppsLoadingIndicator(false)
             needsReloadPipe.putNext(())
             return
         }
         guard NetworkMonitor.shared.isConnected else {
+            cancelDeferredSkeletonReveal()
             isLoading = false
             isLoadingPipe.putNext(false)
             channelListNode.setChannelAppsLoadingIndicator(false)
@@ -1348,6 +1386,7 @@ final class ChannelListViewController: ViewController {
         if inflightChannelFetchClanId == clanId { return }
         if let last = lastChannelFetchAtByClanId[clanId],
            Date().timeIntervalSince(last) < channelFetchCooldown {
+            cancelDeferredSkeletonReveal()
             isLoading = false
             isLoadingPipe.putNext(false)
             channelListNode.setChannelAppsLoadingIndicator(false)
@@ -1374,6 +1413,7 @@ final class ChannelListViewController: ViewController {
                     self.clearInflightChannelFetchIfMatches(clanId: clanId)
                     return
                 }
+                self.cancelDeferredSkeletonReveal()
                 self.isLoading = false
                 switch result {
                 case .success(let channels, let categoryDescs, let favoriteIds):
@@ -1761,7 +1801,7 @@ final class ChannelListViewController: ViewController {
             let task = Task {
                 let startEpoch = await MainActor.run { context.sessionEpoch }
                 let token = await Task { @MainActor in
-                    await context.getToken()
+                    await context.getTokenPreferringCachedSkipSessionReadyWait()
                 }.value
                 guard let token else {
                     await MainActor.run {
@@ -2035,7 +2075,7 @@ final class ChannelListViewController: ViewController {
     }
 
     private func resolveAuthTokenPreferringUnexpiredSessionStore() async -> String? {
-        await context.getToken()
+        await context.getTokenPreferringCachedSkipSessionReadyWait()
     }
 
     private func applyChannelCachePayload(channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?) {

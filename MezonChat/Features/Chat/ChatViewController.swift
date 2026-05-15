@@ -149,6 +149,7 @@ struct ChatMessageDisplay: Identifiable {
     let locationData: LocationData?
     let isMe: Bool
     let sendingState: SendingState
+    let showsSendingFeedback: Bool
     let hasIncludeMention: Bool
     let isForward: Bool
     let showForwardHeader: Bool
@@ -158,7 +159,7 @@ struct ChatMessageDisplay: Identifiable {
     let pollData: PollData?
     let rawContentData: Data?
     var isFailed: Bool { sendingState == .failed }
-    var isSending: Bool { sendingState == .pending }
+    var isSending: Bool { sendingState == .pending && showsSendingFeedback }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
     var isSendTokenLog: Bool { messageCode == MezonConstants.MessageCode.sendToken.rawValue }
     var isPollMessage: Bool { pollData != nil }
@@ -246,6 +247,7 @@ struct ChatState {
 final class ChatViewController: ViewController {
 
     private static var isLicenseAgreementPresentationScheduled = false
+    private static let pendingSendFeedbackDelay: TimeInterval = 1.0
 
     let clanId: Int64
     private(set) var channel: Mezon_Api_ChannelDescription
@@ -350,6 +352,11 @@ final class ChatViewController: ViewController {
     private var advancePanelCollapsedHeight: CGFloat = 0
 
     private var inputBarHeight: CGFloat = 56
+    private let channelAppHotbar: ChannelAppHotbarBarView = {
+        let v = ChannelAppHotbarBarView()
+        v.isHidden = true
+        return v
+    }()
     private var currentKeyboardOffset: CGFloat = 0
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
@@ -360,6 +367,8 @@ final class ChatViewController: ViewController {
     private var pendingMarkAsRead = false
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
+    private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
+    private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
 
     private struct RemoteTyperState {
         var displayName: String
@@ -823,7 +832,7 @@ final class ChatViewController: ViewController {
                 isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
                 replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
                 topicData: nil, locationData: nil, isMe: record.senderId == context.currentUser?.id,
-                sendingState: record.sendingState, hasIncludeMention: false,
+                sendingState: record.sendingState, showsSendingFeedback: false, hasIncludeMention: false,
                 isForward: false, showForwardHeader: false, messageCode: record.code,
                 clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: record.content
             )
@@ -854,7 +863,7 @@ final class ChatViewController: ViewController {
             isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
             replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
             topicData: nil, locationData: nil, isMe: record.senderId == context.currentUser?.id,
-            sendingState: record.sendingState, hasIncludeMention: false,
+            sendingState: record.sendingState, showsSendingFeedback: false, hasIncludeMention: false,
             isForward: false, showForwardHeader: false, messageCode: record.code,
             clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: record.content
         )
@@ -864,8 +873,7 @@ final class ChatViewController: ViewController {
 
     
     private func updateMessagesWithEphemeral() {
-        let combined = (persistentMessages + ephemeralMessages).sorted { $0.message.createdAt < $1.message.createdAt }
-        messages = combined
+        messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages)
         needsReloadPipe.putNext(())
     }
 
@@ -939,7 +947,10 @@ final class ChatViewController: ViewController {
         let bottomOffset = max(keyboardOffset, max(emojiOffset, advanceOffset))
 
         let sendComposerH = sendInputViewController.totalHeight
-        let totalBottomH = sendComposerH
+        let showAppHotbar = shouldShowChannelAppHotbar
+        let appHotbarH: CGFloat = showAppHotbar ? ChannelAppHotbarBarView.prefersFixedHeight : 0
+        channelAppHotbar.isHidden = !showAppHotbar
+        let totalBottomH = appHotbarH + sendComposerH
         let inputY = layout.size.height - bottomInset - bottomOffset - totalBottomH
         let inputFrame = CGRect(
             x: 0,
@@ -948,7 +959,25 @@ final class ChatViewController: ViewController {
             height: sendComposerH + bottomInset
         )
         sendInputViewController.syncComposerBottomSafeInset(bottomInset)
-        transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
+        if showAppHotbar {
+            let hotbarFrame = CGRect(
+                x: 0,
+                y: inputY,
+                width: layout.size.width,
+                height: appHotbarH
+            )
+            let composerTop = inputY + appHotbarH
+            let composerFrame = CGRect(
+                x: 0,
+                y: composerTop,
+                width: layout.size.width,
+                height: sendComposerH + bottomInset
+            )
+            transition.updateFrame(view: channelAppHotbar, frame: hotbarFrame, beginWithCurrentState: true)
+            transition.updateFrame(view: sendInputViewController.view, frame: composerFrame, beginWithCurrentState: true)
+        } else {
+            transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
+        }
 
         emojiPicker.updateBottomInset(bottomInset)
         advancePanelBottomConstraint?.constant = -bottomInset
@@ -977,7 +1006,7 @@ final class ChatViewController: ViewController {
         if suppressScrollToBottomForNextKeyboardInset, rawKeyboardOffset > 0.5 {
             suppressScrollToBottomForNextKeyboardInset = false
         }
-        inputBarHeight = sendComposerH
+        inputBarHeight = totalBottomH
         currentKeyboardOffset = bottomOffset
 
         messagesNode.updateLayout(
@@ -1036,6 +1065,7 @@ final class ChatViewController: ViewController {
     @objc private func handleThemeChange() {
         messagesNode.applyTheme()
         applyRemoteTypingStripTheme()
+        channelAppHotbar.applyTheme()
     }
 
     private func applyRemoteTypingStripTheme() {
@@ -1081,7 +1111,7 @@ final class ChatViewController: ViewController {
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.fetchMessages(token: token)
             self.joinChat()
             self.refreshPinnedMessagesFromServer()
@@ -1181,6 +1211,7 @@ final class ChatViewController: ViewController {
 
     deinit {
         typingPruneTimer?.invalidate()
+        sendingFeedbackRefreshWorkItem?.cancel()
         stateDisposables.dispose()
         NotificationCenter.default.removeObserver(self)
     }
@@ -1188,12 +1219,13 @@ final class ChatViewController: ViewController {
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
-        persistentMessages = v
-        messages = (persistentMessages + ephemeralMessages).sorted { $0.message.createdAt < $1.message.createdAt }
-        let newFirstId = v.first(where: { !$0.isWelcome })?.id
-        let newLastId = v.last?.id
+        persistentMessages = normalizedDisplayOrder(v)
+        messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages)
+        let newFirstId = persistentMessages.first(where: { !$0.isWelcome })?.id
+        let newLastId = persistentMessages.last?.id
         if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
         if newLastId != oldLastId { lastFetchedNewerMessageId = nil }
+        schedulePendingSendingFeedbackRefreshIfNeeded()
         needsReloadPipe.putNext(())
         markChannelAsRead()
 
@@ -1208,6 +1240,49 @@ final class ChatViewController: ViewController {
                 self?.forceScrollToBottom()
             }
         }
+    }
+
+    private func pendingSendingFeedbackBeganAt(for record: MessageRecord, now: Date) -> Date {
+        guard record.sendingState == .pending else { return record.createdAt }
+        if let beganAt = pendingSendingFeedbackBeganAtByMessageId[record.id] {
+            return beganAt
+        }
+        let beganAt = record.id.hasPrefix("pending-") ? record.createdAt : now
+        pendingSendingFeedbackBeganAtByMessageId[record.id] = beganAt
+        return beganAt
+    }
+
+    private func schedulePendingSendingFeedbackRefreshIfNeeded() {
+        sendingFeedbackRefreshWorkItem?.cancel()
+        sendingFeedbackRefreshWorkItem = nil
+
+        let now = Date()
+        let nextDelay = messages.compactMap { display -> TimeInterval? in
+            guard display.sendingState == .pending, !display.showsSendingFeedback else { return nil }
+            guard let beganAt = pendingSendingFeedbackBeganAtByMessageId[display.id] else { return nil }
+            return max(0, Self.pendingSendFeedbackDelay - now.timeIntervalSince(beganAt))
+        }.min()
+
+        guard let nextDelay else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.sendingFeedbackRefreshWorkItem = nil
+            self.reloadDisplaysForPendingSendingFeedback()
+        }
+        sendingFeedbackRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + nextDelay + 0.02, execute: workItem)
+    }
+
+    private func reloadDisplaysForPendingSendingFeedback() {
+        let channelIdStr = storageChannelId
+        let rows = context.account.postbox.read { tx in
+            tx.getMessages(channelId: channelIdStr).filter { $0.channelId == channelIdStr }
+        }
+        setMessages(buildDisplayMessages(from: rows))
+    }
+
+    private func normalizedDisplayOrder(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
+        Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
     }
     private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
     private func clearLastSeenMessageId() {
@@ -1600,7 +1675,7 @@ final class ChatViewController: ViewController {
                 }
             }
             let resolvedToken: String?
-            if let token { resolvedToken = token } else { resolvedToken = await self.context.getToken() }
+            if let token { resolvedToken = token } else { resolvedToken = await self.context.getTokenPreferringCachedSkipSessionReadyWait() }
             guard let token = resolvedToken else { return }
             do {
                 var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token)
@@ -1637,7 +1712,7 @@ final class ChatViewController: ViewController {
         setIsLoadingMore(true)
         Task { @MainActor in
             defer { self.setIsLoadingMore(false) }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: clanId, channelId: channel.channelID,
@@ -1666,7 +1741,7 @@ final class ChatViewController: ViewController {
         shouldScrollToBottom = false
         setIsLoadingNewer(true)
         Task { @MainActor in
-            guard let token = await self.context.getToken() else {
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
                 self.setIsLoadingNewer(false)
                 return
             }
@@ -1697,7 +1772,7 @@ final class ChatViewController: ViewController {
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
         Task { @MainActor in
-            guard let token = await self.context.getToken() else {
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
                 self.pendingScrollToBottom = false
                 return
             }
@@ -1728,7 +1803,7 @@ final class ChatViewController: ViewController {
         let channelId = channel.channelID
         Task { @MainActor in
             let resolvedToken: String
-            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            if let token { resolvedToken = token } else if let t = await self.context.getTokenPreferringCachedSkipSessionReadyWait() { resolvedToken = t } else { return }
             let token = resolvedToken
             do {
                 let response = try await self.context.account.network.getNotificationChannel(channelId: channelId, token: token)
@@ -1745,7 +1820,7 @@ final class ChatViewController: ViewController {
         let channelId = channel.channelID
         Task { @MainActor in
             let resolvedToken: String
-            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            if let token { resolvedToken = token } else if let t = await self.context.getTokenPreferringCachedSkipSessionReadyWait() { resolvedToken = t } else { return }
             let token = resolvedToken
             do {
                 let response = try await self.context.account.network.listUserPermissionInChannel(clanId: clanId, channelId: channelId, token: token)
@@ -1768,7 +1843,7 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor in
             let resolvedToken: String
-            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            if let token { resolvedToken = token } else if let t = await self.context.getTokenPreferringCachedSkipSessionReadyWait() { resolvedToken = t } else { return }
             let token = resolvedToken
             do {
                 if channel.parentID != 0 {
@@ -1863,7 +1938,7 @@ final class ChatViewController: ViewController {
 
         Task { @MainActor in
             let resolvedToken: String
-            if let token { resolvedToken = token } else if let t = await self.context.getToken() { resolvedToken = t } else { return }
+            if let token { resolvedToken = token } else if let t = await self.context.getTokenPreferringCachedSkipSessionReadyWait() { resolvedToken = t } else { return }
             let token = resolvedToken
             do {
                 let response = try await self.context.account.network.isBanned(channelId: channelId, token: token)
@@ -1930,7 +2005,8 @@ final class ChatViewController: ViewController {
             }.joined(separator: "§")
         }()
 
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)"
+        let sendFeedback = m.showsSendingFeedback ? "1" : "0"
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(sendFeedback)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -2052,6 +2128,7 @@ final class ChatViewController: ViewController {
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
+        let now = Date()
 
         let senderIds = Set(validRecords.map(\.senderId))
         let avatarBySenderId = cachedSenderAvatarsBySenderId(senderIds: senderIds)
@@ -2062,6 +2139,9 @@ final class ChatViewController: ViewController {
         }()
 
         let currentPendingIds = Set(validRecords.filter { $0.sendingState == .pending }.map(\.id))
+        pendingSendingFeedbackBeganAtByMessageId = pendingSendingFeedbackBeganAtByMessageId.filter {
+            currentPendingIds.contains($0.key)
+        }
         for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
             ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
         }
@@ -2074,6 +2154,9 @@ final class ChatViewController: ViewController {
             let parsed = enrichParsedContent(parsedRaw, fallbackClanId: record.clanId)
             let content = parsed.text
             let msg = Message(id: record.id, channelId: record.channelId, clanId: record.clanId, senderId: record.senderId, content: .text(content), createdAt: record.createdAt, editedAt: record.editedAt, isDeleted: record.isDeleted, reactions: [], replyToId: nil, mentionedUserIds: [], isPinned: pinnedMessageIds.contains(record.id))
+            let sendingFeedbackBeganAt = pendingSendingFeedbackBeganAt(for: record, now: now)
+            let showsSendingFeedback = record.sendingState == .pending
+                && now.timeIntervalSince(sendingFeedbackBeganAt) >= Self.pendingSendFeedbackDelay
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
             if record.sendingState == .pending {
@@ -2158,7 +2241,8 @@ final class ChatViewController: ViewController {
                 message: msg, senderDisplayName: record.senderDisplayName, avatarURL: mergedAvatar,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
-                topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
+                topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState,
+                showsSendingFeedback: showsSendingFeedback, hasIncludeMention: hasMention,
                 isForward: isForward, showForwardHeader: false, messageCode: record.code,
                 clanInviteLinkCode: clanInviteLinkCode,
                 replyRefSourceContent: replyRefSourceContent,
@@ -2170,26 +2254,46 @@ final class ChatViewController: ViewController {
     }
 
     private static func sortMessagesLikeChannelStore(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
-        let idAsc: (ChatMessageDisplay, ChatMessageDisplay) -> Bool = {
-            messageSnowflakeIdLessThan($0.id, $1.id)
+        let messageAsc: (ChatMessageDisplay, ChatMessageDisplay) -> Bool = {
+            messageDisplayLessThan($0, $1)
         }
         let pinsFirst: (ChatMessageDisplay) -> Bool = {
             $0.isWelcome || $0.messageCode == MezonConstants.MessageCode.firstMessage.rawValue
         }
-        let head = displays.filter(pinsFirst).sorted(by: idAsc)
-        let tail = displays.filter { !pinsFirst($0) }.sorted(by: idAsc)
+        let head = displays.filter(pinsFirst).sorted(by: messageAsc)
+        let tail = displays.filter { !pinsFirst($0) }.sorted(by: messageAsc)
         return head + tail
+    }
+
+    private static func messageDisplayLessThan(_ a: ChatMessageDisplay, _ b: ChatMessageDisplay) -> Bool {
+        if a.id == b.id { return false }
+        let aSnowflake = isSnowflakeMessageId(a.id)
+        let bSnowflake = isSnowflakeMessageId(b.id)
+        if aSnowflake && bSnowflake {
+            return messageSnowflakeIdLessThan(a.id, b.id)
+        }
+        if a.message.createdAt != b.message.createdAt {
+            return a.message.createdAt < b.message.createdAt
+        }
+        if aSnowflake != bSnowflake {
+            return aSnowflake
+        }
+        return a.id < b.id
     }
 
     private static func messageSnowflakeIdLessThan(_ a: String, _ b: String) -> Bool {
         if a == b { return false }
-        let aNum = !a.isEmpty && a.allSatisfy { $0.isASCII && $0.isNumber }
-        let bNum = !b.isEmpty && b.allSatisfy { $0.isASCII && $0.isNumber }
+        let aNum = isSnowflakeMessageId(a)
+        let bNum = isSnowflakeMessageId(b)
         if aNum && bNum {
             if a.count != b.count { return a.count < b.count }
             return a < b
         }
         return a < b
+    }
+
+    private static func isSnowflakeMessageId(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy { $0.isASCII && $0.isNumber }
     }
 
     private static func parseContentIsForward(from data: Data) -> Bool {
@@ -2301,7 +2405,8 @@ final class ChatViewController: ViewController {
                 message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine,
                 attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
-                topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
+                topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState,
+                showsSendingFeedback: d.showsSendingFeedback, hasIncludeMention: d.hasIncludeMention,
                 isForward: d.isForward, showForwardHeader: showForwardHeader, messageCode: d.messageCode,
                 clanInviteLinkCode: d.clanInviteLinkCode,
                 replyRefSourceContent: d.replyRefSourceContent,
@@ -2738,7 +2843,7 @@ final class ChatViewController: ViewController {
 
     private func fetchPinListFromServerAndApply() async {
         guard channel.channelID != 0 else { return }
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
         do {
             let res = try await context.account.network.listPinMessages(
                 clanId: pinApiClanId(),
@@ -2781,6 +2886,9 @@ final class ChatViewController: ViewController {
     private func setupInputBar() {
         remoteTypingStripView.addSubview(remoteTypingLabel)
         view.addSubview(remoteTypingStripView)
+        channelAppHotbar.onLaunch = { [weak self] in self?.openChannelAppFromHotbar() }
+        channelAppHotbar.onHelp = { [weak self] in self?.openChannelAppHelpFromHotbar() }
+        view.addSubview(channelAppHotbar)
         addChild(sendInputViewController)
         view.addSubview(sendInputViewController.view)
         sendInputViewController.didMove(toParent: self)
@@ -2801,10 +2909,12 @@ final class ChatViewController: ViewController {
         ])
 
         applyRemoteTypingStripTheme()
+        channelAppHotbar.applyTheme()
         inputBarHeight = sendInputViewController.totalHeight
         remoteTypingStripView.alpha = 0
         remoteTypingStripView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
+        view.bringSubviewToFront(channelAppHotbar)
         view.bringSubviewToFront(sendInputViewController.view)
         emojiPicker.bringToFront()
         view.bringSubviewToFront(advancePanelView)
@@ -3177,7 +3287,7 @@ final class ChatViewController: ViewController {
                     self?.readyToLoadMore = true
                 }
             }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: self.clanId,
@@ -3461,7 +3571,7 @@ final class ChatViewController: ViewController {
             userInfo: ["clanId": targetClan]
         )
         Task { @MainActor [weak self] in
-            guard let self, let token = await self.context.getToken() else { return }
+            guard let self, let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.context.engine.clanData.fetchAllClanData(clanId: targetClan, token: token)
         }
     }
@@ -3715,7 +3825,7 @@ final class ChatViewController: ViewController {
             parsedContent: display.parsedContent, replyRef: display.replyRef, isDeletedReply: display.isDeletedReply,
             isWelcome: display.isWelcome, callLog: display.callLog, topicData: display.topicData,
             locationData: display.locationData, isMe: display.isMe, sendingState: display.sendingState,
-            hasIncludeMention: display.hasIncludeMention, isForward: display.isForward,
+            showsSendingFeedback: display.showsSendingFeedback, hasIncludeMention: display.hasIncludeMention, isForward: display.isForward,
             showForwardHeader: display.showForwardHeader, messageCode: display.messageCode,
             clanInviteLinkCode: display.clanInviteLinkCode,
             replyRefSourceContent: display.replyRefSourceContent,
@@ -4184,6 +4294,100 @@ final class ChatViewController: ViewController {
             }
         }
     }
+
+    private var shouldShowChannelAppHotbar: Bool {
+        topicId == 0 && clanId != 0
+            && channel.type == MezonConstants.ChannelType.app.rawValue
+    }
+
+    private func loadChannelAppsFromPostboxCache() -> [Mezon_Api_ChannelAppResponse] {
+        guard clanId != 0 else { return [] }
+        let key = PreferencesKeys.channelApps(clanId: clanId)
+        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else { return [] }
+        return Mezon_Api_ListChannelAppsResponse.decodeChannelApps(data)
+    }
+
+    private func resolvedChannelAppRecord() -> Mezon_Api_ChannelAppResponse? {
+        guard shouldShowChannelAppHotbar else { return nil }
+        let list = loadChannelAppsFromPostboxCache()
+        if let hit = list.first(where: { $0.channelID == channel.channelID }) {
+            return hit
+        }
+        guard channel.appID != 0 else { return nil }
+        var syn = Mezon_Api_ChannelAppResponse()
+        syn.channelID = channel.channelID
+        syn.clanID = clanId
+        syn.appID = channel.appID
+        syn.appName = channel.channelLabel
+        return syn
+    }
+
+    private func tryResolveChannelAppViaNetwork(hint: Mezon_Api_ChannelAppResponse) async -> Mezon_Api_ChannelAppResponse? {
+        guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return nil }
+        do {
+            let apps = try await MezonHTTPClient.shared.listChannelApps(clanId: clanId, token: token)
+            if let hit = apps.first(where: { $0.channelID == channel.channelID }) { return hit }
+            if hint.appID != 0, let hit = apps.first(where: { $0.appID == hint.appID }) { return hit }
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
+    private func openChannelAppFromHotbar() {
+        view.endEditing(true)
+        emojiPicker.setVisible(false, collapsedHeight: 0)
+        dismissAdvancePanel()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard var working = self.resolvedChannelAppRecord() else {
+                Toast.error(L(L10n.ChannelApp.unavailable))
+                return
+            }
+            if working.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, working.appID != 0 {
+                if let fromNet = await self.tryResolveChannelAppViaNetwork(hint: working) {
+                    working = fromNet
+                }
+            }
+            guard working.appID != 0 else {
+                Toast.error(L(L10n.ChannelApp.unavailable))
+                return
+            }
+            let urlStr = working.appURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !urlStr.isEmpty else {
+                Toast.error(L(L10n.ChannelApp.unavailable))
+                return
+            }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                let webAppData = try await self.context.account.network.generateChannelAppHash(appId: working.appID, token: token)
+                guard !webAppData.isEmpty else {
+                    Toast.error(L(L10n.ChannelApp.unavailable))
+                    return
+                }
+                guard let pageURL = working.channelAppWebPageURL(webAppData: webAppData) else {
+                    Toast.error(L(L10n.ChannelApp.unavailable))
+                    return
+                }
+                let titleRaw = working.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fromChannel = self.channel.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                let pickTitle = titleRaw.isEmpty ? fromChannel : titleRaw
+                let title = pickTitle.isEmpty ? "App" : pickTitle
+                let vc = ChannelAppWebViewController(pageURL: pageURL, appTitle: title)
+                self.presentInGlobalOverlay(vc)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func openChannelAppHelpFromHotbar() {
+        guard let url = URL(string: "https://mezon.ai") else { return }
+        UIApplication.shared.open(url, options: [:], completionHandler: nil)
+    }
 }
 
 extension ChatViewController: CLLocationManagerDelegate {
@@ -4296,4 +4500,90 @@ extension ChatViewController {
             present(callVC, animated: true)
         }
     }
+}
+
+private final class ChannelAppHotbarBarView: UIView {
+
+    static let prefersFixedHeight: CGFloat = 40
+
+    var onLaunch: (() -> Void)?
+    var onHelp: (() -> Void)?
+
+    private let launchButton = UIButton(type: .custom)
+    private let helpButton = UIButton(type: .custom)
+    private let stack = UIStackView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.distribution = .fillEqually
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        configureActionButton(launchButton, titleKey: L10n.ChannelApp.launchApp)
+        configureActionButton(helpButton, titleKey: L10n.ChannelApp.help)
+        stack.addArrangedSubview(launchButton)
+        stack.addArrangedSubview(helpButton)
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
+        launchButton.addTarget(self, action: #selector(launchTapped), for: .touchUpInside)
+        helpButton.addTarget(self, action: #selector(helpTapped), for: .touchUpInside)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func applyTheme() {
+        backgroundColor = .clear
+        applyChrome(to: launchButton, titleKey: L10n.ChannelApp.launchApp)
+        applyChrome(to: helpButton, titleKey: L10n.ChannelApp.help)
+    }
+
+    private func configureActionButton(_ btn: UIButton, titleKey: String) {
+        btn.titleLabel?.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 14, weight: .medium))
+        btn.titleLabel?.adjustsFontForContentSizeCategory = true
+        btn.titleLabel?.lineBreakMode = .byTruncatingTail
+        btn.contentHorizontalAlignment = .center
+        applyChrome(to: btn, titleKey: titleKey)
+    }
+
+    private func applyChrome(to btn: UIButton, titleKey: String) {
+        let t = UIColor.theme
+        let title = L(titleKey)
+        if #available(iOS 15.0, *) {
+            var c = UIButton.Configuration.plain()
+            c.title = title
+            c.titleLineBreakMode = .byTruncatingTail
+            c.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var o = incoming
+                o.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 14, weight: .medium))
+                return o
+            }
+            c.baseForegroundColor = t.textStrong
+            c.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+            var bg = UIBackgroundConfiguration.clear()
+            bg.backgroundColor = t.secondary
+            bg.cornerRadius = 10
+            c.background = bg
+            btn.configuration = c
+        } else {
+            btn.setTitle(title, for: .normal)
+            btn.setImage(nil, for: .normal)
+            btn.setTitleColor(t.textStrong, for: .normal)
+            btn.backgroundColor = t.secondary
+            btn.layer.cornerRadius = 10
+            btn.layer.masksToBounds = true
+            btn.imageEdgeInsets = .zero
+            btn.titleEdgeInsets = .zero
+            btn.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+        }
+    }
+
+    @objc private func launchTapped() { onLaunch?() }
+    @objc private func helpTapped() { onHelp?() }
 }

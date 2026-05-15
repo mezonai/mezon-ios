@@ -5,6 +5,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private let onClose: () -> Void
     private let onSave: (String, String) -> Void
+    private let onPermissionsTap: (() -> Void)?
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -14,10 +15,17 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private var saveBtn: UIButton!
     private let initialName: String
 
-    init(channelName: String, channelTopic: String, onClose: @escaping () -> Void, onSave: @escaping (String, String) -> Void) {
+    init(
+        channelName: String,
+        channelTopic: String,
+        onClose: @escaping () -> Void,
+        onSave: @escaping (String, String) -> Void,
+        onPermissionsTap: (() -> Void)? = nil
+    ) {
         self.initialName = channelName
         self.onClose = onClose
         self.onSave = onSave
+        self.onPermissionsTap = onPermissionsTap
         super.init()
         backgroundColor = UIColor.theme.primary
 
@@ -110,10 +118,12 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
 
         let group1 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog"),
-            .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission"),
-            .init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon"),
-            .init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon"),
+            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: nil),
+            .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
+                self?.onPermissionsTap?()
+            }),
+            .init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: nil),
+            .init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil),
         ])
         stackView.addArrangedSubview(group1)
 
@@ -126,7 +136,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
 
         let group2 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon"),
+            .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: nil),
         ])
         stackView.addArrangedSubview(group2)
 
@@ -199,7 +209,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         for (idx, action) in actions.enumerated() {
-            let row = createActionRow(title: action.title, icon: action.icon)
+            let row = createActionRow(title: action.title, icon: action.icon, tapHandler: action.action)
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
@@ -211,9 +221,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         return v
     }
 
-    private func createActionRow(title: String, icon: String, isDestructive: Bool = false) -> UIView {
-        let v = UIButton(type: .system)
+    private func createActionRow(title: String, icon: String, isDestructive: Bool = false, tapHandler: (() -> Void)? = nil) -> UIView {
+        let v = ActionRowButton(type: .system)
         v.backgroundColor = .clear
+        v.tapHandler = tapHandler
+        v.addTarget(v, action: #selector(ActionRowButton.handleTap), for: .touchUpInside)
 
         let iconView = UIImageView()
         iconView.image = UIImage(named: icon)?.withRenderingMode(.alwaysTemplate)
@@ -270,5 +282,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private struct SettingAction {
         let title: String
         let icon: String
+        let action: (() -> Void)?
     }
+}
+
+private final class ActionRowButton: UIButton {
+    var tapHandler: (() -> Void)?
+    @objc func handleTap() { tapHandler?() }
 }

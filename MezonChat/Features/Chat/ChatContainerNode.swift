@@ -449,6 +449,16 @@ final class ChatContainerNode: ASDisplayNode {
         for (index, id) in oldIds.enumerated() {
             oldIndexMap[id] = index
         }
+        var oldFingerprintById: [String: String] = [:]
+        oldFingerprintById.reserveCapacity(old.messages.count)
+        for message in old.messages {
+            oldFingerprintById[message.id] = Self.listFingerprint(message)
+        }
+        var newMessageById: [String: ChatMessageDisplay] = [:]
+        newMessageById.reserveCapacity(new.messages.count)
+        for message in new.messages {
+            newMessageById[message.id] = message
+        }
 
         var deleteItems: [ListViewDeleteItem] = []
         for id in removedIds {
@@ -468,6 +478,26 @@ final class ChatContainerNode: ASDisplayNode {
             }
         }
         insertItems.sort { $0.index < $1.index }
+
+        var updateItems: [ListViewUpdateItem] = []
+        for (newIdx, id) in newIds.enumerated() {
+            guard !addedIds.contains(id),
+                  !removedIds.contains(id),
+                  let oldIdx = oldIndexMap[id],
+                  let oldFingerprint = oldFingerprintById[id],
+                  let newMessage = newMessageById[id],
+                  oldFingerprint != Self.listFingerprint(newMessage),
+                  newIdx < newItems.count,
+                  newItems[newIdx] is ChatMessageItem else {
+                continue
+            }
+            updateItems.append(ListViewUpdateItem(
+                index: newIdx,
+                previousIndex: oldIdx,
+                item: newItems[newIdx],
+                directionHint: nil
+            ))
+        }
 
         let isAtBottom: Bool = {
             switch self.listView.visibleContentOffset() {
@@ -502,7 +532,7 @@ final class ChatContainerNode: ASDisplayNode {
         listView.transaction(
             deleteIndices: deleteItems,
             insertIndicesAndItems: insertItems,
-            updateIndicesAndItems: [],
+            updateIndicesAndItems: updateItems,
             options: transactionOptions,
             scrollToItem: scrollToItem,
             stationaryItemRange: scrollToItem == nil ? (0, Int.max) : nil,
@@ -520,6 +550,15 @@ final class ChatContainerNode: ASDisplayNode {
         let att = m.attachments
             .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
             .joined(separator: ";")
+        let grouping = [
+            m.isCombine ? "1" : "0",
+            m.isForward ? "1" : "0",
+            m.showForwardHeader ? "1" : "0",
+            m.replyRef != nil ? "1" : "0",
+            m.isDeletedReply ? "1" : "0",
+            m.hasIncludeMention ? "1" : "0",
+            m.isMe ? "1" : "0"
+        ].joined(separator: "|")
         let pin = m.message.isPinned ? "1" : "0"
         let pollHash: String
         if let pd = m.pollData {
@@ -539,7 +578,8 @@ final class ChatContainerNode: ASDisplayNode {
                 return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
             }.joined(separator: "§")
         }()
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)"
+        let sendFeedback = m.showsSendingFeedback ? "1" : "0"
+        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(sendFeedback)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {

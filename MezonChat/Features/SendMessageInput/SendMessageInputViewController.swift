@@ -74,7 +74,19 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private let context: AccountContext
-    internal var channel: Mezon_Api_ChannelDescription
+    internal var channel: Mezon_Api_ChannelDescription {
+        didSet {
+            guard channel.channelID != oldValue.channelID || channel.type != oldValue.type else { return }
+            if isViewLoaded {
+                if isVoiceRecordingActive {
+                    cancelVoiceRecording(deleteFile: true)
+                } else {
+                    voiceRecordingOverlay.isHidden = true
+                }
+                refreshSendPermissionAvailability()
+            }
+        }
+    }
     private let clanId: Int64
     var topicId: Int64 = 0
     private var disposables = DisposableSet()
@@ -207,6 +219,38 @@ final class SendMessageInputViewController: UIViewController {
         return v
     }()
 
+    private lazy var sendPermissionRestrictedChrome: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.isHidden = true
+        return v
+    }()
+
+    private lazy var sendPermissionRestrictedTopSep: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+
+    private lazy var sendPermissionRestrictedInner: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.layer.cornerRadius = 8.sf
+        v.clipsToBounds = true
+        return v
+    }()
+
+    private lazy var sendPermissionRestrictedLabel: UILabel = {
+        let l = UILabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 14.sf, weight: .regular)
+        l.textAlignment = .center
+        l.numberOfLines = 0
+        l.text = L(L10n.ChannelMessages.noSendPermission)
+        return l
+    }()
+
+    private var composerSendPermissionBlocked = false
     private var isAttachControlCollapsed = false
     private var attachButtonWidthConstraint: NSLayoutConstraint?
     private var advanceButtonWidthConstraint: NSLayoutConstraint?
@@ -387,6 +431,9 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     var totalHeight: CGFloat {
+        if composerSendPermissionBlocked {
+            return Self.textViewMinHeight + Self.inputBarPadding
+        }
         var h = inputBarCurrentHeight
         let totalImg = pickedImages.count + editingRemoteImageAttachments.count
         let totalFile = pickedFiles.count + editingRemoteFileAttachments.count
@@ -458,6 +505,11 @@ final class SendMessageInputViewController: UIViewController {
                                                name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleEmojiListDidUpdate),
                                                name: Self.emojiListDidUpdateNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSendPermissionContextChanged),
+                                               name: .mezonChannelOverriddenPermissionsDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSendPermissionContextChanged),
+                                               name: .mezonRolesDidChange, object: nil)
+        refreshSendPermissionAvailability()
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
@@ -505,6 +557,72 @@ final class SendMessageInputViewController: UIViewController {
 
     private var includeHashtagSuggestions: Bool {
         channelStreamMode != MezonConstants.ChannelStreamMode.group.rawValue
+    }
+
+    private var isChannelStreamExemptFromSendPermissionGate: Bool {
+        let m = channelStreamMode
+        return m == MezonConstants.ChannelStreamMode.dm.rawValue
+            || m == MezonConstants.ChannelStreamMode.group.rawValue
+    }
+
+    private func refreshSendPermissionAvailability() {
+        let exempt = isChannelStreamExemptFromSendPermissionGate
+        let chId = channel.channelID
+        if !exempt, clanId != 0, chId != 0 {
+            context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: chId)
+        }
+        let blocked: Bool
+        if exempt || clanId == 0 || chId == 0 {
+            blocked = false
+        } else if !context.rolePermissions.hasResolvedChannelOverriddenPermissionsSnapshot(channelId: chId) {
+            blocked = false
+        } else {
+            blocked = !context.rolePermissions.canSendMessage(clanId: clanId, channelId: chId)
+        }
+        guard blocked != composerSendPermissionBlocked else { return }
+        composerSendPermissionBlocked = blocked
+        if blocked {
+            textView.resignFirstResponder()
+            hideAdvancePanelIfNeeded()
+            if isEmojiPickerVisible {
+                isEmojiPickerVisible = false
+                emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
+                onToggleEmojiPicker?(false, 0)
+            }
+            clearReplyAction()
+        }
+        applySendPermissionRestrictionLayout()
+        onHeightChanged?(totalHeight)
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.2)
+    }
+
+    private func applySendPermissionRestrictionLayout() {
+        let blocked = composerSendPermissionBlocked
+        sendPermissionRestrictedChrome.isHidden = !blocked
+        inputBarView.isHidden = blocked
+        if blocked {
+            if isVoiceRecordingActive {
+                cancelVoiceRecording(deleteFile: true)
+            } else {
+                voiceRecordingOverlay.isHidden = true
+            }
+        } else {
+            voiceRecordingOverlay.isHidden = !isVoiceRecordingActive
+        }
+        if blocked {
+            inputBarHeightConstraint?.constant = 0
+            replyBannerHeightConstraint?.constant = 0
+            previewHeightConstraint?.constant = 0
+        } else {
+            inputBarHeightConstraint?.constant = currentTextViewHeight + Self.inputBarPadding
+            updateReplyBannerVisibility()
+            updatePreviewVisibility()
+        }
+    }
+
+    @objc private func handleSendPermissionContextChanged(_ notification: Notification) {
+        if let cid = notification.userInfo?["channelId"] as? Int64, cid != channel.channelID { return }
+        refreshSendPermissionAvailability()
     }
 
     private var mentionLookupChannelIds: [Int64] {
@@ -792,6 +910,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func send() {
+        guard !composerSendPermissionBlocked else { return }
         let plainText = buildPlainTextFromAttributed()
         let trimmed = plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachments = !pickedImages.isEmpty || !pickedFiles.isEmpty
@@ -853,6 +972,7 @@ final class SendMessageInputViewController: UIViewController {
 
 
     func sendLocation(latitude: Double, longitude: Double) {
+        guard !composerSendPermissionBlocked else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -923,6 +1043,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func sendBuzzMessage(text: String) {
+        guard !composerSendPermissionBlocked else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -1015,6 +1136,8 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func setReply(_ display: ChatMessageDisplay) {
+        refreshSendPermissionAvailability()
+        guard !composerSendPermissionBlocked else { return }
         editingDisplay = nil
         replyDisplay = display
         updateReplyBannerVisibility()
@@ -1022,6 +1145,8 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func setEditingMessage(_ display: ChatMessageDisplay) {
+        refreshSendPermissionAvailability()
+        guard !composerSendPermissionBlocked else { return }
         reloadEmojiSuggestionList()
         replyDisplay = nil
         editingDisplay = display
@@ -1054,6 +1179,13 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updateReplyBannerVisibility() {
+        if composerSendPermissionBlocked {
+            if (replyBannerHeightConstraint?.constant ?? 0) != 0 {
+                replyBannerHeightConstraint?.constant = 0
+                onHeightChanged?(totalHeight)
+            }
+            return
+        }
         let shouldShow = replyDisplay != nil || editingDisplay != nil
         let targetH: CGFloat = shouldShow ? Self.replyBannerHeight : 0
         let heightChanged = replyBannerHeightConstraint?.constant != targetH
@@ -1276,6 +1408,7 @@ final class SendMessageInputViewController: UIViewController {
     func updateText(_ newText: String) { text = newText; textPipe.putNext(newText) }
 
     func focusTextInput() {
+        guard !composerSendPermissionBlocked else { return }
         textView.becomeFirstResponder()
     }
 
@@ -1640,6 +1773,13 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updatePreviewVisibility() {
+        if composerSendPermissionBlocked {
+            if (previewHeightConstraint?.constant ?? 0) != 0 {
+                previewHeightConstraint?.constant = 0
+                onHeightChanged?(totalHeight)
+            }
+            return
+        }
         let shouldShow = attachmentPreviewView.hasAnyAttachment
         let targetH = shouldShow ? attachmentPreviewView.preferredPreviewHeight : 0
         let heightChanged = previewHeightConstraint?.constant != targetH
@@ -1821,6 +1961,33 @@ final class SendMessageInputViewController: UIViewController {
         voiceButton.addGestureRecognizer(tapHint)
 
         inputBarView.bringSubviewToFront(anonymousIndicatorButton)
+
+        view.addSubview(sendPermissionRestrictedChrome)
+        sendPermissionRestrictedChrome.addSubview(sendPermissionRestrictedTopSep)
+        sendPermissionRestrictedChrome.addSubview(sendPermissionRestrictedInner)
+        sendPermissionRestrictedInner.addSubview(sendPermissionRestrictedLabel)
+        NSLayoutConstraint.activate([
+            sendPermissionRestrictedChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            sendPermissionRestrictedChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            sendPermissionRestrictedChrome.topAnchor.constraint(equalTo: attachmentPreviewView.bottomAnchor),
+            sendPermissionRestrictedChrome.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding),
+            sendPermissionRestrictedChrome.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor),
+
+            sendPermissionRestrictedTopSep.topAnchor.constraint(equalTo: sendPermissionRestrictedChrome.topAnchor),
+            sendPermissionRestrictedTopSep.leadingAnchor.constraint(equalTo: sendPermissionRestrictedChrome.leadingAnchor),
+            sendPermissionRestrictedTopSep.trailingAnchor.constraint(equalTo: sendPermissionRestrictedChrome.trailingAnchor),
+            sendPermissionRestrictedTopSep.heightAnchor.constraint(equalToConstant: 0.5),
+
+            sendPermissionRestrictedInner.topAnchor.constraint(equalTo: sendPermissionRestrictedTopSep.bottomAnchor),
+            sendPermissionRestrictedInner.leadingAnchor.constraint(equalTo: sendPermissionRestrictedChrome.leadingAnchor, constant: 12.sw),
+            sendPermissionRestrictedInner.trailingAnchor.constraint(equalTo: sendPermissionRestrictedChrome.trailingAnchor, constant: -12.sw),
+            sendPermissionRestrictedInner.bottomAnchor.constraint(equalTo: sendPermissionRestrictedChrome.bottomAnchor, constant: -8),
+
+            sendPermissionRestrictedLabel.centerYAnchor.constraint(equalTo: sendPermissionRestrictedInner.centerYAnchor),
+            sendPermissionRestrictedLabel.leadingAnchor.constraint(equalTo: sendPermissionRestrictedInner.leadingAnchor, constant: 10),
+            sendPermissionRestrictedLabel.trailingAnchor.constraint(equalTo: sendPermissionRestrictedInner.trailingAnchor, constant: -10),
+        ])
+        view.insertSubview(sendPermissionRestrictedChrome, aboveSubview: inputBarView)
     }
 
     private func collapseAttachControls() {
@@ -3363,6 +3530,12 @@ final class SendMessageInputViewController: UIViewController {
         replyBannerView.backgroundColor = t.secondary
         replyLabel.textColor = t.textDisabled
         replyCancelButton.tintColor = t.textDisabled
+        sendPermissionRestrictedChrome.backgroundColor = t.secondary
+        sendPermissionRestrictedTopSep.backgroundColor = t.border
+        sendPermissionRestrictedInner.backgroundColor = .clear
+        sendPermissionRestrictedLabel.textColor = t.textDisabled
+        sendPermissionRestrictedLabel.font = .systemFont(ofSize: 14.sf, weight: .regular)
+        sendPermissionRestrictedLabel.text = L(L10n.ChannelMessages.noSendPermission)
         mentionSuggestionView?.applyTheme()
         emojiSuggestionView?.applyTheme()
         hashtagSuggestionView?.applyTheme()
@@ -3900,6 +4073,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription, editingMessageId: Int64 = 0) {
+        guard !composerSendPermissionBlocked else { return }
         let isEdit = editingMessageId != 0
         let sendAsAnonymous = shouldSendAsAnonymousMessage
         let localId = "pending-\(UUID().uuidString)"
@@ -4340,6 +4514,7 @@ final class SendMessageInputViewController: UIViewController {
         attachments: [Mezon_Api_MessageAttachment],
         explicitReferences: [Mezon_Api_MessageRef]? = nil
     ) {
+        guard !composerSendPermissionBlocked else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -4633,6 +4808,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     private func resetTextViewHeight() {
+        guard !composerSendPermissionBlocked else { return }
         currentTextViewHeight = Self.textViewMinHeight
         textViewHeightConstraint?.constant = Self.textViewMinHeight
         inputBarHeightConstraint?.constant = Self.textViewMinHeight + Self.inputBarPadding
@@ -4676,6 +4852,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     private func updateTextViewHeight() {
+        guard !composerSendPermissionBlocked else { return }
         let font = textView.font ?? .systemFont(ofSize: 15.sf)
         let lineHeight = font.lineHeight
         let maxLines: CGFloat = 6

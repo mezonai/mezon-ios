@@ -634,6 +634,7 @@ final class PeerCallViewController: ViewController {
             }
             self.userDidExplicitlyEnd = true
             self.session?.hangUp()
+            CallKitManager.shared.requestEndActiveVoIPCallIfNeeded()
         }))
         present(alert, animated: true)
     }
@@ -690,6 +691,7 @@ final class PeerCallViewController: ViewController {
     @objc private func endTapped() {
         userDidExplicitlyEnd = true
         session?.hangUp()
+        CallKitManager.shared.requestEndActiveVoIPCallIfNeeded()
     }
 
     @objc private func micTapped() {

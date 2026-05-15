@@ -303,12 +303,17 @@ extension Mezon_Api_ChannelAppResponse {
         } else {
             withScheme = "https://" + trimmed
         }
-        guard var comp = URLComponents(string: withScheme) else { return nil }
-        var items = comp.queryItems ?? []
-        items.append(URLQueryItem(name: "data", value: webAppData))
-        comp.queryItems = items
-        return comp.url
+        let encoded = webAppData.addingPercentEncoding(
+            withAllowedCharacters: Self.encodeURIComponentAllowed
+        ) ?? webAppData
+        return URL(string: withScheme + "?data=" + encoded)
     }
+
+    private static let encodeURIComponentAllowed: CharacterSet = {
+        CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~!*'()"
+        )
+    }()
 
     static func channelAppsPreservingPreviousLabels(
         newApps: [Mezon_Api_ChannelAppResponse],

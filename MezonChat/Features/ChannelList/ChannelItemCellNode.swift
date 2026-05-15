@@ -260,7 +260,7 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
 
 final class VoiceMemberExpandedCellNode: ASCellNode {
 
-    private static let avatarSize: CGFloat = 22
+    private static let avatarSize: CGFloat = 18
 
     private let avatarWrapper: ASDisplayNode
     private let avatarImg: ASNetworkImageNode
@@ -282,7 +282,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
         nameNode.attributedText = NSAttributedString(
             string: member.name,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
                 .foregroundColor: UIColor.theme.channelNormal,
             ])
     }
@@ -298,13 +298,13 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
         nameNode.style.flexShrink = 1
         let row = ASStackLayoutSpec(
             direction: .horizontal,
-            spacing: 10,
+            spacing: 8,
             justifyContent: .start,
             alignItems: .center,
             children: [avatarWrapper, nameNode]
         )
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 4, left: 40, bottom: 4, right: 12),
+            insets: UIEdgeInsets(top: 3, left: 40, bottom: 3, right: 12),
             child: row
         )
     }
@@ -312,7 +312,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
 final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
 
-    private static let avatarSize: CGFloat = 18
+    private static let avatarSize: CGFloat = 16
     private static let maxVisible = 5
 
     private var avatarNodes: [ASDisplayNode] = []
@@ -389,7 +389,7 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
             children: children
         )
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 2, left: 38, bottom: 4, right: 12),
+            insets: UIEdgeInsets(top: 2, left: 38, bottom: 3, right: 12),
             child: row
         )
     }

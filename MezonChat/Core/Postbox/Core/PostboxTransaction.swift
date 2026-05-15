@@ -203,6 +203,28 @@ final class PostboxTransaction {
         }
     }
 
+    func updateChannelPrivate(clanId: Int64, channelId: Int64, isPrivate: Bool) {
+        let channels = channelTable.getChannels(clanId: clanId)
+        guard let index = channels.firstIndex(where: { $0.id == channelId }) else { return }
+        let existing = channels[index]
+        var proto = existing.toProto()
+        proto.channelPrivate = isPrivate ? 1 : 0
+        let updated = ChannelRecord(
+            id: existing.id,
+            clanId: existing.clanId,
+            label: existing.label,
+            type: existing.type,
+            categoryId: existing.categoryId,
+            categoryName: existing.categoryName,
+            parentId: existing.parentId,
+            topic: existing.topic,
+            position: existing.position,
+            protoData: try? proto.serializedData()
+        )
+        channelTable.updateSingleChannelRecord(updated)
+        updatedChannelClanIds.insert(clanId)
+    }
+
     var isEmpty: Bool {
         updatedChannelClanIds.isEmpty && !updatedClans && updatedMessageChannelIds.isEmpty && updatedChannelMetaIds.isEmpty && updatedNotificationSettingIds.isEmpty && updatedNotificationKeys.isEmpty && updatedTopicClanIds.isEmpty && updatedClanMemberIds.isEmpty && updatedProfileUserIds.isEmpty
     }

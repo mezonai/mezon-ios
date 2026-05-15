@@ -151,6 +151,7 @@ final class SessionRefreshManager {
     }
 
     func reset() {
+        activeTask?.cancel()
         lastRefreshToken = ""
         failCount = 0
         activeTask = nil
