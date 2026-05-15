@@ -1589,6 +1589,7 @@ final class ChannelListViewController: ViewController {
         }.first(where: { $0.userId == uidInt })
 
         let name: String
+        let username: String
         if let m = member {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -1599,8 +1600,10 @@ final class ChannelListViewController: ViewController {
             } else {
                 return nil
             }
+            username = m.username
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
+            username = profile.username
         } else {
             return nil
         }
@@ -1612,7 +1615,7 @@ final class ChannelListViewController: ViewController {
             avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
 
-        return VoiceMemberDisplay(name: name, avatarURL: avatar)
+        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
     }
 
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {

@@ -113,9 +113,11 @@ final class ChatHeaderNode: ASDisplayNode {
         default: iconName = "Channel/channel"
         }
 
-        if isDM {
+        let isDmOrGroup = channelType == MezonConstants.ChannelType.dm.rawValue || channelType == MezonConstants.ChannelType.group.rawValue
+
+        if isDmOrGroup {
             channelIconNode.isHidden = true
-            callButtonNode.isHidden = false
+            callButtonNode.isHidden = !isDM 
             videoCallButtonNode.isHidden = true
         } else {
             channelIconNode.isHidden = false

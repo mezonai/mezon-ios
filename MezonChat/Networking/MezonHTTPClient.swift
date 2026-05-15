@@ -248,6 +248,18 @@ final class MezonHTTPClient {
         )
     }
 
+    func registrationPassword(email: String, password: String, oldPassword: String, token: String) async throws {
+        var req = Mezon_Api_RegistrationEmailRequest()
+        req.email = email
+        req.password = password
+        req.oldPassword = oldPassword
+        let _: Mezon_Api_Session = try await postProto(
+            path: "/mezon.api.Mezon/RegistrationEmail",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func updateUserStatus(_ request: Mezon_Api_UserStatusUpdate, token: String) async throws {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/UpdateUserStatus",

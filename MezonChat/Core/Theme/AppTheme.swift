@@ -31,7 +31,7 @@ struct ThemeAttributes {
     let reactionBorder: UIColor
     let selectedOverlay: UIColor
     let bgViolet: UIColor
-    let colorAvatarDefault: UIColor
+
     let colorActiveClan: UIColor
     let textRoleLink: UIColor
     let darkMossGreen: UIColor
@@ -143,7 +143,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#334155"),
+
         colorActiveClan:  hex("#141c2a"),
         textRoleLink:     hex("#009c67"),
         darkMossGreen:    hex("#3c4c43"),
@@ -199,7 +199,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#FFFFFF96"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#8a97a5"),
+
         colorActiveClan:  hex("#d8e2f0"),
         textRoleLink:     hex("#00b098"),
         darkMossGreen:    hex("#e2f1e5"),
@@ -255,7 +255,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#FFFFFF96"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#8a97a5"),
+
         colorActiveClan:  hex("#d8e2f0"),
         textRoleLink:     hex("#00b098"),
         darkMossGreen:    hex("#e2f1e5"),
@@ -311,7 +311,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#334155"),
+
         colorActiveClan:  hex("#141c2a"),
         textRoleLink:     hex("#009c67"),
         darkMossGreen:    hex("#3c4c43"),
@@ -367,7 +367,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#334155"),
+
         colorActiveClan:  hex("#141c2a"),
         textRoleLink:     hex("#009c67"),
         darkMossGreen:    hex("#3c4c43"),
@@ -423,7 +423,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#334155"),
+
         colorActiveClan:  hex("#141c2a"),
         textRoleLink:     hex("#009c67"),
         darkMossGreen:    hex("#3c4c43"),
@@ -479,7 +479,7 @@ private extension ThemeAttributes {
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
         bgViolet:         hex("#5a62f4"),
-        colorAvatarDefault: hex("#334155"),
+
         colorActiveClan:  hex("#141c2a"),
         textRoleLink:     hex("#009c67"),
         darkMossGreen:    hex("#3c4c43"),

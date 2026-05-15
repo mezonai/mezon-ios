@@ -7,23 +7,15 @@ final class DmListItemCell: UITableViewCell {
 
     private static let groupDmListPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
 
-    private let avatarView: UIImageView = {
+    private let textAvatar = TextAvatarView(username: "", size: 40.swh, fontSize: 16.sf)
+
+    private let avatarImageView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.layer.cornerRadius = 20.swh
-        iv.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
         return iv
-    }()
-
-    private let avatarPlaceholder: UILabel = {
-        let l = UILabel()
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 16.sf, weight: .semibold)
-        l.textColor = .mezonTextPrimary
-        l.textAlignment = .center
-        return l
     }()
 
     private let groupIconView: UIImageView = {
@@ -88,8 +80,7 @@ final class DmListItemCell: UITableViewCell {
         avatarLoadGeneration += 1
         imageTask?.cancel()
         imageTask = nil
-        avatarView.image = nil
-        avatarPlaceholder.isHidden = true
+        avatarImageView.image = nil
         groupIconView.isHidden = true
         onlineIndicator.isHidden = true
     }
@@ -103,9 +94,10 @@ final class DmListItemCell: UITableViewCell {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(containerView)
 
-        containerView.addSubview(avatarView)
-        avatarView.addSubview(avatarPlaceholder)
-        avatarView.addSubview(groupIconView)
+        textAvatar.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(textAvatar)
+        textAvatar.addSubview(avatarImageView)
+        textAvatar.addSubview(groupIconView)
         containerView.addSubview(onlineIndicator)
         containerView.addSubview(nameLabel)
         containerView.addSubview(lastMessageLabel)
@@ -129,26 +121,28 @@ final class DmListItemCell: UITableViewCell {
             containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10.sw),
             containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 52.sh),
 
-            avatarView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8.sw),
-            avatarView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: avatarSize),
-            avatarView.heightAnchor.constraint(equalToConstant: avatarSize),
+            textAvatar.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8.sw),
+            textAvatar.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            textAvatar.widthAnchor.constraint(equalToConstant: avatarSize),
+            textAvatar.heightAnchor.constraint(equalToConstant: avatarSize),
 
-            avatarPlaceholder.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarPlaceholder.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            avatarImageView.topAnchor.constraint(equalTo: textAvatar.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: textAvatar.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: textAvatar.bottomAnchor),
 
-            groupIconView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            groupIconView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            groupIconView.centerXAnchor.constraint(equalTo: textAvatar.centerXAnchor),
+            groupIconView.centerYAnchor.constraint(equalTo: textAvatar.centerYAnchor),
             groupIconView.widthAnchor.constraint(equalToConstant: 20.swh),
             groupIconView.heightAnchor.constraint(equalToConstant: 20.swh),
 
-            onlineIndicator.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 1.swh),
-            onlineIndicator.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 1.swh),
+            onlineIndicator.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 1.swh),
+            onlineIndicator.bottomAnchor.constraint(equalTo: textAvatar.bottomAnchor, constant: 1.swh),
             onlineIndicator.widthAnchor.constraint(equalToConstant: 14.swh),
             onlineIndicator.heightAnchor.constraint(equalToConstant: 14.swh),
 
-            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10.sw),
-            nameTopConstraint,
+            nameLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 10.sw),
+            nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8.sh),
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -6.sw),
 
             timeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
@@ -162,7 +156,6 @@ final class DmListItemCell: UITableViewCell {
     }
 
     func configure(channel: Mezon_Api_ChannelDescription, context: AccountContext? = nil) {
-        avatarPlaceholder.textColor = .mezonTextPrimary
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -176,19 +169,18 @@ final class DmListItemCell: UITableViewCell {
         onlineIndicator.layer.borderColor = UIColor.theme.primary.cgColor
 
         if isGroup {
-            avatarPlaceholder.isHidden = true
+            textAvatar.showImageMode()
             onlineIndicator.isHidden = true
             if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
                let url = URL(string: channel.channelAvatar) {
-                avatarView.backgroundColor = .clear
                 groupIconView.isHidden = true
-                loadImage(url: url, useInitialFallback: false)
+                loadImage(url: url, fallbackUsername: nil)
             } else {
                 avatarLoadGeneration += 1
                 imageTask?.cancel()
                 imageTask = nil
-                avatarView.image = nil
-                avatarView.backgroundColor = Self.groupDmListPlaceholderOrange
+                avatarImageView.image = nil
+                textAvatar.backgroundColor = Self.groupDmListPlaceholderOrange
                 groupIconView.tintColor = .white
                 groupIconView.isHidden = false
             }
@@ -197,20 +189,17 @@ final class DmListItemCell: UITableViewCell {
             let isOnline = channel.onlines.contains(true)
             onlineIndicator.isHidden = !isOnline
 
+            let username = channel.usernames.first ?? ""
+            textAvatar.configure(username: username, fontSize: 16.sf)
             let resolvedURLString = Self.resolveDmAvatarURL(channel: channel, context: context)
 
             if let urlString = resolvedURLString, let url = URL(string: urlString) {
-                avatarPlaceholder.isHidden = true
-                avatarView.backgroundColor = .clear
-                loadImage(url: url, useInitialFallback: true)
+                loadImage(url: url, fallbackUsername: username)
             } else {
                 avatarLoadGeneration += 1
                 imageTask?.cancel()
                 imageTask = nil
-                avatarView.image = nil
-                avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
-                avatarPlaceholder.isHidden = false
-                avatarPlaceholder.text = String(displayName.prefix(1)).uppercased()
+                avatarImageView.image = nil
             }
         }
 
@@ -264,7 +253,7 @@ final class DmListItemCell: UITableViewCell {
         return nil
     }
 
-    private func loadImage(url: URL, useInitialFallback: Bool) {
+    private func loadImage(url: URL, fallbackUsername: String?) {
         imageTask?.cancel()
         imageTask = nil
         avatarLoadGeneration += 1
@@ -272,21 +261,21 @@ final class DmListItemCell: UITableViewCell {
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             guard gen == avatarLoadGeneration else { return }
-            avatarView.image = cached
+            avatarImageView.image = cached
+            textAvatar.showImageMode()
             return
         }
-        avatarView.image = nil
+        avatarImageView.image = nil
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
             if let image {
-                self.avatarView.image = image
-            } else if useInitialFallback {
-                self.avatarView.image = nil
-                self.avatarView.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
-                self.avatarPlaceholder.isHidden = false
-                self.avatarPlaceholder.text = String((self.nameLabel.text ?? "U").prefix(1)).uppercased()
+                self.avatarImageView.image = image
+                self.textAvatar.showImageMode()
+            } else if let fallbackUsername {
+                self.avatarImageView.image = nil
+                self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
             } else {
-                self.avatarView.image = nil
+                self.avatarImageView.image = nil
             }
         }
     }

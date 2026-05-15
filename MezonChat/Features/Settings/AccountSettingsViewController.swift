@@ -335,8 +335,30 @@ final class AccountSettingsViewController: BaseViewController {
             let line = "\(L(L10n.AccountSetting.blockedUsers)) — \(L(L10n.Common.comingSoon))"
             Toast.comingSoonLine(line)
         case .setPassword:
-            let line = "\(L(L10n.AccountSetting.setPassword)) — \(L(L10n.Common.comingSoon))"
-            Toast.comingSoonLine(line)
+            let email = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if email.isEmpty {
+                let alert = UIAlertController(
+                    title: L(L10n.AccountSetting.requireLinkEmailTitle),
+                    message: L(L10n.AccountSetting.requireLinkEmailMessage),
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+                alert.addAction(UIAlertAction(title: L(L10n.AccountSetting.requireLinkEmailAction), style: .default) { [weak self] _ in
+                    guard let self = self else { return }
+                    let vc = UpdateEmailViewController(context: self.context, currentEmail: "")
+                    self.navigationController?.pushViewController(vc, animated: true)
+                })
+                present(alert, animated: true)
+                return
+            }
+
+            var hasPassword = false
+            if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.account),
+               let api = try? Mezon_Api_Account(serializedData: data) {
+                hasPassword = api.passwordSetted
+            } 
+            let vc = SetPasswordViewController(context: context, hasPassword: hasPassword, email: email)
+            navigationController?.pushViewController(vc, animated: true)
         case .deleteAccount:
             presentDeleteAccountConfirmation()
         }

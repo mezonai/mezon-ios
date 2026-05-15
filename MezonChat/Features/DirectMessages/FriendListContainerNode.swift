@@ -490,7 +490,7 @@ extension FriendListContainerNode: ASTableDataSource, ASTableDelegate {
     }
 }
 
-final class FriendListItemNode: ASCellNode {
+final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     private let friend: Mezon_Api_Friend
     private let interaction: FriendListInteraction
@@ -557,15 +557,17 @@ final class FriendListItemNode: ASCellNode {
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.shouldRenderProgressImages = false
+        avatarNode.delegate = self
 
         let name = user.displayName.isEmpty ? user.username : user.displayName
-        let initialSource = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialChar = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
+        let initialChar = user.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "?"
+            : String(user.username.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
         avatarPlaceholderNode.attributedText = NSAttributedString(
             string: initialChar,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 18.sf, weight: .semibold),
-                .foregroundColor: UIColor.mezonTextPrimary
+                .foregroundColor: UIColor.white
             ]
         )
 
@@ -579,12 +581,12 @@ final class FriendListItemNode: ASCellNode {
             } else {
                 avatarNode.url = nil
                 avatarPlaceholderNode.isHidden = false
-                avatarNode.backgroundColor = t.colorActiveClan.withAlphaComponent(0.3)
+                avatarNode.backgroundColor = UIColor.avatarColor(for: user.username)
             }
         } else {
             avatarNode.url = nil
             avatarPlaceholderNode.isHidden = false
-            avatarNode.backgroundColor = t.colorActiveClan.withAlphaComponent(0.3)
+            avatarNode.backgroundColor = UIColor.avatarColor(for: user.username)
         }
 
         let dotSize: CGFloat = 14.swh
@@ -707,5 +709,17 @@ final class FriendListItemNode: ASCellNode {
 
     @objc private func messageTapped() {
         interaction.onMessageFriend(friend)
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode === avatarNode else { return }
+        avatarPlaceholderNode.isHidden = false
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        guard imageNode === avatarNode else { return }
+        if image.size.width < 0.5 || image.size.height < 0.5 {
+            avatarPlaceholderNode.isHidden = false
+        }
     }
 }

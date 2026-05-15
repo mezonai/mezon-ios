@@ -212,15 +212,16 @@ final class SharingChannelCell: UITableViewCell {
         if isDM {
             channelIconView.isHidden = true
             let urlStr = item.avatarURL ?? ch?.avatars.first
+            let username = ch?.usernames.first ?? ""
             if let s = urlStr, !s.isEmpty {
                 avatarPlaceholder.isHidden = true
-                avatarView.backgroundColor = .clear
+                avatarView.backgroundColor = UIColor.avatarColor(for: username)
                 loadMainAvatar(raw: s)
             } else {
                 avatarView.image = nil
-                avatarView.backgroundColor = colorFor(name: displayName)
+                avatarView.backgroundColor = UIColor.avatarColor(for: username)
                 avatarPlaceholder.isHidden = false
-                avatarPlaceholder.text = String(displayName.prefix(1)).uppercased()
+                avatarPlaceholder.text = String(username.prefix(1)).uppercased()
             }
         } else if isGroup {
             avatarPlaceholder.isHidden = true
@@ -230,7 +231,7 @@ final class SharingChannelCell: UITableViewCell {
             let groupAv = ch?.channelAvatar ?? item.channelAvatar
             if !groupAv.isEmpty, !groupAv.contains("avatar-group.png") {
                 channelIconView.isHidden = true
-                avatarView.backgroundColor = .clear
+                avatarView.backgroundColor = Self.groupDefaultAvatarBackground
                 loadMainAvatar(raw: groupAv)
             } else {
                 avatarView.image = nil
@@ -263,10 +264,14 @@ final class SharingChannelCell: UITableViewCell {
         guard !proxied.isEmpty else { return }
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             avatarView.image = cached
+            avatarView.backgroundColor = .clear
             return
         }
         mainImageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             self?.avatarView.image = image
+            if image != nil {
+                self?.avatarView.backgroundColor = .clear
+            }
         }
     }
 
@@ -290,19 +295,4 @@ final class SharingChannelCell: UITableViewCell {
         return "Chat"
     }
 
-    private func colorFor(name: String) -> UIColor {
-        let colors: [UIColor] = [
-            UIColor(red: 0.90, green: 0.30, blue: 0.35, alpha: 1),
-            UIColor(red: 0.95, green: 0.55, blue: 0.20, alpha: 1),
-            UIColor(red: 0.30, green: 0.75, blue: 0.45, alpha: 1),
-            UIColor(red: 0.35, green: 0.55, blue: 0.90, alpha: 1),
-            UIColor(red: 0.65, green: 0.40, blue: 0.85, alpha: 1),
-            UIColor(red: 0.85, green: 0.35, blue: 0.60, alpha: 1),
-        ]
-        var hash: UInt = 5381
-        for char in name.unicodeScalars {
-            hash = ((hash << 5) &+ hash) &+ UInt(char.value)
-        }
-        return colors[Int(hash % UInt(colors.count))]
-    }
 }

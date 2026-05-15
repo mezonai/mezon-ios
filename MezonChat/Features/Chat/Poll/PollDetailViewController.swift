@@ -325,45 +325,34 @@ final class PollDetailViewController: UIViewController {
                 let voterView = UIView()
                 voterView.translatesAutoresizingMaskIntoConstraints = false
 
-                let avatarContainer = UIView()
-                avatarContainer.layer.cornerRadius = Self.avatarSize / 2
-                avatarContainer.clipsToBounds = true
-                avatarContainer.backgroundColor = .colorAvatarDefault
+                let avatarContainer = TextAvatarView(username: voter.username, size: Self.avatarSize, fontSize: 12)
                 avatarContainer.translatesAutoresizingMaskIntoConstraints = false
 
                 let avatarImageView = UIImageView()
                 avatarImageView.contentMode = .scaleAspectFill
+                avatarImageView.clipsToBounds = true
+                avatarImageView.layer.cornerRadius = Self.avatarSize / 2
                 avatarImageView.translatesAutoresizingMaskIntoConstraints = false
                 avatarContainer.addSubview(avatarImageView)
 
-                let placeholderLabel = UILabel()
-                placeholderLabel.text = String(voter.displayName.prefix(1)).uppercased()
-                placeholderLabel.font = .systemFont(ofSize: 12, weight: .semibold)
-                placeholderLabel.textColor = .white
-                placeholderLabel.textAlignment = .center
-                placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-                avatarContainer.addSubview(placeholderLabel)
-
                 if !voter.avatar.isEmpty, let url = URL(string: voter.avatar) {
-                    placeholderLabel.isHidden = true
+                    avatarContainer.showImageMode()
                     let proxyURL = ImgproxyURL.create(from: voter.avatar, width: 64, height: 64)
                     if let cachedImage = ImageCache.shared.memoryImage(forKey: proxyURL)
                         ?? ImageCache.shared.memoryImage(forKey: voter.avatar) {
                         avatarImageView.image = cachedImage
                     } else {
                         avatarImageView.image = nil
-                        Task {
+                        Task { [weak avatarContainer] in
                             if let data = try? await URLSession.shared.data(from: URL(string: proxyURL) ?? url).0,
                                let image = UIImage(data: data) {
                                 await MainActor.run {
                                     avatarImageView.image = image
+                                    avatarContainer?.showImageMode()
                                 }
                             }
                         }
                     }
-                } else {
-                    avatarImageView.image = nil
-                    placeholderLabel.isHidden = false
                 }
 
                 let nameLabel = UILabel()
@@ -398,8 +387,6 @@ final class PollDetailViewController: UIViewController {
                     avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
                     avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
                     avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
-                    placeholderLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
-                    placeholderLabel.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
                     infoStack.leadingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 10),
                     infoStack.centerYAnchor.constraint(equalTo: voterView.centerYAnchor),
                     infoStack.trailingAnchor.constraint(equalTo: voterView.trailingAnchor),

@@ -338,7 +338,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             context: context,
             clanId: reactionMemberLookupClanId
         )
-        cell.configure(displayName: visual.name, avatarURLString: visual.avatarURL, reactionCount: sender.count, theme: ThemeManager.shared.attributes)
+        cell.configure(username: visual.username, displayName: visual.name, avatarURLString: visual.avatarURL, reactionCount: sender.count, theme: ThemeManager.shared.attributes)
         return cell
     }
 
@@ -479,7 +479,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
         sender: ParsedReactionSender,
         context: AccountContext,
         clanId: Int64
-    ) -> (name: String, avatarURL: String?) {
+    ) -> (name: String, username: String, avatarURL: String?) {
         let uid = sender.userId
 
         if clanId != 0, let id64 = Int64(uid) {
@@ -502,7 +502,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
                     }
                     return m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
                 }()
-                return (name, avatar)
+                return (name, m.username, avatar)
             }
         }
 
@@ -512,7 +512,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
                 if !cur.username.isEmpty { return cur.username }
                 return uid
             }()
-            return (name, cur.avatarURL?.absoluteString)
+            return (name, cur.username, cur.avatarURL?.absoluteString)
         }
 
         let profile = context.account.postbox.read { tx in tx.getProfile(userId: uid) }
@@ -524,7 +524,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             }
             return uid
         }()
-        return (name, profile?.avatarUrl)
+        return (name, profile?.username ?? "", profile?.avatarUrl)
     }
 }
 
@@ -594,8 +594,8 @@ private final class ReactionEmojiTabCell: UICollectionViewCell {
 private final class ReactionParticipantCell: UITableViewCell {
     static let reuseId = "ReactionParticipantCell"
 
-    private let avatarView = UIImageView()
-    private let placeholderLabel = UILabel()
+    private let textAvatar = TextAvatarView(username: "", size: 40, fontSize: 14.sf)
+    private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let countLabel = UILabel()
     private var task: URLSessionDataTask?
@@ -605,15 +605,12 @@ private final class ReactionParticipantCell: UITableViewCell {
         backgroundColor = .clear
         selectionStyle = .none
 
-        avatarView.contentMode = .scaleAspectFill
-        avatarView.clipsToBounds = true
-        avatarView.layer.cornerRadius = 20
-        contentView.addSubview(avatarView)
+        contentView.addSubview(textAvatar)
 
-        placeholderLabel.textAlignment = .center
-        placeholderLabel.font = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
-        placeholderLabel.textColor = .white
-        avatarView.addSubview(placeholderLabel)
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.clipsToBounds = true
+        avatarImageView.layer.cornerRadius = 20
+        textAvatar.addSubview(avatarImageView)
 
         nameLabel.font = UIFont.systemFont(ofSize: 15.sf, weight: .semibold)
         contentView.addSubview(nameLabel)
@@ -628,50 +625,47 @@ private final class ReactionParticipantCell: UITableViewCell {
         super.prepareForReuse()
         task?.cancel()
         task = nil
-        avatarView.image = nil
+        avatarImageView.image = nil
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        avatarView.frame = CGRect(x: 12, y: (bounds.height - 40) / 2, width: 40, height: 40)
-        placeholderLabel.frame = avatarView.bounds
+        textAvatar.frame = CGRect(x: 12, y: (bounds.height - 40) / 2, width: 40, height: 40)
+        avatarImageView.frame = textAvatar.bounds
         nameLabel.frame = CGRect(x: 60, y: 10, width: bounds.width - 120, height: 20)
         countLabel.frame = CGRect(x: 60, y: 30, width: bounds.width - 120, height: 18)
     }
 
-    func configure(displayName: String, avatarURLString: String?, reactionCount: Int, theme: ThemeAttributes) {
+    func configure(username: String, displayName: String, avatarURLString: String?, reactionCount: Int, theme: ThemeAttributes) {
         nameLabel.textColor = theme.textStrong
         countLabel.textColor = theme.textDisabled
 
         nameLabel.text = displayName
         countLabel.text = "×\(reactionCount)"
 
-        let initial = String(displayName.prefix(1)).uppercased()
-        placeholderLabel.text = initial
-
         task?.cancel()
-        avatarView.image = nil
-        avatarView.backgroundColor = UIColor.colorAvatarDefault
+        avatarImageView.image = nil
+        textAvatar.configure(username: username, fontSize: 14.sf)
 
         if let urlStr = avatarURLString, let url = URL(string: urlStr) {
             let key = url.absoluteString
             if let img = ImageCache.shared.image(forKey: key) {
-                avatarView.image = img
-                placeholderLabel.isHidden = true
+                avatarImageView.image = img
+                textAvatar.showImageMode()
             } else {
-                placeholderLabel.isHidden = false
+                textAvatar.showPlaceholder()
                 task = URLSession.shared.dataTask(with: url) { data, _, _ in
                     guard let data, let image = UIImage.decodeImage(from: data) else { return }
                     ImageCache.shared.setImage(image, data: data, forKey: key)
                     DispatchQueue.main.async { [weak self] in
-                        self?.avatarView.image = image
-                        self?.placeholderLabel.isHidden = true
+                        self?.avatarImageView.image = image
+                        self?.textAvatar.showImageMode()
                     }
                 }
                 task?.resume()
             }
         } else {
-            placeholderLabel.isHidden = false
+            textAvatar.showPlaceholder()
         }
     }
 }

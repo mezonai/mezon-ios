@@ -228,6 +228,21 @@ final class PinnedMessagesNode: ASDisplayNode {
         return idStr
     }
 
+    private func resolvedSenderUsername(for pin: Mezon_Api_PinMessage) -> String {
+        let idStr = String(pin.senderID)
+        var resolved = ""
+        context.account.postbox.read { tx in
+            if let p = tx.getProfile(userId: idStr) {
+                if !p.username.isEmpty {
+                    resolved = p.username
+                }
+            }
+        }
+        if !resolved.isEmpty { return resolved }
+        if !pin.username.isEmpty { return pin.username }
+        return idStr
+    }
+
     private func resolvedAvatarURLString(for pin: Mezon_Api_PinMessage) -> String {
         let idStr = String(pin.senderID)
         var fromProfile = ""
@@ -258,11 +273,13 @@ extension PinnedMessagesNode: ASTableDataSource {
         }
         let pin = pinnedMessages[indexPath.row]
         let displayName = resolvedSenderDisplayName(for: pin)
+        let username = resolvedSenderUsername(for: pin)
         let extras = attachmentEnrichmentByMessageId[pin.messageID] ?? []
         let row = PinRowContent.make(from: pin, context: context, attachmentExtras: extras)
         let avatarURL = resolvedAvatarURLString(for: pin)
         return { [weak self] in
             PinnedMessageCellNode(
+                username: username,
                 displayName: displayName,
                 pin: pin,
                 row: row,
@@ -639,9 +656,8 @@ private final class EmptyPinsCellNode: ASCellNode {
 
 private final class PinnedMessageCellNode: ASCellNode {
     private let cardNode = ASDisplayNode()
-    private let avatarBgNode = ASDisplayNode()
+    private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
     private let avatarNode = ASNetworkImageNode()
-    private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
     private let contentNode = ASTextNode2()
     private let unpinButton = ASButtonNode()
@@ -655,6 +671,7 @@ private final class PinnedMessageCellNode: ASCellNode {
     private let includeCaption: Bool
 
     init(
+        username: String,
         displayName: String,
         pin: Mezon_Api_PinMessage,
         row: PinRowContent,
@@ -679,33 +696,20 @@ private final class PinnedMessageCellNode: ASCellNode {
         cardNode.cornerRadius = 10.sf
         cardNode.clipsToBounds = true
 
-        avatarBgNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
-        avatarBgNode.cornerRadius = avatarSize / 2
-        avatarBgNode.clipsToBounds = true
-        avatarBgNode.backgroundColor = .colorAvatarDefault
+        textAvatarNode.configure(username: username, fontSize: 16.sf)
 
         avatarNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
         avatarNode.cornerRadius = avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
 
-        let initial = String(displayName.prefix(1)).uppercased()
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: initial,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
-                .foregroundColor: UIColor.white,
-            ]
-        )
-
         if let url = Self.displayURL(from: avatarURLString) {
             avatarNode.url = url
             avatarNode.isHidden = false
-            avatarPlaceholderNode.isHidden = true
+            textAvatarNode.showImageMode()
         } else {
             avatarNode.url = nil
             avatarNode.isHidden = true
-            avatarPlaceholderNode.isHidden = false
         }
 
         nameNode.attributedText = NSAttributedString(
@@ -740,9 +744,8 @@ private final class PinnedMessageCellNode: ASCellNode {
         unpinButton.addTarget(
             self, action: #selector(unpinPressed), forControlEvents: .touchUpInside)
 
-        addSubnode(avatarBgNode)
+        addSubnode(textAvatarNode)
         addSubnode(avatarNode)
-        addSubnode(avatarPlaceholderNode)
         addSubnode(nameNode)
         if includeCaption {
             addSubnode(contentNode)
@@ -894,18 +897,9 @@ private final class PinnedMessageCellNode: ASCellNode {
         textStack.style.flexShrink = 1
         textStack.style.flexGrow = 1
 
-        let placeholderCentered = ASCenterLayoutSpec(
-            centeringOptions: .XY,
-            sizingOptions: .minimumXY,
-            child: avatarPlaceholderNode
-        )
-        let imageFill = ASInsetLayoutSpec(insets: .zero, child: avatarNode)
         let avatarStack = ASOverlayLayoutSpec(
-            child: avatarBgNode,
-            overlay: ASOverlayLayoutSpec(
-                child: placeholderCentered,
-                overlay: imageFill
-            )
+            child: textAvatarNode,
+            overlay: ASInsetLayoutSpec(insets: .zero, child: avatarNode)
         )
 
         let unpinWrap = ASInsetLayoutSpec(

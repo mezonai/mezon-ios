@@ -31,7 +31,7 @@ final class MessageReplyNode: ASDisplayNode {
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
 
-        avatarContainerNode.backgroundColor = .colorAvatarDefault
+
         avatarContainerNode.cornerRadius = 10
         avatarContainerNode.clipsToBounds = true
 
@@ -84,6 +84,7 @@ final class MessageReplyNode: ASDisplayNode {
             avatarPlaceholderNode.isHidden = true
             avatarImageNode.isHidden = false
             avatarImageNode.url = url
+            avatarImageNode.backgroundColor = UIColor.theme.primary
             avatarContainerNode.removeFromSupernode()
             avatarPlaceholderNode.removeFromSupernode()
             if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
@@ -92,12 +93,13 @@ final class MessageReplyNode: ASDisplayNode {
             avatarImageNode.isHidden = true
             avatarPlaceholderNode.isHidden = false
             avatarPlaceholderNode.attributedText = NSAttributedString(
-                string: String((displayName).prefix(1)).uppercased(),
+                string: String(ref.messageSenderUsername.prefix(1)).uppercased(),
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 8.sf, weight: .semibold),
                     .foregroundColor: UIColor.white
                 ]
             )
+            avatarContainerNode.backgroundColor = UIColor.avatarColor(for: ref.messageSenderUsername)
             avatarImageNode.removeFromSupernode()
             if avatarContainerNode.supernode == nil {
                 addSubnode(avatarContainerNode)

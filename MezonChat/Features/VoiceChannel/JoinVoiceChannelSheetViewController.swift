@@ -348,11 +348,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         ])
 
         for (i, member) in visible.enumerated() {
-            let container = UIView()
+            let container = TextAvatarView(username: member.username, size: avatarSize, fontSize: 16)
             container.translatesAutoresizingMaskIntoConstraints = false
-            container.layer.cornerRadius = avatarSize / 2
-            container.clipsToBounds = true
-            container.backgroundColor = UIColor.theme.tertiary
             container.layer.borderWidth = 2
             container.layer.borderColor = UIColor.theme.secondary.cgColor
 
@@ -362,31 +359,18 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             imageView.clipsToBounds = true
             imageView.layer.cornerRadius = avatarSize / 2
 
-            let initialLabel = UILabel()
-            initialLabel.translatesAutoresizingMaskIntoConstraints = false
-            initialLabel.font = .systemFont(ofSize: 16, weight: .bold)
-            initialLabel.textColor = .white
-            initialLabel.textAlignment = .center
-
             if let av = member.avatarURL, !av.isEmpty {
                 let px = Int(avatarSize * UIScreen.main.scale)
                 let proxy = ImgproxyURL.create(from: av, width: px, height: px)
-                ImageCache.shared.loadAvatar(urlString: proxy) { img in
+                ImageCache.shared.loadAvatar(urlString: proxy) { [weak container] img in
                     imageView.image = img
-                    if img == nil {
-                        imageView.isHidden = true
-                        initialLabel.isHidden = false
-                        initialLabel.text = String(member.name.prefix(1)).uppercased()
+                    if img != nil {
+                        container?.showImageMode()
                     }
                 }
-                initialLabel.isHidden = true
-            } else {
-                imageView.isHidden = true
-                initialLabel.text = String(member.name.prefix(1)).uppercased()
             }
 
             container.addSubview(imageView)
-            container.addSubview(initialLabel)
             membersContainer.addSubview(container)
 
             let xOffset = CGFloat(i) * (avatarSize - overlap)
@@ -399,8 +383,6 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                 imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                 imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-                initialLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                initialLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             ])
 
             membersContainer.bringSubviewToFront(container)

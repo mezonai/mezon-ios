@@ -364,13 +364,13 @@ extension FriendRequestContainerNode: ASTableDataSource, ASTableDelegate {
     }
 }
 
-final class FriendRequestItemNode: ASCellNode {
+final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let friend: Mezon_Api_Friend
     private let interaction: FriendRequestInteraction
 
     private let cardNode = ASDisplayNode()
     private let avatarNode = ASNetworkImageNode()
-    private let avatarPlaceholderNode = ASTextNode()
+    private let textAvatarNode = TextAvatarNode(username: "", size: 44.swh, fontSize: 16.sf)
     private let displayNameNode = ASTextNode()
     private let usernameNode = ASTextNode()
     private let rejectButton = ASButtonNode()
@@ -398,28 +398,23 @@ final class FriendRequestItemNode: ASCellNode {
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.defaultImage = nil
         avatarNode.shouldRenderProgressImages = false
+        avatarNode.delegate = self
 
         let user = friend.user
         let name = user.displayName.isEmpty ? user.username : user.displayName
-        let initialSource = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialChar = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: initialChar,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
-                .foregroundColor: UIColor.mezonTextPrimary
-            ]
-        )
+        textAvatarNode.configure(username: user.username, fontSize: 16.sf)
 
         let avatarRaw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !avatarRaw.isEmpty, let url = URL(string: avatarRaw) {
-            avatarNode.url = url
-            avatarPlaceholderNode.isHidden = true
-            avatarNode.backgroundColor = .clear
+        if !avatarRaw.isEmpty {
+            let proxied = ImgproxyURL.create(from: avatarRaw, width: 120, height: 120)
+            if let url = URL(string: proxied) {
+                avatarNode.url = url
+                textAvatarNode.showImageMode()
+            } else {
+                avatarNode.url = nil
+            }
         } else {
             avatarNode.url = nil
-            avatarPlaceholderNode.isHidden = false
-            avatarNode.backgroundColor = UIColor.theme.colorActiveClan.withAlphaComponent(0.3)
         }
 
         displayNameNode.attributedText = NSAttributedString(
@@ -460,12 +455,8 @@ final class FriendRequestItemNode: ASCellNode {
         avatarNode.style.flexShrink = 0
 
         let avatarOverlay = ASOverlayLayoutSpec(
-            child: avatarNode,
-            overlay: ASCenterLayoutSpec(
-                centeringOptions: .XY,
-                sizingOptions: .minimumXY,
-                child: avatarPlaceholderNode
-            )
+            child: textAvatarNode,
+            overlay: avatarNode
         )
         avatarOverlay.style.flexShrink = 0
 
@@ -504,5 +495,17 @@ final class FriendRequestItemNode: ASCellNode {
 
     @objc private func acceptTapped() {
         interaction.onAcceptFriend(friend)
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode === avatarNode else { return }
+        textAvatarNode.showPlaceholder()
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        guard imageNode === avatarNode else { return }
+        if image.size.width < 0.5 || image.size.height < 0.5 {
+            textAvatarNode.showPlaceholder()
+        }
     }
 }

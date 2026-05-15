@@ -214,14 +214,16 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let t = UIColor.theme
 
-        avatarContainerNode.backgroundColor = .colorAvatarDefault
+        avatarContainerNode.backgroundColor = display.isAnonymousSender
+            ? t.tertiary
+            : UIColor.avatarColor(for: display.senderUsername)
         avatarContainerNode.cornerRadius = Self.avatarSize / 2
         avatarContainerNode.clipsToBounds = true
         avatarContainerNode.addSubnode(avatarPlaceholderNode)
         avatarContainerNode.addSubnode(avatarImageNode)
 
         avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: String(display.senderDisplayName.prefix(1)).uppercased(),
+            string: String(display.senderUsername.prefix(1)).uppercased(),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
                 .foregroundColor: UIColor.white,
@@ -533,7 +535,7 @@ final class MessageBubbleNode: ASDisplayNode {
         if !isCombine {
             if nameChanged || senderChanged {
                 avatarPlaceholderNode.attributedText = NSAttributedString(
-                    string: String(newDisplay.senderDisplayName.prefix(1)).uppercased(),
+                    string: String(newDisplay.senderUsername.prefix(1)).uppercased(),
                     attributes: [
                         .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
                         .foregroundColor: UIColor.white,
@@ -826,6 +828,7 @@ final class MessageBubbleNode: ASDisplayNode {
             intrinsicInsets: .zero
         )
         if display.isAnonymousSender {
+            avatarContainerNode.backgroundColor = UIColor.theme.tertiary
             if let raw = UIImage(named: "Chat/AnonymousIcon") {
                 avatarPlaceholderNode.isHidden = true
                 let img = Self.anonymousAvatarCompositeImage(
@@ -845,6 +848,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         if let urlString = display.avatarURL, !urlString.isEmpty {
             avatarPlaceholderNode.isHidden = true
+            avatarContainerNode.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
@@ -856,6 +860,9 @@ final class MessageBubbleNode: ASDisplayNode {
         } else {
             avatarImageNode.reset()
             avatarPlaceholderNode.isHidden = false
+            avatarContainerNode.backgroundColor = display.isAnonymousSender
+                ? UIColor.theme.tertiary
+                : UIColor.avatarColor(for: display.senderUsername)
         }
     }
 
