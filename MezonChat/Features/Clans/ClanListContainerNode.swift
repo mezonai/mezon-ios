@@ -352,9 +352,8 @@ private final class ClanCell: UICollectionViewCell {
         return v
     }()
 
-    private let avatarContainer: UIView = {
-        let v = UIView()
-        v.clipsToBounds = true
+    private let textAvatarView: TextAvatarView = {
+        let v = TextAvatarView(username: "", size: ClanListContainerNode.iconSize, fontSize: 14.sf)
         v.layer.cornerRadius = 8.swh
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
@@ -364,17 +363,9 @@ private final class ClanCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
+        iv.layer.cornerRadius = 8.swh
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
-    }()
-
-    private let initialsLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
     }()
 
     private let badgeLabel: UILabel = {
@@ -401,9 +392,8 @@ private final class ClanCell: UICollectionViewCell {
         contentView.backgroundColor = .clear
         let sz = Self.sz
         contentView.addSubview(indicatorBar)
-        contentView.addSubview(avatarContainer)
-        avatarContainer.addSubview(avatarImageView)
-        avatarContainer.addSubview(initialsLabel)
+        contentView.addSubview(textAvatarView)
+        contentView.addSubview(avatarImageView)
         contentView.addSubview(badgeLabel)
 
         NSLayoutConstraint.activate([
@@ -412,21 +402,18 @@ private final class ClanCell: UICollectionViewCell {
             indicatorBar.widthAnchor.constraint(equalToConstant: 4.sw),
             indicatorBar.heightAnchor.constraint(equalToConstant: 32.sh),
 
-            avatarContainer.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-            avatarContainer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarContainer.widthAnchor.constraint(equalToConstant: sz),
-            avatarContainer.heightAnchor.constraint(equalToConstant: sz),
+            textAvatarView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            textAvatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            textAvatarView.widthAnchor.constraint(equalToConstant: sz),
+            textAvatarView.heightAnchor.constraint(equalToConstant: sz),
 
-            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
-            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
-            avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
-            avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            avatarImageView.topAnchor.constraint(equalTo: textAvatarView.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: textAvatarView.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: textAvatarView.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: textAvatarView.bottomAnchor),
 
-            initialsLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
-            initialsLabel.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
-
-            badgeLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 5.swh),
-            badgeLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 5.swh),
+            badgeLabel.bottomAnchor.constraint(equalTo: textAvatarView.bottomAnchor, constant: 5.swh),
+            badgeLabel.trailingAnchor.constraint(equalTo: textAvatarView.trailingAnchor, constant: 5.swh),
             badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 20.swh),
             badgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
         ])
@@ -440,8 +427,7 @@ private final class ClanCell: UICollectionViewCell {
         imageTask = nil
         boundClanId = nil
         avatarImageView.image = nil
-        initialsLabel.text = nil
-        avatarContainer.backgroundColor = .clear
+        textAvatarView.configure(username: "")
         badgeLabel.isHidden = true
         badgeLabel.layer.borderWidth = 0
         badgeLabel.layer.borderColor = nil
@@ -454,24 +440,20 @@ private final class ClanCell: UICollectionViewCell {
         let expectClanId = clan.clanID
         let clanName = clan.clanName
 
-        avatarContainer.layer.cornerRadius = 8.swh
-
         let accentColor = UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1)
         indicatorBar.backgroundColor = accentColor
         indicatorBar.isHidden = !isSelected
 
-        initialsLabel.text = initials(for: clanName)
+        textAvatarView.configure(username: clanName, fontSize: 14.sf)
 
         if !clan.logo.isEmpty, let url = URL(string: clan.logo) {
-            avatarContainer.backgroundColor = .clear
+            textAvatarView.showImageMode()
             avatarImageView.isHidden = false
-            initialsLabel.isHidden = true
             loadExpectingClan(
                 clanId: expectClanId, generation: generation, clanName: clanName, url: url)
         } else {
-            avatarContainer.backgroundColor = colorFor(name: clanName)
+            textAvatarView.showPlaceholder()
             avatarImageView.isHidden = true
-            initialsLabel.isHidden = false
         }
 
         let count = clan.badgeCount
@@ -494,8 +476,7 @@ private final class ClanCell: UICollectionViewCell {
             guard boundClanId == clanId, avatarGeneration == generation else { return }
             avatarImageView.image = cached
             avatarImageView.isHidden = false
-            initialsLabel.isHidden = true
-            avatarContainer.backgroundColor = .clear
+            textAvatarView.showImageMode()
             contentView.layoutIfNeeded()
             return
         }
@@ -506,35 +487,14 @@ private final class ClanCell: UICollectionViewCell {
             if let image {
                 self.avatarImageView.image = image
                 self.avatarImageView.isHidden = false
-                self.initialsLabel.isHidden = true
-                self.avatarContainer.backgroundColor = .clear
+                self.textAvatarView.showImageMode()
             } else {
                 self.avatarImageView.isHidden = true
-                self.initialsLabel.isHidden = false
-                self.initialsLabel.text = self.initials(for: clanName)
-                self.avatarContainer.backgroundColor = self.colorFor(name: clanName)
+                self.textAvatarView.showPlaceholder()
             }
             self.contentView.setNeedsLayout()
             self.contentView.layoutIfNeeded()
         }
-    }
-
-    private func initials(for name: String) -> String {
-        let words = name.split(separator: " ").prefix(2)
-        return words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-    }
-
-    private func colorFor(name: String) -> UIColor {
-        let colors: [UIColor] = [
-            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
-            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
-            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
-            UIColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),
-            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
-            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
-        ]
-        let hash = abs(name.hashValue)
-        return colors[hash % colors.count]
     }
 }
 
