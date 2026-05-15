@@ -64,6 +64,9 @@ final class DmListItemCell: UITableViewCell {
 
     private var imageTask: URLSessionDataTask?
     private var avatarLoadGeneration: UInt = 0
+    private var nameTopConstraint: NSLayoutConstraint?
+    private var nameCenterYConstraint: NSLayoutConstraint?
+    private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -102,11 +105,21 @@ final class DmListItemCell: UITableViewCell {
 
         let avatarSize: CGFloat = 40.swh
 
+        let nameTopConstraint = nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8.sh)
+        let nameCenterYConstraint = nameLabel.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor)
+        let lastMessageZeroHeightConstraint = lastMessageLabel.heightAnchor.constraint(equalToConstant: 0)
+        nameCenterYConstraint.isActive = false
+        lastMessageZeroHeightConstraint.isActive = false
+        self.nameTopConstraint = nameTopConstraint
+        self.nameCenterYConstraint = nameCenterYConstraint
+        self.lastMessageZeroHeightConstraint = lastMessageZeroHeightConstraint
+
         NSLayoutConstraint.activate([
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5.sh),
             containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5.sh),
             containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10.sw),
             containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10.sw),
+            containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 52.sh),
 
             textAvatar.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8.sw),
             textAvatar.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
@@ -191,7 +204,18 @@ final class DmListItemCell: UITableViewCell {
         }
 
         let (preview, time) = lastMessagePreview(channel: channel)
-        lastMessageLabel.text = preview
+        let hasPreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        lastMessageLabel.text = hasPreview ? preview : ""
+        lastMessageLabel.isHidden = !hasPreview
+        if hasPreview {
+            nameCenterYConstraint?.isActive = false
+            lastMessageZeroHeightConstraint?.isActive = false
+            nameTopConstraint?.isActive = true
+        } else {
+            nameTopConstraint?.isActive = false
+            lastMessageZeroHeightConstraint?.isActive = true
+            nameCenterYConstraint?.isActive = true
+        }
         lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
@@ -264,9 +288,6 @@ final class DmListItemCell: UITableViewCell {
         return "Chat"
     }
 
-
-    private static let previewLayoutPlaceholder = "\u{200B}"
-
     private func lastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
         let msg = channel.lastSentMessage
         let hasHeaderPayload =
@@ -284,7 +305,7 @@ final class DmListItemCell: UITableViewCell {
                 channel.createTimeSeconds
             )
             let time = ts > 0 ? formatRelativeTime(timestamp: ts) : ""
-            return (Self.previewLayoutPlaceholder, time)
+            return ("", time)
         }
 
         let time = formatRelativeTime(timestamp: msg.timestampSeconds)
@@ -292,22 +313,47 @@ final class DmListItemCell: UITableViewCell {
         let preview: String
         if let payload = Self.messageContentPayload(from: msg.content) {
             if Self.isRNEmptyMessageContent(payload) {
-                preview = Self.previewWhenNoMessageBody()
+                preview = Self.rawContentFallbackPreview(from: msg.content) ?? Self.previewWhenNoMessageBody()
             } else {
                 preview = Self.dmPreviewBody(from: payload, channelId: channel.channelID)
             }
         } else if msg.content.isEmpty {
             preview = Self.previewWhenNoMessageBody()
         } else {
-            preview = Self.normalizeJsonEscapedSlashes(in: msg.content)
+            preview = Self.rawContentFallbackPreview(from: msg.content)
+                ?? Self.normalizeJsonEscapedSlashes(in: msg.content)
         }
 
         let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
+            if Self.shouldInferAttachmentOnlyListPreview(msg: msg) {
+                return (Self.attachmentBracketPreviewText(), time)
+            }
             return (Self.previewWhenNoMessageBody(), time)
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
         return (body.count >= 20 ? body + "..." : body, time)
+    }
+
+    private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]
+
+    private static func attachmentBracketPreviewText() -> String {
+        "[\(L(L10n.DirectMessage.previewAttachment))]"
+    }
+
+    private static func shouldInferAttachmentOnlyListPreview(msg: Mezon_Api_ChannelMessageHeader) -> Bool {
+        guard msg.id != 0 || msg.timestampSeconds > 0 else { return false }
+        let c = msg.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if c.isEmpty || c == "{}" { return true }
+        guard let payload = messageContentPayload(from: msg.content) else { return false }
+        if isRNEmptyMessageContent(payload) { return true }
+        let keys = Set(payload.keys.map { String($0) })
+        guard keys.isSubset(of: contentKeysAllowingEmptyAttachmentInference) else { return false }
+        let t = messageTextT(from: payload)
+        guard t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard attachmentDicts(from: payload).isEmpty else { return false }
+        guard !hasEmbedPayload(in: payload) else { return false }
+        return true
     }
 
     private static func normalizeJsonEscapedSlashes(in text: String) -> String {
@@ -315,7 +361,7 @@ final class DmListItemCell: UITableViewCell {
     }
 
     private static func previewWhenNoMessageBody() -> String {
-        Self.previewLayoutPlaceholder
+        ""
     }
 
 
@@ -324,7 +370,47 @@ final class DmListItemCell: UITableViewCell {
         if let p = messageContentPayloadParsing(raw) { return p }
         let slashesFixed = raw.replacingOccurrences(of: "\\/", with: "/")
         if slashesFixed != raw { return messageContentPayloadParsing(slashesFixed) }
+        let quotesFixed = slashesFixed.replacingOccurrences(of: "\\\"", with: "\"")
+        if quotesFixed != slashesFixed { return messageContentPayloadParsing(quotesFixed) }
         return nil
+    }
+
+    private static func rawContentFallbackPreview(from raw: String) -> String? {
+        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let normalized = raw
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "\\n", with: " ")
+            .replacingOccurrences(of: "\\\"", with: "\"")
+        if let text = rawPreviewTextValue(from: normalized), !text.isEmpty {
+            return text
+        }
+        if normalized.contains("\"lk\"") {
+            return "[\(L(L10n.DirectMessage.previewLink))]"
+        }
+        if normalized.contains("\"attachments\"") || normalized.contains("\"a\":") {
+            return Self.attachmentBracketPreviewText()
+        }
+        if normalized.contains("\"embed\"") {
+            return bracketEmbedPreview()
+        }
+        return nil
+    }
+
+    private static func rawPreviewTextValue(from raw: String) -> String? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #""t"\s*:\s*"((?:[^"\\]|\\.)*)""#,
+            options: []
+        ) else { return nil }
+        let ns = raw as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = regex.firstMatch(in: raw, options: [], range: range),
+              match.numberOfRanges > 1 else { return nil }
+        let value = ns.substring(with: match.range(at: 1))
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "\\n", with: " ")
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private static func messageContentPayloadParsing(_ raw: String) -> [String: Any]? {
@@ -380,7 +466,7 @@ final class DmListItemCell: UITableViewCell {
 
     private static func bracketAttachmentPreview(from items: [[String: Any]]) -> String? {
         guard !items.isEmpty else { return nil }
-        return "[\(L(L10n.DirectMessage.previewAttachment))]"
+        return attachmentBracketPreviewText()
     }
 
     private static func nonEmptyEmbedString(_ embed: [String: Any], key: String) -> String? {
@@ -400,6 +486,13 @@ final class DmListItemCell: UITableViewCell {
         return nil
     }
 
+    private static func hasEmbedPayload(in content: [String: Any]) -> Bool {
+        content["embed"] != nil
+    }
+
+    private static func bracketEmbedPreview() -> String {
+        "[\(L(L10n.DirectMessage.previewEmbed))]"
+    }
 
     private static func messageTextT(from content: [String: Any]) -> String {
         guard let v = content["t"] else { return "" }
@@ -441,7 +534,11 @@ final class DmListItemCell: UITableViewCell {
             return att
         }
 
-        return "[\(L(L10n.DirectMessage.previewAttachment))]"
+        if hasEmbedPayload(in: content) {
+            return bracketEmbedPreview()
+        }
+
+        return ""
     }
 
     private static func textContainsURL(_ text: String) -> Bool {

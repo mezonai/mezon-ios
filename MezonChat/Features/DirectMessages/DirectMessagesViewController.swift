@@ -236,7 +236,18 @@ final class DirectMessagesViewController: ViewController {
     private static func applyUpdateDmLastSentMessage(_ m: Mezon_Api_ChannelMessage, to list: inout [Mezon_Api_ChannelDescription]) -> Bool {
         let cid = m.channelID
         guard let idx = list.firstIndex(where: { $0.channelID == cid }) else { return false }
-        list[idx].lastSentMessage = lastSentHeader(from: m)
+        var incoming = lastSentHeader(from: m)
+        if list[idx].hasLastSentMessage {
+            let existing = list[idx].lastSentMessage
+            if incoming.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !existing.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                incoming.content = existing.content
+            }
+            if incoming.id == 0 { incoming.id = existing.id }
+            if incoming.timestampSeconds == 0 { incoming.timestampSeconds = existing.timestampSeconds }
+            if incoming.senderID == 0 { incoming.senderID = existing.senderID }
+        }
+        list[idx].lastSentMessage = incoming
         return true
     }
 
@@ -357,6 +368,77 @@ final class DirectMessagesViewController: ViewController {
             let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
             return t1 > t2
         }
+    }
+
+    private static func mergeDmApiRowsPreservingCachedPreview(
+        _ rows: [Mezon_Api_ChannelDescription],
+        cached cachedRows: [Mezon_Api_ChannelDescription]
+    ) -> [Mezon_Api_ChannelDescription] {
+        guard !rows.isEmpty, !cachedRows.isEmpty else { return rows }
+        var cachedByChannelId: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for row in cachedRows {
+            cachedByChannelId[row.channelID] = row
+        }
+        return rows.map { row in
+            guard let cached = cachedByChannelId[row.channelID] else { return row }
+            return mergeDmApiRowPreservingCachedPreview(row, cached: cached)
+        }
+    }
+
+    private static func mergeDmApiRowPreservingCachedPreview(
+        _ row: Mezon_Api_ChannelDescription,
+        cached: Mezon_Api_ChannelDescription
+    ) -> Mezon_Api_ChannelDescription {
+        var merged = row
+
+        if !merged.hasLastSentMessage, cached.hasLastSentMessage {
+            merged.lastSentMessage = cached.lastSentMessage
+        } else if merged.hasLastSentMessage, cached.hasLastSentMessage {
+            let incoming = merged.lastSentMessage
+            let existing = cached.lastSentMessage
+            let incomingBlank = incoming.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let existingHasPreview = !existing.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let existingLooksNewer =
+                existing.id > incoming.id
+                || (existing.id == incoming.id && existing.timestampSeconds > incoming.timestampSeconds)
+
+            var next = incoming
+            if existingLooksNewer, existingHasPreview {
+                next = existing
+            } else if incomingBlank, existingHasPreview {
+                next.content = existing.content
+                if next.senderID == 0 { next.senderID = existing.senderID }
+                if next.id == 0 { next.id = existing.id }
+            }
+            next.id = max(next.id, existing.id)
+            next.timestampSeconds = max(next.timestampSeconds, existing.timestampSeconds)
+            if next.senderID == 0 { next.senderID = existing.senderID }
+            merged.lastSentMessage = next
+        }
+
+        if !merged.hasLastSeenMessage, cached.hasLastSeenMessage {
+            merged.lastSeenMessage = cached.lastSeenMessage
+        } else if merged.hasLastSeenMessage, cached.hasLastSeenMessage {
+            var next = merged.lastSeenMessage
+            let existing = cached.lastSeenMessage
+            next.id = max(next.id, existing.id)
+            next.timestampSeconds = max(next.timestampSeconds, existing.timestampSeconds)
+            if next.senderID == 0 { next.senderID = existing.senderID }
+            if next.content.isEmpty { next.content = existing.content }
+            merged.lastSeenMessage = next
+        }
+
+        let rowSignalsReadState =
+            row.countMessUnread != 0
+            || row.hasLastSeenMessage
+            || row.hasLastSentMessage
+            || row.lastSeenMessage.timestampSeconds != 0
+            || row.lastSentMessage.timestampSeconds != 0
+        if merged.countMessUnread == 0, !rowSignalsReadState {
+            merged.countMessUnread = cached.countMessUnread
+        }
+
+        return merged
     }
 
     private var fetchUserActivitiesTask: Task<Void, Never>?
@@ -547,12 +629,15 @@ final class DirectMessagesViewController: ViewController {
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             await self.fetchUserActivities(token: token)
             do {
+                let cachedRows = self.directMessages
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 do {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
                         clanId: 0, token: token)
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(
                         into: &channels, badgeRows: badgeResponse.channeldesc)
+                    channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 } catch {
                 }
                 let sorted = Self.sortDmChannels(channels)
@@ -579,12 +664,15 @@ final class DirectMessagesViewController: ViewController {
                 return
             }
             do {
+                let cachedRows = self.directMessages
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 do {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
                         clanId: 0, token: token)
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(
                         into: &channels, badgeRows: badgeResponse.channeldesc)
+                    channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 } catch {
                 }
                 let sorted = Self.sortDmChannels(channels)

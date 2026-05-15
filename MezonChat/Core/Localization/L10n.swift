@@ -716,6 +716,7 @@ enum L10n {
         static let previewLink    = "directMessage.previewLink"
         static let previewLocation = "directMessage.previewLocation"
         static let previewContact = "directMessage.previewContact"
+        static let previewEmbed   = "directMessage.previewEmbed"
     }
 
     enum ReportMessage {
@@ -1451,6 +1452,7 @@ extension L10n {
         "directMessage.previewLink": "Link",
         "directMessage.previewLocation": "Location",
         "directMessage.previewContact": "Contact",
+        "directMessage.previewEmbed": "embed",
 
         "friendRequest.title": "Add Friend",
         "friendRequest.received": "Received",
@@ -2247,6 +2249,7 @@ extension L10n {
         "directMessage.previewLink": "Liên kết",
         "directMessage.previewLocation": "Vị trí",
         "directMessage.previewContact": "Danh bạ",
+        "directMessage.previewEmbed": "embed",
 
         "friendRequest.title": "Thêm bạn bè",
         "friendRequest.received": "Đã nhận",
