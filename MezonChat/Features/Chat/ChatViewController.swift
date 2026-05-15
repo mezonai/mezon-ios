@@ -136,6 +136,7 @@ struct TopicData {
 struct ChatMessageDisplay: Identifiable {
     let message: Message
     let senderDisplayName: String
+    let senderUsername: String
     let avatarURL: String?
     let isCombine: Bool
     let attachments: [ParsedAttachment]
@@ -819,7 +820,7 @@ final class ChatViewController: ViewController {
                 mentionedUserIds: [], isPinned: false
             )
             let display = ChatMessageDisplay(
-                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
+                message: msg, senderDisplayName: record.senderDisplayName, senderUsername: apiMessage.username, avatarURL: record.senderAvatarURL,
                 isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
                 replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
                 topicData: nil, locationData: nil, isMe: record.senderId == context.currentUser?.id,
@@ -850,7 +851,7 @@ final class ChatViewController: ViewController {
             mentionedUserIds: [], isPinned: false
         )
         let display = ChatMessageDisplay(
-            message: msg, senderDisplayName: record.senderDisplayName, avatarURL: record.senderAvatarURL,
+            message: msg, senderDisplayName: record.senderDisplayName, senderUsername: apiMessage.username, avatarURL: record.senderAvatarURL,
             isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
             replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
             topicData: nil, locationData: nil, isMe: record.senderId == context.currentUser?.id,
@@ -2004,8 +2005,8 @@ final class ChatViewController: ViewController {
         return false
     }
 
-    private func cachedSenderAvatarsBySenderId(senderIds: Set<String>) -> [String: String] {
-        var out: [String: String] = [:]
+    private func cachedSenderProfilesBySenderId(senderIds: Set<String>) -> [String: (avatar: String?, username: String)] {
+        var out: [String: (avatar: String?, username: String)] = [:]
         let clan = clanId
         context.account.postbox.read { tx in
             let memberByUserId: [Int64: ClanMemberRecord] = {
@@ -2019,32 +2020,49 @@ final class ChatViewController: ViewController {
             for sid in senderIds {
                 guard let uidInt = Int64(sid), uidInt != 0 else { continue }
                 let profile = tx.getProfile(userId: sid)
+                let username = profile?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                
                 if clan != 0 {
                     if let m = memberByUserId[uidInt],
                        let r = m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl),
                        !r.isEmpty {
-                        out[sid] = r
+                        out[sid] = (r, username)
                     } else if let av = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !av.isEmpty {
-                        out[sid] = av
+                        out[sid] = (av, username)
+                    } else {
+                        out[sid] = (nil, username)
                     }
-                } else if let av = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !av.isEmpty {
-                    out[sid] = av
+                } else {
+                    let av = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    out[sid] = (av?.isEmpty == false ? av : nil, username)
                 }
             }
         }
         guard clanId != 0 else { return out }
         for sid in senderIds {
-            guard out[sid] == nil, let uidInt = Int64(sid), uidInt != 0 else { continue }
+            if let existing = out[sid], !existing.username.isEmpty, existing.avatar != nil { continue }
+            guard let uidInt = Int64(sid), uidInt != 0 else { continue }
+            
+            var foundAvatar: String?
+            var foundUsername: String = ""
+            
             if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
                let found = clanUsers.clanUsers.first(where: { $0.user.id == uidInt }) {
                 let u = Self.apiUserForMemberProfile(from: found)
                 let av = u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !av.isEmpty { out[sid] = av }
+                foundAvatar = av.isEmpty ? nil : av
+                foundUsername = u.username
             } else if let allUsers = context.engine.clanData.getAllUserClans(),
                       let found = allUsers.users.first(where: { $0.id == uidInt }) {
                 let av = found.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !av.isEmpty { out[sid] = av }
+                foundAvatar = av.isEmpty ? nil : av
+                foundUsername = found.username
             }
+            
+            let current = out[sid]
+            let resolvedAvatar = current?.avatar ?? foundAvatar
+            let resolvedUsername = (current?.username.isEmpty == false) ? current!.username : foundUsername
+            out[sid] = (resolvedAvatar, resolvedUsername)
         }
         return out
     }
@@ -2054,7 +2072,7 @@ final class ChatViewController: ViewController {
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
 
         let senderIds = Set(validRecords.map(\.senderId))
-        let avatarBySenderId = cachedSenderAvatarsBySenderId(senderIds: senderIds)
+        let profilesBySenderId = cachedSenderProfilesBySenderId(senderIds: senderIds)
 
         let currentUserRoleIds: Set<Int64> = {
             guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
@@ -2128,6 +2146,7 @@ final class ChatViewController: ViewController {
             let callLog = Self.parseCallLog(from: record.content)
             let topicData = Self.parseTopicData(from: record.content, code: record.code)
             let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
+            let profileInfo = profilesBySenderId[record.senderId]
             let trimmedStoredAvatar = record.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let mergedAvatar: String? = {
                 if !trimmedStoredAvatar.isEmpty { return trimmedStoredAvatar }
@@ -2136,7 +2155,14 @@ final class ChatViewController: ViewController {
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     if !cur.isEmpty { return cur }
                 }
-                return avatarBySenderId[record.senderId]
+                return profileInfo?.avatar
+            }()
+            
+            let senderUsername: String = {
+                if isMe {
+                    return context.currentUser?.username ?? profileInfo?.username ?? ""
+                }
+                return profileInfo?.username ?? ""
             }()
             let hasMention = Self.checkIncludeMention(
                 mentionsData: record.mentionsJSON,
@@ -2147,7 +2173,7 @@ final class ChatViewController: ViewController {
             let isForward = Self.parseContentIsForward(from: record.content)
             let locationData = LocationData.parse(
                 from: record.content, code: record.code,
-                avatarURL: mergedAvatar, senderName: record.senderDisplayName, isMe: isMe
+                avatarURL: mergedAvatar, senderName: record.senderDisplayName, senderUsername: senderUsername, isMe: isMe
             )
             let clanInviteLinkCode = ClanInviteLinkParser.firstInviteCode(in: content)
             let parsedPollData = PollData.parse(from: record.content)
@@ -2155,7 +2181,7 @@ final class ChatViewController: ViewController {
                 ? parsedPollData
                 : nil
             return ChatMessageDisplay(
-                message: msg, senderDisplayName: record.senderDisplayName, avatarURL: mergedAvatar,
+                message: msg, senderDisplayName: record.senderDisplayName, senderUsername: senderUsername, avatarURL: mergedAvatar,
                 isCombine: false, attachments: attachments, reactions: reactions, parsedContent: parsed,
                 replyRef: replyRef, isDeletedReply: isDeletedReply, isWelcome: isWelcome, callLog: callLog,
                 topicData: topicData, locationData: locationData, isMe: isMe, sendingState: record.sendingState, hasIncludeMention: hasMention,
@@ -2298,7 +2324,7 @@ final class ChatViewController: ViewController {
                 previousWasForward: prevDisplay?.isForward ?? false
             )
             return ChatMessageDisplay(
-                message: d.message, senderDisplayName: d.senderDisplayName, avatarURL: d.avatarURL, isCombine: combine,
+                message: d.message, senderDisplayName: d.senderDisplayName, senderUsername: d.senderUsername, avatarURL: d.avatarURL, isCombine: combine,
                 attachments: d.attachments, reactions: d.reactions, parsedContent: d.parsedContent,
                 replyRef: d.replyRef, isDeletedReply: d.isDeletedReply, isWelcome: d.isWelcome, callLog: d.callLog,
                 topicData: d.topicData, locationData: d.locationData, isMe: d.isMe, sendingState: d.sendingState, hasIncludeMention: d.hasIncludeMention,
@@ -3393,6 +3419,7 @@ final class ChatViewController: ViewController {
             $0.getClanMembers(clanId: clanIdForMembers)
         }.first(where: { $0.userId == uidInt })
         let name: String
+        let username: String
         if let m = member {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -3403,8 +3430,10 @@ final class ChatViewController: ViewController {
             } else {
                 return nil
             }
+            username = m.username
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
+            username = profile.username
         } else {
             return nil
         }
@@ -3414,7 +3443,7 @@ final class ChatViewController: ViewController {
         } else {
             avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
-        return VoiceMemberDisplay(name: name, avatarURL: avatar)
+        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
     }
 
     private func parentChannelNameForVoice(channel: Mezon_Api_ChannelDescription) -> String? {
@@ -3617,6 +3646,7 @@ final class ChatViewController: ViewController {
     }
 
     private func showMemberProfile(_ display: ChatMessageDisplay) {
+        guard !display.isAnonymousSender else { return }
         let senderId = display.message.senderId
         guard let senderIdInt = Int64(senderId) else { return }
         let isCurrentUser = senderId == context.currentUser?.id
@@ -3624,8 +3654,34 @@ final class ChatViewController: ViewController {
         var user = Mezon_Api_User()
         user.id = senderIdInt
         user.displayName = display.senderDisplayName
-        if let urlStr = display.avatarURL {
+        if let urlStr = display.avatarURL, !urlStr.isEmpty {
             user.avatarURL = urlStr
+        }
+
+        let profile = context.account.postbox.read { $0.getProfile(userId: senderId) }
+        
+        if user.avatarURL.isEmpty {
+            if let av = profile?.avatarUrl, !av.isEmpty {
+                user.avatarURL = av
+            } else if clanId != 0,
+                      let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+                      let found = clanUsers.clanUsers.first(where: { $0.user.id == senderIdInt }) {
+                user.avatarURL = found.user.avatarURL
+            } else if let allUsers = context.engine.clanData.getAllUserClans(),
+                      let found = allUsers.users.first(where: { $0.id == senderIdInt }) {
+                user.avatarURL = found.avatarURL
+            }
+        }
+
+        if let un = profile?.username, !un.isEmpty {
+            user.username = un
+        } else if clanId != 0,
+                  let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+                  let found = clanUsers.clanUsers.first(where: { $0.user.id == senderIdInt }) {
+            user.username = found.user.username
+        } else if let allUsers = context.engine.clanData.getAllUserClans(),
+                  let found = allUsers.users.first(where: { $0.id == senderIdInt }) {
+            user.username = found.username
         }
 
         view.endEditing(true)
@@ -3710,7 +3766,7 @@ final class ChatViewController: ViewController {
         var msg = display.message
         msg.isPinned = liveIsPinned
         return ChatMessageDisplay(
-            message: msg, senderDisplayName: display.senderDisplayName, avatarURL: display.avatarURL,
+            message: msg, senderDisplayName: display.senderDisplayName, senderUsername: display.senderUsername, avatarURL: display.avatarURL,
             isCombine: display.isCombine, attachments: display.attachments, reactions: display.reactions,
             parsedContent: display.parsedContent, replyRef: display.replyRef, isDeletedReply: display.isDeletedReply,
             isWelcome: display.isWelcome, callLog: display.callLog, topicData: display.topicData,

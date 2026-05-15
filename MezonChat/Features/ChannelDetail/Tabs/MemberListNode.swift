@@ -387,12 +387,19 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 let member = members[indexPath.row]
                 let color = getRoleColor(roleIds: member.roleIds)
                 let isOwner = String(member.userId) == ownerId
+                let profile = context.account.postbox.read { tx in
+                    tx.getProfile(userId: String(member.userId))
+                }
+                let profileAvatar = profile?.avatarUrl ?? ""
+                let resolvedUsername = !member.username.isEmpty ? member.username : (profile?.username ?? "")
                 return {
                     let initialName = self.resolvedChannelMemberListName(member)
+                    let resolvedAvatar = !member.clanAvatar.isEmpty ? member.clanAvatar : profileAvatar
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: member.clanAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, roleColor: color, isOwner: isOwner)
+                        avatarUrl: resolvedAvatar, clanNick: member.clanNick,
+                        clanAvatar: member.clanAvatar, username: resolvedUsername,
+                        roleColor: color, isOwner: isOwner)
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
@@ -407,7 +414,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
                         avatarUrl: rowAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, roleColor: color, isOwner: isOwner)
+                        clanAvatar: member.clanAvatar, username: member.username,
+                        roleColor: color, isOwner: isOwner)
                 }
             }
         } else {
@@ -415,12 +423,19 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             case .channel(let members):
                 let member = members[indexPath.row]
                 let isOwner = String(member.userId) == ownerId
+                let profile = context.account.postbox.read { tx in
+                    tx.getProfile(userId: String(member.userId))
+                }
+                let profileAvatar = profile?.avatarUrl ?? ""
+                let resolvedUsername = !member.username.isEmpty ? member.username : (profile?.username ?? "")
                 return {
                     let initialName = self.resolvedChannelMemberListName(member)
+                    let resolvedAvatar = !member.clanAvatar.isEmpty ? member.clanAvatar : profileAvatar
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: member.clanAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, roleColor: nil, isOwner: isOwner)
+                        avatarUrl: resolvedAvatar, clanNick: member.clanNick,
+                        clanAvatar: member.clanAvatar, username: resolvedUsername,
+                        roleColor: nil, isOwner: isOwner)
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
@@ -434,7 +449,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: initialName,
                         avatarUrl: rowAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, roleColor: nil, isOwner: isOwner)
+                        clanAvatar: member.clanAvatar, username: member.username,
+                        roleColor: nil, isOwner: isOwner)
                 }
             }
         }
@@ -459,7 +475,13 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             switch onlineMembers {
             case .channel(let members):
                 guard indexPath.row < members.count else { return }
-                user = Self.apiUser(from: members[indexPath.row])
+                var u = Self.apiUser(from: members[indexPath.row])
+                if u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    u.avatarURL = context.account.postbox.read { tx in
+                        tx.getProfile(userId: String(u.id))?.avatarUrl
+                    } ?? ""
+                }
+                user = u
             case .clan(let members):
                 guard indexPath.row < members.count else { return }
                 user = Self.apiUser(from: members[indexPath.row])
@@ -468,7 +490,13 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             switch offlineMembers {
             case .channel(let members):
                 guard indexPath.row < members.count else { return }
-                user = Self.apiUser(from: members[indexPath.row])
+                var u = Self.apiUser(from: members[indexPath.row])
+                if u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    u.avatarURL = context.account.postbox.read { tx in
+                        tx.getProfile(userId: String(u.id))?.avatarUrl
+                    } ?? ""
+                }
+                user = u
             case .clan(let members):
                 guard indexPath.row < members.count else { return }
                 user = Self.apiUser(from: members[indexPath.row])
@@ -656,14 +684,12 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let initialAvatarUrl: String
     private let clanNick: String
     private let clanAvatar: String
+    private let username: String
 
     private var avatarUrlLoadKey: String = ""
-    private var nameForAvatarInitial: String = ""
 
-    private let avatarContainerNode = ASDisplayNode()
-    private let avatarBackplate = ASDisplayNode()
+    private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
     private let avatarNode = ASNetworkImageNode()
-    private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
     private let crownNode = ASTextNode2()
     private let statusNode = ASDisplayNode()
@@ -674,7 +700,8 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     init(
         context: AccountContext, userId: Int64, displayName: String, avatarUrl: String,
-        clanNick: String, clanAvatar: String, roleColor: UIColor? = nil, isOwner: Bool = false
+        clanNick: String, clanAvatar: String, username: String,
+        roleColor: UIColor? = nil, isOwner: Bool = false
     ) {
         self.context = context
         self.userId = userId
@@ -682,6 +709,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.initialAvatarUrl = avatarUrl
         self.clanNick = clanNick
         self.clanAvatar = clanAvatar
+        self.username = username
         self.roleColor = roleColor
         self.isOwner = isOwner
         super.init()
@@ -689,47 +717,14 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.backgroundColor = .clear
         self.selectionStyle = .none
 
-        avatarContainerNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
-        avatarContainerNode.cornerRadius = 20.sf
-        avatarContainerNode.clipsToBounds = true
-        avatarContainerNode.backgroundColor = .colorAvatarDefault
-        avatarContainerNode.automaticallyManagesSubnodes = true
-
-        avatarBackplate.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
-        avatarBackplate.backgroundColor = .clear
+        textAvatarNode.configure(username: username, fontSize: 16.sf)
 
         avatarNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
         avatarNode.cornerRadius = 20.sf
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.delegate = self
-
-        avatarPlaceholderNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
-
-        avatarContainerNode.addSubnode(avatarBackplate)
-        avatarContainerNode.addSubnode(avatarNode)
-        avatarContainerNode.addSubnode(avatarPlaceholderNode)
-        avatarContainerNode.layoutSpecBlock = { [weak self] _, _ in
-            guard let self else { return ASLayoutSpec() }
-            let imageCentered = ASCenterLayoutSpec(
-                centeringOptions: .XY,
-                sizingOptions: .minimumXY,
-                child: self.avatarNode
-            )
-            let initialsCentered = ASCenterLayoutSpec(
-                centeringOptions: .XY,
-                sizingOptions: .minimumXY,
-                child: self.avatarPlaceholderNode
-            )
-            return ASOverlayLayoutSpec(
-                child: self.avatarBackplate,
-                overlay: ASOverlayLayoutSpec(
-                    child: imageCentered,
-                    overlay: initialsCentered
-                )
-            )
-        }
-        self.addSubnode(avatarContainerNode)
+        self.addSubnode(textAvatarNode)
         self.addSubnode(nameNode)
 
         statusNode.style.preferredSize = CGSize(width: 12.sf, height: 12.sf)
@@ -762,6 +757,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] view in
                 guard let self, let profile = view.record else { return }
+
                 let name: String
                 if !self.clanNick.isEmpty {
                     name = self.clanNick
@@ -786,7 +782,6 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         if name.isEmpty {
             name = !initialDisplayName.isEmpty ? initialDisplayName : "User \(userId)"
         }
-        nameForAvatarInitial = name
 
         let t = UIColor.theme
         var nameTextColor = t.textStrong
@@ -814,19 +809,19 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             return initialAvatarUrl
         }()
         let absolute = memberListResolvedAvatarURL(rawAvatar)
+
         if !absolute.isEmpty,
             let url = URL(string: ImgproxyURL.create(from: absolute, width: 100, height: 100))
         {
             avatarUrlLoadKey = url.absoluteString
             avatarNode.url = url
             avatarNode.alpha = 1.0
-            avatarPlaceholderNode.alpha = 0.0
+            textAvatarNode.showImageMode()
         } else {
             avatarUrlLoadKey = ""
             avatarNode.url = nil
             avatarNode.alpha = 0.0
-            avatarPlaceholderNode.alpha = 1.0
-            setAvatarPlaceholderInitials(for: name)
+            textAvatarNode.configure(username: username, fontSize: 16.sf)
         }
 
         if isOnline {
@@ -845,32 +840,13 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         }
     }
 
-    private func setAvatarPlaceholderInitials(for name: String) {
-        let initial = memberListAvatarInitial(from: name)
-        let side = 40.sf
-        let font = UIFont.systemFont(ofSize: 16.sf, weight: .semibold)
-        let p = NSMutableParagraphStyle()
-        p.alignment = .center
-        p.minimumLineHeight = side
-        p.maximumLineHeight = side
-        avatarPlaceholderNode.maximumNumberOfLines = 1
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: initial,
-            attributes: [
-                .font: font,
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: p,
-            ]
-        )
-    }
 
     private func revertAvatarToInitialsIfKeyMatches(_ key: String) {
         guard !key.isEmpty, key == avatarUrlLoadKey else { return }
         avatarUrlLoadKey = ""
         avatarNode.url = nil
         avatarNode.alpha = 0.0
-        avatarPlaceholderNode.alpha = 1.0
-        setAvatarPlaceholderInitials(for: nameForAvatarInitial)
+        textAvatarNode.configure(username: username, fontSize: 16.sf)
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
@@ -886,8 +862,12 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let avatarOverlay = ASOverlayLayoutSpec(
+            child: textAvatarNode,
+            overlay: ASInsetLayoutSpec(insets: .zero, child: avatarNode)
+        )
         let avatarWithStatus = ASCornerLayoutSpec(
-            child: avatarContainerNode, corner: statusNode, location: .bottomRight)
+            child: avatarOverlay, corner: statusNode, location: .bottomRight)
         avatarWithStatus.offset = CGPoint(x: -2.sf, y: -2.sf)
 
         var nameChildren: [ASLayoutElement] = [nameNode]

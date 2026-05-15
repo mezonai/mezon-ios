@@ -151,10 +151,17 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         backButtonNode.contentVerticalAlignment = .center
 
         let title = channel.channelLabel
-        let iconName = channel.channelListIconAssetName()
+        let isDmOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
 
-        channelIconNode.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
-        channelIconNode.tintColor = UIColor.theme.textStrong
+        if isDmOrGroup {
+            channelIconNode.isHidden = true
+        } else {
+            let iconName = channel.channelListIconAssetName()
+            channelIconNode.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+            channelIconNode.tintColor = UIColor.theme.textStrong
+            channelIconNode.isHidden = false
+        }
 
         titleNode.attributedText = NSAttributedString(
             string: title,

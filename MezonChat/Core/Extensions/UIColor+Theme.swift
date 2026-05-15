@@ -37,7 +37,7 @@ extension UIColor {
     static var incomingBubble:           UIColor { theme.secondaryLight }
 
     static var mezonLink:                UIColor { theme.textLink }
-    static var colorAvatarDefault:       UIColor { theme.colorAvatarDefault }
+
     static var textRoleLink:             UIColor { theme.textRoleLink }
     static var mezonError:               UIColor { .systemRed }
     static var mezonSuccess:             UIColor { theme.textSuccess }
@@ -56,4 +56,23 @@ extension UIColor {
     static var loginTitleColor:          UIColor { theme.loginTitleColor }
     static var loginSubtitleColor:       UIColor { theme.loginSubtitleColor }
     static var loginInputTextColor:      UIColor { theme.loginInputTextColor }
+
+    private static let avatarColors: [UIColor] = [
+        UIColor(red: 0xAD/255.0, green: 0xE6/255.0, blue: 0x03/255.0, alpha: 1), 
+        UIColor(red: 0x00/255.0, green: 0xB2/255.0, blue: 0xCC/255.0, alpha: 1), 
+        UIColor(red: 0xFD/255.0, green: 0xA6/255.0, blue: 0x3C/255.0, alpha: 1), 
+        UIColor(red: 0xE1/255.0, green: 0x6D/255.0, blue: 0xCC/255.0, alpha: 1), 
+        UIColor(red: 0xE8/255.0, green: 0x46/255.0, blue: 0x7B/255.0, alpha: 1), 
+        UIColor(red: 0x9C/255.0, green: 0x7C/255.0, blue: 0xFD/255.0, alpha: 1), 
+        UIColor(red: 0x22/255.0, green: 0xE2/255.0, blue: 0xB3/255.0, alpha: 1), 
+    ]
+
+    static func avatarColor(for username: String) -> UIColor {
+        guard let firstChar = username.trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased().unicodeScalars.first else {
+            return avatarColors[0]
+        }
+        let index = Int(firstChar.value) % avatarColors.count
+        return avatarColors[index]
+    }
 }

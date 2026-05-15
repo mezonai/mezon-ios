@@ -198,13 +198,13 @@ private final class MentionSuggestionCell: UITableViewCell {
                 let proxied = ImgproxyURL.create(from: raw, width: 56, height: 56)
                 if let imageURL = URL(string: proxied) {
                     placeholderLabel.isHidden = true
-                    avatarImageView.backgroundColor = .clear
+                    avatarImageView.backgroundColor = UIColor.avatarColor(for: member.username)
                     loadAvatar(from: imageURL, key: proxied)
                 } else {
-                    showPlaceholder(for: member.displayName)
+                    showPlaceholder(for: member.displayName, username: member.username)
                 }
             } else {
-                showPlaceholder(for: member.displayName)
+                showPlaceholder(for: member.displayName, username: member.username)
             }
 
         case .role(_, let title, let colorHex, let iconURL):
@@ -237,9 +237,9 @@ private final class MentionSuggestionCell: UITableViewCell {
         }
     }
 
-    private func showPlaceholder(for displayName: String) {
-        avatarImageView.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        let initial = String(displayName.prefix(1)).uppercased()
+    private func showPlaceholder(for displayName: String, username: String) {
+        avatarImageView.backgroundColor = UIColor.avatarColor(for: username)
+        let initial = String(username.prefix(1)).uppercased()
         placeholderLabel.text = initial
         placeholderLabel.isHidden = false
     }
@@ -261,6 +261,7 @@ private final class MentionSuggestionCell: UITableViewCell {
         currentAvatarURL = key
         if let cached = ImageCache.shared.image(forKey: key) {
             avatarImageView.image = cached
+            avatarImageView.backgroundColor = .clear
             return
         }
         avatarImageView.image = nil
@@ -270,6 +271,7 @@ private final class MentionSuggestionCell: UITableViewCell {
             DispatchQueue.main.async {
                 guard let self, self.currentAvatarURL == key else { return }
                 self.avatarImageView.image = image
+                self.avatarImageView.backgroundColor = .clear
             }
         }
         currentAvatarTask = task

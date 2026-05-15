@@ -308,7 +308,49 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
     }
 }
 
-func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+private func makeOpaqueAvatarTransform(for image: UIImage, backgroundColor: UIColor) -> (TransformImageArguments) -> DrawingContext? {
+    return { arguments -> DrawingContext? in
+        let b = arguments.boundingSize
+        guard b.width.isFinite, b.height.isFinite, b.width > 0, b.height > 0 else {
+            return nil
+        }
+        let context = DrawingContext(size: b, scale: arguments.scale ?? UIScreen.main.scale, clear: true)
+        context?.withFlippedContext { ctx in
+            let drawRect = CGRect(origin: .zero, size: arguments.boundingSize)
+
+            let cornerRadius = arguments.corners.topLeft.radius
+            if cornerRadius > 0 {
+                let path = UIBezierPath(roundedRect: drawRect, cornerRadius: cornerRadius)
+                ctx.addPath(path.cgPath)
+                ctx.clip()
+            }
+
+            ctx.setFillColor(backgroundColor.cgColor)
+            ctx.fill(drawRect)
+
+            let imageSize = image.size
+            let fittedSize = imageSize.aspectFilled(arguments.boundingSize)
+            let drawOrigin = CGPoint(
+                x: (arguments.boundingSize.width - fittedSize.width) / 2,
+                y: (arguments.boundingSize.height - fittedSize.height) / 2
+            )
+
+            if let cgImage = image.cgImage {
+                let imageRect = CGRect(origin: drawOrigin, size: fittedSize)
+                ctx.saveGState()
+                ctx.translateBy(x: 0, y: arguments.boundingSize.height)
+                ctx.scaleBy(x: 1.0, y: -1.0)
+                UIGraphicsPushContext(ctx)
+                image.draw(in: imageRect)
+                UIGraphicsPopContext()
+                ctx.restoreGState()
+            }
+        }
+        return context
+    }
+}
+
+func remoteAvatarSignal(proxiedURL: String, originalURL: String, opaqueBackground: UIColor? = nil) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         let orig = originalURL
         let proxy = proxiedURL
@@ -318,10 +360,18 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(Tran
             return EmptyDisposable
         }
 
+        func buildTransform(for image: UIImage) -> (TransformImageArguments) -> DrawingContext? {
+            if let bg = opaqueBackground {
+                return makeOpaqueAvatarTransform(for: image, backgroundColor: bg)
+            } else {
+                return makeTransform(for: image, resizeMode: .fill)
+            }
+        }
+
         let cache = ImageCache.shared
         for key in [proxy, orig] where !key.isEmpty {
             if let cached = cache.memoryImage(forKey: key) {
-                subscriber.putNext(makeTransform(for: cached, resizeMode: .fill))
+                subscriber.putNext(buildTransform(for: cached))
                 subscriber.putCompletion()
                 return EmptyDisposable
             }
@@ -331,7 +381,7 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(Tran
 
         func emit(_ image: UIImage) {
             guard !cancelled.with({ $0 }) else { return }
-            subscriber.putNext(makeTransform(for: image, resizeMode: .fill))
+            subscriber.putNext(buildTransform(for: image))
             subscriber.putCompletion()
         }
 

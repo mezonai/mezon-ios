@@ -729,6 +729,7 @@ private struct TransferRecipientRow {
 private final class TransferRecipientPickerCell: UITableViewCell {
 
     static let reuseId = "TransferRecipientPickerCell"
+    private let textAvatar = TextAvatarView(username: "", size: 34, fontSize: 12)
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -736,15 +737,6 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         iv.clipsToBounds = true
         iv.layer.cornerRadius = 17
         return iv
-    }()
-
-    private let placeholderLabel: UILabel = {
-        let lbl = UILabel()
-        lbl.translatesAutoresizingMaskIntoConstraints = false
-        lbl.textAlignment = .center
-        lbl.font = .systemFont(ofSize: 12, weight: .semibold)
-        lbl.textColor = .white
-        return lbl
     }()
 
     private let titleLabel: UILabel = {
@@ -763,17 +755,20 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         backgroundColor = .mezonSecondary
         contentView.backgroundColor = .mezonSecondary
         selectionStyle = .default
-        contentView.addSubview(avatarImageView)
-        avatarImageView.addSubview(placeholderLabel)
+        textAvatar.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(textAvatar)
+        textAvatar.addSubview(avatarImageView)
         contentView.addSubview(titleLabel)
         NSLayoutConstraint.activate([
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
-            avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 34),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 34),
-            placeholderLabel.centerXAnchor.constraint(equalTo: avatarImageView.centerXAnchor),
-            placeholderLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            textAvatar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
+            textAvatar.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            textAvatar.widthAnchor.constraint(equalToConstant: 34),
+            textAvatar.heightAnchor.constraint(equalToConstant: 34),
+            avatarImageView.topAnchor.constraint(equalTo: textAvatar.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: textAvatar.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: textAvatar.bottomAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         ])
@@ -786,24 +781,14 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         titleLabel.textColor = .mezonTextPrimary
         cancelAvatarLoad()
         avatarImageView.image = nil
-        placeholderLabel.isHidden = true
+        textAvatar.configure(username: row.user.username, fontSize: 12)
+
         if !row.avatarURL.isEmpty {
             let proxied = ImgproxyURL.create(from: row.avatarURL, width: 68, height: 68)
             if let url = URL(string: proxied) {
-                avatarImageView.backgroundColor = .clear
                 loadAvatar(from: url, key: proxied)
-            } else {
-                showPlaceholder(primary: row.primaryText)
             }
-        } else {
-            showPlaceholder(primary: row.primaryText)
         }
-    }
-
-    private func showPlaceholder(primary: String) {
-        avatarImageView.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
-        placeholderLabel.text = String(primary.prefix(1)).uppercased()
-        placeholderLabel.isHidden = false
     }
 
     private func cancelAvatarLoad() {
@@ -816,7 +801,7 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         currentAvatarKey = key
         if let cached = ImageCache.shared.image(forKey: key) {
             avatarImageView.image = cached
-            placeholderLabel.isHidden = true
+            textAvatar.showImageMode()
             return
         }
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
@@ -825,8 +810,7 @@ private final class TransferRecipientPickerCell: UITableViewCell {
             DispatchQueue.main.async {
                 guard let self, self.currentAvatarKey == key else { return }
                 self.avatarImageView.image = image
-                self.placeholderLabel.isHidden = true
-                self.avatarImageView.backgroundColor = .clear
+                self.textAvatar.showImageMode()
             }
         }
         currentAvatarTask = task
@@ -837,9 +821,6 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         super.prepareForReuse()
         cancelAvatarLoad()
         avatarImageView.image = nil
-        avatarImageView.backgroundColor = .clear
-        placeholderLabel.text = nil
-        placeholderLabel.isHidden = true
         titleLabel.text = nil
     }
 }
@@ -1227,7 +1208,7 @@ final class WalletCardView: UIView {
 
     func applyTheme() {
         let c1 = UIColor.mezonSecondaryBackground
-        let c2 = UIColor.colorAvatarDefault
+        let c2 = UIColor.theme.secondaryLight
         gradient.colors = [c2.cgColor, c1.cgColor]
         gradient.startPoint = CGPoint(x: 0, y: 0.5)
         gradient.endPoint = CGPoint(x: 1, y: 0.5)

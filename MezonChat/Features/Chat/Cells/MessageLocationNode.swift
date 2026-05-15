@@ -8,11 +8,12 @@ struct LocationData {
     let googleMapsURL: String
     let avatarURL: String?
     let senderName: String
+    let senderUsername: String
     let isMe: Bool
 
     static let coordinateRegex = try! NSRegularExpression(pattern: #"q=(-?\d+\.?\d*),(-?\d+\.?\d*)"#)
 
-    static func parse(from content: Data, code: Int32, avatarURL: String?, senderName: String, isMe: Bool) -> LocationData? {
+    static func parse(from content: Data, code: Int32, avatarURL: String?, senderName: String, senderUsername: String, isMe: Bool) -> LocationData? {
         guard code == 17 else { return nil }
         guard !content.isEmpty,
               let json = try? JSONSerialization.jsonObject(with: content) as? [String: Any],
@@ -27,7 +28,7 @@ struct LocationData {
         return LocationData(
             latitude: lat, longitude: lon,
             googleMapsURL: text, avatarURL: avatarURL,
-            senderName: senderName, isMe: isMe
+            senderName: senderName, senderUsername: senderUsername, isMe: isMe
         )
     }
 }
@@ -65,14 +66,14 @@ final class MessageLocationNode: ASDisplayNode {
         mapImageNode.contentMode = .scaleAspectFill
         mapImageNode.backgroundColor = t.border
 
-        avatarContainerNode.backgroundColor = .colorAvatarDefault
+        avatarContainerNode.backgroundColor = UIColor.avatarColor(for: locationData.senderUsername)
         avatarContainerNode.cornerRadius = Self.avatarSize / 2
         avatarContainerNode.clipsToBounds = true
         avatarContainerNode.borderWidth = 2
         avatarContainerNode.borderColor = UIColor.white.cgColor
 
         avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: String(locationData.senderName.prefix(1)).uppercased(),
+            string: String(locationData.senderUsername.prefix(1)).uppercased(),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 11.sf, weight: .semibold),
                 .foregroundColor: UIColor.white,
@@ -120,6 +121,7 @@ final class MessageLocationNode: ASDisplayNode {
     private func loadAvatar(urlString: String?, name: String) {
         if let urlString, !urlString.isEmpty {
             avatarPlaceholderNode.isHidden = true
+            avatarContainerNode.backgroundColor = .clear
             let size = Self.avatarSize
             let args = TransformImageArguments(
                 corners: ImageCorners(radius: size / 2),
@@ -136,6 +138,7 @@ final class MessageLocationNode: ASDisplayNode {
             apply()
         } else {
             avatarPlaceholderNode.isHidden = false
+            avatarContainerNode.backgroundColor = UIColor.avatarColor(for: locationData?.senderUsername ?? "")
         }
     }
 

@@ -218,6 +218,7 @@ final class ChannelItemCellNode: ASCellNode {
 
 struct VoiceMemberDisplay {
     let name: String
+    let username: String
     let avatarURL: String?
 }
 
@@ -226,7 +227,7 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
     wrapper.style.preferredSize = CGSize(width: s, height: s)
     wrapper.cornerRadius = s / 2
     wrapper.clipsToBounds = true
-    wrapper.backgroundColor = UIColor.theme.colorAvatarDefault
+    wrapper.backgroundColor = UIColor.avatarColor(for: m.username)
 
     let imgNode = ASNetworkImageNode()
     imgNode.style.preferredSize = CGSize(width: s, height: s)
@@ -243,7 +244,7 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
         initNode.isHidden = true
     } else {
         imgNode.isHidden = true
-        let initial = String(m.name.prefix(1)).uppercased()
+        let initial = String(m.username.prefix(1)).uppercased()
         let fontSize: CGFloat = s < 20 ? 8 : 10
         initNode.attributedText = NSAttributedString(
             string: initial,

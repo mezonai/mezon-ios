@@ -159,12 +159,12 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
             avatarImageNode.url = url
             avatarImageNode.isHidden = false
             avatarPlaceholderNode.isHidden = true
-            avatarContainerNode.backgroundColor = .clear
+            avatarContainerNode.backgroundColor = UIColor.theme.primary
         } else {
             avatarImageNode.url = nil
             avatarImageNode.isHidden = true
             avatarPlaceholderNode.isHidden = false
-            avatarContainerNode.backgroundColor = .colorAvatarDefault
+            avatarContainerNode.backgroundColor = UIColor.avatarColor(for: clanName)
         }
 
         nameNode.attributedText = NSAttributedString(string: clanName, attributes: [

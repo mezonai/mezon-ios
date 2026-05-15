@@ -70,9 +70,7 @@ final class WelcomeCellNode: ASDisplayNode {
             resolvedMode = .dmGroup(label: channelLabel, groupAvatarURL: url)
             showsUsernameRow = false
         } else if isDM {
-            let letterSource = channelLabel.isEmpty
-                ? (dmPeerDisplayName.isEmpty ? dmPeerUsername : dmPeerDisplayName)
-                : channelLabel
+            let letterSource = dmPeerUsername.isEmpty ? channelLabel : dmPeerUsername
             let letter = String(letterSource.prefix(1)).uppercased()
             let priorityNameRaw = dmPeerDisplayName.isEmpty ? dmPeerUsername : dmPeerDisplayName
             let priorityName = priorityNameRaw.isEmpty ? channelLabel : priorityNameRaw
@@ -155,7 +153,7 @@ final class WelcomeCellNode: ASDisplayNode {
             )
 
         case let .dmOneToOne(label, username, priorityName, avatarURL, placeholderLetter):
-            dmAvatarBgNode.backgroundColor = t.colorAvatarDefault
+            dmAvatarBgNode.backgroundColor = UIColor.avatarColor(for: username)
             dmAvatarBgNode.cornerRadius = Self.dmAvatarSize / 2
             dmAvatarBgNode.clipsToBounds = true
             addSubnode(dmAvatarBgNode)
@@ -170,7 +168,8 @@ final class WelcomeCellNode: ASDisplayNode {
                 urlString: avatarURL.isEmpty ? nil : avatarURL,
                 placeholderLetter: placeholderLetter,
                 size: Self.dmAvatarSize,
-                placeholderFontSize: 22.sf
+                placeholderFontSize: 22.sf,
+                containerNode: dmAvatarBgNode
             )
 
             titleNode.attributedText = NSAttributedString(
@@ -220,7 +219,8 @@ final class WelcomeCellNode: ASDisplayNode {
                     urlString: groupAvatarURL,
                     placeholderLetter: "",
                     size: Self.groupDmSize,
-                    placeholderFontSize: 12
+                    placeholderFontSize: 12,
+                    containerNode: groupDmOuterNode
                 )
             } else {
                 groupDmImageNode.isHidden = true
@@ -266,7 +266,9 @@ final class WelcomeCellNode: ASDisplayNode {
         urlString: String?,
         placeholderLetter: String,
         size: CGFloat,
-        placeholderFontSize: CGFloat
+        placeholderFontSize: CGFloat,
+        containerNode: ASDisplayNode? = nil,
+        opaqueBackground: UIColor? = nil
     ) {
         let args = TransformImageArguments(
             corners: ImageCorners(radius: size / 2),
@@ -276,11 +278,12 @@ final class WelcomeCellNode: ASDisplayNode {
         )
         if let urlString, !urlString.isEmpty {
             placeholderNode?.isHidden = true
+            containerNode?.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: urlString, width: 200, height: 200)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             imageNode.reset()
-            imageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: hasMem)
+            imageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString, opaqueBackground: opaqueBackground), attemptSynchronously: hasMem)
             let avatarLayout = imageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()

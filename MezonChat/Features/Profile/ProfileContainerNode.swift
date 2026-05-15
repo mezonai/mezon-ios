@@ -32,7 +32,6 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let avatarContainerView: UIView = {
         let v = UIView()
-        v.backgroundColor = .colorAvatarDefault
         v.clipsToBounds = true
         return v
     }()
@@ -366,7 +365,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
         if avatarImageView.image == nil {
             headerBackgroundView.backgroundColor = .mezonSecondaryBackground
-            avatarContainerView.backgroundColor = .colorAvatarDefault
+            avatarContainerView.backgroundColor = UIColor.avatarColor(for: context.currentUser?.username ?? "")
             avatarPlaceholderLabel.isHidden = false
         } else {
             avatarPlaceholderLabel.isHidden = true
@@ -610,7 +609,7 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarPlaceholderLabel.text = Self.profileAvatarInitials(displayName: u?.displayName, username: u?.username)
         avatarImageView.image = nil
         avatarPlaceholderLabel.isHidden = false
-        avatarContainerView.backgroundColor = .colorAvatarDefault
+        avatarContainerView.backgroundColor = UIColor.avatarColor(for: u?.username ?? "")
         headerBackgroundView.backgroundColor = .mezonSecondaryBackground
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
     }
@@ -641,7 +640,7 @@ final class ProfileContainerNode: ASDisplayNode {
             } else {
                 avatarImageView.image = nil
                 avatarPlaceholderLabel.isHidden = false
-                avatarContainerView.backgroundColor = .colorAvatarDefault
+                avatarContainerView.backgroundColor = UIColor.avatarColor(for: user?.username ?? "")
                 headerBackgroundView.backgroundColor = .mezonSecondaryBackground
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
@@ -744,11 +743,11 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private func applyFriendAvatarsFromFriendsData() {
         let list = context.engine.friendsData.allFriends()
-        let previews: [(avatarURL: String?, displayName: String)] = Array(
+        let previews: [(avatarURL: String?, displayName: String, username: String)] = Array(
             list
                 .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser }
                 .prefix(5)
-                .map { f -> (avatarURL: String?, displayName: String) in
+                .map { f -> (avatarURL: String?, displayName: String, username: String) in
                     let u = f.user
                     let url = u.avatarURL.isEmpty ? nil : u.avatarURL
                     let name: String
@@ -759,7 +758,7 @@ final class ProfileContainerNode: ASDisplayNode {
                     } else {
                         name = "?"
                     }
-                    return (avatarURL: url, displayName: name)
+                    return (avatarURL: url, displayName: name, username: u.username)
                 }
         )
         setupFriendAvatars(previews: previews)
@@ -823,19 +822,16 @@ final class ProfileContainerNode: ASDisplayNode {
         return formatter.string(from: date)
     }
 
-    private func setupFriendAvatars(previews: [(avatarURL: String?, displayName: String)]) {
+    private func setupFriendAvatars(previews: [(avatarURL: String?, displayName: String, username: String)]) {
         friendsAvatarStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let avatarSmall: CGFloat = 28.swh
-        let fallbackColors: [UIColor] = [
-            .systemOrange, .systemPurple, .systemTeal, .systemPink, .colorAvatarDefault
-        ]
-        for (index, item) in previews.enumerated() {
+        for item in previews {
             let view = friendAvatarView(
                 avatarURL: item.avatarURL,
                 displayName: item.displayName,
-                size: avatarSmall,
-                fallbackColor: fallbackColors[index % fallbackColors.count]
+                username: item.username,
+                size: avatarSmall
             )
             friendsAvatarStack.addArrangedSubview(view)
         }
@@ -844,14 +840,12 @@ final class ProfileContainerNode: ASDisplayNode {
     private func friendAvatarView(
         avatarURL: String?,
         displayName: String,
-        size: CGFloat,
-        fallbackColor: UIColor
+        username: String,
+        size: CGFloat
     ) -> UIView {
-        let container = UIView()
-        container.layer.cornerRadius = size / 2
+        let container = TextAvatarView(username: username, size: size, fontSize: size * 0.38)
         container.layer.borderWidth = 2
         container.layer.borderColor = UIColor.mezonPrimary.cgColor
-        container.clipsToBounds = true
         container.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             container.widthAnchor.constraint(equalToConstant: size),
@@ -864,54 +858,35 @@ final class ProfileContainerNode: ASDisplayNode {
         imageView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(imageView)
 
-        let placeholder = UILabel()
-        placeholder.font = .systemFont(ofSize: size * 0.38, weight: .semibold)
-        placeholder.textColor = .mezonTextStrong
-        placeholder.textAlignment = .center
-        placeholder.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(placeholder)
-
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: container.topAnchor),
             imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            placeholder.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            placeholder.centerYAnchor.constraint(equalTo: container.centerYAnchor),
         ])
-
-        let initial = displayName.trimmingCharacters(in: .whitespacesAndNewlines).first
-            .map { String($0).uppercased() } ?? "?"
-        placeholder.text = initial
 
         if let urlStr = avatarURL, !urlStr.isEmpty {
             let px = Int(size * UIScreen.main.scale)
             let proxied = ImgproxyURL.create(from: urlStr, width: px, height: px)
             if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
                 imageView.image = cached
-                placeholder.isHidden = true
+                container.showImageMode()
             } else {
-                placeholder.isHidden = false
                 imageView.isHidden = true
-                container.backgroundColor = fallbackColor
-                ImageCache.shared.loadImage(urlString: proxied) { [weak imageView, weak placeholder, weak container] image in
+                ImageCache.shared.loadImage(urlString: proxied) { [weak imageView, weak container] image in
                     if let image {
                         imageView?.image = image
                         imageView?.isHidden = false
-                        placeholder?.isHidden = true
-                        container?.backgroundColor = .clear
+                        container?.showImageMode()
                     } else {
                         imageView?.image = nil
                         imageView?.isHidden = true
-                        placeholder?.isHidden = false
-                        container?.backgroundColor = fallbackColor
+                        container?.showPlaceholder()
                     }
                 }
             }
         } else {
             imageView.isHidden = true
-            placeholder.isHidden = false
-            container.backgroundColor = fallbackColor
         }
         return container
     }
