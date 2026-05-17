@@ -940,15 +940,6 @@ final class PeerCallViewController: ViewController {
             self.userDidExplicitlyEnd = true
             self.remoteVideoSurfaceShown = false
             self.pendingRemoteVideoRendererSync = false
-            // Cold-launched-for-VoIP minimal flow: skip the modal dismiss
-            // animation and tear the process down as soon as the quit signal
-            // has had a moment to flush. The user explicitly asked for an
-            // immediate kill on end-call to avoid stale-state bugs from
-            // re-using a process whose only purpose was the VoIP push.
-            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
-                CallKitManager.shared.endActiveCallAndExitProcessFastIfMinimalFlow()
-                return
-            }
             let delay: TimeInterval = self.shouldKeepFinalStatusVisible() ? 1.4 : 0
             if delay > 0 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in

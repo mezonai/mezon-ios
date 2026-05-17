@@ -336,19 +336,25 @@ final class PollDetailViewController: UIViewController {
                 avatarContainer.addSubview(avatarImageView)
 
                 if !voter.avatar.isEmpty, let url = URL(string: voter.avatar) {
-                    avatarContainer.showImageMode()
                     let proxyURL = ImgproxyURL.create(from: voter.avatar, width: 64, height: 64)
                     if let cachedImage = ImageCache.shared.memoryImage(forKey: proxyURL)
                         ?? ImageCache.shared.memoryImage(forKey: voter.avatar) {
+                        avatarContainer.showImageMode()
                         avatarImageView.image = cachedImage
                     } else {
                         avatarImageView.image = nil
+                        avatarContainer.showSkeleton()
+                        let voterUsername = voter.username
                         Task { [weak avatarContainer] in
                             if let data = try? await URLSession.shared.data(from: URL(string: proxyURL) ?? url).0,
                                let image = UIImage(data: data) {
                                 await MainActor.run {
                                     avatarImageView.image = image
                                     avatarContainer?.showImageMode()
+                                }
+                            } else {
+                                await MainActor.run {
+                                    avatarContainer?.configure(username: voterUsername, fontSize: 12)
                                 }
                             }
                         }

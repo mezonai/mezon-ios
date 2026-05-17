@@ -859,7 +859,8 @@ final class MezonHTTPClient {
         direction: Int32 = 2,
         limit: Int32 = 50,
         topicId: Int64 = 0,
-        token: String
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_ChannelMessageList {
         var req = Mezon_Api_ListChannelMessagesRequest()
         req.clanID = clanId
@@ -871,7 +872,8 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelMessages",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
     }
 
@@ -1598,8 +1600,29 @@ final class MezonHTTPClient {
         path: String,
         message: Request,
         auth: AuthMethod,
-        allowBearerRetry: Bool = true
+        allowBearerRetry: Bool = true,
+        preferHTTPFirst: Bool = false
     ) async throws -> Response {
+        if preferHTTPFirst {
+            let prefix = "/mezon.api.Mezon/"
+            let apiName = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+            do {
+                let response: Response = try await postProtoHTTP(
+                    path: path,
+                    message: message,
+                    auth: auth,
+                    allowBearerRetry: allowBearerRetry
+                )
+                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST ok (skipped socket)")
+                return response
+            } catch {
+                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\(error.localizedDescription) → SOCKET fallback")
+                if let response: Response = try await sendOverSocketIfPossible(path: path, message: message) {
+                    return response
+                }
+                throw error
+            }
+        }
         if let response: Response = try await sendOverSocketIfPossible(path: path, message: message) {
             return response
         }

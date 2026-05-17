@@ -1131,10 +1131,13 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func presentClanActionSheetIfNeeded() {
+        /*
         guard headerClanId != 0 else { return }
         presentClanActionSheet()
+        */
     }
 
+    #if false
     private func presentClanActionSheet() {
         guard let window = self.view.window as? WindowHost else { return }
         let actionSheet = ClanActionSheetController(
@@ -1155,6 +1158,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
         actionSheet.animateIn()
     }
+    #endif
 
     @objc private func handleRefresh(_ sender: UIRefreshControl) {
         skipNextLoadingFinishedReveal = true

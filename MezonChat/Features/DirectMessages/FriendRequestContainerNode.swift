@@ -402,19 +402,20 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
         let user = friend.user
         let name = user.displayName.isEmpty ? user.username : user.displayName
-        textAvatarNode.configure(username: user.username, fontSize: 16.sf)
 
         let avatarRaw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !avatarRaw.isEmpty {
             let proxied = ImgproxyURL.create(from: avatarRaw, width: 120, height: 120)
             if let url = URL(string: proxied) {
                 avatarNode.url = url
-                textAvatarNode.showImageMode()
+                textAvatarNode.showSkeleton()
             } else {
                 avatarNode.url = nil
+                textAvatarNode.configure(username: user.username, fontSize: 16.sf)
             }
         } else {
             avatarNode.url = nil
+            textAvatarNode.configure(username: user.username, fontSize: 16.sf)
         }
 
         displayNameNode.attributedText = NSAttributedString(
@@ -499,13 +500,15 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === avatarNode else { return }
-        textAvatarNode.showPlaceholder()
+        textAvatarNode.configure(username: friend.user.username, fontSize: 16.sf)
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
         guard imageNode === avatarNode else { return }
         if image.size.width < 0.5 || image.size.height < 0.5 {
-            textAvatarNode.showPlaceholder()
+            textAvatarNode.configure(username: friend.user.username, fontSize: 16.sf)
+        } else {
+            textAvatarNode.showImageMode()
         }
     }
 }

@@ -100,6 +100,7 @@ final class ChannelDetailViewController: ViewController {
     }
 
     private func openSettings() {
+        /*
         let settingsVC = ChannelSettingsViewController(
             context: context,
             clanId: clanId,
@@ -111,5 +112,6 @@ final class ChannelDetailViewController: ViewController {
             channelTopic: "" // Topic from description or store?
         )
         self.navigationController?.pushViewController(settingsVC, animated: true)
+        */
     }
 }

@@ -73,8 +73,6 @@ final class CallKitManager: NSObject {
     private let recentOfferDigestsLock = NSLock()
     private let offerDedupWindow: TimeInterval = 30
 
-    private let pushFreshnessWindowMs: Int64 = 30_000
-
     private(set) var voipToken: String?
 
     private static let unifiedCallKitOSLog = OSLog(subsystem: "chat.mezon.voip", category: "CallKit")
@@ -159,7 +157,7 @@ final class CallKitManager: NSObject {
         config.maximumCallsPerCallGroup = 1
         config.maximumCallGroups = 1
         config.supportedHandleTypes = [.generic]
-        config.ringtoneSound = "ringing.mp3"
+        config.ringtoneSound = nil
         config.includesCallsInRecents = false
 
         let prov = CXProvider(configuration: config)
@@ -190,16 +188,21 @@ final class CallKitManager: NSObject {
             callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> no activeCallUUID, skipping CXEndCallAction (raw=\(UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) ?? "nil"))")
             return
         }
-        callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> submitting CXEndCallAction uuid=\(uuid.uuidString)")
+        callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> force provider.reportCall + submitting CXEndCallAction uuid=\(uuid.uuidString)")
+        if let provider {
+            provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
+        } else {
+            callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> provider is NIL, skipping force reportCall")
+        }
         let action = CXEndCallAction(call: uuid)
         let tx = CXTransaction(action: action)
         callController.request(tx) { [weak self] error in
             if let error {
                 self?.callKitUnifiedDebug("CXEndCallAction request callback ERROR uuid=\(uuid.uuidString) error=\(error.localizedDescription) ns=\((error as NSError).domain)/\((error as NSError).code)")
-                Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
             } else {
                 self?.callKitUnifiedDebug("CXEndCallAction request callback SUCCESS uuid=\(uuid.uuidString) (provider delegate may follow)")
             }
+            Self.clearStoredIncomingPayload()
         }
     }
 
@@ -263,23 +266,6 @@ final class CallKitManager: NSObject {
         }
         if let n = any as? NSNumber { return n.stringValue }
         return "\(any)"
-    }
-
-    func endActiveCallAndExitProcessFastIfMinimalFlow() {
-        guard VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
-        forwardQuitToCallerFromStoredVoIPIfNeeded()
-        requestEndActiveVoIPCallIfNeeded()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
-            VoIPMinimalCallBootstrap.terminateAndRemoveFromSwitcher()
-        }
-    }
-
-    func tearDownForForcedProcessExit() {
-        silentReportProvider?.invalidate()
-        silentReportProvider = nil
-        provider?.invalidate()
-        provider = nil
     }
 
     private func hasStoredActiveVoIPCallUUID() -> Bool {
@@ -439,7 +425,7 @@ final class CallKitManager: NSObject {
         if !endedExisting {
             callKitUnifiedDebug("endRingingCallIfMatching endStoredActiveCallViaProvider returned false -> relying on CXCallController fallback")
         }
-        Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
+        Self.clearStoredIncomingPayload()
         dumpVoIPState(tag: "endRingingCallIfMatching.exit")
     }
 
@@ -513,21 +499,16 @@ final class CallKitManager: NSObject {
         }
     }
 
-    private static func clearStoredIncomingPayload(exitIfMinimalFlow: Bool = true) {
+    private static func clearStoredIncomingPayload() {
         let priorUUID = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) ?? "nil"
         let hadPayload = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) != nil
-        Self.emitCallKitUnifiedDebug("clearStoredIncomingPayload exitIfMinimalFlow=\(exitIfMinimalFlow) priorActiveCallUUID=\(priorUUID) hadPayload=\(hadPayload)")
+        Self.emitCallKitUnifiedDebug("clearStoredIncomingPayload priorActiveCallUUID=\(priorUUID) hadPayload=\(hadPayload)")
         VoIPMinimalCallBootstrap.clearMinimalChromeFlagOnly()
         clearVoipQuitSnapshotStorage()
         UserDefaults.standard.removeObject(forKey: DefaultsKeys.notificationPayload)
         UserDefaults.standard.removeObject(forKey: DefaultsKeys.activeCallUUID)
         UserDefaults.standard.removeObject(forKey: DefaultsKeys.notificationTimestamp)
         UserDefaults.standard.synchronize()
-        if exitIfMinimalFlow {
-            VoIPMinimalCallBootstrap.consumeExitProcessIfNeeded(deferSeconds: 0.3)
-        } else {
-            VoIPMinimalCallBootstrap.clearExitAfterPeerCallFlagOnly()
-        }
     }
 
     private func storeIncomingUserInfo(_ info: [AnyHashable: Any], callUUID: UUID) {
@@ -542,9 +523,9 @@ final class CallKitManager: NSObject {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: DefaultsKeys.notificationTimestamp)
         UserDefaults.standard.synchronize()
         callKitUnifiedDebug("storeIncomingUserInfo stored activeCallUUID=\(callUUID.uuidString) infoKeys=\(dict.keys.sorted())")
-        let wantsMinimalChromeAndExitAfterCall = UIApplication.shared.applicationState != .active
-        VoIPMinimalCallBootstrap.activateForIncomingVoIPStoredPayload(wantsMinimalChromeAndExitAfterCall: wantsMinimalChromeAndExitAfterCall)
-        if wantsMinimalChromeAndExitAfterCall {
+        let wantsMinimalChrome = UIApplication.shared.applicationState != .active
+        VoIPMinimalCallBootstrap.activateForIncomingVoIPStoredPayload(wantsMinimalChrome: wantsMinimalChrome)
+        if wantsMinimalChrome {
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .mezonVoIPMinimalCallChromeActivated, object: nil)
             }
@@ -554,7 +535,7 @@ final class CallKitManager: NSObject {
     private func storedUserInfoIfFresh() -> [AnyHashable: Any]? {
         if let ts = UserDefaults.standard.object(forKey: DefaultsKeys.notificationTimestamp) as? Double {
             if Date().timeIntervalSince1970 - ts > payloadValiditySeconds {
-                Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
+                Self.clearStoredIncomingPayload()
                 return nil
             }
         }
@@ -682,22 +663,35 @@ final class CallKitManager: NSObject {
             return
         }
 
-        if let sentAtMs = parseSentAtMs(inner["sentAt"]) {
-            let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
-            let ageMs = nowMs - sentAtMs
-            if ageMs > pushFreshnessWindowMs {
-                callKitUnifiedDebug("OFFER push STALE ageMs=\(ageMs) > windowMs=\(pushFreshnessWindowMs) (sentAt=\(sentAtMs) now=\(nowMs)) -> immediate-ended compliance, skip ringing")
-                reportImmediateEndedIncomingForVoIPCompliance(
-                    localizedCallerName: callerName,
-                    remoteHandleValue: callerId != 0 ? "\(callerId)" : callerName,
-                    requiresVideoUpdate: false,
-                    pushCompletion: completion
-                )
-                return
+        let innerJsonForFreshness: String? = {
+            if let data = try? JSONSerialization.data(withJSONObject: inner, options: []),
+                let s = String(data: data, encoding: .utf8)
+            { return s }
+            return nil
+        }()
+
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let sentAtMsOpt = IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: innerJsonForFreshness)
+        let staleReason: String? = {
+            guard let sentAtMs = sentAtMsOpt else {
+                return "missing sentAt/createAt"
             }
-            callKitUnifiedDebug("OFFER push fresh ageMs=\(ageMs) (within \(pushFreshnessWindowMs)ms window)")
-        } else {
-            callKitUnifiedDebug("OFFER push has no sentAt -> bypass freshness check (legacy sender)")
+            let ageMs = nowMs - sentAtMs
+            if ageMs > PeerCallIncomingFreshness.maxOfferAgeMs {
+                return "ageMs=\(ageMs) > windowMs=\(PeerCallIncomingFreshness.maxOfferAgeMs) (sentAt=\(sentAtMs) now=\(nowMs))"
+            }
+            return nil
+        }()
+        if let staleReason {
+            callKitUnifiedDebug(
+                "OFFER push STALE \(staleReason) -> early return, no CallKit report at all"
+            )
+            markRecentlyEnded(channelId: channelId, callerId: callerId)
+            completion()
+            return
+        }
+        if let sentAtMs = sentAtMsOpt {
+            callKitUnifiedDebug("OFFER push fresh ageMs=\(nowMs - sentAtMs) (within \(PeerCallIncomingFreshness.maxOfferAgeMs)ms window)")
         }
 
         let isSelfEcho = (myId != 0 && callerId == myId)
@@ -800,7 +794,7 @@ final class CallKitManager: NSObject {
         provider.reportNewIncomingCall(with: callUUID, update: update) { [weak self] error in
             if let error {
                 self?.callKitUnifiedDebug("reportNewIncomingCall (ringing) ERROR uuid=\(callUUID.uuidString) error=\(error.localizedDescription) ns=\((error as NSError).domain)/\((error as NSError).code) -> clearStored")
-                Self.clearStoredIncomingPayload(exitIfMinimalFlow: false)
+                Self.clearStoredIncomingPayload()
             } else {
                 self?.callKitUnifiedDebug("reportNewIncomingCall (ringing) OK uuid=\(callUUID.uuidString) -> CallKit UI should now ring")
             }
@@ -842,19 +836,6 @@ final class CallKitManager: NSObject {
         if let v = any as? Int { return Int64(v) }
         if let v = any as? NSNumber { return v.int64Value }
         if let v = any as? String { return Int64(v) }
-        return nil
-    }
-
-    private func parseSentAtMs(_ any: Any?) -> Int64? {
-        guard let any else { return nil }
-        if let v = any as? Int64 { return v }
-        if let v = any as? Int { return Int64(v) }
-        if let v = any as? NSNumber { return v.int64Value }
-        if let v = any as? Double { return Int64(v) }
-        if let s = any as? String {
-            if let v = Int64(s) { return v }
-            if let v = Double(s) { return Int64(v) }
-        }
         return nil
     }
 

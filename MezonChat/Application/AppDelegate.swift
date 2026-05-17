@@ -268,12 +268,21 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
         rootController?.flushPendingIncomingPeerCallIfNeeded()
         checkPendingSharedContent()
+        refreshVoiceChannelMembersOnForeground()
+    }
+
+    private func refreshVoiceChannelMembersOnForeground() {
+        guard let ctx = accountContext, ctx.isLoggedIn else { return }
+        let clanId = ctx.currentClanId
+        guard clanId != 0 else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.accountContext?.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            await self.accountContext?.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
+        }
     }
 
     @objc private func handleDidBecomeActive() {
-        if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
-            VoIPMinimalCallBootstrap.clearExitAfterPeerCallFlagOnly()
-        }
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
             shell.flushPendingIncomingPeerCallIfNeeded()
         }

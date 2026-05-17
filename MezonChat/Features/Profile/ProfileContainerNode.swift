@@ -873,6 +873,7 @@ final class ProfileContainerNode: ASDisplayNode {
                 container.showImageMode()
             } else {
                 imageView.isHidden = true
+                container.showSkeleton()
                 ImageCache.shared.loadImage(urlString: proxied) { [weak imageView, weak container] image in
                     if let image {
                         imageView?.image = image

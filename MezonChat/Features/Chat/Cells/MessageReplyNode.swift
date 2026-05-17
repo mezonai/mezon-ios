@@ -109,6 +109,7 @@ final class MessageReplyNode: ASDisplayNode {
 
         if ref.hasAttachment_p {
             hasAttachment = true
+            previewNode.isHidden = false
             previewNode.attributedText = NSAttributedString(
                 string: "Tap to see attachment",
                 attributes: [
@@ -125,12 +126,18 @@ final class MessageReplyNode: ASDisplayNode {
             if raw.isEmpty {
                 preview = ""
             } else if let data = raw.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let textVal = json["t"] as? String, !textVal.isEmpty {
-                preview = textVal.count > 80 ? String(textVal.prefix(80)) + "…" : textVal
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let textVal = (json["t"] as? String) ?? (json["text"] as? String)
+                if let s = textVal {
+                    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                    preview = trimmed.isEmpty ? "" : (trimmed.count > 80 ? String(trimmed.prefix(80)) + "…" : trimmed)
+                } else {
+                    preview = ""
+                }
             } else {
                 preview = raw.count > 80 ? String(raw.prefix(80)) + "…" : raw
             }
+            previewNode.isHidden = preview.isEmpty
             previewNode.attributedText = NSAttributedString(
                 string: preview,
                 attributes: [
@@ -150,7 +157,11 @@ final class MessageReplyNode: ASDisplayNode {
 
         let remainW = contentWidth - cachedIconSize.width - spacing - avatarSz - spacing - cachedNameSize.width - textSpacing
             - (hasAttachment ? attachmentIconSize.width + textSpacing : 0)
-        cachedPreviewSize = previewNode.measure(CGSize(width: max(remainW, 50), height: 30))
+        if previewNode.isHidden {
+            cachedPreviewSize = .zero
+        } else {
+            cachedPreviewSize = previewNode.measure(CGSize(width: max(remainW, 50), height: 30))
+        }
 
         let rowH = max(avatarSz, cachedNameSize.height, cachedPreviewSize.height)
         return CGSize(width: maxWidth, height: rowH + bottomInset)
@@ -184,8 +195,12 @@ final class MessageReplyNode: ASDisplayNode {
         nameNode.frame = CGRect(x: x, y: centerY - cachedNameSize.height / 2, width: cachedNameSize.width, height: cachedNameSize.height)
         x += cachedNameSize.width + textSpacing
 
-        previewNode.frame = CGRect(x: x, y: centerY - cachedPreviewSize.height / 2, width: cachedPreviewSize.width, height: cachedPreviewSize.height)
-        x += cachedPreviewSize.width + textSpacing
+        if !previewNode.isHidden {
+            previewNode.frame = CGRect(x: x, y: centerY - cachedPreviewSize.height / 2, width: cachedPreviewSize.width, height: cachedPreviewSize.height)
+            x += cachedPreviewSize.width + textSpacing
+        } else {
+            previewNode.frame = .zero
+        }
 
         if hasAttachment {
             attachmentIconNode.frame = CGRect(x: x, y: centerY - attachmentIconSize.height / 2, width: attachmentIconSize.width, height: attachmentIconSize.height)

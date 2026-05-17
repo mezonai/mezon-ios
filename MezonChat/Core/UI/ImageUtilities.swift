@@ -1,3 +1,4 @@
+import CoreImage
 import UIKit
 
 extension UIImage {
@@ -8,47 +9,44 @@ extension UIImage {
         self.init(cgImage: cgImage, scale: img.scale, orientation: img.imageOrientation)
     }
 
-    func dominantColor(sampleSize: Int = 64) -> UIColor? {
-        let dim = sampleSize
-        guard dim > 0 else { return nil }
+    private static let areaAverageCIContext = CIContext(options: [.cacheIntermediates: false])
 
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: dim, height: dim))
+    func dominantColor(sampleSize: Int = 64) -> UIColor? {
+        let dim = max(1, min(sampleSize, 128))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: dim, height: dim), format: format)
         let scaled = renderer.image { _ in
             draw(in: CGRect(origin: .zero, size: CGSize(width: dim, height: dim)))
         }
         guard let cgImage = scaled.cgImage else { return nil }
-
-        guard let ctx = CGContext(
-            data: nil,
-            width: dim,
-            height: dim,
-            bitsPerComponent: 8,
-            bytesPerRow: dim * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: dim, height: dim))
-        guard let data = ctx.data else { return nil }
-        let ptr = data.bindMemory(to: UInt8.self, capacity: dim * dim * 4)
-
-        var buckets: [Int: Int] = [:]
-        let step = max(1, (dim * dim) / 256)
-        for i in stride(from: 0, to: dim * dim, by: step) {
-            let offset = i * 4
-            let r = Int(ptr[offset]) / 32
-            let g = Int(ptr[offset + 1]) / 32
-            let b = Int(ptr[offset + 2]) / 32
-            let a = ptr[offset + 3]
-            if a < 128 { continue }
-            let key = (r << 10) | (g << 5) | b
-            buckets[key, default: 0] += 1
+        let input = CIImage(cgImage: cgImage)
+        guard let filter = CIFilter(name: "CIAreaAverage") else { return nil }
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(CIVector(cgRect: input.extent), forKey: kCIInputExtentKey)
+        guard let output = filter.outputImage else { return nil }
+        var bitmap = [UInt8](repeating: 0, count: 4)
+        let cs = CGColorSpaceCreateDeviceRGB()
+        Self.areaAverageCIContext.render(
+            output,
+            toBitmap: &bitmap,
+            rowBytes: 4,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+            format: .RGBA8,
+            colorSpace: cs
+        )
+        let a = CGFloat(bitmap[3]) / 255
+        if a < 0.02 { return nil }
+        var r = CGFloat(bitmap[0]) / 255
+        var g = CGFloat(bitmap[1]) / 255
+        var b = CGFloat(bitmap[2]) / 255
+        if a > 0.001, a < 0.999 {
+            r = min(1, r / a)
+            g = min(1, g / a)
+            b = min(1, b / a)
         }
-
-        guard let (key, _) = buckets.max(by: { $0.value < $1.value }) else { return nil }
-        let r = ((key >> 10) & 31) * 32
-        let g = ((key >> 5) & 31) * 32
-        let b = (key & 31) * 32
-        return UIColor(red: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
     }
 }
 

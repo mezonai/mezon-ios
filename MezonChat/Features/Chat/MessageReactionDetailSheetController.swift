@@ -644,28 +644,32 @@ private final class ReactionParticipantCell: UITableViewCell {
         countLabel.text = "×\(reactionCount)"
 
         task?.cancel()
+        task = nil
         avatarImageView.image = nil
-        textAvatar.configure(username: username, fontSize: 14.sf)
 
-        if let urlStr = avatarURLString, let url = URL(string: urlStr) {
-            let key = url.absoluteString
-            if let img = ImageCache.shared.image(forKey: key) {
-                avatarImageView.image = img
+        if let urlStr = avatarURLString,
+           !urlStr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           URL(string: urlStr) != nil {
+            let proxied = ImgproxyURL.avatarProxyURL(from: urlStr, width: 100, height: 100)
+            if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+                avatarImageView.image = cached
                 textAvatar.showImageMode()
             } else {
-                textAvatar.showPlaceholder()
-                task = URLSession.shared.dataTask(with: url) { data, _, _ in
-                    guard let data, let image = UIImage.decodeImage(from: data) else { return }
-                    ImageCache.shared.setImage(image, data: data, forKey: key)
-                    DispatchQueue.main.async { [weak self] in
-                        self?.avatarImageView.image = image
-                        self?.textAvatar.showImageMode()
+                textAvatar.showSkeleton()
+                let captureUsername = username
+                ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
+                    guard let self else { return }
+                    if let image {
+                        self.avatarImageView.image = image
+                        self.textAvatar.showImageMode()
+                    } else {
+                        self.avatarImageView.image = nil
+                        self.textAvatar.configure(username: captureUsername, fontSize: 14.sf)
                     }
                 }
-                task?.resume()
             }
         } else {
-            textAvatar.showPlaceholder()
+            textAvatar.configure(username: username, fontSize: 14.sf)
         }
     }
 }

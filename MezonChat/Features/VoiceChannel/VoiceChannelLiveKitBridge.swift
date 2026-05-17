@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import LiveKit
+import LiveKitWebRTC
 
 final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
 
@@ -17,7 +18,30 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         super.init()
         AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
         AudioManager.shared.audioSession.isAutomaticDeactivationEnabled = false
+        Self.primeWebRTCAudioConfigForMixIfNeeded()
+        Self.applyVoiceProcessingBypassForMix(VoiceChannelAudioPreferences.mixWithOthersEnabled)
         room = Room(delegate: self, roomOptions: RoomOptions(adaptiveStream: true, dynacast: true))
+    }
+
+    private static func primeWebRTCAudioConfigForMixIfNeeded() {
+        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        cfg.category = AVAudioSession.Category.playAndRecord.rawValue
+        var opts: AVAudioSession.CategoryOptions = [
+            .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay, .defaultToSpeaker,
+        ]
+        if VoiceChannelAudioPreferences.mixWithOthersEnabled {
+            opts.insert(.mixWithOthers)
+        }
+        cfg.categoryOptions = opts
+        cfg.mode = AVAudioSession.Mode.default.rawValue
+        LKRTCAudioSessionConfiguration.setWebRTC(cfg)
+    }
+
+    static func applyVoiceProcessingBypassForMix(_ enabled: Bool) {
+        AudioManager.shared.isVoiceProcessingBypassed = enabled
+        if #available(iOS 17, *) {
+            AudioManager.shared.duckingLevel = enabled ? .min : .default
+        }
     }
 
     func connect(url: String, token: String) async throws {
@@ -54,6 +78,7 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         guard !didEndSession else { return }
         didEndSession = true
         await room.disconnect()
+        Self.applyVoiceProcessingBypassForMix(false)
     }
 
     func setMicrophoneEnabled(_ enabled: Bool) async throws {

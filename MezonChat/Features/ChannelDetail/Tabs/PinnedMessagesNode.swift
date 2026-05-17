@@ -654,7 +654,7 @@ private final class EmptyPinsCellNode: ASCellNode {
     }
 }
 
-private final class PinnedMessageCellNode: ASCellNode {
+private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let cardNode = ASDisplayNode()
     private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
     private let avatarNode = ASNetworkImageNode()
@@ -669,6 +669,7 @@ private final class PinnedMessageCellNode: ASCellNode {
     private let avatarURLForGallery: String
     private let onUnpin: () -> Void
     private let includeCaption: Bool
+    private let avatarUsernameForFallback: String
 
     init(
         username: String,
@@ -682,6 +683,7 @@ private final class PinnedMessageCellNode: ASCellNode {
         self.pinForGallery = pin
         self.avatarURLForGallery = avatarURLString
         self.onUnpin = onUnpin
+        self.avatarUsernameForFallback = username
         let cap = row.caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.includeCaption = !cap.isEmpty
         super.init()
@@ -696,20 +698,20 @@ private final class PinnedMessageCellNode: ASCellNode {
         cardNode.cornerRadius = 10.sf
         cardNode.clipsToBounds = true
 
-        textAvatarNode.configure(username: username, fontSize: 16.sf)
-
         avatarNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
         avatarNode.cornerRadius = avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
+        avatarNode.delegate = self
 
         if let url = Self.displayURL(from: avatarURLString) {
             avatarNode.url = url
             avatarNode.isHidden = false
-            textAvatarNode.showImageMode()
+            textAvatarNode.showSkeleton()
         } else {
             avatarNode.url = nil
             avatarNode.isHidden = true
+            textAvatarNode.configure(username: username, fontSize: 16.sf)
         }
 
         nameNode.attributedText = NSAttributedString(
@@ -839,6 +841,20 @@ private final class PinnedMessageCellNode: ASCellNode {
         }
         if let u = URL(string: s) { return u }
         return s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap { URL(string: $0) }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        guard imageNode === avatarNode else { return }
+        if image.size.width < 0.5 || image.size.height < 0.5 {
+            textAvatarNode.configure(username: avatarUsernameForFallback, fontSize: 16.sf)
+        } else {
+            textAvatarNode.showImageMode()
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode === avatarNode else { return }
+        textAvatarNode.configure(username: avatarUsernameForFallback, fontSize: 16.sf)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

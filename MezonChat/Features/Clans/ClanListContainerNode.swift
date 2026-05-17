@@ -444,15 +444,12 @@ private final class ClanCell: UICollectionViewCell {
         indicatorBar.backgroundColor = accentColor
         indicatorBar.isHidden = !isSelected
 
-        textAvatarView.configure(username: clanName, fontSize: 14.sf)
-
         if !clan.logo.isEmpty, let url = URL(string: clan.logo) {
-            textAvatarView.showImageMode()
             avatarImageView.isHidden = false
             loadExpectingClan(
                 clanId: expectClanId, generation: generation, clanName: clanName, url: url)
         } else {
-            textAvatarView.showPlaceholder()
+            textAvatarView.configure(username: clanName, fontSize: 14.sf)
             avatarImageView.isHidden = true
         }
 
@@ -481,6 +478,7 @@ private final class ClanCell: UICollectionViewCell {
             return
         }
         avatarImageView.image = nil
+        textAvatarView.showSkeleton()
         imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
             guard let self else { return }
             guard self.boundClanId == clanId, self.avatarGeneration == generation else { return }
@@ -490,7 +488,7 @@ private final class ClanCell: UICollectionViewCell {
                 self.textAvatarView.showImageMode()
             } else {
                 self.avatarImageView.isHidden = true
-                self.textAvatarView.showPlaceholder()
+                self.textAvatarView.configure(username: clanName, fontSize: 14.sf)
             }
             self.contentView.setNeedsLayout()
             self.contentView.layoutIfNeeded()

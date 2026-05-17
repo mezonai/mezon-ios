@@ -816,7 +816,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             avatarUrlLoadKey = url.absoluteString
             avatarNode.url = url
             avatarNode.alpha = 1.0
-            textAvatarNode.showImageMode()
+            textAvatarNode.showSkeleton()
         } else {
             avatarUrlLoadKey = ""
             avatarNode.url = nil
@@ -853,6 +853,8 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         guard imageNode === self.avatarNode else { return }
         if image.size.width < 0.5 || image.size.height < 0.5, let u = imageNode.url {
             revertAvatarToInitialsIfKeyMatches(u.absoluteString)
+        } else {
+            textAvatarNode.showImageMode()
         }
     }
 

@@ -781,14 +781,15 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         titleLabel.textColor = .mezonTextPrimary
         cancelAvatarLoad()
         avatarImageView.image = nil
-        textAvatar.configure(username: row.user.username, fontSize: 12)
 
         if !row.avatarURL.isEmpty {
             let proxied = ImgproxyURL.create(from: row.avatarURL, width: 68, height: 68)
             if let url = URL(string: proxied) {
-                loadAvatar(from: url, key: proxied)
+                loadAvatar(from: url, key: proxied, fallbackUsername: row.user.username)
+                return
             }
         }
+        textAvatar.configure(username: row.user.username, fontSize: 12)
     }
 
     private func cancelAvatarLoad() {
@@ -797,20 +798,24 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         currentAvatarKey = nil
     }
 
-    private func loadAvatar(from url: URL, key: String) {
+    private func loadAvatar(from url: URL, key: String, fallbackUsername: String) {
         currentAvatarKey = key
         if let cached = ImageCache.shared.image(forKey: key) {
             avatarImageView.image = cached
             textAvatar.showImageMode()
             return
         }
+        textAvatar.showSkeleton()
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            ImageCache.shared.setImage(image, data: data, forKey: key)
             DispatchQueue.main.async {
                 guard let self, self.currentAvatarKey == key else { return }
-                self.avatarImageView.image = image
-                self.textAvatar.showImageMode()
+                if let data, let image = UIImage(data: data) {
+                    ImageCache.shared.setImage(image, data: data, forKey: key)
+                    self.avatarImageView.image = image
+                    self.textAvatar.showImageMode()
+                } else {
+                    self.textAvatar.configure(username: fallbackUsername, fontSize: 12)
+                }
             }
         }
         currentAvatarTask = task
