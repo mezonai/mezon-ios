@@ -1770,10 +1770,21 @@ final class MezonHTTPClient {
             )
         }
 
-        let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
-            ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
         MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+    }
+
+    private func apiFailureMessage(httpStatusCode: Int, data: Data) -> String {
+        let decoded = (try? JSONDecoder().decode(APIError.self, from: data))?.message
+        let base = decoded ?? HTTPURLResponse.localizedString(forStatusCode: httpStatusCode)
+        #if DEBUG
+        if httpStatusCode >= 500, !data.isEmpty,
+            let snippet = String(data: data.prefix(1500), encoding: .utf8), !snippet.isEmpty {
+            return "\(base) | raw=\(snippet)"
+        }
+        #endif
+        return base
     }
 
     func postProtoIgnoringBody<Request: SwiftProtobuf.Message>(
@@ -1817,8 +1828,8 @@ final class MezonHTTPClient {
             return
         }
 
-        let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
-            ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+        let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
+        MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 

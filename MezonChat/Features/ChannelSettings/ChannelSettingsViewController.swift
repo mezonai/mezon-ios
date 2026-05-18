@@ -59,7 +59,6 @@ final class ChannelSettingsViewController: BaseViewController {
             clanId: clanId,
             channelId: channelId,
             channelType: channelType,
-            channelLabel: initialName,
             channelPrivate: channelPrivate
         )
         navigationController?.pushViewController(vc, animated: true)

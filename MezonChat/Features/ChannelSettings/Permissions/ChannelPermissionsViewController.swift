@@ -13,23 +13,24 @@ final class ChannelPermissionsViewController: BaseViewController {
     private let clanId: Int64
     private let channelId: Int64
     private let channelType: Int32
-    private let channelLabel: String
     private var isPrivate: Bool
 
     private var channelMemberIds: Set<Int64> = []
     private var channelRoles: [Mezon_Api_Role] = []
     private var channelMembers: [ClanMemberRecord] = []
 
+    private var fetchMembersTask: Task<Void, Never>?
+
     private var currentTab: Tab = .basic
 
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
     private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
 
     private let tabContainer = UIView()
     private let basicTabButton = UIButton(type: .system)
     private let advancedTabButton = UIButton(type: .system)
+    private var tabContainerHeightConstraint: NSLayoutConstraint?
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
@@ -50,7 +51,6 @@ final class ChannelPermissionsViewController: BaseViewController {
         clanId: Int64,
         channelId: Int64,
         channelType: Int32,
-        channelLabel: String,
         channelPrivate: Bool
     ) {
         self.context = context
@@ -58,7 +58,6 @@ final class ChannelPermissionsViewController: BaseViewController {
         self.clanId = clanId
         self.channelId = channelId
         self.channelType = channelType
-        self.channelLabel = channelLabel
         self.isPrivate = channelPrivate
         super.init(navigationBarPresentationData: nil)
     }
@@ -79,6 +78,14 @@ final class ChannelPermissionsViewController: BaseViewController {
             self, selector: #selector(handleRolesChanged),
             name: .mezonRolesDidChange, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleChannelDescriptionDidUpdate(_:)),
+            name: .mezonChannelDescriptionDidUpdate, object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     private func setupHeader() {
@@ -95,12 +102,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.textAlignment = .center
 
-        subtitleLabel.text = "#\(channelLabel)"
-        subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subtitleLabel.textColor = UIColor.theme.textDisabled
-        subtitleLabel.textAlignment = .center
-
-        [backButton, titleLabel, subtitleLabel].forEach {
+        [backButton, titleLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             headerView.addSubview($0)
         }
@@ -109,7 +111,7 @@ final class ChannelPermissionsViewController: BaseViewController {
             headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 56.sh),
+            headerView.heightAnchor.constraint(equalToConstant: 50.sh),
 
             backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 8.sw),
             backButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
@@ -117,10 +119,7 @@ final class ChannelPermissionsViewController: BaseViewController {
             backButton.heightAnchor.constraint(equalToConstant: 44.swh),
 
             titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
-            titleLabel.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 8.sh),
-
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh),
-            subtitleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor)
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor)
         ])
     }
 
@@ -143,11 +142,14 @@ final class ChannelPermissionsViewController: BaseViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         tabContainer.addSubview(stack)
 
+        let tabH = tabContainer.heightAnchor.constraint(equalToConstant: 40.sh)
+        tabContainerHeightConstraint = tabH
+
         NSLayoutConstraint.activate([
             tabContainer.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 10.sh),
             tabContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
             tabContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
-            tabContainer.heightAnchor.constraint(equalToConstant: 40.sh),
+            tabH,
 
             stack.topAnchor.constraint(equalTo: tabContainer.topAnchor, constant: 3.sh),
             stack.leadingAnchor.constraint(equalTo: tabContainer.leadingAnchor, constant: 3.sw),
@@ -327,7 +329,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         reloadLocalData()
-        Task { [weak self] in await self?.refresh() }
+        fetchMembersTask = Task { [weak self] in await self?.refresh() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -336,6 +338,28 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     @objc private func handleRolesChanged() { reloadLocalData() }
+
+    @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
+        let nid: Int64? = {
+            if let v = notification.userInfo?["channelId"] as? Int64 { return v }
+            if let v = notification.userInfo?["channelId"] as? Int { return Int64(v) }
+            if let n = notification.userInfo?["channelId"] as? NSNumber { return n.int64Value }
+            return nil
+        }()
+        guard nid == channelId else { return }
+        reloadLocalData()
+    }
+
+    private func channelSnapshotFromStores() -> Mezon_Api_ChannelDescription? {
+        context.engine.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
+    }
+
+    private func resolvedChannelTypeForPermissions() -> Int32 {
+        if let ch = channelSnapshotFromStores(), ch.type != 0 {
+            return ch.type
+        }
+        return channelType
+    }
 
     @objc private func backTapped() { navigationController?.popViewController(animated: true) }
 
@@ -346,12 +370,27 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     @objc private func selectAdvancedTab() {
+        guard isPrivate else { return }
         guard currentTab != .advanced else { return }
         currentTab = .advanced
         applyTabSelection()
     }
 
     private func applyTabSelection() {
+        refreshVisibility()
+        rebuildList()
+    }
+
+    private func refreshVisibility() {
+        if !isPrivate, currentTab == .advanced {
+            currentTab = .basic
+        }
+        advancedTabButton.isHidden = !isPrivate
+
+        let showTabs = isPrivate
+        tabContainer.isHidden = !showTabs
+        tabContainerHeightConstraint?.constant = showTabs ? 40.sh : 0
+
         let active = UIColor.theme.bgViolet
         let inactive = UIColor.clear
         let activeText = UIColor.white
@@ -360,24 +399,21 @@ final class ChannelPermissionsViewController: BaseViewController {
         basicTabButton.setTitleColor(currentTab == .basic ? activeText : inactiveText, for: .normal)
         advancedTabButton.backgroundColor = currentTab == .advanced ? active : inactive
         advancedTabButton.setTitleColor(currentTab == .advanced ? activeText : inactiveText, for: .normal)
-        refreshVisibility()
-        rebuildList()
-    }
 
-    private func refreshVisibility() {
         let isBasic = currentTab == .basic
         privateToggleCard.isHidden = !isBasic
         descriptionLabel.isHidden = !(isBasic && isPrivate)
         addMemberCard.isHidden = !(isBasic && isPrivate)
-        whoCanAccessLabel.isHidden = !isBasic
+        whoCanAccessLabel.isHidden = !isBasic || !isPrivate
         let hasContent = !channelRoles.isEmpty || !channelMembers.isEmpty
         let advancedEmpty = currentTab == .advanced && !hasContent
-        listCard.isHidden = advancedEmpty || (isBasic && !hasContent)
+        let hideBasicAccessList = isBasic && (!hasContent || !isPrivate)
+        listCard.isHidden = advancedEmpty || hideBasicAccessList
         emptyAdvancedLabel.isHidden = !advancedEmpty
     }
 
     private func reloadLocalData() {
-        if let latest = context.engine.account.postbox.getChannelDescription(channelId: channelId)?.channel {
+        if let latest = channelSnapshotFromStores() {
             isPrivate = latest.channelPrivate == 1
         }
         channelRoles = repository.channelRoles(clanId: clanId, channelId: channelId)
@@ -401,8 +437,10 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func refresh() async {
+        guard !Task.isCancelled else { return }
         let ids = await repository.fetchChannelMembers(
-            clanId: clanId, channelId: channelId, channelType: channelType)
+            clanId: clanId, channelId: channelId, channelType: resolvedChannelTypeForPermissions())
+        guard !Task.isCancelled else { return }
         channelMemberIds = Set(ids)
         reloadLocalData()
     }
@@ -444,6 +482,8 @@ final class ChannelPermissionsViewController: BaseViewController {
     @objc private func privateSwitchChanged() {
         let newPrivate = privateSwitch.isOn
         let previous = isPrivate
+        fetchMembersTask?.cancel()
+        fetchMembersTask = nil
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -477,7 +517,6 @@ final class ChannelPermissionsViewController: BaseViewController {
         let sheet = AddMemberOrRoleSheetController(
             availableMembers: memberPool,
             availableRoles: rolePool,
-            channelLabel: channelLabel,
             onAdd: { [weak self] memberIds, roleIds in
                 self?.performAdd(memberIds: memberIds, roleIds: roleIds)
             }

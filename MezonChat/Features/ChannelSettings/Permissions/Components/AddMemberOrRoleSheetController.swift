@@ -11,7 +11,6 @@ final class AddMemberOrRoleSheetController: UIViewController {
 
     private let availableMembers: [ClanMemberRecord]
     private let availableRoles: [Mezon_Api_Role]
-    private let channelLabel: String
     private let onAdd: (_ memberIds: [Int64], _ roleIds: [Int64]) -> Void
 
     private var selectedMemberIds: Set<Int64> = []
@@ -19,7 +18,6 @@ final class AddMemberOrRoleSheetController: UIViewController {
     private var searchText: String = ""
 
     private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
     private let cancelButton = UIButton(type: .system)
     private let addButton = UIButton(type: .system)
     private let searchContainer = UIView()
@@ -29,12 +27,10 @@ final class AddMemberOrRoleSheetController: UIViewController {
     init(
         availableMembers: [ClanMemberRecord],
         availableRoles: [Mezon_Api_Role],
-        channelLabel: String,
         onAdd: @escaping (_ memberIds: [Int64], _ roleIds: [Int64]) -> Void
     ) {
         self.availableMembers = availableMembers
         self.availableRoles = availableRoles
-        self.channelLabel = channelLabel
         self.onAdd = onAdd
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
@@ -62,11 +58,6 @@ final class AddMemberOrRoleSheetController: UIViewController {
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.textAlignment = .center
 
-        subtitleLabel.text = "#\(channelLabel)"
-        subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subtitleLabel.textColor = UIColor.theme.textDisabled
-        subtitleLabel.textAlignment = .center
-
         cancelButton.setTitle(L(L10n.Common.cancel), for: .normal)
         cancelButton.setTitleColor(UIColor.theme.textDisabled, for: .normal)
         cancelButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .regular)
@@ -77,7 +68,7 @@ final class AddMemberOrRoleSheetController: UIViewController {
         addButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         addButton.addTarget(self, action: #selector(addTapped), for: .touchUpInside)
 
-        [titleLabel, subtitleLabel, cancelButton, addButton].forEach {
+        [titleLabel, cancelButton, addButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview($0)
         }
@@ -85,9 +76,6 @@ final class AddMemberOrRoleSheetController: UIViewController {
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 14.sh),
             titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh),
-            subtitleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 
             cancelButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
             cancelButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
@@ -120,7 +108,7 @@ final class AddMemberOrRoleSheetController: UIViewController {
         searchContainer.addSubview(searchField)
 
         NSLayoutConstraint.activate([
-            searchContainer.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 14.sh),
+            searchContainer.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 14.sh),
             searchContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
             searchContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
             searchContainer.heightAnchor.constraint(equalToConstant: 40.sh),

@@ -766,13 +766,23 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
+    private static func userInfoInt64(_ value: Any?) -> Int64? {
+        if let v = value as? Int64 { return v }
+        if let v = value as? Int { return Int64(v) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
     @objc private func handleChannelMetadataChanged(_ notification: Notification) {
-        guard let cid = notification.userInfo?["channelId"] as? Int64, cid == channel.channelID else { return }
-        if clanId == 0 {
-            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
+        guard let cid = Self.userInfoInt64(notification.userInfo?["channelId"]), cid == channel.channelID else { return }
+        if clanId != 0 {
+            if let notifyClan = Self.userInfoInt64(notification.userInfo?["clanId"]), notifyClan != clanId {
+                return
+            }
+            if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID) {
                 channel = cached
             }
-        } else if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
+        } else if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
             channel = cached
         }
         metadataOnlyPipe.putNext(())

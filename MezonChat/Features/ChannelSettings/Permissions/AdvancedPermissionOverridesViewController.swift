@@ -21,10 +21,9 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
     private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
     private let saveButton = UIButton(type: .system)
     private let sectionLabel = UILabel()
-    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let tableView = UITableView(frame: .zero, style: .plain)
 
     init(
         context: AccountContext,
@@ -62,18 +61,13 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.textAlignment = .center
 
-        subtitleLabel.text = targetTitle()
-        subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subtitleLabel.textColor = UIColor.theme.textDisabled
-        subtitleLabel.textAlignment = .center
-
         saveButton.setTitle(L(L10n.ChannelPermission.save), for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         saveButton.setTitleColor(UIColor.theme.bgViolet, for: .normal)
         saveButton.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
         saveButton.isHidden = true
 
-        [backButton, titleLabel, subtitleLabel, saveButton].forEach {
+        [backButton, titleLabel, saveButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             headerView.addSubview($0)
         }
@@ -82,7 +76,7 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
             headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 56.sh),
+            headerView.heightAnchor.constraint(equalToConstant: 50.sh),
 
             backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 8.sw),
             backButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
@@ -90,10 +84,7 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
             backButton.heightAnchor.constraint(equalToConstant: 44.swh),
 
             titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
-            titleLabel.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 8.sh),
-
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh),
-            subtitleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
 
             saveButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -14.sw),
             saveButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor)
@@ -102,7 +93,7 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
 
     private func setupBody() {
         sectionLabel.text = L(L10n.ChannelPermission.generalChannelPermission)
-        sectionLabel.font = .systemFont(ofSize: 12.sf, weight: .semibold)
+        sectionLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
         sectionLabel.textColor = UIColor.theme.textDisabled
         sectionLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(sectionLabel)
@@ -110,8 +101,7 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         tableView.backgroundColor = .mezonSecondary
         tableView.dataSource = self
         tableView.delegate = self
-        tableView.separatorStyle = .singleLine
-        tableView.separatorColor = UIColor.theme.tertiary.withAlphaComponent(0.4)
+        tableView.separatorStyle = .none
         tableView.estimatedRowHeight = 90.sh
         tableView.rowHeight = UITableView.automaticDimension
         if #available(iOS 15.0, *) {
@@ -122,20 +112,20 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
-            sectionLabel.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 14.sh),
-            sectionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
-            sectionLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
+            sectionLabel.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 10.sh),
+            sectionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18.sw),
+            sectionLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18.sw),
 
-            tableView.topAnchor.constraint(equalTo: sectionLabel.bottomAnchor, constant: 8.sh),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.topAnchor.constraint(equalTo: sectionLabel.bottomAnchor, constant: 18.sh),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18.sw),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18.sw),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        permissions = repository.allPermissions()
+        permissions = repository.channelOverridePermissionRows()
         for p in permissions {
             originValues[p.id] = .none
             currentValues[p.id] = .none
@@ -147,13 +137,6 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-    }
-
-    private func targetTitle() -> String {
-        switch target {
-        case .role(_, let title): return title
-        case .member(_, let name): return name
-        }
     }
 
     private func loadCurrentOverrides() async {
@@ -206,9 +189,9 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
     }
 
     @objc private func handleSave() {
+        guard originValues != currentValues else { return }
         let updates: [(Int64, String, ChannelPermissionsRepository.PermissionStatus)] = permissions.map { p in
-            let status = currentValues[p.id] ?? .none
-            return (p.id, p.slug, status)
+            (p.id, p.slug, currentValues[p.id] ?? .none)
         }
         let roleId: Int64 = {
             if case .role(let id, _) = target { return id }
@@ -218,14 +201,22 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
             if case .member(let id, _) = target { return id }
             return 0
         }()
+        let roleLabel: String = {
+            switch target {
+            case .role(_, let title): return title
+            case .member: return ""
+            }
+        }()
         Task { [weak self] in
             guard let self else { return }
+            guard !updates.isEmpty else { return }
             do {
                 try await self.repository.setPermissionOverrides(
                     clanId: self.clanId,
                     channelId: self.channelId,
                     roleId: roleId,
                     userId: userId,
+                    roleLabel: roleLabel,
                     permissionUpdates: updates
                 )
                 self.originValues = self.currentValues
@@ -267,75 +258,117 @@ private final class PermissionTriToggleCell: UITableViewCell {
 
     static let reuseId = "PermissionTriToggleCell"
 
+    private static let noneAccent = UIColor(red: 64 / 255, green: 66 / 255, blue: 73 / 255, alpha: 1)
+
     private let titleLabel = UILabel()
     private let descriptionLabel = UILabel()
+    private let segmentOuter = UIView()
     private let denyButton = UIButton(type: .system)
     private let noneButton = UIButton(type: .system)
     private let allowButton = UIButton(type: .system)
+    private let divider1 = UIView()
+    private let divider2 = UIView()
 
     var onChange: ((ChannelPermissionsRepository.PermissionStatus) -> Void)?
     private var current: ChannelPermissionsRepository.PermissionStatus = .none
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor.theme.tertiary
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
         selectionStyle = .none
         setupViews()
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private func setupViews() {
-        titleLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        titleLabel.textColor = .mezonTextPrimary
-        titleLabel.numberOfLines = 1
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onChange = nil
+    }
 
-        descriptionLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
+    private func setupViews() {
+        titleLabel.font = .systemFont(ofSize: 16.sf, weight: .medium)
+        titleLabel.textColor = UIColor.theme.textStrong
+        titleLabel.numberOfLines = 2
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        descriptionLabel.font = .systemFont(ofSize: 10.sf, weight: .regular)
         descriptionLabel.textColor = UIColor.theme.textDisabled
         descriptionLabel.numberOfLines = 0
 
-        configureButton(denyButton, system: "xmark", color: UIColor.systemRed)
-        configureButton(noneButton, system: "slash.circle", color: UIColor.theme.textDisabled)
-        configureButton(allowButton, system: "checkmark", color: UIColor.systemGreen)
+        segmentOuter.layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
+        segmentOuter.layer.borderColor = UIColor.theme.border.cgColor
+        segmentOuter.layer.cornerRadius = 4.swh
+        segmentOuter.clipsToBounds = true
+
+        let hairline = 1 / max(UIScreen.main.scale, 1)
+        divider1.backgroundColor = UIColor.theme.border
+        divider2.backgroundColor = UIColor.theme.border
+        divider1.translatesAutoresizingMaskIntoConstraints = false
+        divider2.translatesAutoresizingMaskIntoConstraints = false
+
+        setupSegmentButton(denyButton, systemName: "xmark", pointSize: 12.swh)
+        setupSegmentButton(noneButton, systemName: "slash.circle", pointSize: 14.swh)
+        setupSegmentButton(allowButton, systemName: "checkmark", pointSize: 12.swh)
 
         denyButton.addTarget(self, action: #selector(denyTapped), for: .touchUpInside)
         noneButton.addTarget(self, action: #selector(noneTapped), for: .touchUpInside)
         allowButton.addTarget(self, action: #selector(allowTapped), for: .touchUpInside)
 
-        let toggleStack = UIStackView(arrangedSubviews: [denyButton, noneButton, allowButton])
-        toggleStack.axis = .horizontal
-        toggleStack.spacing = 6.sw
-        toggleStack.distribution = .equalSpacing
-        toggleStack.translatesAutoresizingMaskIntoConstraints = false
+        let inner = UIStackView(arrangedSubviews: [
+            denyButton, divider1, noneButton, divider2, allowButton,
+        ])
+        inner.axis = .horizontal
+        inner.spacing = 0
+        inner.distribution = .fill
+        inner.alignment = .fill
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        segmentOuter.addSubview(inner)
 
-        [titleLabel, descriptionLabel, toggleStack].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview($0)
-        }
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        segmentOuter.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(titleLabel)
+        contentView.addSubview(descriptionLabel)
+        contentView.addSubview(segmentOuter)
+
+        let segmentH = max(30.sh, 28.swh)
+        let segmentW = max(104.sw, 96)
 
         NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16.sw),
-            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14.sh),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: toggleStack.leadingAnchor, constant: -8.sw),
+            inner.leadingAnchor.constraint(equalTo: segmentOuter.leadingAnchor),
+            inner.trailingAnchor.constraint(equalTo: segmentOuter.trailingAnchor),
+            inner.topAnchor.constraint(equalTo: segmentOuter.topAnchor),
+            inner.bottomAnchor.constraint(equalTo: segmentOuter.bottomAnchor),
+
+            divider1.widthAnchor.constraint(equalToConstant: hairline),
+            divider2.widthAnchor.constraint(equalToConstant: hairline),
+
+            denyButton.widthAnchor.constraint(equalTo: noneButton.widthAnchor),
+            noneButton.widthAnchor.constraint(equalTo: allowButton.widthAnchor),
+
+            segmentOuter.widthAnchor.constraint(equalToConstant: segmentW),
+            segmentOuter.heightAnchor.constraint(equalToConstant: segmentH),
+
+            titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6.sh),
+
+            segmentOuter.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            segmentOuter.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: segmentOuter.leadingAnchor, constant: -12.sw),
 
             descriptionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            descriptionLabel.topAnchor.constraint(greaterThanOrEqualTo: toggleStack.bottomAnchor, constant: 6.sh),
-            descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6.sh),
-            descriptionLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14.sh),
-            descriptionLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16.sw),
-
-            toggleStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16.sw),
-            toggleStack.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor)
+            descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8.sh),
+            descriptionLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            descriptionLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10.sh),
         ])
     }
 
-    private func configureButton(_ b: UIButton, system: String, color: UIColor) {
-        b.setImage(UIImage(systemName: system)?.withRenderingMode(.alwaysTemplate), for: .normal)
-        b.tintColor = color
-        b.layer.cornerRadius = 14.swh
+    private func setupSegmentButton(_ b: UIButton, systemName: String, pointSize: CGFloat) {
+        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        b.setImage(UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.widthAnchor.constraint(equalToConstant: 28.swh).isActive = true
-        b.heightAnchor.constraint(equalToConstant: 28.swh).isActive = true
     }
 
     func configure(
@@ -350,12 +383,19 @@ private final class PermissionTriToggleCell: UITableViewCell {
     }
 
     private func applyStatus(_ status: ChannelPermissionsRepository.PermissionStatus) {
-        denyButton.backgroundColor = status == .deny ? UIColor.systemRed : .clear
-        denyButton.tintColor = status == .deny ? .white : UIColor.systemRed
-        noneButton.backgroundColor = status == .none ? UIColor.theme.tertiary : .clear
-        noneButton.tintColor = status == .none ? .white : UIColor.theme.textDisabled
-        allowButton.backgroundColor = status == .allow ? UIColor.systemGreen : .clear
-        allowButton.tintColor = status == .allow ? .white : UIColor.systemGreen
+        let inactiveFill = UIColor.mezonSecondary
+        let red = UIColor.systemRed
+        let green = UIColor.systemGreen
+        let noneTintInactive = Self.noneAccent
+
+        denyButton.backgroundColor = status == .deny ? red : inactiveFill
+        denyButton.tintColor = status == .deny ? .white : red
+
+        noneButton.backgroundColor = status == .none ? Self.noneAccent : inactiveFill
+        noneButton.tintColor = status == .none ? .white : noneTintInactive
+
+        allowButton.backgroundColor = status == .allow ? green : inactiveFill
+        allowButton.tintColor = status == .allow ? .white : green
     }
 
     @objc private func denyTapped() { apply(.deny) }

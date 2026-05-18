@@ -428,6 +428,34 @@ final class Postbox {
         return channels.first(where: { $0.channelID == channelId })
     }
 
+    private func channelDescriptionFromClanChannelListPreference(clanId: Int64, channelId: Int64)
+        -> Mezon_Api_ChannelDescription? {
+        guard clanId != 0 else { return nil }
+        guard let data = getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+            !data.isEmpty else { return nil }
+        return decodeChannelList(data).first(where: { $0.channelID == channelId })
+    }
+
+    func resolvedChannelDescription(clanId: Int64, channelId: Int64) -> Mezon_Api_ChannelDescription? {
+        if clanId == 0 {
+            return getDMChannelDescription(channelId: channelId)
+                ?? getChannelDescription(channelId: channelId)?.channel
+        }
+        let prefCh = channelDescriptionFromClanChannelListPreference(clanId: clanId, channelId: channelId)
+            ?? getChannelDescription(channelId: channelId)?.channel
+        guard let record = read({ tx in
+            tx.getChannels(clanId: clanId).first(where: { $0.id == channelId })
+        }) else {
+            return prefCh
+        }
+        let sql = record.toProto()
+        guard var merged = prefCh else { return sql }
+        if sql.type != 0 && merged.type == 0 {
+            merged.type = sql.type
+        }
+        return merged
+    }
+
     func getCachedDMChannelList() -> [Mezon_Api_ChannelDescription] {
         guard let data = getPreferenceData(key: PreferencesKeys.dmChannelList) else { return [] }
         return decodeChannelList(data)

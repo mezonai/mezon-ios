@@ -46,8 +46,12 @@ final class MemberListNode: ASDisplayNode {
         let dm = MezonConstants.ChannelType.dm.rawValue
         let group = MezonConstants.ChannelType.group.rawValue
         let thread = MezonConstants.ChannelType.thread.rawValue
+        let resolvedSnap = clanId > 0
+            ? context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelDescription.channelID)
+            : nil
+        let channelPrivateVal = resolvedSnap?.channelPrivate ?? channelDescription.channelPrivate
         let resolvedT = context.engine.clanData.resolvedListChannelUsersType(channelId: channelDescription.channelID)
-        let postboxType = context.account.postbox.getChannelDescription(channelId: channelDescription.channelID)?.1.type ?? 0
+        let postboxType = resolvedSnap?.type ?? 0
         let effectiveType: Int32 = {
             if channelDescription.type != 0 { return channelDescription.type }
             if postboxType != 0 { return postboxType }
@@ -57,7 +61,7 @@ final class MemberListNode: ASDisplayNode {
         self.dmMemberLabelByUserId = channelDescription.dmMemberLabelsForChannelList()
         self.useClanListWhenChannelUsersEmpty =
             clanId > 0
-            && channelDescription.channelPrivate == 0
+            && channelPrivateVal == 0
             && effectiveType != dm
             && effectiveType != group
             && effectiveType != thread

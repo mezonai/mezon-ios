@@ -433,7 +433,7 @@ final class ChannelListViewController: ViewController {
     override func loadDisplayNode() {
         let interaction = ChannelListInteraction(
             onSelectChannel: { [weak self] ch in self?.handleChannelTap(ch) },
-            onLongPressChannel: { _ in },
+            onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
@@ -697,7 +697,6 @@ final class ChannelListViewController: ViewController {
     }
 
     private func presentSettings() {
-        /*
         let vc = ClanSettingsViewController(
             context: context,
             clanId: clanId,
@@ -705,7 +704,6 @@ final class ChannelListViewController: ViewController {
             avatarURL: clanLogoURL
         )
         self.enclosingNavigationController?.pushViewController(vc, animated: true)
-        */
     }
 
     private func presentInviteClanSheet() {
@@ -722,7 +720,6 @@ final class ChannelListViewController: ViewController {
         present(vc, animated: true)
     }
 
-    #if false
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
         let (isMuted, welcomeChannelId): (Bool, Int64?) = context.account.postbox.read { tx in
             let muted: Bool = {
@@ -833,7 +830,6 @@ final class ChannelListViewController: ViewController {
             }
         }
     }
-    #endif
 
     private func handleMarkAsRead(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
@@ -1048,7 +1044,6 @@ final class ChannelListViewController: ViewController {
     }
 
     private func presentChannelSettings(_ channel: Mezon_Api_ChannelDescription) {
-        /*
         let vc = ChannelSettingsViewController(
             context: context,
             clanId: channel.clanID,
@@ -1060,7 +1055,6 @@ final class ChannelListViewController: ViewController {
             channelTopic: channel.topic
         )
         self.enclosingNavigationController?.pushViewController(vc, animated: true)
-        */
     }
 
     func refresh() { fetchChannels() }
