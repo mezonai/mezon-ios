@@ -1882,6 +1882,29 @@ final class MezonHTTPClient {
         )
     }
 
+    func createPoll(
+        channelId: Int64,
+        clanId: Int64,
+        question: String,
+        answers: [String],
+        expireHours: Int32,
+        type: Mezon_Api_PollType,
+        token: String
+    ) async throws -> Mezon_Api_CreatePollResponse {
+        var req = Mezon_Api_CreatePollRequest()
+        req.channelID = channelId
+        req.clanID = clanId
+        req.question = question
+        req.answers = answers
+        req.expireHours = expireHours
+        req.type = type
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreatePoll",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func getPoll(
         pollId: Int64,
         messageId: Int64,

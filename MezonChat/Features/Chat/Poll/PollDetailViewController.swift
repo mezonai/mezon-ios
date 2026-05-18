@@ -13,7 +13,17 @@ final class PollDetailViewController: UIViewController {
     private let overlayView = UIView()
     private let containerView = UIView()
     private let headerStack = UIStackView()
-    private let titleLabel = UILabel()
+    private let titleLabel: EmojiTextView = {
+        let label = EmojiTextView()
+        label.textView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.textView.topAnchor.constraint(equalTo: label.topAnchor),
+            label.textView.bottomAnchor.constraint(equalTo: label.bottomAnchor),
+            label.textView.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+            label.textView.trailingAnchor.constraint(equalTo: label.trailingAnchor)
+        ])
+        return label
+    }()
     private let closeButton = UIButton(type: .system)
     private let subtitleLabel = UILabel()
     private let bodyView = UIView()
@@ -48,11 +58,12 @@ final class PollDetailViewController: UIViewController {
         modalPresentationStyle = .overFullScreen
     }
 
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        self.view.alpha = 0
-        UIView.animate(withDuration: 0.15) {
-            self.view.alpha = 1
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseOut) {
+            self.overlayView.alpha = 1
+            self.containerView.alpha = 1
+            self.containerView.transform = .identity
         }
     }
 
@@ -65,6 +76,7 @@ final class PollDetailViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        self.view.backgroundColor = .clear
         setupOverlay()
         setupContainer()
         setupHeader()
@@ -76,6 +88,7 @@ final class PollDetailViewController: UIViewController {
         overlayView.backgroundColor = UIColor.black.withAlphaComponent(0.6)
         overlayView.frame = view.bounds
         overlayView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlayView.alpha = 0
         view.addSubview(overlayView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissModal))
@@ -90,6 +103,8 @@ final class PollDetailViewController: UIViewController {
         containerView.layer.borderColor = UIColor.mezonBorder.cgColor
         containerView.clipsToBounds = true
         containerView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.alpha = 0
+        containerView.transform = CGAffineTransform(translationX: 0, y: 20)
         view.addSubview(containerView)
 
         NSLayoutConstraint.activate([
@@ -106,10 +121,10 @@ final class PollDetailViewController: UIViewController {
     private func setupHeader() {
         let t = UIColor.theme
 
-        titleLabel.text = question
-        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        titleLabel.textColor = t.textStrong
-        titleLabel.numberOfLines = 2
+        let titleFont = UIFont.systemFont(ofSize: 20, weight: .bold)
+        titleLabel.attributedText = PollEmojiParser.parse(question, font: titleFont, color: t.textStrong, emojiSize: 24)
+        titleLabel.textView.textContainer.maximumNumberOfLines = 2
+        titleLabel.textView.textContainer.lineBreakMode = .byTruncatingTail
 
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
@@ -261,11 +276,18 @@ final class PollDetailViewController: UIViewController {
         container.backgroundColor = isActive ? Self.blurpleAlpha : .clear
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        let label = UILabel()
-        label.text = option.label
-        label.font = .systemFont(ofSize: 14)
-        label.textColor = t.textStrong
-        label.numberOfLines = 1
+        let label = EmojiTextView()
+        label.textView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            label.textView.topAnchor.constraint(equalTo: label.topAnchor),
+            label.textView.bottomAnchor.constraint(equalTo: label.bottomAnchor),
+            label.textView.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+            label.textView.trailingAnchor.constraint(equalTo: label.trailingAnchor)
+        ])
+        let font = UIFont.systemFont(ofSize: 14)
+        label.attributedText = PollEmojiParser.parse(option.label, font: font, color: t.textStrong, emojiSize: 18)
+        label.textView.textContainer.maximumNumberOfLines = 1
+        label.textView.textContainer.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
 
         let countLabel = UILabel()
@@ -289,7 +311,6 @@ final class PollDetailViewController: UIViewController {
         ])
 
         countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        label.lineBreakMode = .byTruncatingTail
 
         let tap = OptionTapGesture(target: self, action: #selector(handleOptionSelect(_:)))
         tap.optionIndex = option.index
