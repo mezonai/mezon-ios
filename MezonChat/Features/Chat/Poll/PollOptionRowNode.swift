@@ -134,6 +134,13 @@ final class PollOptionRowNode: ASDisplayNode {
     }
 
     func update(option: PollOptionDisplay, shouldShowResults: Bool, hasVoted: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.update(option: option, shouldShowResults: shouldShowResults, hasVoted: hasVoted)
+            }
+            return
+        }
+        
         self.option = option
         self.shouldShowResults = shouldShowResults
         self.hasVoted = hasVoted

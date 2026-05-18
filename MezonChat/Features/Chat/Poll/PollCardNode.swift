@@ -84,22 +84,25 @@ final class PollCardNode: ASDisplayNode {
     }
 
     func updatePollData(_ newPollData: PollData) {
-        self.pollData = newPollData
-        let oldSelection = self.selection
-        let oldHasVoted = self.hasVoted
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pollData = newPollData
+            let oldSelection = self.selection
+            let oldHasVoted = self.hasVoted
 
-        if isVotingInProgress {
-            refreshUI()
-            return
+            if self.isVotingInProgress {
+                self.refreshUI()
+                return
+            }
+
+            self.restoreVoteStateFromCache(fallback: [])
+
+            if !oldHasVoted && !oldSelection.isEmpty && !self.hasVoted && !newPollData.isClosed {
+                self.selection = oldSelection
+            }
+
+            self.refreshUI()
         }
-
-        restoreVoteStateFromCache(fallback: [])
-
-        if !oldHasVoted && !oldSelection.isEmpty && !self.hasVoted && !newPollData.isClosed {
-            self.selection = oldSelection
-        }
-
-        refreshUI()
     }
 
     private func restoreVoteStateFromCache(fallback: [Int]) {
@@ -225,6 +228,13 @@ final class PollCardNode: ASDisplayNode {
     }
 
     private func refreshUI() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshUI()
+            }
+            return
+        }
+        
         buildDisplayOptions()
 
         let visible = visibleOptions
