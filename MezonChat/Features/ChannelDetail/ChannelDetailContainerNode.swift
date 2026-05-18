@@ -10,7 +10,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
 
     private let context: AccountContext
     private let clanId: Int64
-    private let channel: Mezon_Api_ChannelDescription
+    private var channel: Mezon_Api_ChannelDescription
     private let onClose: () -> Void
     private let onSettingsTapped: () -> Void
     private let onSearchTapped: () -> Void
@@ -67,7 +67,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             context: context, clanId: clanId, channelId: channel.channelID,
             channelType: channel.type)
         self.canvasNode = CanvasNode(
-            context: context, clanId: clanId, channelId: Self.canvasListChannelId(for: channel, context: context),
+            context: context, clanId: clanId, channelId: Self.canvasListChannelId(for: channel, clanId: clanId, context: context),
             channelType: channel.type)
 
         super.init()
@@ -97,11 +97,13 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         tabsScrollNode.view.showsHorizontalScrollIndicator = false
     }
 
-    private static func canvasListChannelId(for channel: Mezon_Api_ChannelDescription, context: AccountContext) -> Int64 {
+    private static func canvasListChannelId(
+        for channel: Mezon_Api_ChannelDescription, clanId: Int64, context: AccountContext
+    ) -> Int64 {
         let thread = MezonConstants.ChannelType.thread.rawValue
         let t = channel.type != 0
             ? channel.type
-            : (context.account.postbox.getChannelDescription(channelId: channel.channelID)?.1.type ?? 0)
+            : (context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID)?.type ?? 0)
         if t == thread, channel.parentID != 0 {
             return channel.parentID
         }
@@ -150,6 +152,14 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         backButtonNode.contentHorizontalAlignment = .middle
         backButtonNode.contentVerticalAlignment = .center
 
+        configureChannelHeaderVisuals()
+
+        headerTrailingSpacerNode.style.preferredSize = CGSize(width: 44.sf, height: 44.sf)
+        headerTrailingSpacerNode.isUserInteractionEnabled = false
+        headerTrailingSpacerNode.backgroundColor = .clear
+    }
+
+    private func configureChannelHeaderVisuals() {
         let title = channel.channelLabel
         let isDmOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
             || channel.type == MezonConstants.ChannelType.group.rawValue
@@ -170,10 +180,13 @@ final class ChannelDetailContainerNode: ASDisplayNode {
                 .foregroundColor: UIColor.theme.textStrong,
             ]
         )
+    }
 
-        headerTrailingSpacerNode.style.preferredSize = CGSize(width: 44.sf, height: 44.sf)
-        headerTrailingSpacerNode.isUserInteractionEnabled = false
-        headerTrailingSpacerNode.backgroundColor = .clear
+    func applyUpdatedChannel(_ updated: Mezon_Api_ChannelDescription) {
+        guard updated.channelID == channel.channelID else { return }
+        channel = updated
+        configureChannelHeaderVisuals()
+        setNeedsLayout()
     }
 
     private func buildTabs() {
@@ -337,14 +350,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         self.backgroundColor = t.primary
-        titleNode.attributedText = NSAttributedString(
-            string: channel.channelLabel,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 18.sf, weight: .bold),
-                .foregroundColor: t.textStrong,
-            ]
-        )
-        channelIconNode.tintColor = t.textStrong
+        configureChannelHeaderVisuals()
         backButtonNode.setImage(
             UIImage(systemName: "chevron.left")?.withTintColor(
                 t.textStrong, renderingMode: .alwaysOriginal), for: .normal)

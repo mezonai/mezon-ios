@@ -5,13 +5,14 @@ final class ChannelDetailViewController: ViewController {
 
     private let context: AccountContext
     private let clanId: Int64
-    private let channel: Mezon_Api_ChannelDescription
+    private var channel: Mezon_Api_ChannelDescription
 
     private var detailNode: ChannelDetailContainerNode { displayNode as! ChannelDetailContainerNode }
 
     private func resolvedChannelTypeForDetail() -> Int32 {
         if channel.type != 0 { return channel.type }
-        if let (_, ch) = context.account.postbox.getChannelDescription(channelId: channel.channelID), ch.type != 0 {
+        if let ch = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID),
+            ch.type != 0 {
             return ch.type
         }
         return context.engine.clanData.resolvedListChannelUsersType(channelId: channel.channelID)
@@ -49,11 +50,48 @@ final class ChannelDetailViewController: ViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         detailNode.applyTheme()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleChannelDescriptionDidUpdate(_:)),
+            name: .mezonChannelDescriptionDidUpdate,
+            object: nil
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         self.navigationController?.setNavigationBarHidden(true, animated: animated)
+        refreshChannelFromStores()
+    }
+
+    private static func notificationInt64(_ value: Any?) -> Int64? {
+        if let v = value as? Int64 { return v }
+        if let v = value as? Int { return Int64(v) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
+    @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
+        guard let cid = Self.notificationInt64(notification.userInfo?["channelId"]), cid == channel.channelID else {
+            return
+        }
+        refreshChannelFromStores()
+    }
+
+    private func resolvedChannelSnapshot() -> Mezon_Api_ChannelDescription {
+        if let ch = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID) {
+            return ch
+        }
+        return channel
+    }
+
+    private func refreshChannelFromStores() {
+        channel = resolvedChannelSnapshot()
+        detailNode.applyUpdatedChannel(channel)
     }
 
     private func openThreadList() {
@@ -100,16 +138,17 @@ final class ChannelDetailViewController: ViewController {
     }
 
     private func openSettings() {
+        let t = resolvedChannelTypeForDetail()
         let settingsVC = ChannelSettingsViewController(
             context: context,
             clanId: clanId,
             channelId: channel.channelID,
-            categoryId: channel.parentID,
-            channelType: channel.type,
+            categoryId: channel.categoryID,
+            channelType: t,
             channelPrivate: channel.channelPrivate == 1,
             channelName: channel.channelLabel,
-            channelTopic: "" // Topic from description or store?
+            channelTopic: channel.topic
         )
-        self.navigationController?.pushViewController(settingsVC, animated: true)
+        navigationController?.pushViewController(settingsVC, animated: true)
     }
 }

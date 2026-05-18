@@ -7,7 +7,6 @@ final class PeerCallSoundPlayer {
     static let shared = PeerCallSoundPlayer()
 
     private var dialTonePlayer: AVAudioPlayer?
-    private var ringingPlayer: AVAudioPlayer?
 
     private init() {}
 
@@ -34,24 +33,9 @@ final class PeerCallSoundPlayer {
 
     func playRingingLoop() {
         stopRinging()
-        guard let url = Bundle.main.url(forResource: "ringing", withExtension: "mp3", subdirectory: "Sounds")
-                ?? Bundle.main.url(forResource: "ringing", withExtension: "mp3")
-        else { return }
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-            let p = try AVAudioPlayer(contentsOf: url)
-            p.numberOfLoops = -1
-            p.prepareToPlay()
-            p.play()
-            ringingPlayer = p
-        } catch {}
     }
 
-    func stopRinging() {
-        ringingPlayer?.stop()
-        ringingPlayer = nil
-    }
+    func stopRinging() {}
 
     func stopAll() {
         stopDialTone()

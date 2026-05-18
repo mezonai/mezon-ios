@@ -173,17 +173,20 @@ final class NotificationsViewController: ViewController {
         var channel = Mezon_Api_ChannelDescription()
         switch item {
         case .notification(let record):
-            guard record.clanID != 0, record.channelID != 0 else { return }
+            guard record.channelID != 0 else { return }
             channel.clanID = record.clanID
             channel.channelID = record.channelID
             channel.type = record.channelType
+            if record.clanID == 0, channel.type == 0 {
+                channel.type = MezonConstants.ChannelType.group.rawValue
+            }
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
             if record.category == 1 && record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
-            self.navigationController?.pushViewController(vc, animated: true)
+            hostingNavigationController()?.pushViewController(vc, animated: true)
         case .topic(let record):
             guard record.clanID != 0, record.channelID != 0 else { return }
             channel.clanID = record.clanID
@@ -194,8 +197,19 @@ final class NotificationsViewController: ViewController {
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
             vc.topicId = record.id
-            self.navigationController?.pushViewController(vc, animated: true)
+            self.hostingNavigationController()?.pushViewController(vc, animated: true)
         }
+    }
+
+    private func hostingNavigationController() -> NavigationController? {
+        if let n = navigationController as? NavigationController { return n }
+        var ancestor: UIViewController? = parent
+        while let c = ancestor {
+            if let n = c as? NavigationController { return n }
+            if let n = c.navigationController as? NavigationController { return n }
+            ancestor = c.parent
+        }
+        return nil
     }
 
     private func setIsLoading(_ v: Bool) {

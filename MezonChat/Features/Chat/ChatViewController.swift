@@ -366,6 +366,7 @@ final class ChatViewController: ViewController {
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
     private var pendingMarkAsRead = false
+    private var nextFetchPrefersHTTPFirst = false
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
@@ -765,13 +766,23 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
+    private static func userInfoInt64(_ value: Any?) -> Int64? {
+        if let v = value as? Int64 { return v }
+        if let v = value as? Int { return Int64(v) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
     @objc private func handleChannelMetadataChanged(_ notification: Notification) {
-        guard let cid = notification.userInfo?["channelId"] as? Int64, cid == channel.channelID else { return }
-        if clanId == 0 {
-            if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
+        guard let cid = Self.userInfoInt64(notification.userInfo?["channelId"]), cid == channel.channelID else { return }
+        if clanId != 0 {
+            if let notifyClan = Self.userInfoInt64(notification.userInfo?["clanId"]), notifyClan != clanId {
+                return
+            }
+            if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID) {
                 channel = cached
             }
-        } else if let (_, cached) = context.account.postbox.getChannelDescription(channelId: channel.channelID) {
+        } else if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
             channel = cached
         }
         metadataOnlyPipe.putNext(())
@@ -1586,6 +1597,16 @@ final class ChatViewController: ViewController {
         if context.account.socket.isConnected {
             joinChat()
         }
+        markNextFetchPrefersHTTPFirst()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            self.fetchMessages(token: token)
+        }
+    }
+
+    func markNextFetchPrefersHTTPFirst() {
+        nextFetchPrefersHTTPFirst = true
     }
 
     func applyMergedChannelDescriptionFromChannelListLoadIfNeeded(
@@ -1680,6 +1701,8 @@ final class ChatViewController: ViewController {
             setIsLoadingMessageContext(true)
         }
         setErrorMessage(nil)
+        let preferHTTPFirst = nextFetchPrefersHTTPFirst
+        nextFetchPrefersHTTPFirst = false
 
         Task { @MainActor in
             defer {
@@ -1692,9 +1715,9 @@ final class ChatViewController: ViewController {
             if let token { resolvedToken = token } else { resolvedToken = await self.context.getTokenPreferringCachedSkipSessionReadyWait() }
             guard let token = resolvedToken else { return }
             do {
-                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token)
+                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token, preferHTTPFirst: preferHTTPFirst)
                 if response.messages.isEmpty {
-                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 30, topicId: self.topicId, token: token)
+                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 30, topicId: self.topicId, token: token, preferHTTPFirst: preferHTTPFirst)
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }

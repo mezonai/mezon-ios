@@ -22,12 +22,15 @@ enum NotificationItem {
         switch self {
         case .notification(let n): return n.subject
         case .topic(let t):
-            if let decoded: TopicContent = safeJsonDecode(t.content, to: TopicContent.self),
-                let text = decoded.t
-            {
-                return L(L10n.Notifications.repliedTo) + text
+            let preview = NotificationRecord.extractDisplayText(from: t.content)
+            if !preview.isEmpty {
+                return L(L10n.Notifications.repliedTo) + preview
             }
-            return L(L10n.Notifications.repliedTo) + t.content
+            let raw = t.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if raw.first == "{" || raw.first == "[" {
+                return L(L10n.Notifications.repliedTo) + L(L10n.Notifications.unreachableMessage)
+            }
+            return L(L10n.Notifications.repliedTo) + raw
         }
     }
 
@@ -35,15 +38,20 @@ enum NotificationItem {
         switch self {
         case .notification(let n): return n.previewText
         case .topic(let t):
-
+            let rawContent = t.lastSentMessageContent.trimmingCharacters(in: .whitespacesAndNewlines)
             let msgText: String
             if let decoded: TopicContent = safeJsonDecode(
                 t.lastSentMessageContent, to: TopicContent.self),
-                let text = decoded.t, !text.isEmpty
+                let text = decoded.t
             {
-                msgText = text
-            } else if !t.lastSentMessageContent.isEmpty && t.lastSentMessageContent != "{}" {
-                msgText = t.lastSentMessageContent
+                let x = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !x.isEmpty {
+                    msgText = x
+                } else {
+                    msgText = Self.topicMessagePreviewFallback(lastSent: rawContent)
+                }
+            } else if !rawContent.isEmpty && rawContent != "{}" {
+                msgText = Self.topicMessagePreviewFallback(lastSent: rawContent)
             } else {
                 msgText = L(L10n.Notifications.unreachableMessage)
             }
@@ -52,6 +60,15 @@ enum NotificationItem {
 
             return line
         }
+    }
+
+    private static func topicMessagePreviewFallback(lastSent: String) -> String {
+        let extracted = NotificationRecord.extractDisplayText(from: lastSent)
+        if !extracted.isEmpty { return extracted }
+        if lastSent.first == "{" || lastSent.first == "[" {
+            return L(L10n.Notifications.unreachableMessage)
+        }
+        return lastSent
     }
 
     var avatarURL: String {
@@ -154,6 +171,9 @@ final class NotificationItemCell: UITableViewCell {
     }()
 
     private var imageTask: URLSessionDataTask?
+    private let avatarSkeleton = UIView()
+    private var previewConstraints: [NSLayoutConstraint] = []
+    private var titleToSeparatorConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -165,15 +185,26 @@ final class NotificationItemCell: UITableViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     private func setupUI() {
-        contentView.addSubview(avatarView)
-        avatarView.addSubview(avatarPlaceholder)
+        avatarSkeleton.translatesAutoresizingMaskIntoConstraints = false
+        avatarSkeleton.layer.cornerRadius = 18
+        avatarSkeleton.clipsToBounds = true
+        avatarSkeleton.isHidden = true
+
+        contentView.addSubview(separatorLine)
+        contentView.addSubview(verticalLine)
+        contentView.addSubview(contentLabel)
         contentView.addSubview(titleLabel)
         contentView.addSubview(timeLabel)
-        contentView.addSubview(contentLabel)
-        contentView.addSubview(verticalLine)
-        contentView.addSubview(separatorLine)
+        contentView.addSubview(avatarSkeleton)
+        contentView.addSubview(avatarView)
+        avatarView.addSubview(avatarPlaceholder)
 
         NSLayoutConstraint.activate([
+
+            avatarSkeleton.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            avatarSkeleton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            avatarSkeleton.widthAnchor.constraint(equalToConstant: avatarSize),
+            avatarSkeleton.heightAnchor.constraint(equalToConstant: avatarSize),
 
             avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
             avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
@@ -194,39 +225,77 @@ final class NotificationItemCell: UITableViewCell {
                 lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -8),
             titleLabel.widthAnchor.constraint(
                 lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8),
+        ])
 
+        let vLineTop = verticalLine.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4)
+        let vLineBottom = verticalLine.bottomAnchor.constraint(
+            equalTo: separatorLine.topAnchor, constant: -16)
+        let vLineLeading = verticalLine.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor)
+        let vLineWidth = verticalLine.widthAnchor.constraint(equalToConstant: 2)
+        let cTop = contentLabel.topAnchor.constraint(equalTo: verticalLine.topAnchor)
+        let cLead = contentLabel.leadingAnchor.constraint(
+            equalTo: verticalLine.trailingAnchor, constant: 8)
+        let cTrail = contentLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: contentView.trailingAnchor, constant: -16)
+        let cWidth = contentLabel.widthAnchor.constraint(
+            lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8)
+        let cBottom = contentLabel.bottomAnchor.constraint(
+            lessThanOrEqualTo: separatorLine.topAnchor, constant: -16)
+        previewConstraints = [
+            vLineTop, vLineBottom, vLineLeading, vLineWidth, cTop, cLead, cTrail, cWidth, cBottom,
+        ]
+        titleToSeparatorConstraint = titleLabel.bottomAnchor.constraint(
+            equalTo: separatorLine.topAnchor, constant: -16)
+        titleToSeparatorConstraint?.isActive = false
 
-            verticalLine.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-            verticalLine.bottomAnchor.constraint(equalTo: separatorLine.topAnchor, constant: -16),
-            verticalLine.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            verticalLine.widthAnchor.constraint(equalToConstant: 2),
-
-
-            contentLabel.topAnchor.constraint(equalTo: verticalLine.topAnchor),
-            contentLabel.leadingAnchor.constraint(
-                equalTo: verticalLine.trailingAnchor, constant: 8),
-            contentLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
-            contentLabel.widthAnchor.constraint(
-                lessThanOrEqualTo: contentView.widthAnchor, multiplier: 0.8),
-            contentLabel.bottomAnchor.constraint(
-                lessThanOrEqualTo: separatorLine.topAnchor, constant: -16),
-
-
-            separatorLine.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        NSLayoutConstraint.activate(previewConstraints)
+        NSLayoutConstraint.activate([
+            separatorLine.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             separatorLine.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             separatorLine.heightAnchor.constraint(equalToConstant: 1),
         ])
     }
 
+    private func setPreviewBlockVisible(_ visible: Bool) {
+        if visible {
+            titleToSeparatorConstraint?.isActive = false
+            NSLayoutConstraint.activate(previewConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(previewConstraints)
+            titleToSeparatorConstraint?.isActive = true
+        }
+    }
+
+    private func startAvatarSkeleton() {
+        avatarSkeleton.isHidden = false
+        avatarSkeleton.backgroundColor = UIColor.theme.tertiary
+        avatarSkeleton.layer.removeAnimation(forKey: "notifSk")
+        let a = CABasicAnimation(keyPath: "opacity")
+        a.fromValue = 0.45
+        a.toValue = 1
+        a.duration = 0.8
+        a.autoreverses = true
+        a.repeatCount = .infinity
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        avatarSkeleton.layer.add(a, forKey: "notifSk")
+    }
+
+    private func stopAvatarSkeleton() {
+        avatarSkeleton.isHidden = true
+        avatarSkeleton.layer.removeAnimation(forKey: "notifSk")
+    }
+
     func configure(with item: NotificationItem) {
         titleLabel.text = item.subject
-        contentLabel.text = item.content.isEmpty ? nil : item.content
+        let body = item.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        contentLabel.text = body.isEmpty ? nil : item.content
+        setPreviewBlockVisible(!body.isEmpty)
 
         let avatarURLStr = item.avatarURL
         imageTask?.cancel()
         imageTask = nil
+        stopAvatarSkeleton()
 
         avatarView.backgroundColor = UIColor.avatarColor(for: item.subject)
         avatarPlaceholder.text =
@@ -241,13 +310,19 @@ final class NotificationItemCell: UITableViewCell {
                 avatarPlaceholder.isHidden = true
             } else {
                 avatarView.image = nil
-                avatarPlaceholder.isHidden = false
+                avatarView.backgroundColor = .clear
+                avatarPlaceholder.isHidden = true
+                startAvatarSkeleton()
                 imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] img in
                     guard let self else { return }
+                    self.stopAvatarSkeleton()
                     if let img {
                         self.avatarView.image = img
                         self.avatarView.backgroundColor = .clear
                         self.avatarPlaceholder.isHidden = true
+                    } else {
+                        self.avatarView.backgroundColor = UIColor.avatarColor(for: item.subject)
+                        self.avatarPlaceholder.isHidden = false
                     }
                 }
             }
@@ -280,6 +355,8 @@ final class NotificationItemCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
+        imageTask = nil
+        stopAvatarSkeleton()
         avatarView.image = nil
         avatarPlaceholder.text = nil
     }

@@ -4,6 +4,7 @@ import AVKit
 import MediaPlayer
 import AsyncDisplayKit
 import LiveKit
+import LiveKitWebRTC
 
 private let kVoiceKomuAgentDefaultAvatarURL =
     ImgproxyURL.create(from: "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png", width: 100, height: 100)
@@ -173,24 +174,60 @@ fileprivate enum VoiceChannelPiPPreservedAudioRoute {
     case bluetooth
 }
 
-private let voiceChannelAudioSessionCategoryOptions: AVAudioSession.CategoryOptions =
-    [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
+enum VoiceChannelAudioPreferences {
+    private static let mixWithOthersKey = "mezon.voiceChannel.mixWithOthers"
+
+    static var mixWithOthersEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: mixWithOthersKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: mixWithOthersKey)
+            UserDefaults.standard.synchronize()
+            VoiceChannelLiveKitBridge.applyVoiceProcessingBypassForMix(newValue)
+        }
+    }
+}
+
+private func voiceChannelBaseCategoryOptions() -> AVAudioSession.CategoryOptions {
+    var opts: AVAudioSession.CategoryOptions = [.allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
+    if VoiceChannelAudioPreferences.mixWithOthersEnabled {
+        opts.insert(.mixWithOthers)
+    }
+    return opts
+}
+
+private func voiceChannelSpeakerCategoryOptions() -> AVAudioSession.CategoryOptions {
+    var opts = voiceChannelBaseCategoryOptions()
+    opts.insert(.defaultToSpeaker)
+    return opts
+}
+
+private func voiceChannelEarpieceCategoryOptions() -> AVAudioSession.CategoryOptions {
+    voiceChannelBaseCategoryOptions()
+}
 
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
-    let session = AVAudioSession.sharedInstance()
+    let rtc = LKRTCAudioSession.sharedInstance()
+    rtc.lockForConfiguration()
+    defer { rtc.unlockForConfiguration() }
+    let cfg = LKRTCAudioSessionConfiguration.webRTC()
+    cfg.category = AVAudioSession.Category.playAndRecord.rawValue
     do {
         switch route {
         case .speaker:
             AudioManager.shared.isSpeakerOutputPreferred = true
-            try session.setCategory(.playAndRecord, mode: .videoChat, options: voiceChannelAudioSessionCategoryOptions)
-            try? session.setActive(true)
-            try session.overrideOutputAudioPort(.speaker)
+            cfg.mode = AVAudioSession.Mode.default.rawValue
+            cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
+            LKRTCAudioSessionConfiguration.setWebRTC(cfg)
+            try rtc.setConfiguration(cfg, active: true)
+            try rtc.overrideOutputAudioPort(.speaker)
         case .bluetooth, .earpiece:
             AudioManager.shared.isSpeakerOutputPreferred = false
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: voiceChannelAudioSessionCategoryOptions)
-            try? session.setActive(true)
-            try session.overrideOutputAudioPort(.none)
+            cfg.mode = AVAudioSession.Mode.voiceChat.rawValue
+            cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
+            LKRTCAudioSessionConfiguration.setWebRTC(cfg)
+            try rtc.setConfiguration(cfg, active: true)
+            try rtc.overrideOutputAudioPort(.none)
         }
     } catch {
     }
@@ -769,16 +806,20 @@ final class VoiceChannelPiPOverlay: NSObject {
             lastParticipantIdentity = identity
             avatarView.image = nil
             let username = resolveUsername(participant)
-            textAvatar.configure(username: username, fontSize: 20)
             if let raw = url, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
+                textAvatar.showSkeleton()
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }
                     self.avatarView.image = img
                     if img != nil {
                         self.textAvatar.showImageMode()
+                    } else {
+                        self.textAvatar.configure(username: username, fontSize: 20)
                     }
                 }
+            } else {
+                textAvatar.configure(username: username, fontSize: 20)
             }
         }
     }
@@ -1276,8 +1317,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var callPiPActiveObserver: NSObjectProtocol?
 
     private let connectingOverlay = UIView()
-    private let connectingSpinner = UIActivityIndicatorView(style: .large)
+    private let connectingSpinner = UIActivityIndicatorView(style: .medium)
     private let connectingLabel = UILabel()
+    private let connectingStack = UIStackView()
     private let voiceReactionOverlay = VoiceCallReactionFlightView()
     private let raiseHandBannerStack = UIStackView()
 
@@ -1464,19 +1506,31 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         bottomPill.addSubview(bottomControlsStack)
 
         connectingOverlay.translatesAutoresizingMaskIntoConstraints = false
-        connectingOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        connectingOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        connectingOverlay.layer.cornerRadius = 16
+        connectingOverlay.clipsToBounds = true
         connectingOverlay.isHidden = true
+        connectingOverlay.isUserInteractionEnabled = false
         connectingSpinner.translatesAutoresizingMaskIntoConstraints = false
         connectingSpinner.hidesWhenStopped = true
+        connectingSpinner.color = .white
         connectingLabel.translatesAutoresizingMaskIntoConstraints = false
-        connectingLabel.font = .systemFont(ofSize: 15, weight: .medium)
-        connectingLabel.textColor = UIColor.theme.textStrong
-        connectingLabel.textAlignment = .center
-        connectingLabel.numberOfLines = 0
+        connectingLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        connectingLabel.textColor = .white
+        connectingLabel.textAlignment = .left
+        connectingLabel.numberOfLines = 1
         connectingLabel.text = NSLocalizedString(
             "voiceChannel.connecting", tableName: nil, bundle: .main, value: "Connecting to voice…", comment: "")
-        connectingOverlay.addSubview(connectingSpinner)
-        connectingOverlay.addSubview(connectingLabel)
+        connectingStack.translatesAutoresizingMaskIntoConstraints = false
+        connectingStack.axis = .horizontal
+        connectingStack.alignment = .center
+        connectingStack.spacing = 8
+        connectingStack.isLayoutMarginsRelativeArrangement = true
+        connectingStack.layoutMargins = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 14)
+        connectingStack.isUserInteractionEnabled = false
+        connectingStack.addArrangedSubview(connectingSpinner)
+        connectingStack.addArrangedSubview(connectingLabel)
+        connectingOverlay.addSubview(connectingStack)
 
         view.addSubview(headerBar)
         view.addSubview(contentScroll)
@@ -1541,17 +1595,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             bottomControlsStack.trailingAnchor.constraint(equalTo: bottomPill.trailingAnchor, constant: -10),
             bottomControlsStack.bottomAnchor.constraint(equalTo: bottomPill.bottomAnchor, constant: -6),
 
-            connectingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            connectingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            connectingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
-            connectingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            connectingOverlay.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            connectingOverlay.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 8),
+            connectingOverlay.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
+            connectingOverlay.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
 
-            connectingSpinner.centerXAnchor.constraint(equalTo: connectingOverlay.centerXAnchor),
-            connectingSpinner.centerYAnchor.constraint(equalTo: connectingOverlay.centerYAnchor, constant: -24),
-
-            connectingLabel.leadingAnchor.constraint(equalTo: connectingOverlay.leadingAnchor, constant: 24),
-            connectingLabel.trailingAnchor.constraint(equalTo: connectingOverlay.trailingAnchor, constant: -24),
-            connectingLabel.topAnchor.constraint(equalTo: connectingSpinner.bottomAnchor, constant: 16),
+            connectingStack.topAnchor.constraint(equalTo: connectingOverlay.topAnchor),
+            connectingStack.bottomAnchor.constraint(equalTo: connectingOverlay.bottomAnchor),
+            connectingStack.leadingAnchor.constraint(equalTo: connectingOverlay.leadingAnchor),
+            connectingStack.trailingAnchor.constraint(equalTo: connectingOverlay.trailingAnchor),
 
             voiceReactionOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             voiceReactionOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -2602,7 +2654,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             refreshVoiceAgentButtonAppearance()
         }
         bottomPill.backgroundColor = UIColor.theme.secondary
-        connectingLabel.textColor = UIColor.theme.textStrong
+        connectingLabel.textColor = .white
         participantRows.values.forEach { $0.applyTheme() }
         refreshSpeakerRouteUI()
         refreshCamButtonIcon()
@@ -2798,16 +2850,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func setConnectingOverlayVisible(_ visible: Bool) {
         connectingOverlay.isHidden = !visible
-        connectingOverlay.isUserInteractionEnabled = visible
+        connectingOverlay.isUserInteractionEnabled = false
         if visible {
             connectingSpinner.startAnimating()
             view.bringSubviewToFront(connectingOverlay)
         } else {
             connectingSpinner.stopAnimating()
-            view.bringSubviewToFront(headerBar)
-            view.bringSubviewToFront(bottomPill)
-            view.bringSubviewToFront(raiseHandBannerStack)
-            view.bringSubviewToFront(voiceReactionOverlay)
         }
     }
 
@@ -3258,11 +3306,20 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var currentAudioOutput: AudioOutputMode = .earpiece
 
     private func ensureVoiceChannelAudioSessionCategory() {
-        let session = AVAudioSession.sharedInstance()
-        let mode: AVAudioSession.Mode = currentAudioOutput == .speaker ? .videoChat : .voiceChat
+        let rtc = LKRTCAudioSession.sharedInstance()
+        rtc.lockForConfiguration()
+        defer { rtc.unlockForConfiguration() }
+        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        cfg.category = AVAudioSession.Category.playAndRecord.rawValue
+        cfg.mode = (currentAudioOutput == .speaker
+            ? AVAudioSession.Mode.default
+            : AVAudioSession.Mode.voiceChat).rawValue
+        cfg.categoryOptions = currentAudioOutput == .speaker
+            ? voiceChannelSpeakerCategoryOptions()
+            : voiceChannelEarpieceCategoryOptions()
+        LKRTCAudioSessionConfiguration.setWebRTC(cfg)
         do {
-            try session.setCategory(.playAndRecord, mode: mode, options: voiceChannelAudioSessionCategoryOptions)
-            try session.setActive(true)
+            try rtc.setConfiguration(cfg, active: true)
         } catch {
         }
     }
@@ -4506,18 +4563,22 @@ private final class VoiceParticipantRowView: UIView {
             if urlChanged {
                 avatarView.image = nil
             }
-            textAvatar.configure(username: username, fontSize: layoutMetrics.initialFontSize)
             if let raw = avatarURL, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
+                textAvatar.showSkeleton()
+                let fontSize = layoutMetrics.initialFontSize
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }
                     self.avatarView.image = img
                     if img != nil {
                         self.textAvatar.showImageMode()
+                    } else {
+                        self.textAvatar.configure(username: username, fontSize: fontSize)
                     }
                 }
             } else {
                 avatarView.image = nil
+                textAvatar.configure(username: username, fontSize: layoutMetrics.initialFontSize)
             }
         }
         lastTileVisualState = (username, displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL)

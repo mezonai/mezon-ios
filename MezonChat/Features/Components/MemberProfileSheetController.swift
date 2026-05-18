@@ -440,12 +440,15 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         avatarNode.isUserInteractionEnabled = false
         applyCachedAvatarToImageNodeIfAny()
 
-        textAvatarNode.configure(username: user.username, fontSize: 32.sf)
         textAvatarNode.cornerRadius = avatarSize / 2
         textAvatarNode.borderWidth = 4.sf
         textAvatarNode.borderColor = t.primary.cgColor
         if avatarNode.image != nil {
             textAvatarNode.showImageMode()
+        } else if profileAvatarCacheKeys() != nil {
+            textAvatarNode.showSkeleton()
+        } else {
+            textAvatarNode.configure(username: user.username, fontSize: 32.sf)
         }
 
         statusDotNode.backgroundColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
@@ -835,12 +838,23 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         )
     }
 
+    private func applyBannerTint(from image: UIImage) {
+        bannerNode.backgroundColor = image.dominantColor()
+            ?? UIColor.avatarColor(for: user.username)
+    }
+
+    private func resetBannerToUsernameAccent() {
+        bannerNode.backgroundColor = UIColor.avatarColor(for: user.username)
+    }
+
     private func applyCachedAvatarToImageNodeIfAny() {
         guard let k = profileAvatarCacheKeys() else { return }
         if let i = ImageCache.shared.memoryImage(forKey: k.full) {
             avatarNode.image = i
+            applyBannerTint(from: i)
         } else if let i = ImageCache.shared.memoryImage(forKey: k.list) {
             avatarNode.image = i
+            applyBannerTint(from: i)
         }
     }
 
@@ -849,15 +863,22 @@ private final class MemberProfileSheetNode: ASDisplayNode {
     private func applyLoadedAvatarImage(_ image: UIImage) {
         avatarNode.image = image
         textAvatarNode.showImageMode()
+        applyBannerTint(from: image)
     }
 
     private func showAvatarInitialsOnly() {
         avatarNode.image = nil
         textAvatarNode.configure(username: user.username, fontSize: 32.sf)
+        resetBannerToUsernameAccent()
     }
 
     private func loadProfileAvatar() {
-        if avatarNode.image != nil { return }
+        if avatarNode.image != nil {
+            if let img = avatarNode.image {
+                applyBannerTint(from: img)
+            }
+            return
+        }
         guard let k = profileAvatarCacheKeys() else {
             showAvatarInitialsOnly()
             return

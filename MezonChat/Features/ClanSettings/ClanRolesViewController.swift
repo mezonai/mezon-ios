@@ -36,6 +36,13 @@ final class ClanRolesViewController: BaseViewController {
     private let headerTitleLabel = UILabel()
     private let addButton = UIButton(type: .system)
 
+    private var headerTopConstraint: NSLayoutConstraint!
+    private var headerHeightConstraint: NSLayoutConstraint!
+
+    private var headerBarHeight: CGFloat {
+        max(50.sh, 44.swh + 10.sh)
+    }
+
     private lazy var tableHeader: UIView = {
         let v = UIView(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 60.sh))
         let label = UILabel()
@@ -99,11 +106,13 @@ final class ClanRolesViewController: BaseViewController {
             headerView.addSubview($0)
         }
 
+        headerTopConstraint = headerView.topAnchor.constraint(equalTo: view.topAnchor, constant: 0)
+        headerHeightConstraint = headerView.heightAnchor.constraint(equalToConstant: headerBarHeight)
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerTopConstraint,
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 50.sh),
+            headerHeightConstraint,
 
             backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 8.sw),
             backButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
@@ -145,13 +154,31 @@ final class ClanRolesViewController: BaseViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        let top = layout.safeInsets.top
-        let headerH: CGFloat = 50.sh
+        applyRolesChromeLayout(layout)
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        if let layout = currentlyAppliedLayout {
+            applyRolesChromeLayout(layout)
+        }
+    }
+
+    private func resolvedSafeTop(for layout: ContainerViewLayout) -> CGFloat {
+        let viewSafeTop = isViewLoaded ? view.safeAreaInsets.top : 0
+        return max(layout.safeInsets.top, layout.statusBarHeight ?? 0, viewSafeTop)
+    }
+
+    private func applyRolesChromeLayout(_ layout: ContainerViewLayout) {
+        let safeTop = resolvedSafeTop(for: layout)
+        headerTopConstraint.constant = safeTop
+        headerHeightConstraint.constant = headerBarHeight
+        let headerH = headerBarHeight
         tableView.frame = CGRect(
             x: 0,
-            y: top + headerH,
+            y: safeTop + headerH,
             width: layout.size.width,
-            height: layout.size.height - top - headerH
+            height: layout.size.height - safeTop - headerH
         )
     }
 

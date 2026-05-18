@@ -65,6 +65,9 @@ final class VoIPMinimalShellViewController: ViewController {
         guard payload.receiverId == myId || payload.receiverId == 0 else {
             return
         }
+        if WebRTCCallManager.shared.discardStaleIncomingPeerPayloadIfNeeded(payload) {
+            return
+        }
         switch peerCallIncomingPresentHost() {
         case .noHost:
             stashIncomingPeerCallAndScheduleFlush(notification.userInfo ?? [:])

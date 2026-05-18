@@ -189,6 +189,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         imageTask?.cancel()
         imageTask = nil
         avatarImageView.image = nil
+        textAvatar.showImageMode()
     }
 
     func applyTheme() {
@@ -211,7 +212,6 @@ private final class DmMessageActivityCell: UICollectionViewCell {
                let u = URL(string: encoded) { return u }
             return nil
         }()
-        textAvatar.configure(username: item.username, fontSize: 14.sf)
         if let url = resolvedURL {
             loadAvatar(url: url, fallbackUsername: item.username)
         } else {
@@ -219,6 +219,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
             imageTask?.cancel()
             imageTask = nil
             avatarImageView.image = nil
+            textAvatar.configure(username: item.username, fontSize: 14.sf)
         }
     }
 
@@ -234,6 +235,8 @@ private final class DmMessageActivityCell: UICollectionViewCell {
             textAvatar.showImageMode()
             return
         }
+        avatarImageView.image = nil
+        textAvatar.showSkeleton()
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
             if let image {

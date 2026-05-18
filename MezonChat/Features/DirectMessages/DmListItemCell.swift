@@ -81,6 +81,7 @@ final class DmListItemCell: UITableViewCell {
         imageTask?.cancel()
         imageTask = nil
         avatarImageView.image = nil
+        textAvatar.showImageMode()
         groupIconView.isHidden = true
         onlineIndicator.isHidden = true
     }
@@ -169,7 +170,6 @@ final class DmListItemCell: UITableViewCell {
         onlineIndicator.layer.borderColor = UIColor.theme.primary.cgColor
 
         if isGroup {
-            textAvatar.showImageMode()
             onlineIndicator.isHidden = true
             if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
                let url = URL(string: channel.channelAvatar) {
@@ -180,6 +180,7 @@ final class DmListItemCell: UITableViewCell {
                 imageTask?.cancel()
                 imageTask = nil
                 avatarImageView.image = nil
+                textAvatar.showImageMode()
                 textAvatar.backgroundColor = Self.groupDmListPlaceholderOrange
                 groupIconView.tintColor = .white
                 groupIconView.isHidden = false
@@ -190,7 +191,6 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.isHidden = !isOnline
 
             let username = channel.usernames.first ?? ""
-            textAvatar.configure(username: username, fontSize: 16.sf)
             let resolvedURLString = Self.resolveDmAvatarURL(channel: channel, context: context)
 
             if let urlString = resolvedURLString, let url = URL(string: urlString) {
@@ -200,6 +200,7 @@ final class DmListItemCell: UITableViewCell {
                 imageTask?.cancel()
                 imageTask = nil
                 avatarImageView.image = nil
+                textAvatar.configure(username: username, fontSize: 16.sf)
             }
         }
 
@@ -266,6 +267,7 @@ final class DmListItemCell: UITableViewCell {
             return
         }
         avatarImageView.image = nil
+        textAvatar.showSkeleton()
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
             if let image {
@@ -276,6 +278,7 @@ final class DmListItemCell: UITableViewCell {
                 self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
             } else {
                 self.avatarImageView.image = nil
+                self.textAvatar.showImageMode()
             }
         }
     }

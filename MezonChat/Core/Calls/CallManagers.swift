@@ -1,6 +1,10 @@
 import Foundation
 import UIKit
 
+enum PeerCallIncomingFreshness {
+    static let maxOfferAgeMs: Int64 = 30_000
+}
+
 @MainActor
 final class WebRTCCallManager {
     static let shared = WebRTCCallManager()
@@ -161,6 +165,39 @@ final class WebRTCCallManager {
         pendingIncomingPeerCallUserInfo = nil
     }
 
+    @discardableResult
+    func discardStaleIncomingPeerPayloadIfNeeded(_ payload: IncomingPeerCallPayload) -> Bool {
+        guard payload.isStaleIncomingRing(maxAgeMs: PeerCallIncomingFreshness.maxOfferAgeMs) else {
+            return false
+        }
+        print(
+            "[DMCall] discardStaleIncomingPeerPayloadIfNeeded channelId=\(payload.channelId) callerId=\(payload.callerId)"
+        )
+        awaitingIncomingAttachment = false
+        expectedIncomingBufferKey = nil
+        bufferedSignaling.removeAll()
+        pendingIncomingPeerCallUserInfo = nil
+        if let warm = preWarmedIncomingSession,
+            warm.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId)
+        {
+            warm.hangUp()
+            preWarmedIncomingSession = nil
+            preWarmedIncomingKey = nil
+        }
+        if let session = signalingSession,
+            session.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId),
+            session.isRingingIncomingPeerCallMatching(channelId: payload.channelId, callerId: payload.callerId)
+        {
+            session.hangUp()
+        }
+        CallKitManager.shared.endRingingCallIfMatching(
+            channelId: payload.channelId,
+            callerId: payload.callerId,
+            remoteIsConnected: false
+        )
+        return true
+    }
+
     func armIncomingSignalingBufferIfDetached(channelId: Int64, calleeUserId: Int64) {
         print("[DMCall] armIncomingSignalingBufferIfDetached channelId=\(channelId) calleeUserId=\(calleeUserId) hasSig=\(signalingSession != nil)")
         guard signalingSession == nil else {
@@ -187,6 +224,11 @@ final class WebRTCCallManager {
         print("[DMCall] prepareIncomingCallFromVoIPUserInfo channelId=\(payload.channelId) callerId=\(payload.callerId) receiverId=\(payload.receiverId) hasPushOffer=\(payload.compressedOfferFromPush?.isEmpty == false) hasSigOffer=\(payload.compressedOfferFromSignaling?.isEmpty == false)")
         guard payload.receiverId == currentUserId || payload.receiverId == 0 else {
             print("[DMCall] prepareIncomingCallFromVoIPUserInfo skip: receiverId mismatch \(payload.receiverId) != \(currentUserId)")
+            return
+        }
+
+        if discardStaleIncomingPeerPayloadIfNeeded(payload) {
+            print("[DMCall] prepareIncomingCallFromVoIPUserInfo skip: stale offer timestamp")
             return
         }
 
@@ -512,6 +554,13 @@ struct IncomingPeerCallPayload {
         return nil
     }
 
+    func isStaleIncomingRing(maxAgeMs: Int64, nowMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Bool {
+        guard let t = IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: pushJsonData) else {
+            return false
+        }
+        return nowMs - t > maxAgeMs
+    }
+
     init(
         channelId: Int64,
         callerId: Int64,
@@ -565,6 +614,35 @@ enum IncomingPeerCallPayloadParser {
         let name = obj["callerName"] as? String
         let avatar = obj["callerAvatar"] as? String
         return (name, avatar)
+    }
+
+    static func offerCreatedAtMs(pushJsonData: String?) -> Int64? {
+        let trimmed = pushJsonData?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty,
+            let data = trimmed.data(using: .utf8),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        for key in ["sentAt", "createAt", "createdAt"] {
+            if let ms = normalizedEpochMillis(from: obj[key]) { return ms }
+        }
+        return nil
+    }
+
+    private static func normalizedEpochMillis(from any: Any?) -> Int64? {
+        guard let any else { return nil }
+        let raw: Int64? = {
+            if let n = any as? NSNumber { return n.int64Value }
+            if let i = any as? Int64 { return i }
+            if let i = any as? Int { return Int64(i) }
+            if let s = any as? String {
+                return Int64(s.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+            if let d = any as? Double { return Int64(d) }
+            return nil
+        }()
+        guard let v = raw, v > 0 else { return nil }
+        if v < 10_000_000_000 { return v * 1000 }
+        return v
     }
 
     static func callerDisplay(for payload: IncomingPeerCallPayload, skipDecompressOffer: Bool) -> (name: String, avatar: String?) {
