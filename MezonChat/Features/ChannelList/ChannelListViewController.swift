@@ -822,7 +822,7 @@ final class ChannelListViewController: ViewController {
                 }
 
                 NotificationCenter.default.post(
-                    name: Notification.Name("NotificationSettingDidUpdate"),
+                    name: .mezonNotificationSettingDidUpdate,
                     object: nil,
                     userInfo: ["channelId": channelId, "record": record]
                 )

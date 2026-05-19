@@ -43,6 +43,9 @@ final class ChannelDetailViewController: ViewController {
             },
             onThreadsTapped: { [weak self] in
                 self?.openThreadList()
+            },
+            onMuteTapped: { [weak self] in
+                self?.handleMuteButtonTapped()
             }
         )
     }
@@ -54,6 +57,12 @@ final class ChannelDetailViewController: ViewController {
             self,
             selector: #selector(handleChannelDescriptionDidUpdate(_:)),
             name: .mezonChannelDescriptionDidUpdate,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNotificationSettingDidUpdate(_:)),
+            name: .mezonNotificationSettingDidUpdate,
             object: nil
         )
     }
@@ -76,6 +85,13 @@ final class ChannelDetailViewController: ViewController {
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
+        guard let cid = Self.notificationInt64(notification.userInfo?["channelId"]), cid == channel.channelID else {
+            return
+        }
+        refreshChannelFromStores()
+    }
+
+    @objc private func handleNotificationSettingDidUpdate(_ notification: Notification) {
         guard let cid = Self.notificationInt64(notification.userInfo?["channelId"]), cid == channel.channelID else {
             return
         }
@@ -150,5 +166,67 @@ final class ChannelDetailViewController: ViewController {
             channelTopic: channel.topic
         )
         navigationController?.pushViewController(settingsVC, animated: true)
+    }
+
+    private func handleMuteButtonTapped() {
+        let isMuted = context.account.postbox.read { tx in
+            guard let record = tx.getNotificationSetting(entityId: channel.channelID) else { return false }
+            return record.timeMuteSeconds != 0
+        }
+        
+        if isMuted {
+            handleMuteChannel(muteTimeSeconds: 0)
+        } else {
+            openMuteDuration()
+        }
+    }
+
+    private func openMuteDuration() {
+        let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
+        let vc = MuteDurationViewController(
+            channelName: channel.channelLabel,
+            channelId: channel.channelID,
+            clanId: channel.clanID,
+            context: self.context,
+            isThread: isThread
+        ) { [weak self] duration in
+            self?.handleMuteChannel(muteTimeSeconds: duration.seconds)
+        }
+        self.navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func handleMuteChannel(muteTimeSeconds: Int32) {
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.setMuteChannel(
+                    id: channel.channelID,
+                    clanId: channel.clanID,
+                    muteTime: muteTimeSeconds,
+                    active: 0,
+                    token: token
+                )
+                
+                let record = NotificationSettingRecord(
+                    id: 0,
+                    entityId: channel.channelID,
+                    scope: .channel,
+                    notificationSettingType: 1,
+                    timeMuteSeconds: UInt32(bitPattern: muteTimeSeconds),
+                    active: 1
+                )
+                context.account.postbox.write { tx in
+                    tx.updateNotificationSetting(record)
+                }
+                
+                NotificationCenter.default.post(
+                    name: .mezonNotificationSettingDidUpdate,
+                    object: nil,
+                    userInfo: ["channelId": channel.channelID, "record": record]
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
     }
 }

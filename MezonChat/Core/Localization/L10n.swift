@@ -623,8 +623,10 @@ enum L10n {
         static let unmarkFavorite       = "channel.action.unmarkFavorite"
         static let copyLink             = "channel.action.copyLink"
         static let mute                 = "channel.action.mute"
+        static let muteShort            = "channel.action.muteShort"
         static let muteThread           = "channel.action.muteThread"
         static let unmute               = "channel.action.unmute"
+        static let unmuteShort          = "channel.action.unmuteShort"
         static let unmuteThread         = "channel.action.unmuteThread"
         static let notificationSettings = "channel.action.notificationSettings"
         static let editChannel          = "channel.action.editChannel"
@@ -1351,8 +1353,10 @@ extension L10n {
         "channel.action.unmarkFavorite":       "Unmark Favorite",
         "channel.action.copyLink":             "Copy Link",
         "channel.action.mute":                 "Mute Channel",
+        "channel.action.muteShort":            "Mute",
         "channel.action.muteThread":           "Mute Thread",
         "channel.action.unmute":               "Unmute Channel",
+        "channel.action.unmuteShort":          "Unmute",
         "channel.action.unmuteThread":         "Unmute Thread",
         "channel.action.notificationSettings": "Notification Settings",
         "channel.action.editChannel":          "Edit Channel",
@@ -2158,8 +2162,10 @@ extension L10n {
         "channel.action.unmarkFavorite":       "Bỏ khỏi yêu thích",
         "channel.action.copyLink":             "Sao chép liên kết",
         "channel.action.mute":                 "Tắt thông báo kênh",
+        "channel.action.muteShort":            "Tắt thông báo",
         "channel.action.muteThread":           "Tắt thông báo chủ đề",
         "channel.action.unmute":               "Bật thông báo kênh",
+        "channel.action.unmuteShort":          "Bật thông báo",
         "channel.action.unmuteThread":         "Bật thông báo chủ đề",
         "channel.action.notificationSettings": "Cài đặt thông báo",
         "channel.action.editChannel":          "Chỉnh sửa kênh",
@@ -2176,7 +2182,7 @@ extension L10n {
         "muteDuration.for3Hours":          "Trong 3 giờ",
         "muteDuration.for8Hours":          "Trong 8 giờ",
         "muteDuration.for24Hours":         "Trong 24 giờ",
-        "muteDuration.untilTurnedOff":     "Cho đến khi bật lại",
+        "muteDuration.untilTurnedOff":     "Cho đến khi tôi bật lại",
         "muteDuration.notificationSettings": "Cài đặt thông báo",
         "muteDuration.description":        "Bạn đang nhận được thông báo từ tất cả tin nhắn trong clan này, nhưng bạn có thể thay đổi cài đặt tại đây",
 

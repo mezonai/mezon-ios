@@ -98,9 +98,9 @@ final class MuteDurationViewController: ViewController {
         backBtn.translatesAutoresizingMaskIntoConstraints = false
         backBtn.setImage(
             UIImage(systemName: "chevron.left")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)),
+                UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)),
             for: .normal)
-        backBtn.tintColor = .mezonIconPrimary
+        backBtn.tintColor = .mezonTextStrong
         backBtn.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         headerBar.addSubview(backBtn)
 
@@ -164,7 +164,7 @@ final class MuteDurationViewController: ViewController {
         ])
 
         let cellBg = UIColor.mezonSecondaryBackground
-        let separatorColor = UIColor.mezonSeparator
+        let separatorColor = UIColor.theme.border
 
         for (index, duration) in MuteDuration.allCases.enumerated() {
             let row = makeOptionRow(title: duration.title, bgColor: cellBg) { [weak self] in
@@ -250,8 +250,8 @@ final class MuteDurationViewController: ViewController {
         container.addSubview(label)
 
         let chevron = UIImageView()
-        chevron.image = UIImage(systemName: "chevron.right")
-        chevron.tintColor = .mezonIconTertiary
+        chevron.image = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold))
+        chevron.tintColor = .mezonTextPrimary
         chevron.contentMode = .scaleAspectFit
         chevron.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(chevron)
@@ -272,24 +272,11 @@ final class MuteDurationViewController: ViewController {
     }
 
     private func makeSeparator(color: UIColor) -> UIView {
-        let wrapper = UIView()
-        wrapper.backgroundColor = UIColor.mezonSecondaryBackground
-        wrapper.translatesAutoresizingMaskIntoConstraints = false
-
         let line = UIView()
         line.backgroundColor = color
         line.translatesAutoresizingMaskIntoConstraints = false
-        wrapper.addSubview(line)
-
-        NSLayoutConstraint.activate([
-            wrapper.heightAnchor.constraint(equalToConstant: 1),
-            line.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
-            line.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
-            line.topAnchor.constraint(equalTo: wrapper.topAnchor),
-            line.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
-        ])
-
-        return wrapper
+        line.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
+        return line
     }
 
     @objc private func backTapped() {

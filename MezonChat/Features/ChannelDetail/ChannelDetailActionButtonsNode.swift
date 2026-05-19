@@ -19,11 +19,17 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
     private let showMute: Bool
     private let showSettings: Bool
 
+    private var channel: Mezon_Api_ChannelDescription
+    private let context: AccountContext
+
     var onSettingsTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onThreadsTapped: (() -> Void)?
+    var onMuteTapped: (() -> Void)?
 
     init(channel: Mezon_Api_ChannelDescription, context: AccountContext) {
+        self.channel = channel
+        self.context = context
         let dm = MezonConstants.ChannelType.dm.rawValue
         let group = MezonConstants.ChannelType.group.rawValue
         let channelType = MezonConstants.ChannelType.channel.rawValue
@@ -72,6 +78,12 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             self, action: #selector(searchPressed), forControlEvents: .touchUpInside)
         threadsButtonNode.addTarget(
             self, action: #selector(threadsPressed), forControlEvents: .touchUpInside)
+        muteButtonNode.addTarget(
+            self, action: #selector(mutePressed), forControlEvents: .touchUpInside)
+    }
+
+    @objc private func mutePressed() {
+        onMuteTapped?()
     }
 
     @objc private func searchPressed() {
@@ -178,12 +190,48 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         )
     }
 
+    func updateMuteButtonState() {
+        let isMuted = context.account.postbox.read { tx in
+            guard let record = tx.getNotificationSetting(entityId: channel.channelID) else { return false }
+            return record.timeMuteSeconds != 0
+        }
+        
+        let assetName = isMuted ? "ClanSetting/MuteBellIcon" : "ClanSetting/BellIcon"
+        let text = isMuted ? L(L10n.ChannelAction.unmuteShort) : L(L10n.ChannelAction.muteShort)
+        
+        let t = UIColor.theme
+        muteButtonNode.backgroundColor = t.secondary
+        muteButtonNode.imageNode.contentMode = .scaleAspectFit
+        muteButtonNode.imageNode.style.preferredSize = CGSize(width: 24.sw, height: 24.sw)
+        let fallbackSystemName = isMuted ? "bell.slash.fill" : "bell.fill"
+        muteButtonNode.setImage(
+            actionIconImage(
+                assetName: assetName,
+                fallbackSystemName: fallbackSystemName,
+                fallbackTintColor: t.textStrong
+            ),
+            for: .normal
+        )
+        
+        muteLabel.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .semibold),
+                .foregroundColor: t.textStrong,
+            ]
+        )
+    }
+
+    func applyUpdatedChannel(_ updated: Mezon_Api_ChannelDescription) {
+        self.channel = updated
+        updateMuteButtonState()
+    }
+
     func applyTheme() {
         let t = UIColor.theme
         let pairs: [(ASButtonNode, ASTextNode2, String, String?)] = [
             (searchButtonNode, searchLabel, "magnifyingglass", "Channel/Search"),
             (threadsButtonNode, threadsLabel, "text.bubble", "Channel/channelThread"),
-            (muteButtonNode, muteLabel, "bell.fill", "ClanSetting/BellIcon"),
             (settingsButtonNode, settingsLabel, "gearshape.fill", "Profile/SettingIcon"),
         ]
         for (button, label, iconName, assetName) in pairs {
@@ -208,6 +256,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
                 )
             }
         }
+        updateMuteButtonState()
     }
 
     private func actionIconImage(assetName: String?, fallbackSystemName: String, fallbackTintColor: UIColor)

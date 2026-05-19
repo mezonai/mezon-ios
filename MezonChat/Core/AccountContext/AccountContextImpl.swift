@@ -1006,7 +1006,7 @@ final class AccountContextImpl: AccountContext {
             }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
-                    name: Notification.Name("NotificationSettingDidUpdate"),
+                    name: .mezonNotificationSettingDidUpdate,
                     object: nil,
                     userInfo: ["channelId": m.channelID, "record": record]
                 )

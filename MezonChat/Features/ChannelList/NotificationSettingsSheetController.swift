@@ -64,7 +64,7 @@ final class NotificationSettingsSheetController: ViewController {
     }
     
     private func setupSocketListener() {
-        NotificationCenter.default.addObserver(forName: Notification.Name("NotificationSettingDidUpdate"), object: nil, queue: .main) { [weak self] notification in
+        NotificationCenter.default.addObserver(forName: .mezonNotificationSettingDidUpdate, object: nil, queue: .main) { [weak self] notification in
             guard let self = self,
                   let userInfo = notification.userInfo,
                   let updatedChannelId = userInfo["channelId"] as? Int64,
@@ -201,7 +201,7 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
         containerNode.clipsToBounds = true
         addSubnode(containerNode)
 
-        handleNode.backgroundColor = UIColor.white.withAlphaComponent(0.3)
+        handleNode.backgroundColor = UIColor.theme.textDisabled
         handleNode.cornerRadius = 2.5
         containerNode.addSubnode(handleNode)
 
@@ -210,7 +210,7 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
         containerNode.addSubnode(group2Node)
 
         for sep in separators {
-            sep.backgroundColor = .mezonSeparator
+            sep.backgroundColor = UIColor.theme.border
             group2Node.addSubnode(sep)
         }
 
@@ -295,7 +295,7 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
                 row.frame = CGRect(x: 0, y: CGFloat(i) * rowH, width: groupW, height: rowH)
             }
             if i < 3 {
-                separators[i].frame = CGRect(x: 0, y: CGFloat(i + 1) * rowH, width: groupW, height: 0.5)
+                separators[i].frame = CGRect(x: 0, y: CGFloat(i + 1) * rowH, width: groupW, height: 1.0 / UIScreen.main.scale)
             }
         }
         y += rowH * 4

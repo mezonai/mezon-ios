@@ -226,7 +226,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         containerNode.cornerRadius = 24.swh
         addSubnode(containerNode)
 
-        handleNode.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.3)
+        handleNode.backgroundColor = UIColor.theme.textDisabled
         handleNode.cornerRadius = 2.5
         containerNode.addSubnode(handleNode)
 
@@ -246,7 +246,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         panGesture.delegate = self
         containerNode.view.addGestureRecognizer(panGesture)
         
-        NotificationCenter.default.addObserver(self, selector: #selector(handleNotificationSettingUpdated(_:)), name: Notification.Name("NotificationSettingDidUpdate"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNotificationSettingUpdated(_:)), name: .mezonNotificationSettingDidUpdate, object: nil)
     }
 
     deinit {
@@ -371,18 +371,9 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private func buildHeader(width: CGFloat) -> UIView {
         let v = UIView()
         let avatarSize: CGFloat = 56.swh
-        let avatar = UIView(frame: CGRect(x: 0, y: 0, width: avatarSize, height: avatarSize))
-        avatar.backgroundColor = colorFor(name: clanName)
+        let avatar = TextAvatarView(username: clanName, size: avatarSize, fontSize: 18.sf)
         avatar.layer.cornerRadius = 12.swh
-        avatar.clipsToBounds = true
         v.addSubview(avatar)
-
-        let initial = UILabel(frame: avatar.bounds)
-        initial.text = initials(for: clanName)
-        initial.font = .systemFont(ofSize: 18.sf, weight: .bold)
-        initial.textColor = .white
-        initial.textAlignment = .center
-        avatar.addSubview(initial)
 
         let avatarImageView = UIImageView(frame: avatar.bounds)
         avatarImageView.contentMode = .scaleAspectFill
@@ -390,10 +381,12 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         avatar.addSubview(avatarImageView)
 
         if !clanAvatarURL.isEmpty {
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: clanAvatarURL, width: 150, height: 150)) { [weak avatarImageView, weak initial] image in
+            avatar.showImageMode()
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: clanAvatarURL, width: 150, height: 150)) { [weak avatarImageView, weak avatar] image in
                 if let image = image {
                     avatarImageView?.image = image
-                    initial?.isHidden = true
+                } else {
+                    avatar?.showPlaceholder()
                 }
             }
         }
@@ -409,7 +402,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     private func buildGroup(actions: [ChannelAction], width: CGFloat) -> UIView {
         let v = UIView()
-        v.backgroundColor = .mezonBorder
+        v.backgroundColor = UIColor.theme.secondary
         v.layer.cornerRadius = 12
 
         let stack = UIStackView()
@@ -429,9 +422,9 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = .mezonTertiary
+                sep.backgroundColor = UIColor.theme.border
                 stack.addArrangedSubview(sep)
-                sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+                sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
         }
         return v
@@ -555,28 +548,6 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         guard let gesture = gestureRecognizer as? UIPanGestureRecognizer else { return true }
         let vel = gesture.velocity(in: view)
         return vel.y > 0 && scrollNode.view.contentOffset.y <= 0
-    }
-
-    private func initials(for name: String) -> String {
-        let words = name.split(separator: " ").prefix(2)
-        if words.count > 1 {
-            return words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-        } else {
-            return String(name.prefix(1)).uppercased()
-        }
-    }
-
-    private func colorFor(name: String) -> UIColor {
-        let colors: [UIColor] = [
-            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
-            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
-            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
-            UIColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),
-            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
-            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
-        ]
-        let hash = abs(name.hashValue)
-        return colors[hash % colors.count]
     }
 }
 
