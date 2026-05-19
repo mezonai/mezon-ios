@@ -22,12 +22,20 @@ extension MezonEngine {
             )
 
             let mappedNotifications = apiNotifications.map { NotificationRecord(from: $0) }
+            let friends = engine.friendsData.allFriends()
 
             postbox.write { tx in
+                let enriched = mappedNotifications.map { record in
+                    let friendAvatar =
+                        friends.first(where: { $0.user.id == record.senderID })?.user.avatarURL
+                        ?? ""
+                    return record.enrichedSenderAvatar(
+                        transaction: tx, fallbackAvatarURL: friendAvatar)
+                }
                 if notificationId > 0 {
-                    tx.appendNotifications(mappedNotifications, clanId: clanId, category: category)
+                    tx.appendNotifications(enriched, clanId: clanId, category: category)
                 } else {
-                    tx.updateNotifications(mappedNotifications, clanId: clanId, category: category)
+                    tx.updateNotifications(enriched, clanId: clanId, category: category)
                 }
             }
         }

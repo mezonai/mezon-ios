@@ -74,7 +74,19 @@ enum NotificationItem {
     var avatarURL: String {
         switch self {
         case .notification(let n): return n.avatarURL
-        case .topic(let t): return "default"
+        case .topic(let t): return t.senderAvatarURL
+        }
+    }
+
+    var avatarPlaceholderSeed: String {
+        switch self {
+        case .notification(let n):
+            let name = NotificationRecord.placeholderName(from: n.subject)
+            if !name.isEmpty { return name }
+            return n.subject
+        case .topic(let t):
+            if !t.senderDisplayName.isEmpty { return t.senderDisplayName }
+            return String(t.lastSenderID)
         }
     }
 
@@ -297,9 +309,10 @@ final class NotificationItemCell: UITableViewCell {
         imageTask = nil
         stopAvatarSkeleton()
 
-        avatarView.backgroundColor = UIColor.avatarColor(for: item.subject)
+        let avatarSeed = item.avatarPlaceholderSeed
+        avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
         avatarPlaceholder.text =
-            item.subject.first.map { String($0).uppercased() } ?? "N"
+            avatarSeed.first.map { String($0).uppercased() } ?? "N"
 
         if !avatarURLStr.isEmpty, avatarURLStr != "default",
            let url = URL(string: avatarURLStr) {
@@ -321,7 +334,7 @@ final class NotificationItemCell: UITableViewCell {
                         self.avatarView.backgroundColor = .clear
                         self.avatarPlaceholder.isHidden = true
                     } else {
-                        self.avatarView.backgroundColor = UIColor.avatarColor(for: item.subject)
+                        self.avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
                         self.avatarPlaceholder.isHidden = false
                     }
                 }

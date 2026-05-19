@@ -247,7 +247,7 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
         wrapper.backgroundColor = UIColor.avatarColor(for: m.username)
         imgNode.isHidden = true
         let initial = String(m.username.prefix(1)).uppercased()
-        let fontSize: CGFloat = s < 20 ? 8 : 10
+        let fontSize: CGFloat = s < 22 ? 9 : 11
         initNode.attributedText = NSAttributedString(
             string: initial,
             attributes: [
@@ -266,7 +266,7 @@ private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat)
 
 final class VoiceMemberExpandedCellNode: ASCellNode {
 
-    private static let avatarSize: CGFloat = 18
+    private static let avatarSize: CGFloat = 22
 
     private let avatarWrapper: ASDisplayNode
     private let avatarImg: ASNetworkImageNode
@@ -288,7 +288,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
         nameNode.attributedText = NSAttributedString(
             string: member.name,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
                 .foregroundColor: UIColor.theme.channelNormal,
             ])
     }
@@ -301,13 +301,13 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
         nameNode.style.flexShrink = 1
         let row = ASStackLayoutSpec(
             direction: .horizontal,
-            spacing: 8,
+            spacing: 10,
             justifyContent: .start,
             alignItems: .center,
             children: [avatarWrapper, nameNode]
         )
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 3, left: 40, bottom: 3, right: 12),
+            insets: UIEdgeInsets(top: 2, left: 40, bottom: 2, right: 12),
             child: row
         )
     }
@@ -315,7 +315,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
 final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
 
-    private static let avatarSize: CGFloat = 16
+    private static let avatarSize: CGFloat = 20
     private static let maxVisible = 5
 
     private var avatarNodes: [ASDisplayNode] = []
@@ -336,7 +336,7 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
 
         if totalCount > Self.maxVisible {
             let text = "+\(totalCount - Self.maxVisible)"
-            let font = UIFont.systemFont(ofSize: 9, weight: .bold)
+            let font = UIFont.systemFont(ofSize: 10, weight: .bold)
             let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
             let badgeWidth = max(Self.avatarSize, ceil(textWidth) + 8)
 
@@ -380,13 +380,13 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
         }
         let row = ASStackLayoutSpec(
             direction: .horizontal,
-            spacing: -4,
+            spacing: -3,
             justifyContent: .start,
             alignItems: .center,
             children: children
         )
         return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 2, left: 38, bottom: 3, right: 12),
+            insets: UIEdgeInsets(top: 2, left: 38, bottom: 2, right: 12),
             child: row
         )
     }

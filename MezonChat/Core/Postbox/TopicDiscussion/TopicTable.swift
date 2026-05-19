@@ -15,12 +15,14 @@ public final class TopicTable: Table {
                 creator_id           INTEGER NOT NULL,
                 content              TEXT NOT NULL,
                 update_time_seconds  INTEGER NOT NULL,
-                last_sent_message    TEXT NOT NULL
+                last_sent_message    TEXT NOT NULL,
+                last_sender_id       INTEGER NOT NULL DEFAULT 0
             )
         """)
         db.rawExecute(
             "CREATE INDEX IF NOT EXISTS idx_topics_clan ON topics(clan_id, update_time_seconds DESC)"
         )
+        addColumnIfNeeded("topics", column: "last_sender_id", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
     public override func beforeCommit() {
@@ -36,7 +38,7 @@ public final class TopicTable: Table {
 
         let rows = db.query(
             """
-            SELECT id, channel_id, clan_id, creator_id, content, update_time_seconds, last_sent_message
+            SELECT id, channel_id, clan_id, creator_id, content, update_time_seconds, last_sent_message, last_sender_id
             FROM topics
             WHERE clan_id = ?
             ORDER BY update_time_seconds DESC
@@ -52,6 +54,7 @@ public final class TopicTable: Table {
                 channelID: sqlite3_column_int64(stmt, 1),
                 clanID: sqlite3_column_int64(stmt, 2),
                 creatorID: sqlite3_column_int64(stmt, 3),
+                lastSenderID: sqlite3_column_int64(stmt, 7),
                 content: String(cString: sqlite3_column_text(stmt, 4)),
                 updateTimeSeconds: UInt32(sqlite3_column_int64(stmt, 5)),
                 lastSentMessageContent: String(cString: sqlite3_column_text(stmt, 6))
@@ -69,8 +72,8 @@ public final class TopicTable: Table {
         for t in topics {
             db.run(
                 """
-                INSERT INTO topics (id, channel_id, clan_id, creator_id, content, update_time_seconds, last_sent_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO topics (id, channel_id, clan_id, creator_id, content, update_time_seconds, last_sent_message, last_sender_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 { s in
                     sqlite3_bind_int64(s, 1, t.id)
@@ -80,6 +83,7 @@ public final class TopicTable: Table {
                     sqlite3_bind_text(s, 5, (t.content as NSString).utf8String, -1, nil)
                     sqlite3_bind_int64(s, 6, Int64(t.updateTimeSeconds))
                     sqlite3_bind_text(s, 7, (t.lastSentMessageContent as NSString).utf8String, -1, nil)
+                    sqlite3_bind_int64(s, 8, t.lastSenderID)
                 }
             )
         }
