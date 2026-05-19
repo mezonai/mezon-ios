@@ -68,6 +68,27 @@ final class MessageMediaContentNode: ASDisplayNode {
         super.init()
     }
 
+    func prepareForMeasurement(media: [ParsedAttachment]) {
+        attachments = media
+        lastRemoteProxyURLByIndex.removeAll()
+        cachedImageFrames = []
+        isUploading = media.contains { $0.isUploading }
+        isSticker = false
+        isGifSticker = false
+        isSingleImage = false
+        isMultiple = false
+        guard !media.isEmpty else { return }
+        let isGifType = media.count == 1 && media[0].filetype == "image/gif"
+        if media.count == 1, media[0].isSticker || isGifType {
+            isSticker = true
+            isGifSticker = isGifType && !media[0].isSticker
+        } else if media.count == 1 {
+            isSingleImage = true
+        } else {
+            isMultiple = true
+        }
+    }
+
     func configure(media: [ParsedAttachment]) {
 
         imageNodes.forEach { $0.removeFromSupernode(); $0.reset() }
@@ -242,16 +263,17 @@ final class MessageMediaContentNode: ASDisplayNode {
             let thumbH: CGFloat = max(120.sh, 1)
             let spacing: CGFloat = 4.sw
             let itemW = max((maxWidth - spacing) / 2, 1)
+            let mediaCount = min(attachments.count, 4)
             let items = Array(imageNodes.prefix(4))
 
             var frames: [CGRect] = []
-            let row1Count = min(items.count, 2)
+            let row1Count = min(mediaCount, 2)
             for i in 0..<row1Count {
                 frames.append(CGRect(x: CGFloat(i) * (itemW + spacing), y: 0, width: itemW, height: thumbH))
             }
 
-            if items.count > 2 {
-                let row2Count = items.count - 2
+            if mediaCount > 2 {
+                let row2Count = mediaCount - 2
                 for i in 0..<row2Count {
                     frames.append(CGRect(x: CGFloat(i) * (itemW + spacing), y: thumbH + spacing, width: itemW, height: thumbH))
                 }
@@ -274,7 +296,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
 
             cachedImageFrames = frames
-            let totalH = items.count > 2 ? thumbH * 2 + spacing : thumbH
+            let totalH = mediaCount > 2 ? thumbH * 2 + spacing : thumbH
             cachedTotalSize = CGSize(width: maxWidth, height: totalH)
             return cachedTotalSize
         }
