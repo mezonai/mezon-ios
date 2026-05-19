@@ -4009,15 +4009,23 @@ final class ChatViewController: ViewController {
     }
 
     private func presentForwardMessage(for display: ChatMessageDisplay, includeAdjacentNewer: Bool) {
+        let displays: [ChatMessageDisplay] = includeAdjacentNewer
+            ? forwardDisplaysAdjacentNewer(from: display)
+            : [display]
         let records = recordsForForward(selected: display, includeAdjacentNewer: includeAdjacentNewer)
         guard !records.isEmpty else {
             Toast.error(L(L10n.Sharing.errorTitle))
             return
         }
+        var attachmentHints: [String: [ParsedAttachment]] = [:]
+        for d in displays where !d.attachments.isEmpty {
+            attachmentHints[d.id] = d.attachments
+        }
         let vc = ForwardMessageViewController(
             context: context,
             messagesToForward: records,
-            forwardFromChannelID: channel.channelID
+            forwardFromChannelID: channel.channelID,
+            attachmentHints: attachmentHints
         )
         var presenter: UIViewController = self
         while let presented = presenter.presentedViewController {

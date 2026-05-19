@@ -3952,6 +3952,20 @@ final class SendMessageInputViewController: UIViewController {
         }
         let channelIds = mentionLookupChannelIds
         let mentionSnapshot = allMentionMembers
+        let cachedClanNick: String? = {
+            guard clanId != 0,
+                  let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+                  let found = clanUsers.clanUsers.first(where: { $0.user.id == senderId }) else { return nil }
+            let cn = found.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cn.isEmpty ? nil : cn
+        }()
+        let cachedClanAvatar: String? = {
+            guard clanId != 0,
+                  let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+                  let found = clanUsers.clanUsers.first(where: { $0.user.id == senderId }) else { return nil }
+            let ca = found.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+            return ca.isEmpty ? nil : ca
+        }()
         return context.account.postbox.read { tx -> (String, String?) in
             if clanId != 0,
                 let m = tx.getClanMembers(clanId: clanId).first(where: {
@@ -3983,8 +3997,13 @@ final class SendMessageInputViewController: UIViewController {
                 guard let r = members.first(where: {
                     Self.memberMatchesSender($0.userId, senderId: senderId, sender: sender)
                 }) else { continue }
+                let resolvedClanNick: String = {
+                    let rn = r.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !rn.isEmpty { return rn }
+                    return cachedClanNick ?? ""
+                }()
                 let name = Self.layeredClanVisibleName(
-                    clanNick: r.clanNick,
+                    clanNick: resolvedClanNick,
                     displayName: r.displayName,
                     username: r.username,
                     userId: r.userId,
@@ -3995,6 +4014,8 @@ final class SendMessageInputViewController: UIViewController {
                 let ca = r.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !ca.isEmpty {
                     av = ca
+                } else if let cca = cachedClanAvatar {
+                    av = cca
                 } else if let p = tx.getProfile(userId: sender.id), let u = p.avatarUrl {
                     let t = u.trimmingCharacters(in: .whitespacesAndNewlines)
                     av = t.isEmpty ? sender.avatarURL?.absoluteString : t
@@ -4007,7 +4028,7 @@ final class SendMessageInputViewController: UIViewController {
                 Self.memberMatchesSender($0.userId, senderId: senderId, sender: sender)
             }) {
                 let name = Self.layeredClanVisibleName(
-                    clanNick: "",
+                    clanNick: cachedClanNick ?? "",
                     displayName: mm.displayName,
                     username: mm.username,
                     userId: mm.userId,
@@ -4016,7 +4037,9 @@ final class SendMessageInputViewController: UIViewController {
                 )
                 let mav = mm.avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let av: String?
-                if let mav, !mav.isEmpty {
+                if let cca = cachedClanAvatar {
+                    av = cca
+                } else if let mav, !mav.isEmpty {
                     av = mav
                 } else {
                     av = sender.avatarURL?.absoluteString
@@ -4024,14 +4047,15 @@ final class SendMessageInputViewController: UIViewController {
                 return (name, av)
             }
             let name = Self.layeredClanVisibleName(
-                clanNick: "",
+                clanNick: cachedClanNick ?? "",
                 displayName: sender.displayName,
                 username: sender.username,
                 userId: 0,
                 profile: tx.getProfile(userId: sender.id),
                 sender: sender
             )
-            return (name, sender.avatarURL?.absoluteString)
+            let av: String? = cachedClanAvatar ?? sender.avatarURL?.absoluteString
+            return (name, av)
         }
     }
 

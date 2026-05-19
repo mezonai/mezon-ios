@@ -44,6 +44,16 @@ final class SharingChannelCell: UITableViewCell {
         return l
     }()
 
+    private let statusLabel: UILabel = {
+        let l = UILabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 12, weight: .regular)
+        l.textColor = UIColor.white.withAlphaComponent(0.55)
+        l.numberOfLines = 2
+        l.isHidden = true
+        return l
+    }()
+
     private let clanAvatarView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -119,6 +129,9 @@ final class SharingChannelCell: UITableViewCell {
         clanAvatarView.isHidden = true
         clanNameLabel.isHidden = true
         clanNameLabel.text = nil
+        statusLabel.isHidden = true
+        statusLabel.text = nil
+        contentView.alpha = 1
     }
 
     private func setupLayout() {
@@ -130,6 +143,7 @@ final class SharingChannelCell: UITableViewCell {
         avatarView.addSubview(channelIconView)
         contentView.addSubview(textColumnStack)
         textColumnStack.addArrangedSubview(nameLabel)
+        textColumnStack.addArrangedSubview(statusLabel)
         textColumnStack.addArrangedSubview(clanRowStack)
         clanRowStack.addArrangedSubview(clanAvatarView)
         clanRowStack.addArrangedSubview(clanNameLabel)
@@ -164,10 +178,25 @@ final class SharingChannelCell: UITableViewCell {
         ])
     }
 
-    func configure(item: SharingSuggestionItem, channel: Mezon_Api_ChannelDescription?, isSelected: Bool) {
+    func configure(
+        item: SharingSuggestionItem,
+        channel: Mezon_Api_ChannelDescription?,
+        isSelected: Bool,
+        statusNote: String? = nil,
+        isForwardingBlocked: Bool = false
+    ) {
         let theme = UIColor.theme
         nameLabel.textColor = theme.textStrong
         clanNameLabel.textColor = theme.textDisabled
+        if let note = statusNote?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty {
+            statusLabel.isHidden = false
+            statusLabel.text = note
+            statusLabel.textColor = theme.textDisabled
+        } else {
+            statusLabel.isHidden = true
+            statusLabel.text = nil
+        }
+        contentView.alpha = isForwardingBlocked ? 0.5 : 1
 
         let ch = channel
         let isDM = item.type == MezonConstants.ChannelType.dm.rawValue
@@ -256,7 +285,7 @@ final class SharingChannelCell: UITableViewCell {
             avatarView.backgroundColor = theme.tertiary
         }
 
-        checkmarkView.isHidden = !isSelected
+        checkmarkView.isHidden = isForwardingBlocked || !isSelected
     }
 
     private func loadMainAvatar(raw: String) {

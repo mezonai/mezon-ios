@@ -261,6 +261,8 @@ enum L10n {
         static let luckyMoneyWalletNotReady = "qrScanner.luckyMoneyWalletNotReady"
         static let luckyMoneyServiceNotConfigured = "qrScanner.luckyMoneyServiceNotConfigured"
         static let luckyMoneyInvalidPayload = "qrScanner.luckyMoneyInvalidPayload"
+        static let scannedPayloadTitle = "qrScanner.scannedPayloadTitle"
+        static let copyContent = "qrScanner.copyContent"
     }
 
     enum Language {
@@ -522,9 +524,18 @@ enum L10n {
         static let success                = "forward.success"
         static let attachmentsSingular    = "forward.attachmentsSingular"
         static let attachmentsPlural      = "forward.attachmentsPlural"
+        static let filesSingular          = "forward.filesSingular"
+        static let filesPlural            = "forward.filesPlural"
+        static let audioSingular          = "forward.audioSingular"
+        static let audioPlural            = "forward.audioPlural"
         static let moreBundledMessages    = "forward.moreBundledMessages"
         static let previewPlaceholder     = "forward.previewPlaceholder"
         static let commentTooLong        = "forward.commentTooLong"
+        static let noResults             = "forward.noResults"
+        static let blockedByYou          = "forward.blockedByYou"
+        static let blockedYou            = "forward.blockedYou"
+        static let cannotMessage         = "forward.cannotMessage"
+        static let toastCannotForward    = "forward.toastCannotForward"
     }
 
     enum Sharing {
@@ -1269,9 +1280,18 @@ extension L10n {
         "forward.success": "Messages forwarded",
         "forward.attachmentsSingular": "attachment",
         "forward.attachmentsPlural": "attachments",
+        "forward.filesSingular": "file",
+        "forward.filesPlural": "files",
+        "forward.audioSingular": "audio",
+        "forward.audioPlural": "audio",
         "forward.moreBundledMessages": "more messages included",
         "forward.previewPlaceholder": "Message preview",
         "forward.commentTooLong": "Comment is too long",
+        "forward.noResults": "No results found",
+        "forward.blockedByYou": "You blocked this user",
+        "forward.blockedYou": "This user blocked you",
+        "forward.cannotMessage": "You can't message each other",
+        "forward.toastCannotForward": "You can't forward messages to this conversation",
 
         "sharing.title":                    "Share",
         "sharing.suggestionsSection":       "Suggestions",
@@ -1504,7 +1524,7 @@ extension L10n {
         "messageAction.giveACoffee": "Give A Coffee",
         "messageAction.giveCoffeeSuccess": "Coffee sent",
         "messageAction.forwardMessage": "Forward Message",
-        "messageAction.forwardAll": "Forward all nearby",
+        "messageAction.forwardAll": "Forward All Nearby",
         "messageAction.createThread": "Create Thread",
         "messageAction.markUnread": "Mark Unread",
         "messageAction.topicDiscussion": "Topic Discussion",
@@ -1652,6 +1672,8 @@ extension L10n {
         "qrScanner.luckyMoneyWalletNotReady": "Wallet is not ready. Please try again later.",
         "qrScanner.luckyMoneyServiceNotConfigured": "Claim service is not configured.",
         "qrScanner.luckyMoneyInvalidPayload": "This QR code is not valid lucky money.",
+        "qrScanner.scannedPayloadTitle": "Scanned content",
+        "qrScanner.copyContent": "Copy",
 
         "error.networkError": "Network Error",
         "error.connectionFailed": "Connection failed. Please try again.",
@@ -2077,9 +2099,18 @@ extension L10n {
         "forward.success": "Đã chuyển tiếp tin nhắn",
         "forward.attachmentsSingular": "đính kèm",
         "forward.attachmentsPlural": "đính kèm",
+        "forward.filesSingular": "tệp",
+        "forward.filesPlural": "tệp",
+        "forward.audioSingular": "âm thanh",
+        "forward.audioPlural": "âm thanh",
         "forward.moreBundledMessages": "tin nhắn khác được gộp",
         "forward.previewPlaceholder": "Xem trước tin nhắn",
         "forward.commentTooLong": "Nội dung nhập quá dài",
+        "forward.noResults": "Không tìm thấy kết quả",
+        "forward.blockedByYou": "Bạn đã chặn người dùng này",
+        "forward.blockedYou": "Người dùng này đã chặn bạn",
+        "forward.cannotMessage": "Không thể nhắn tin cho nhau",
+        "forward.toastCannotForward": "Không thể chuyển tiếp tin nhắn tới cuộc trò chuyện này",
 
         "sharing.title":                    "Chia sẻ",
         "sharing.suggestionsSection":       "Gợi ý",
@@ -2459,6 +2490,8 @@ extension L10n {
         "qrScanner.luckyMoneyWalletNotReady": "Ví chưa sẵn sàng. Vui lòng thử lại sau.",
         "qrScanner.luckyMoneyServiceNotConfigured": "Dịch vụ nhận lì xì chưa được cấu hình.",
         "qrScanner.luckyMoneyInvalidPayload": "Mã QR không phải lì xì hợp lệ.",
+        "qrScanner.scannedPayloadTitle": "Nội dung quét được",
+        "qrScanner.copyContent": "Sao chép",
 
         "error.networkError": "Lỗi kết nối mạng",
         "error.connectionFailed": "Kết nối thất bại. Vui lòng thử lại.",

@@ -179,8 +179,9 @@ final class MessageTable: Table {
 
             if !msg.id.hasPrefix("pending-") {
                 if let pidx = current.firstIndex(where: { serverEchoMatchesPending(server: msg, pending: $0) }) {
-                    let pid = current[pidx].id
-                    current[pidx] = msg
+                    let pending = current[pidx]
+                    let pid = pending.id
+                    current[pidx] = Self.mergePendingIdentityIntoServerEcho(pending: pending, server: msg)
                     pendingDeletes.insert(pid)
                 } else if let idx = current.firstIndex(where: { $0.id == msg.id }) {
                     current[idx] = msg
@@ -196,6 +197,40 @@ final class MessageTable: Table {
             cache[msg.channelId] = current
             pendingWrites.insert(msg.channelId)
         }
+    }
+
+    private static func mergePendingIdentityIntoServerEcho(pending: MessageRecord, server: MessageRecord) -> MessageRecord {
+        let pendingName = pending.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverName = server.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let useName: String = {
+            if pendingName.isEmpty { return server.senderDisplayName }
+            if serverName.isEmpty { return pending.senderDisplayName }
+            if serverName == pending.senderId { return pending.senderDisplayName }
+            return pending.senderDisplayName
+        }()
+        let useAvatar: String? = {
+            let pa = pending.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !pa.isEmpty { return pending.senderAvatarURL }
+            return server.senderAvatarURL
+        }()
+        return MessageRecord(
+            id: server.id,
+            channelId: server.channelId,
+            clanId: server.clanId,
+            senderId: server.senderId,
+            content: server.content,
+            createdAt: server.createdAt,
+            editedAt: server.editedAt,
+            isDeleted: server.isDeleted,
+            code: server.code,
+            senderDisplayName: useName,
+            senderAvatarURL: useAvatar,
+            sendingState: server.sendingState,
+            attachmentsJSON: server.attachmentsJSON,
+            reactionsJSON: server.reactionsJSON,
+            referencesData: server.referencesData,
+            mentionsJSON: server.mentionsJSON
+        )
     }
 
     func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {

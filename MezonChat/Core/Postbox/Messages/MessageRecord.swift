@@ -75,9 +75,12 @@ extension MessageRecord {
         let isPoll = api.code == 18 || parsedPoll != nil
         
         let createdAt   = Date(timeIntervalSince1970: TimeInterval(api.createTimeSeconds))
+        let isClanContext = api.clanID != 0
         let displayName: String = {
-            let cn = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cn.isEmpty { return cn }
+            if isClanContext {
+                let cn = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !cn.isEmpty { return cn }
+            }
             let dn = api.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             if !dn.isEmpty { return dn }
             let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -85,8 +88,10 @@ extension MessageRecord {
             return "\(api.senderID)"
         }()
         let avatarURL: String? = {
-            let ca = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !ca.isEmpty { return ca }
+            if isClanContext {
+                let ca = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !ca.isEmpty { return ca }
+            }
             let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
             if !av.isEmpty { return av }
             return nil
@@ -153,9 +158,12 @@ extension MessageRecord {
                 mentionsJSON: fresh.mentionsJSON
             )
         }
-        let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
-        let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+        let isClanContext = api.clanID != 0
+        if isClanContext {
+            let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+            let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+        }
         let dn = api.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)

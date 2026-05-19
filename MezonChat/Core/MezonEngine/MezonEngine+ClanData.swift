@@ -567,6 +567,12 @@ extension MezonEngine {
             pendingIncomingFriends().count
         }
 
+        func blockedUserIds() -> Set<Int64> {
+            Set(allFriends().filter { friend in
+                friend.state == EStateFriend.block.rawValue && friend.hasUser && friend.user.id != 0
+            }.map(\.user.id))
+        }
+
         func lookupByUsername() -> [String: Mezon_Api_Friend] {
             var result: [String: Mezon_Api_Friend] = [:]
             for friend in allFriends() {

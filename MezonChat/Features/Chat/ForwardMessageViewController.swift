@@ -15,12 +15,252 @@ private enum ForwardOutgoing {
         return #"{"fwd":true}"#
     }
 
-    static func attachments(for record: MessageRecord) -> [Mezon_Api_MessageAttachment] {
-        guard !record.attachmentsJSON.isEmpty else { return [] }
-        if let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: record.attachmentsJSON) {
-            return list.attachments
+    static func attachments(for record: MessageRecord, fallback: [ParsedAttachment] = []) -> [Mezon_Api_MessageAttachment] {
+        parsedAttachments(for: record, fallback: fallback).map { p in
+            var att = Mezon_Api_MessageAttachment()
+            att.url = p.url
+            att.filename = p.filename
+            att.filetype = p.filetype
+            if let w = p.width { att.width = Int32(w) }
+            if let h = p.height { att.height = Int32(h) }
+            if let d = p.durationSeconds { att.duration = Int32(d) }
+            return att
         }
-        return []
+    }
+
+    static func parsedAttachments(for record: MessageRecord, fallback: [ParsedAttachment] = []) -> [ParsedAttachment] {
+        var out: [ParsedAttachment] = []
+        var seen = Set<String>()
+        let append: ([ParsedAttachment]) -> Void = { items in
+            for item in items {
+                let key = attachmentDedupeKey(item)
+                guard !key.isEmpty, !seen.contains(key) else { continue }
+                seen.insert(key)
+                out.append(item)
+            }
+        }
+        append(parsedAttachments(fromColumnData: record.attachmentsJSON))
+        append(parsedAttachments(fromContentData: record.content))
+        append(fallback)
+        return out
+    }
+
+    private static func attachmentDedupeKey(_ item: ParsedAttachment) -> String {
+        let u = item.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !u.isEmpty { return u }
+        let name = item.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return "name:\(name)" }
+        return ""
+    }
+
+    private static func parsedAttachments(fromColumnData data: Data, didUnwrapBase64: Bool = false) -> [ParsedAttachment] {
+        guard !data.isEmpty else { return [] }
+
+        if !didUnwrapBase64, let decoded = parsedAttachmentsFromBase64Wrapped(data) {
+            return decoded
+        }
+
+        let isLikelyJson = data.first == UInt8(ascii: "[") || data.first == UInt8(ascii: "{")
+        if !isLikelyJson {
+            if let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
+               !list.attachments.isEmpty {
+                let parsed = list.attachments.compactMap(parsedAttachment(from:))
+                if !parsed.isEmpty { return parsed }
+            }
+            if let list = try? Mezon_Api_ChannelAttachmentList(serializedBytes: data),
+               !list.attachments.isEmpty {
+                return list.attachments.map(parsedAttachment(fromChannel:))
+            }
+            if let list = try? Mezon_Api_ListChannelTimelineAttachment(serializedBytes: data),
+               !list.attachments.isEmpty {
+                return list.attachments.map(parsedAttachment(fromTimeline:))
+            }
+        }
+
+        return parsedAttachments(fromJSONData: data)
+    }
+
+    private static func parsedAttachmentsFromBase64Wrapped(_ data: Data) -> [ParsedAttachment]? {
+        let ascii = data.reduce(true) { ok, b in ok && (b == 9 || b == 10 || b == 13 || b == 32 || (b >= 43 && b <= 122)) }
+        guard ascii,
+              let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              s.count >= 16,
+              let inner = Data(base64Encoded: s),
+              inner.count >= 8,
+              inner != data else {
+            return nil
+        }
+        let innerResult = parsedAttachments(fromColumnData: inner, didUnwrapBase64: true)
+        return innerResult.isEmpty ? nil : innerResult
+    }
+
+    private static func parsedAttachments(fromContentData data: Data) -> [ParsedAttachment] {
+        guard !data.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return []
+        }
+        var items: [[String: Any]] = []
+        for key in ["attachments", "a", "at"] {
+            if let arr = json[key] as? [[String: Any]] {
+                items.append(contentsOf: arr)
+            } else if let arr = json[key] as? [Any] {
+                items.append(contentsOf: arr.compactMap { $0 as? [String: Any] })
+            }
+        }
+        if let one = json["attachment"] as? [String: Any] {
+            items.append(one)
+        }
+        return items.compactMap(parsedAttachment(fromJSONItem:))
+    }
+
+    private static func parsedAttachments(fromJSONData data: Data) -> [ParsedAttachment] {
+        var jsonArray: [[String: Any]]?
+        if let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+            jsonArray = arr
+        } else if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let arr = dict["attachments"] as? [[String: Any]] {
+                jsonArray = arr
+            } else if let arr = dict["a"] as? [[String: Any]] {
+                jsonArray = arr
+            } else if jsonItemLooksLikeAttachment(dict) {
+                jsonArray = [dict]
+            }
+        } else if let str = String(data: data, encoding: .utf8),
+                  let strData = str.data(using: .utf8),
+                  let arr = try? JSONSerialization.jsonObject(with: strData) as? [[String: Any]] {
+            jsonArray = arr
+        }
+        guard let jsonArray else { return [] }
+        return jsonArray.compactMap(parsedAttachment(fromJSONItem:))
+    }
+
+    private static func jsonItemLooksLikeAttachment(_ dict: [String: Any]) -> Bool {
+        let u = jsonAttachmentURL(from: dict)
+        let name = jsonAttachmentFilename(from: dict)
+        return !u.isEmpty || !name.isEmpty
+    }
+
+    private static func jsonAttachmentURL(from dict: [String: Any]) -> String {
+        for key in ["url", "uri", "file_url", "fileUrl", "fileURL", "link"] {
+            if let s = dict[key] as? String {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { return t }
+            }
+        }
+        return (dict["thumbnail"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private static func jsonAttachmentFilename(from dict: [String: Any]) -> String {
+        for key in ["filename", "file_name", "fileName"] {
+            if let s = dict[key] as? String {
+                let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { return t }
+            }
+        }
+        return ""
+    }
+
+    private static func parsedAttachment(from att: Mezon_Api_MessageAttachment) -> ParsedAttachment? {
+        let urlPrimary = att.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let thumb = att.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let urlStr = !urlPrimary.isEmpty ? urlPrimary : thumb
+        guard !urlStr.isEmpty else { return nil }
+        return ParsedAttachment(
+            url: urlStr,
+            filename: att.filename,
+            filetype: att.filetype,
+            width: att.width != 0 ? Int(att.width) : nil,
+            height: att.height != 0 ? Int(att.height) : nil,
+            durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+        )
+    }
+
+    private static func parsedAttachment(fromChannel att: Mezon_Api_ChannelAttachment) -> ParsedAttachment {
+        ParsedAttachment(
+            url: att.url,
+            filename: att.filename,
+            filetype: att.filetype,
+            width: att.width == 0 ? nil : Int(att.width),
+            height: att.height == 0 ? nil : Int(att.height),
+            durationSeconds: nil
+        )
+    }
+
+    private static func parsedAttachment(fromTimeline att: Mezon_Api_ChannelTimelineAttachment) -> ParsedAttachment {
+        let urlStr = att.fileURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let thumb = att.thumbnail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ParsedAttachment(
+            url: !urlStr.isEmpty ? urlStr : thumb,
+            filename: att.fileName,
+            filetype: att.fileType,
+            width: att.width == 0 ? nil : Int(att.width),
+            height: att.height == 0 ? nil : Int(att.height),
+            durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+        )
+    }
+
+    private static func parsedAttachment(fromJSONItem item: [String: Any]) -> ParsedAttachment? {
+        let urlStr = jsonAttachmentURL(from: item)
+        let filename = jsonAttachmentFilename(from: item)
+        guard !urlStr.isEmpty || !filename.isEmpty else { return nil }
+        let w = item["width"] as? Int ?? (item["width"] as? String).flatMap { Int($0) }
+        let h = item["height"] as? Int ?? (item["height"] as? String).flatMap { Int($0) }
+        let d: Int? = {
+            if let n = item["duration"] as? Int { return n > 0 ? n : nil }
+            if let n = item["duration"] as? Int64 { return n > 0 ? Int(n) : nil }
+            if let s = item["duration"] as? String, let n = Int(s) { return n > 0 ? n : nil }
+            return nil
+        }()
+        let ftRaw = (item["filetype"] as? String
+            ?? item["file_type"] as? String
+            ?? item["fileType"] as? String
+            ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return ParsedAttachment(
+            url: !urlStr.isEmpty ? urlStr : filename,
+            filename: filename,
+            filetype: ftRaw,
+            width: w,
+            height: h,
+            durationSeconds: d
+        )
+    }
+
+    static func attachmentPreviewLine(for record: MessageRecord, fallback: [ParsedAttachment] = []) -> String? {
+        let parsed = parsedAttachments(for: record, fallback: fallback)
+        guard !parsed.isEmpty else { return nil }
+
+        let mediaCount = parsed.filter(\.isMedia).count
+        let audioCount = parsed.filter { $0.isAudio && !$0.isMedia }.count
+        let fileCount = parsed.filter { !$0.isMedia && !$0.isAudio }.count
+
+        var segments: [String] = []
+        if mediaCount > 0 {
+            segments.append(countPhrase(
+                mediaCount,
+                singular: L10n.Forward.attachmentsSingular,
+                plural: L10n.Forward.attachmentsPlural
+            ))
+        }
+        if fileCount > 0 {
+            segments.append(countPhrase(
+                fileCount,
+                singular: L10n.Forward.filesSingular,
+                plural: L10n.Forward.filesPlural
+            ))
+        }
+        if audioCount > 0 {
+            segments.append(countPhrase(
+                audioCount,
+                singular: L10n.Forward.audioSingular,
+                plural: L10n.Forward.audioPlural
+            ))
+        }
+        return segments.isEmpty ? nil : segments.joined(separator: ", ")
+    }
+
+    private static func countPhrase(_ count: Int, singular: String, plural: String) -> String {
+        let label = count == 1 ? L(singular) : L(plural)
+        return "\(count) \(label)"
     }
 
     static func mentions(
@@ -81,6 +321,7 @@ final class ForwardMessageViewController: UIViewController {
 
     private let context: AccountContext
     private let messagesToForward: [MessageRecord]
+    private let attachmentHints: [String: [ParsedAttachment]]
     private let forwardFromChannelID: Int64
 
     private var suggestions: [SharingSuggestionItem] = []
@@ -88,6 +329,8 @@ final class ForwardMessageViewController: UIViewController {
     private var channelMap: [Int64: Mezon_Api_ChannelDescription] = [:]
     private var clanNames: [Int64: String] = [:]
     private var clanLogos: [Int64: String] = [:]
+    private var blockedByMeUserIds: Set<Int64> = []
+    private var forwardBlockNoteByChannelId: [Int64: String] = [:]
 
     private var selectedIDs: Set<Int64> = []
     private var searchText = ""
@@ -99,12 +342,24 @@ final class ForwardMessageViewController: UIViewController {
     private lazy var searchIcon = UIImageView()
     private lazy var searchField = UITextField()
     private lazy var previewCard = UIView()
+    private lazy var previewAttLbl = UILabel()
     private lazy var previewLbl = UILabel()
+    private var previewTextTopToAttConstraint: NSLayoutConstraint?
+    private var previewTextTopToCardConstraint: NSLayoutConstraint?
     private lazy var tableView: UITableView = {
         let t = UITableView(frame: .zero, style: .plain)
         t.separatorStyle = .none
         t.keyboardDismissMode = .interactive
         return t
+    }()
+    private let emptyResultsLabel: UILabel = {
+        let l = UILabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 14, weight: .regular)
+        l.textAlignment = .center
+        l.numberOfLines = 0
+        l.isHidden = true
+        return l
     }()
     private lazy var inputBg = UIView()
     private lazy var commentField = UITextField()
@@ -118,10 +373,12 @@ final class ForwardMessageViewController: UIViewController {
     init(
         context: AccountContext,
         messagesToForward: [MessageRecord],
-        forwardFromChannelID: Int64
+        forwardFromChannelID: Int64,
+        attachmentHints: [String: [ParsedAttachment]] = [:]
     ) {
         self.context = context
         self.messagesToForward = messagesToForward
+        self.attachmentHints = attachmentHints
         self.forwardFromChannelID = forwardFromChannelID
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -153,6 +410,7 @@ final class ForwardMessageViewController: UIViewController {
             attributes: [.foregroundColor: UIColor.theme.textDisabled.withAlphaComponent(0.85)]
         )
         updatePreviewLabel()
+        updateEmptyResultsVisibility()
         tableView.reloadData()
     }
 
@@ -175,7 +433,9 @@ final class ForwardMessageViewController: UIViewController {
         searchIcon.tintColor = t.textDisabled
         searchField.textColor = t.textStrong
         previewCard.backgroundColor = t.secondary
+        previewAttLbl.textColor = t.textStrong
         previewLbl.textColor = t.textStrong
+        emptyResultsLabel.textColor = t.textDisabled
         inputBg.backgroundColor = t.secondary
         commentField.textColor = t.textStrong
         refreshSendButtonVisual()
@@ -198,6 +458,9 @@ final class ForwardMessageViewController: UIViewController {
         searchField.addTarget(self, action: #selector(searchChanged(_:)), for: .editingChanged)
 
         previewCard.layer.cornerRadius = 12
+        previewAttLbl.font = .systemFont(ofSize: 14, weight: .medium)
+        previewAttLbl.numberOfLines = 2
+        previewAttLbl.isHidden = true
         previewLbl.font = .systemFont(ofSize: 14)
         previewLbl.numberOfLines = 4
 
@@ -229,6 +492,7 @@ final class ForwardMessageViewController: UIViewController {
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
         searchField.translatesAutoresizingMaskIntoConstraints = false
         previewCard.translatesAutoresizingMaskIntoConstraints = false
+        previewAttLbl.translatesAutoresizingMaskIntoConstraints = false
         previewLbl.translatesAutoresizingMaskIntoConstraints = false
         tableView.translatesAutoresizingMaskIntoConstraints = false
         inputBg.translatesAutoresizingMaskIntoConstraints = false
@@ -244,8 +508,10 @@ final class ForwardMessageViewController: UIViewController {
         searchWrap.addSubview(searchIcon)
         searchWrap.addSubview(searchField)
         view.addSubview(previewCard)
+        previewCard.addSubview(previewAttLbl)
         previewCard.addSubview(previewLbl)
         view.addSubview(tableView)
+        view.addSubview(emptyResultsLabel)
         view.addSubview(bottomBar)
         bottomBar.addSubview(inputBg)
         bottomBar.addSubview(sendBtn)
@@ -283,15 +549,21 @@ final class ForwardMessageViewController: UIViewController {
             previewCard.topAnchor.constraint(equalTo: searchWrap.bottomAnchor, constant: 14),
             previewCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             previewCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            previewLbl.topAnchor.constraint(equalTo: previewCard.topAnchor, constant: 10),
-            previewLbl.bottomAnchor.constraint(equalTo: previewCard.bottomAnchor, constant: -10),
+            previewAttLbl.topAnchor.constraint(equalTo: previewCard.topAnchor, constant: 10),
+            previewAttLbl.leadingAnchor.constraint(equalTo: previewCard.leadingAnchor, constant: 12),
+            previewAttLbl.trailingAnchor.constraint(equalTo: previewCard.trailingAnchor, constant: -12),
             previewLbl.leadingAnchor.constraint(equalTo: previewCard.leadingAnchor, constant: 12),
             previewLbl.trailingAnchor.constraint(equalTo: previewCard.trailingAnchor, constant: -12),
+            previewLbl.bottomAnchor.constraint(equalTo: previewCard.bottomAnchor, constant: -10),
 
             tableView.topAnchor.constraint(equalTo: previewCard.bottomAnchor, constant: 14),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -12),
+
+            emptyResultsLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            emptyResultsLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            emptyResultsLabel.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
 
             bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -313,6 +585,10 @@ final class ForwardMessageViewController: UIViewController {
 
             composerPad,
         ])
+
+        previewTextTopToAttConstraint = previewLbl.topAnchor.constraint(equalTo: previewAttLbl.bottomAnchor, constant: 6)
+        previewTextTopToCardConstraint = previewLbl.topAnchor.constraint(equalTo: previewCard.topAnchor, constant: 10)
+        previewTextTopToCardConstraint?.isActive = true
 
         applyTheme()
 
@@ -371,6 +647,68 @@ final class ForwardMessageViewController: UIViewController {
         return 0
     }
 
+    private func isUserFacingDMType(_ type: Int32) -> Bool {
+        type == MezonConstants.ChannelType.dm.rawValue || type == MezonConstants.ChannelType.group.rawValue
+    }
+
+    private func isSharableClanChannelType(_ type: Int32) -> Bool {
+        type == MezonConstants.ChannelType.channel.rawValue
+            || type == MezonConstants.ChannelType.thread.rawValue
+            || type == MezonConstants.ChannelType.announcement.rawValue
+    }
+
+    private func currentUserId() -> Int64? {
+        guard let id = context.currentUser?.id, let v = Int64(id) else { return nil }
+        return v
+    }
+
+    private func peerUserIds(in channel: Mezon_Api_ChannelDescription) -> [Int64] {
+        guard let myId = currentUserId() else {
+            return channel.userIds.filter { $0 != 0 }
+        }
+        return channel.userIds.filter { $0 != 0 && $0 != myId }
+    }
+
+    private func rebuildForwardBlockNotes() {
+        forwardBlockNoteByChannelId.removeAll(keepingCapacity: true)
+        guard !blockedByMeUserIds.isEmpty else { return }
+        for (_, ch) in channelMap {
+            guard isUserFacingDMType(ch.type) else { continue }
+            let peers = peerUserIds(in: ch)
+            guard peers.contains(where: { blockedByMeUserIds.contains($0) }) else { continue }
+            let note: String
+            if ch.type == MezonConstants.ChannelType.dm.rawValue, peers.count == 1 {
+                note = L(L10n.Forward.blockedByYou)
+            } else {
+                note = L(L10n.Forward.cannotMessage)
+            }
+            forwardBlockNoteByChannelId[ch.channelID] = note
+        }
+    }
+
+    private func isForwardBlocked(channelId: Int64) -> Bool {
+        forwardBlockNoteByChannelId[channelId] != nil
+    }
+
+    private func forwardBlockNote(channelId: Int64) -> String? {
+        forwardBlockNoteByChannelId[channelId]
+    }
+
+    private func recencyTimestamp(for item: SharingSuggestionItem) -> UInt32 {
+        guard let ch = channelMap[item.channelID] else { return 0 }
+        return sharingRecencyTimestamp(ch)
+    }
+
+    private func sortSuggestionsByRecency(_ items: [SharingSuggestionItem]) -> [SharingSuggestionItem] {
+        let users = items.filter { isUserFacingDMType($0.type) }
+            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
+        let channels = items.filter { isSharableClanChannelType($0.type) }
+            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
+        let other = items.filter { !isUserFacingDMType($0.type) && !isSharableClanChannelType($0.type) }
+            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
+        return users + channels + other
+    }
+
     private func resolvedClanInfo(for ch: Mezon_Api_ChannelDescription) -> (clanID: Int64, channelClanName: String) {
         var clanID = ch.clanID
         var channelClanName = ch.clanName
@@ -391,6 +729,9 @@ final class ForwardMessageViewController: UIViewController {
             guard let self else { return }
             guard let token = await context.getToken() else { return }
 
+            await context.engine.friendsData.refreshFromNetwork(token: token)
+            blockedByMeUserIds = context.engine.friendsData.blockedUserIds()
+
             var dmList: [Mezon_Api_ChannelDescription] = []
             var clanList: [Mezon_Api_ChannelDescription] = []
 
@@ -408,7 +749,7 @@ final class ForwardMessageViewController: UIViewController {
                     if ch.usernames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
                     return false
                 }
-                dmList.sort { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
+                dmList = dmList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             } catch {}
 
             if let allChannelsList = context.engine.clanData.getAllChannelsByUser() {
@@ -418,7 +759,7 @@ final class ForwardMessageViewController: UIViewController {
                         || t == MezonConstants.ChannelType.thread.rawValue
                         || t == MezonConstants.ChannelType.announcement.rawValue
                 }
-                clanList.sort { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
+                clanList = clanList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             }
 
             do {
@@ -443,7 +784,7 @@ final class ForwardMessageViewController: UIViewController {
                             || t == MezonConstants.ChannelType.thread.rawValue
                             || t == MezonConstants.ChannelType.announcement.rawValue
                     }
-                    clanList.sort { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
+                    clanList = clanList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
                 } catch {}
             }
 
@@ -451,6 +792,7 @@ final class ForwardMessageViewController: UIViewController {
             for ch in dmList + clanList {
                 channelMap[ch.channelID] = ch
             }
+            rebuildForwardBlockNotes()
 
             var built: [SharingSuggestionItem] = []
             built.reserveCapacity(dmList.count + clanList.count)
@@ -495,6 +837,7 @@ final class ForwardMessageViewController: UIViewController {
             suggestions = built
             applyFilter(resetSelection: false)
             tableView.reloadData()
+            updateEmptyResultsVisibility()
         }
     }
 
@@ -517,8 +860,11 @@ final class ForwardMessageViewController: UIViewController {
             guard !q.isEmpty else { return true }
             if fold(item.displayName).contains(q) { return true }
             if let cn = item.clanName, fold(cn).contains(q) { return true }
-            if let ch,
-               fold(SharingChannelCell.displayName(for: ch)).contains(q) { return true }
+            guard let ch else { return false }
+            if !ch.channelLabel.isEmpty, fold(ch.channelLabel).contains(q) { return true }
+            if fold(SharingChannelCell.displayName(for: ch)).contains(q) { return true }
+            for u in ch.usernames where fold(u).contains(q) { return true }
+            for d in ch.displayNames where fold(d).contains(q) { return true }
             return false
         }
 
@@ -529,23 +875,19 @@ final class ForwardMessageViewController: UIViewController {
             filteredItems.sort {
                 forwardingDisplayName(for: $0).localizedCaseInsensitiveCompare(forwardingDisplayName(for: $1)) == .orderedAscending
             }
+        } else {
+            filteredItems = sortSuggestionsByRecency(filteredItems)
         }
+        updateEmptyResultsVisibility()
     }
 
-    private func foldingMatchSort(_ trimmed: String) -> [SharingSuggestionItem] {
-        let qFold = trimmed.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-        guard !qFold.isEmpty else { return filteredItems }
-        return filteredItems.sorted { a, b in
-            let na = forwardingDisplayName(for: a).folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            let nb = forwardingDisplayName(for: b).folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            let xa = na == qFold
-            let xb = nb == qFold
-            if xa != xb { return xa && !xb }
-            let pa = na.hasPrefix(qFold)
-            let pb = nb.hasPrefix(qFold)
-            if pa != pb { return pa && !pb }
-            return na < nb
-        }
+    private func updateEmptyResultsVisibility() {
+        let trimmed = ForwardOutgoing.sanitizedComment(searchText)
+        let isSearching = !trimmed.isEmpty
+        let showEmpty = isSearching && displaySuggestions.isEmpty
+        emptyResultsLabel.text = L(L10n.Forward.noResults)
+        emptyResultsLabel.isHidden = !showEmpty
+        tableView.isScrollEnabled = !showEmpty
     }
 
     private func forwardingDisplayName(for item: SharingSuggestionItem) -> String {
@@ -556,37 +898,54 @@ final class ForwardMessageViewController: UIViewController {
     }
 
     private var displaySuggestions: [SharingSuggestionItem] {
-        let trimmed = ForwardOutgoing.sanitizedComment(searchText)
-        guard !trimmed.hasPrefix("#") else { return filteredItems }
-        return foldingMatchSort(trimmed)
+        filteredItems
     }
 
     private func updatePreviewLabel() {
         guard let first = messagesToForward.first else {
+            previewAttLbl.text = ""
             previewLbl.text = ""
+            setPreviewAttachmentVisible(false)
             return
         }
-        var parts: [String] = []
-        let text = Self.previewPlainText(for: first)
+        let hints = attachmentHints[first.id] ?? []
+        let attLine = ForwardOutgoing.attachmentPreviewLine(for: first, fallback: hints)
+        if let attLine {
+            previewAttLbl.text = attLine
+            setPreviewAttachmentVisible(true)
+        } else {
+            previewAttLbl.text = ""
+            setPreviewAttachmentVisible(false)
+        }
+
+        var textParts: [String] = []
+        let text = Self.previewPlainText(for: first, maxLength: attLine == nil ? 500 : 200)
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            parts.append(text)
+            textParts.append(text)
         }
-        let attcount = ForwardOutgoing.attachments(for: first).count
         let extra = messagesToForward.count - 1
-        if attcount > 0 {
-            parts.append(attcount > 1 ? "\(attcount) \(L(L10n.Forward.attachmentsPlural))" : "\(attcount) \(L(L10n.Forward.attachmentsSingular))")
-        }
         if extra > 0 {
-            parts.append("+\(extra) \(L(L10n.Forward.moreBundledMessages))")
+            textParts.append("+\(extra) \(L(L10n.Forward.moreBundledMessages))")
         }
-        previewLbl.text = parts.isEmpty ? L(L10n.Forward.previewPlaceholder) : parts.joined(separator: "\n")
+        if textParts.isEmpty, attLine == nil {
+            previewLbl.text = L(L10n.Forward.previewPlaceholder)
+        } else {
+            previewLbl.text = textParts.joined(separator: "\n")
+        }
     }
 
-    private static func previewPlainText(for record: MessageRecord) -> String {
+    private func setPreviewAttachmentVisible(_ visible: Bool) {
+        previewAttLbl.isHidden = !visible
+        previewTextTopToAttConstraint?.isActive = visible
+        previewTextTopToCardConstraint?.isActive = !visible
+    }
+
+    private static func previewPlainText(for record: MessageRecord, maxLength: Int = 500) -> String {
         let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
         let t = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !t.isEmpty { return String(t.prefix(500)) }
-        return ""
+        guard !t.isEmpty else { return "" }
+        if t.count <= maxLength { return t }
+        return String(t.prefix(maxLength)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     @objc private func searchChanged(_ field: UITextField) {
@@ -643,8 +1002,14 @@ final class ForwardMessageViewController: UIViewController {
                 Toast.error(L(L10n.Sharing.sessionExpired))
                 return
             }
-            let targets = selectedIDs.compactMap { self.channelMap[$0] }
-            guard !targets.isEmpty else { return }
+            let selectedChannels = selectedIDs.compactMap { self.channelMap[$0] }
+            let targets = selectedChannels.filter { !self.isForwardBlocked(channelId: $0.channelID) }
+            if targets.isEmpty {
+                if selectedChannels.contains(where: { self.isForwardBlocked(channelId: $0.channelID) }) {
+                    Toast.error(L(L10n.Forward.toastCannotForward))
+                }
+                return
+            }
             let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
             if ForwardOutgoing.commentContentJSON(trimmed: extraRaw) == nil, !extraRaw.isEmpty {
                 Toast.error(L(L10n.Forward.commentTooLong))
@@ -665,7 +1030,7 @@ final class ForwardMessageViewController: UIViewController {
                             destinationChannelID: dest.channelID,
                             forwardFromChannelID: forwardFromChannelID
                         )
-                        let atts = ForwardOutgoing.attachments(for: msg)
+                        let atts = ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? [])
                         _ = try await context.account.network.sendChannelMessage(
                             clanId: cid,
                             channelId: dest.channelID,
@@ -720,12 +1085,24 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
         let cell = tableView.dequeueReusableCell(withIdentifier: SharingChannelCell.reuseId, for: indexPath) as! SharingChannelCell
         let item = displaySuggestions[indexPath.row]
         let ch = channelMap[item.channelID]
-        cell.configure(item: item, channel: ch, isSelected: selectedIDs.contains(item.channelID))
+        let blockNote = forwardBlockNote(channelId: item.channelID)
+        let blocked = blockNote != nil
+        cell.configure(
+            item: item,
+            channel: ch,
+            isSelected: selectedIDs.contains(item.channelID),
+            statusNote: blockNote,
+            isForwardingBlocked: blocked
+        )
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = displaySuggestions[indexPath.row]
+        if isForwardBlocked(channelId: item.channelID) {
+            Toast.error(forwardBlockNote(channelId: item.channelID) ?? L(L10n.Forward.toastCannotForward))
+            return
+        }
         if selectedIDs.contains(item.channelID) {
             selectedIDs.remove(item.channelID)
         } else {
@@ -738,6 +1115,7 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        56
+        let item = displaySuggestions[indexPath.row]
+        return isForwardBlocked(channelId: item.channelID) ? 72 : 56
     }
 }
