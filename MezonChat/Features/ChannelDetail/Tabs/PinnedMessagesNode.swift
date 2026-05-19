@@ -15,6 +15,7 @@ final class PinnedMessagesNode: ASDisplayNode {
     private var pinsLoadStarted = false
     private var pinsDataGeneration: UInt64 = 0
     private var attachmentEnrichmentByMessageId: [Int64: [ParsedAttachment]] = [:]
+    private var pinRowDisplayItems: [PinRowDisplayItem] = []
 
     private let tableNode: ASTableNode
 
@@ -40,6 +41,7 @@ final class PinnedMessagesNode: ASDisplayNode {
         tableNode.delegate = self
         tableNode.view.separatorStyle = .none
         tableNode.view.showsVerticalScrollIndicator = true
+        tableNode.leadingScreensForBatching = 0
 
         NotificationCenter.default.addObserver(
             self,
@@ -50,9 +52,14 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     func loadTabDataIfNeeded() {
-        guard !pinsLoadStarted else { return }
-        pinsLoadStarted = true
-        fetchPins()
+        if !pinsLoadStarted {
+            pinsLoadStarted = true
+            fetchPins()
+            return
+        }
+        guard pinsFetchCompleted else { return }
+        tableNode.reloadData()
+        setNeedsLayout()
     }
 
     deinit {
@@ -91,11 +98,15 @@ final class PinnedMessagesNode: ASDisplayNode {
                 self.pinnedMessages = res.pinMessagesList
                 self.attachmentEnrichmentByMessageId = [:]
                 self.pinsFetchCompleted = true
+                self.rebuildPinRowDisplayItems()
                 await self.tableNode.reloadData()
+                self.setNeedsLayout()
                 self.enrichPinAttachmentsFromChannelIfNeeded(expectedDataGeneration: dataGen)
             } catch {
                 self.pinsFetchCompleted = true
+                self.rebuildPinRowDisplayItems()
                 await self.tableNode.reloadData()
+                self.setNeedsLayout()
             }
         }
     }
@@ -137,7 +148,9 @@ final class PinnedMessagesNode: ASDisplayNode {
             }
             guard expectedDataGeneration == self.pinsDataGeneration, didChange else { return }
             self.attachmentEnrichmentByMessageId = merged
+            self.rebuildPinRowDisplayItems()
             await self.tableNode.reloadData()
+            self.setNeedsLayout()
         }
     }
 
@@ -183,7 +196,9 @@ final class PinnedMessagesNode: ASDisplayNode {
                 } else {
                     self.pinnedMessages.removeAll { $0.messageID == pin.messageID }
                 }
+                self.rebuildPinRowDisplayItems()
                 await self.tableNode.reloadData()
+                self.setNeedsLayout()
             } catch {
                 Toast.error(L(L10n.ChannelDetail.unpinError))
             }
@@ -254,14 +269,44 @@ final class PinnedMessagesNode: ASDisplayNode {
         if !fromProfile.isEmpty { return fromProfile }
         return pin.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private func rebuildPinRowDisplayItems() {
+        pinRowDisplayItems = pinnedMessages.map { pin in
+            let extras = attachmentEnrichmentByMessageId[pin.messageID] ?? []
+            return PinRowDisplayItem(
+                pin: pin,
+                displayName: resolvedSenderDisplayName(for: pin),
+                username: resolvedSenderUsername(for: pin),
+                row: PinRowContent.make(from: pin, context: context, attachmentExtras: extras),
+                avatarURL: resolvedAvatarURLString(for: pin)
+            )
+        }
+    }
+
 }
 
+private struct PinRowDisplayItem {
+    let pin: Mezon_Api_PinMessage
+    let displayName: String
+    let username: String
+    let row: PinRowContent
+    let avatarURL: String
+}
+
+@MainActor
 extension PinnedMessagesNode: ASTableDataSource {
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
-        if pinsLoadStarted, !pinsFetchCompleted { return 1 }
-        guard pinsFetchCompleted else { return 0 }
-        if pinnedMessages.isEmpty { return 1 }
-        return pinnedMessages.count
+        let count: Int
+        if pinsLoadStarted, !pinsFetchCompleted {
+            count = 1
+        } else if !pinsFetchCompleted {
+            count = 0
+        } else if pinnedMessages.isEmpty {
+            count = 1
+        } else {
+            count = pinnedMessages.count
+        }
+        return count
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
@@ -271,25 +316,21 @@ extension PinnedMessagesNode: ASTableDataSource {
         if pinnedMessages.isEmpty {
             return { EmptyPinsCellNode() }
         }
-        let pin = pinnedMessages[indexPath.row]
-        let displayName = resolvedSenderDisplayName(for: pin)
-        let username = resolvedSenderUsername(for: pin)
-        let extras = attachmentEnrichmentByMessageId[pin.messageID] ?? []
-        let row = PinRowContent.make(from: pin, context: context, attachmentExtras: extras)
-        let avatarURL = resolvedAvatarURLString(for: pin)
+        let item = pinRowDisplayItems[indexPath.row]
         return { [weak self] in
             PinnedMessageCellNode(
-                username: username,
-                displayName: displayName,
-                pin: pin,
-                row: row,
-                avatarURLString: avatarURL,
-                onUnpin: { self?.requestUnpin(pin) }
+                username: item.username,
+                displayName: item.displayName,
+                pin: item.pin,
+                row: item.row,
+                avatarURLString: item.avatarURL,
+                onUnpin: { self?.requestUnpin(item.pin) }
             )
         }
     }
 }
 
+@MainActor
 extension PinnedMessagesNode: ASTableDelegate {
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: true)
@@ -593,7 +634,12 @@ private struct PinRowContent {
 }
 
 private final class PinsLoadingCellNode: ASCellNode {
-    private let spinnerHost = ASDisplayNode()
+    private let spinnerHost = ASDisplayNode(viewBlock: {
+        let v = UIActivityIndicatorView(style: .medium)
+        v.color = UIColor.theme.textStrong
+        v.startAnimating()
+        return v
+    })
 
     override init() {
         super.init()
@@ -601,12 +647,6 @@ private final class PinsLoadingCellNode: ASCellNode {
         backgroundColor = .clear
         selectionStyle = .none
         spinnerHost.style.preferredSize = CGSize(width: 44, height: 44)
-        spinnerHost.setViewBlock {
-            let v = UIActivityIndicatorView(style: .medium)
-            v.color = UIColor.theme.textStrong
-            v.startAnimating()
-            return v
-        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -630,7 +670,6 @@ private final class EmptyPinsCellNode: ASCellNode {
         automaticallyManagesSubnodes = true
         backgroundColor = .clear
         selectionStyle = .none
-
         labelNode.attributedText = NSAttributedString(
             string: L(L10n.ChannelDetail.noPinsYet),
             attributes: [
@@ -655,6 +694,15 @@ private final class EmptyPinsCellNode: ASCellNode {
 }
 
 private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegate {
+    private let row: PinRowContent
+    private let displayNameForGallery: String
+    private let pinForGallery: Mezon_Api_PinMessage
+    private let avatarURLForGallery: String
+    private let onUnpin: () -> Void
+    private let includeCaption: Bool
+    private let avatarUsernameForFallback: String
+    private let displayName: String
+
     private let cardNode = ASDisplayNode()
     private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
     private let avatarNode = ASNetworkImageNode()
@@ -664,12 +712,8 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     private var mediaContentNode: MessageMediaContentNode?
     private var audioAttachmentNode: MessageAudioAttachmentNode?
     private var fileAttachmentNode: MessageFileAttachmentNode?
-    private let displayNameForGallery: String
-    private let pinForGallery: Mezon_Api_PinMessage
-    private let avatarURLForGallery: String
-    private let onUnpin: () -> Void
-    private let includeCaption: Bool
-    private let avatarUsernameForFallback: String
+    private var didConfigureMainThreadUI = false
+    private var lastAttachMaxWidth: CGFloat = 300
 
     init(
         username: String,
@@ -679,11 +723,13 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         avatarURLString: String,
         onUnpin: @escaping () -> Void
     ) {
+        self.row = row
         self.displayNameForGallery = displayName
         self.pinForGallery = pin
         self.avatarURLForGallery = avatarURLString
         self.onUnpin = onUnpin
         self.avatarUsernameForFallback = username
+        self.displayName = displayName
         let cap = row.caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.includeCaption = !cap.isEmpty
         super.init()
@@ -703,16 +749,6 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.delegate = self
-
-        if let url = Self.displayURL(from: avatarURLString) {
-            avatarNode.url = url
-            avatarNode.isHidden = false
-            textAvatarNode.showSkeleton()
-        } else {
-            avatarNode.url = nil
-            avatarNode.isHidden = true
-            textAvatarNode.configure(username: username, fontSize: 16.sf)
-        }
 
         nameNode.attributedText = NSAttributedString(
             string: displayName,
@@ -746,32 +782,53 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         unpinButton.addTarget(
             self, action: #selector(unpinPressed), forControlEvents: .touchUpInside)
 
-        addSubnode(textAvatarNode)
-        addSubnode(avatarNode)
-        addSubnode(nameNode)
-        if includeCaption {
-            addSubnode(contentNode)
-        }
-        addSubnode(unpinButton)
-
         if !row.mediaAttachments.isEmpty {
             let mcn = MessageMediaContentNode()
-            mcn.configure(media: row.mediaAttachments)
-            let media = row.mediaAttachments
-            mcn.onImageTapped = { [weak self] index in
-                self?.presentMediaGallery(index: index, media: media)
-            }
+            mcn.prepareForMeasurement(media: row.mediaAttachments)
             mediaContentNode = mcn
-            addSubnode(mcn)
         }
         if !row.audioAttachments.isEmpty {
             let an = MessageAudioAttachmentNode()
             an.configure(audio: row.audioAttachments, messageId: row.messageIdKey)
             audioAttachmentNode = an
-            addSubnode(an)
         }
         if !row.fileAttachments.isEmpty {
-            let fan = MessageFileAttachmentNode()
+            fileAttachmentNode = MessageFileAttachmentNode()
+        }
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        configureMainThreadUIIfNeeded()
+    }
+
+    private func configureMainThreadUIIfNeeded() {
+        guard !didConfigureMainThreadUI else { return }
+        didConfigureMainThreadUI = true
+
+        if let url = Self.displayURL(from: avatarURLForGallery) {
+            avatarNode.url = url
+            avatarNode.isHidden = false
+            textAvatarNode.showSkeleton()
+        } else {
+            avatarNode.url = nil
+            avatarNode.isHidden = true
+            textAvatarNode.configure(username: avatarUsernameForFallback, fontSize: 16.sf)
+        }
+
+        if !row.mediaAttachments.isEmpty {
+            let media = row.mediaAttachments
+            if let mcn = mediaContentNode {
+                mcn.configure(media: media)
+                mcn.onImageTapped = { [weak self] index in
+                    self?.presentMediaGallery(index: index, media: media)
+                }
+                if lastAttachMaxWidth > 0 {
+                    _ = mcn.measureSize(maxWidth: lastAttachMaxWidth)
+                }
+            }
+        }
+        if let fan = fileAttachmentNode, !row.fileAttachments.isEmpty {
             fan.configure(files: row.fileAttachments)
             fan.onFileTapped = { urlString in
                 guard let fileURL = URL(string: urlString),
@@ -780,9 +837,10 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                 else { return }
                 UIApplication.shared.open(fileURL)
             }
-            fileAttachmentNode = fan
-            addSubnode(fan)
         }
+
+        setNeedsLayout()
+        invalidateCalculatedLayout()
     }
 
     @objc fileprivate func unpinPressed() { onUnpin() }
@@ -845,16 +903,32 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
         guard imageNode === avatarNode else { return }
-        if image.size.width < 0.5 || image.size.height < 0.5 {
-            textAvatarNode.configure(username: avatarUsernameForFallback, fontSize: 16.sf)
-        } else {
-            textAvatarNode.showImageMode()
+        let username = avatarUsernameForFallback
+        runOnMainThread { [weak self] in
+            guard let self, imageNode === self.avatarNode else { return }
+            if image.size.width < 0.5 || image.size.height < 0.5 {
+                self.textAvatarNode.configure(username: username, fontSize: 16.sf)
+            } else {
+                self.textAvatarNode.showImageMode()
+            }
         }
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === avatarNode else { return }
-        textAvatarNode.configure(username: avatarUsernameForFallback, fontSize: 16.sf)
+        let username = avatarUsernameForFallback
+        runOnMainThread { [weak self] in
+            guard let self, imageNode === self.avatarNode else { return }
+            self.textAvatarNode.configure(username: username, fontSize: 16.sf)
+        }
+    }
+
+    private func runOnMainThread(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
@@ -863,14 +937,14 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         let innerW = max(1, maxCardW - cardHPadding)
         let avatarW = 40.sf
         let avatarGap: CGFloat = 12.sf
-        let unpinW: CGFloat = 44
         let attachLeading = avatarW + avatarGap
         let attachMaxW = max(1, innerW - attachLeading)
+        lastAttachMaxWidth = attachMaxW
 
         var attachmentElements: [ASLayoutElement] = []
-        if let mcn = mediaContentNode {
+        if let mcn = mediaContentNode, !row.mediaAttachments.isEmpty {
             let sz = mcn.measureSize(maxWidth: attachMaxW)
-            mcn.style.preferredSize = CGSize(width: sz.width, height: sz.height)
+            mcn.style.preferredSize = CGSize(width: max(sz.width, 1), height: max(sz.height, 1))
             attachmentElements.append(
                 ASInsetLayoutSpec(
                     insets: UIEdgeInsets(top: 0, left: attachLeading, bottom: 0, right: 0),
@@ -888,8 +962,12 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                 )
             )
         }
-        if let fan = fileAttachmentNode {
-            let sz = fan.measureSize(maxWidth: attachMaxW)
+        if let fan = fileAttachmentNode, !row.fileAttachments.isEmpty {
+            let sz =
+                didConfigureMainThreadUI
+                ? fan.measureSize(maxWidth: attachMaxW)
+                : MessageFileAttachmentNode.estimatedMeasureSize(
+                    files: row.fileAttachments, maxWidth: attachMaxW)
             fan.style.preferredSize = CGSize(width: sz.width, height: sz.height)
             attachmentElements.append(
                 ASInsetLayoutSpec(

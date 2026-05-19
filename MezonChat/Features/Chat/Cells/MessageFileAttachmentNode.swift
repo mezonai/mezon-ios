@@ -24,6 +24,14 @@ final class MessageFileAttachmentNode: ASDisplayNode {
         }
     }
 
+    static func estimatedMeasureSize(files: [ParsedAttachment], maxWidth: CGFloat) -> CGSize {
+        guard !files.isEmpty else { return .zero }
+        let rowH: CGFloat = 52
+        let spacing: CGFloat = 6
+        let h = CGFloat(files.count) * rowH + CGFloat(max(0, files.count - 1)) * spacing
+        return CGSize(width: maxWidth, height: h)
+    }
+
     func measureSize(maxWidth: CGFloat) -> CGSize {
         guard !fileNodes.isEmpty else { return .zero }
         let spacing: CGFloat = 6
