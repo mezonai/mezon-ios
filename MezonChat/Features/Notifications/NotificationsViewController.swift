@@ -114,7 +114,8 @@ final class NotificationsViewController: ViewController {
                 (context.engine.data.subscribe(
                     MezonEngine.EngineData.Item.TopicList(clanId: clanId)
                 ) |> deliverOnMainQueue).start(next: { [weak self] topics in
-                    self?.setItems(topics.map { .topic($0) })
+                    guard let self else { return }
+                    self.setItems(self.enrichTopicItems(topics))
                 })
             return
         }
@@ -160,13 +161,66 @@ final class NotificationsViewController: ViewController {
     }
 
     private func setNotifications(_ v: [NotificationRecord]) {
-        self.items = v.map { .notification($0) }
+        self.items = enrichNotificationItems(v)
         needsReloadPipe.putNext(())
+    }
+
+    private func enrichNotificationItems(_ records: [NotificationRecord]) -> [NotificationItem] {
+        let friends = context.engine.friendsData.allFriends()
+        return context.account.postbox.read { tx in
+            records.map { record in
+                let friendAvatar =
+                    friends.first(where: { $0.user.id == record.senderID })?.user.avatarURL
+                    ?? ""
+                let enriched = record.enrichedSenderAvatar(
+                    transaction: tx, fallbackAvatarURL: friendAvatar)
+                return .notification(enriched)
+            }
+        }
     }
 
     private func setItems(_ v: [NotificationItem]) {
         self.items = v
         needsReloadPipe.putNext(())
+    }
+
+    private func enrichTopicItems(_ topics: [TopicRecord]) -> [NotificationItem] {
+        context.account.postbox.read { tx in
+            topics.map { topic in
+                var avatar = topic.senderAvatarURL
+                var displayName = topic.senderDisplayName
+                let senderId = topic.lastSenderID != 0 ? topic.lastSenderID : topic.creatorID
+                if senderId != 0, let profile = tx.getProfile(userId: String(senderId)) {
+                    if avatar.isEmpty, let url = profile.avatarUrl, !url.isEmpty {
+                        avatar = url
+                    }
+                    if displayName.isEmpty {
+                        if let dn = profile.displayName, !dn.isEmpty {
+                            displayName = dn
+                        } else if !profile.username.isEmpty {
+                            displayName = profile.username
+                        }
+                    }
+                }
+                if avatar == topic.senderAvatarURL, displayName == topic.senderDisplayName {
+                    return .topic(topic)
+                }
+                return .topic(
+                    TopicRecord(
+                        id: topic.id,
+                        channelID: topic.channelID,
+                        clanID: topic.clanID,
+                        creatorID: topic.creatorID,
+                        lastSenderID: topic.lastSenderID,
+                        senderAvatarURL: avatar,
+                        senderDisplayName: displayName,
+                        content: topic.content,
+                        updateTimeSeconds: topic.updateTimeSeconds,
+                        lastSentMessageContent: topic.lastSentMessageContent
+                    )
+                )
+            }
+        }
     }
 
     private func processItemDetail(_ item: NotificationItem) {

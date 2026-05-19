@@ -278,7 +278,7 @@ extension NotificationRecord {
             return (extractDisplayText(from: raw), "", 0, 0, 0)
         }
         let text = extractText(fromJSONObject: obj) ?? extractDisplayText(from: raw)
-        let avatar = (obj["avatar"] as? String) ?? ""
+        let avatar = extractAvatar(fromJSONObject: obj)
         let messageID =
             parseInt64(obj["message_id"]) ?? parseInt64(obj["messageId"]) ?? parseInt64(obj["messageID"])
             ?? 0
@@ -319,5 +319,76 @@ extension NotificationRecord {
             if clanID == 0 { clanID = rid.clanID }
         }
         return (text, avatar, messageID, clanID, channelID)
+    }
+
+    private static func extractAvatar(fromJSONObject obj: [String: Any]) -> String {
+        let keys = ["avatar_url", "avatarUrl", "avatarURL", "avatar", "sender_avatar", "senderAvatar"]
+        for key in keys {
+            if let value = obj[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        if let user = obj["user"] as? [String: Any] {
+            let nested = extractAvatar(fromJSONObject: user)
+            if !nested.isEmpty { return nested }
+        }
+        if let sender = obj["sender"] as? [String: Any] {
+            let nested = extractAvatar(fromJSONObject: sender)
+            if !nested.isEmpty { return nested }
+        }
+        return ""
+    }
+
+    static func placeholderName(from subject: String) -> String {
+        let markers = [
+            " wants to add you",
+            " wants to be your friend",
+            " sent you a friend request",
+            " sent you",
+        ]
+        let trimmed = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        for marker in markers {
+            guard let range = trimmed.range(of: marker, options: .caseInsensitive) else { continue }
+            let name = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { return name }
+        }
+        return ""
+    }
+
+    func enrichedSenderAvatar(transaction tx: PostboxTransaction, fallbackAvatarURL: String = "") -> NotificationRecord {
+        let existing = avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !existing.isEmpty, existing != "default" { return self }
+        guard senderID != 0 else { return self }
+
+        var resolved = ""
+        if let profile = tx.getProfile(userId: String(senderID)),
+           let url = profile.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !url.isEmpty
+        {
+            resolved = url
+        }
+        if resolved.isEmpty {
+            let fallback = fallbackAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fallback.isEmpty { resolved = fallback }
+        }
+        guard !resolved.isEmpty else { return self }
+
+        return NotificationRecord(
+            id: id,
+            subject: subject,
+            content: content,
+            code: code,
+            senderID: senderID,
+            createTimeSeconds: createTimeSeconds,
+            persistent: persistent,
+            clanID: clanID,
+            channelID: channelID,
+            channelType: channelType,
+            avatarURL: resolved,
+            topicID: topicID,
+            category: category,
+            messageID: messageID
+        )
     }
 }
