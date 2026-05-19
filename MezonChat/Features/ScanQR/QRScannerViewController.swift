@@ -12,6 +12,7 @@ final class QRScannerViewController: ViewController {
     private var clanInviteNode: QRClanInviteNode?
     private var userProfileNode: QRUserProfileNode?
     private var externalLinkSheetController: QRExternalLinkSheetController?
+    private var scannedTextPayloadSheetController: QRScannedTextPayloadSheetController?
     private let captureSessionQueue = DispatchQueue(label: "mezon.qrScanner.captureSession")
     private var shouldResumeCaptureWhenApplicationBecomesActive = false
     private var exclusiveScanHandlingActive = false
@@ -198,7 +199,7 @@ final class QRScannerViewController: ViewController {
     private func shouldOfferExclusiveScanHandlingResetAfterAppear() -> Bool {
         guard navigationController?.topViewController === self else { return false }
         guard loginConfirmNode == nil, clanInviteNode == nil, userProfileNode == nil else { return false }
-        guard externalLinkSheetController == nil else { return false }
+        guard externalLinkSheetController == nil, scannedTextPayloadSheetController == nil else { return false }
         return true
     }
 
@@ -249,7 +250,7 @@ final class QRScannerViewController: ViewController {
     }
     
     private func handleScannedData(_ data: String) {
-        guard externalLinkSheetController == nil else { return }
+        guard externalLinkSheetController == nil, scannedTextPayloadSheetController == nil else { return }
 
         if data.allSatisfy({ $0.isNumber }) && data.count >= 15 {
             showLoginConfirm(userId: data)
@@ -322,9 +323,7 @@ final class QRScannerViewController: ViewController {
             return
         }
 
-        showAlert(title: L(L10n.QRScanner.invalidQR), message: data) { [weak self] in
-            self?.startCaptureSessionIfNeeded()
-        }
+        presentScannedTextPayloadSheet(with: data)
     }
 
     private static func externalLinkURL(from value: String) -> URL? {
@@ -369,6 +368,22 @@ final class QRScannerViewController: ViewController {
             }
         }
         externalLinkSheetController = sheet
+        present(sheet, animated: false)
+    }
+
+    private func presentScannedTextPayloadSheet(with payload: String) {
+        guard beginExclusiveScanHandling() else { return }
+        stopCaptureSessionIfNeeded()
+        let sheet = QRScannedTextPayloadSheetController(payload: payload)
+        sheet.onDismiss = { [weak self, weak sheet] in
+            guard let self else { return }
+            if self.scannedTextPayloadSheetController === sheet {
+                self.scannedTextPayloadSheetController = nil
+            }
+            self.endExclusiveScanHandling()
+            self.startCaptureSessionIfNeeded()
+        }
+        scannedTextPayloadSheetController = sheet
         present(sheet, animated: false)
     }
 
@@ -848,6 +863,149 @@ private final class QRExternalLinkSheetController: UIViewController {
         } completion: { _ in
             self.dismiss(animated: false) {
                 self.onDismiss?(didOpen)
+            }
+        }
+    }
+}
+
+private final class QRScannedTextPayloadSheetController: UIViewController {
+    private let payload: String
+    var onDismiss: (() -> Void)?
+
+    private let dimView = UIView()
+    private let contentView = UIView()
+    private let handleView = UIView()
+    private let titleLabel = UILabel()
+    private let textView = UITextView()
+    private let copyButton = UIButton(type: .system)
+
+    private var didAnimateIn = false
+    private var isDismissing = false
+
+    init(payload: String) {
+        self.payload = payload
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+
+        dimView.backgroundColor = UIColor.black.withAlphaComponent(0.32)
+        dimView.alpha = 0
+        dimView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dimTapped)))
+        view.addSubview(dimView)
+
+        contentView.backgroundColor = UIColor(red: 0.10, green: 0.11, blue: 0.12, alpha: 1.0)
+        contentView.layer.cornerRadius = 14
+        contentView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        contentView.clipsToBounds = true
+        view.addSubview(contentView)
+
+        handleView.backgroundColor = UIColor.white.withAlphaComponent(0.16)
+        handleView.layer.cornerRadius = 2.5
+        contentView.addSubview(handleView)
+
+        titleLabel.text = L(L10n.QRScanner.scannedPayloadTitle)
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = .white
+        titleLabel.numberOfLines = 1
+        contentView.addSubview(titleLabel)
+
+        textView.text = payload
+        textView.font = .systemFont(ofSize: 15, weight: .regular)
+        textView.textColor = .white
+        textView.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        textView.layer.cornerRadius = 10
+        textView.clipsToBounds = true
+        textView.textContainerInset = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isScrollEnabled = true
+        textView.indicatorStyle = .white
+        contentView.addSubview(textView)
+
+        copyButton.backgroundColor = UIColor(red: 0.02, green: 0.43, blue: 1.0, alpha: 1.0)
+        copyButton.layer.cornerRadius = 22
+        copyButton.tintColor = .white
+        copyButton.setTitle(L(L10n.QRScanner.copyContent), for: .normal)
+        copyButton.setTitleColor(.white, for: .normal)
+        copyButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        copyButton.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
+        copyButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -6, bottom: 0, right: 6)
+        copyButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: -6)
+        copyButton.addTarget(self, action: #selector(copyTapped), for: .touchUpInside)
+        contentView.addSubview(copyButton)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+
+        dimView.frame = view.bounds
+        let safeBottom = view.safeAreaInsets.bottom
+        let width = view.bounds.width
+        let horizontal: CGFloat = 16
+        let insetH = textView.textContainerInset.left + textView.textContainerInset.right
+        let innerTextWidth = max(1, width - horizontal * 2 - insetH)
+
+        let bodyFont = textView.font ?? UIFont.systemFont(ofSize: 15)
+        let bounded = (payload as NSString).boundingRect(
+            with: CGSize(width: innerTextWidth, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: bodyFont],
+            context: nil)
+        let intrinsicText = ceil(bounded.height) + textView.textContainerInset.top + textView.textContainerInset.bottom
+        let textBlockH = min(320, max(120, intrinsicText))
+
+        let titleY: CGFloat = 38
+        titleLabel.frame = CGRect(x: horizontal, y: titleY, width: width - horizontal * 2, height: 24)
+
+        let textY = titleY + 24 + 12
+        textView.frame = CGRect(x: horizontal, y: textY, width: width - horizontal * 2, height: textBlockH)
+
+        let buttonY = textY + textBlockH + 20
+        copyButton.frame = CGRect(x: horizontal, y: buttonY, width: width - horizontal * 2, height: 44)
+
+        let sheetHeight = buttonY + 44 + 18 + safeBottom
+        contentView.frame = CGRect(x: 0, y: view.bounds.height - sheetHeight, width: width, height: sheetHeight)
+        handleView.frame = CGRect(x: (width - 56) / 2, y: 10, width: 56, height: 5)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didAnimateIn else { return }
+        didAnimateIn = true
+        contentView.transform = CGAffineTransform(translationX: 0, y: contentView.bounds.height)
+        UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut]) {
+            self.dimView.alpha = 1
+            self.contentView.transform = .identity
+        }
+    }
+
+    @objc private func dimTapped() {
+        dismissSheet()
+    }
+
+    @objc private func copyTapped() {
+        UIPasteboard.general.string = payload
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func dismissSheet() {
+        guard !isDismissing else { return }
+        isDismissing = true
+        let height = contentView.bounds.height
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseIn]) {
+            self.dimView.alpha = 0
+            self.contentView.transform = CGAffineTransform(translationX: 0, y: height)
+        } completion: { _ in
+            self.dismiss(animated: false) {
+                self.onDismiss?()
             }
         }
     }

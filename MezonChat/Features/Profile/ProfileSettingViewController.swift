@@ -1107,6 +1107,7 @@ final class ProfileSettingViewController: BaseViewController {
                     token: token
                 )
                 await context.refreshUserProfile()
+                applyLocalUserProfileChange(displayName: displayNameForSave, avatarUrl: userAvatarUrl)
                 setLoading(false)
                 Toast.success(L(L10n.ProfileSetting.updateSuccess))
                 navigationController?.popViewController(animated: true)
@@ -1160,6 +1161,11 @@ final class ProfileSettingViewController: BaseViewController {
                     token: token
                 )
                 await context.refreshUserProfile()
+                applyLocalClanProfileChange(
+                    clanId: clan.clanID,
+                    nickName: nicknameForSave,
+                    clanAvatar: avatarChanged ? clanAvatarUrl : nil
+                )
                 setLoading(false)
                 Toast.success(L(L10n.ProfileSetting.clanUpdateSuccess))
                 navigationController?.popViewController(animated: true)
@@ -1167,6 +1173,72 @@ final class ProfileSettingViewController: BaseViewController {
                 setLoading(false)
                 Toast.error(L(L10n.ProfileSetting.updateError))
             }
+        }
+    }
+
+    private func applyLocalUserProfileChange(displayName: String, avatarUrl: String) {
+        guard let userIdStr = context.currentUser?.id, let userId = Int64(userIdStr) else { return }
+        let trimmedAvatar = avatarUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        context.account.postbox.write { tx in
+            let clans = tx.getClans()
+            for clan in clans {
+                let members = tx.getClanMembers(clanId: clan.id)
+                guard let idx = members.firstIndex(where: { $0.userId == userId }) else { continue }
+                let old = members[idx]
+                let updated = ClanMemberRecord(
+                    userId: old.userId,
+                    roleIds: old.roleIds,
+                    clanNick: old.clanNick,
+                    clanAvatar: old.clanAvatar,
+                    userAvatarURL: trimmedAvatar.isEmpty ? old.userAvatarURL : trimmedAvatar,
+                    clanId: old.clanId,
+                    isOnline: old.isOnline,
+                    displayName: displayName,
+                    username: old.username
+                )
+                var newMembers = members
+                newMembers[idx] = updated
+                tx.updateClanMembers(newMembers, clanId: clan.id)
+            }
+        }
+        for clan in (context.account.postbox.read { tx in tx.getClans() }) {
+            refreshClanUsersPreferenceCache(clanId: clan.id)
+        }
+    }
+
+    private func applyLocalClanProfileChange(clanId: Int64, nickName: String, clanAvatar: String?) {
+        guard clanId != 0, let userIdStr = context.currentUser?.id, let userId = Int64(userIdStr) else { return }
+        let avatarToWrite: String? = clanAvatar.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        context.account.postbox.write { tx in
+            let members = tx.getClanMembers(clanId: clanId)
+            guard let idx = members.firstIndex(where: { $0.userId == userId }) else { return }
+            let old = members[idx]
+            let updated = ClanMemberRecord(
+                userId: old.userId,
+                roleIds: old.roleIds,
+                clanNick: nickName,
+                clanAvatar: avatarToWrite ?? old.clanAvatar,
+                userAvatarURL: old.userAvatarURL,
+                clanId: old.clanId,
+                isOnline: old.isOnline,
+                displayName: old.displayName,
+                username: old.username
+            )
+            var newMembers = members
+            newMembers[idx] = updated
+            tx.updateClanMembers(newMembers, clanId: clanId)
+        }
+        refreshClanUsersPreferenceCache(clanId: clanId)
+    }
+
+    private func refreshClanUsersPreferenceCache(clanId: Int64) {
+        let members = context.account.postbox.read { tx in tx.getClanMembers(clanId: clanId) }
+        guard !members.isEmpty else { return }
+        var list = Mezon_Api_ClanUserList()
+        list.clanID = clanId
+        list.clanUsers = members.map { $0.toClanUserListClanUser() }
+        if let data = try? list.serializedData() {
+            context.account.postbox.setPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
         }
     }
 
