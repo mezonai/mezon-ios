@@ -1382,6 +1382,11 @@ final class ProfileSettingViewController: BaseViewController {
                     dmIconRemoveButton.isHidden = false
                 }
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ProfileSetting.uploadImage",
+                    "target": "\(target)",
+                    "size": data.count,
+                ])
                 Toast.error(L(L10n.ProfileSetting.updateError))
             }
         }

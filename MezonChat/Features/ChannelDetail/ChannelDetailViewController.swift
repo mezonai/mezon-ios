@@ -827,6 +827,10 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
                 Toast.success(L(L10n.ChannelDetail.groupUpdated))
                 self.dismiss(animated: true)
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ChannelDetail.updateGroup",
+                    "channelId": self.originalChannel.channelID,
+                ])
                 Toast.error(L(L10n.ChannelDetail.updateGroupFailed))
             }
         }

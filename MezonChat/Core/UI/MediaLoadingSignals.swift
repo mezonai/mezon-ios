@@ -172,7 +172,13 @@ final class ImageCache {
         key: String,
         completion: @escaping (UIImage?) -> Void
     ) -> URLSessionDataTask {
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            if let error {
+                SentryLogger.capture(error, extras: [
+                    "where": "ImageCache.downloadImage",
+                    "url": url.absoluteString,
+                ])
+            }
             guard let data else {
                 DispatchQueue.main.async { completion(nil) }
                 return
@@ -405,8 +411,14 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
                 subscriber.putCompletion()
                 return
             }
-            let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+            let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
                 guard !cancelled.with({ $0 }) else { return }
+                if let error {
+                    SentryLogger.capture(error, extras: [
+                        "where": "remoteImageSignal",
+                        "url": url,
+                    ])
+                }
                 guard let data else {
                     subscriber.putNext(emptyDrawingTransform())
                     subscriber.putCompletion()
@@ -454,8 +466,14 @@ func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMo
                 onFailure()
                 return
             }
-            let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+            let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
                 guard !cancelled.with({ $0 }) else { return }
+                if let error {
+                    SentryLogger.capture(error, extras: [
+                        "where": "remoteAttachmentImageSignal",
+                        "url": urlString,
+                    ])
+                }
                 guard let data, let image = UIImage.decompressedImage(from: data) else {
                     onFailure()
                     return
@@ -544,8 +562,14 @@ func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
                 subscriber.putCompletion()
                 return
             }
-            let task = URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+            let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
                 guard !cancelled.with({ $0 }) else { return }
+                if let error {
+                    SentryLogger.capture(error, extras: [
+                        "where": "rawImageSignal",
+                        "url": url,
+                    ])
+                }
                 let image = data.flatMap { UIImage.decompressedImage(from: $0) }
                 if let image, let data {
                     cache.setImage(image, data: data, forKey: url)

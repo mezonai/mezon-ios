@@ -22,6 +22,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         MezonEnvironment.current = .prod
+        SentryLogger.start()
         CallKitManager.shared.configure()
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
         NotificationCenter.default.addObserver(

@@ -32,6 +32,9 @@ packages:
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf
     from: "1.28.0"
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: "8.40.0"
 
 options:
   bundleIdPrefix: mezon
@@ -75,6 +78,8 @@ targets:
         product: LiveKitWebRTC
       - package: SwiftProtobuf
         product: SwiftProtobuf
+      - package: Sentry
+        product: Sentry
       - target: NotificationService
       - target: MezonSharing
     sources:

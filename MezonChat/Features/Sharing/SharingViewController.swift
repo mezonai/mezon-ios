@@ -1444,6 +1444,10 @@ final class SharingViewController: UIViewController {
                 self.dismiss(animated: true)
 
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "Sharing.sendWithAttachments",
+                    "mediaCount": self.sharedMediaFiles.count,
+                ])
                 self.isUploading = false
                 self.loadingOverlay.isHidden = true
                 self.activityIndicator.stopAnimating()

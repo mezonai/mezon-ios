@@ -1070,6 +1070,11 @@ final class ForwardMessageViewController: UIViewController {
                 Toast.success(L(L10n.Forward.success))
                 dismiss(animated: true)
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ForwardMessage",
+                    "messageCount": messagesToForward.count,
+                    "destinationCount": targets.count,
+                ])
                 Toast.error(L(L10n.Sharing.errorTitle))
             }
         }
