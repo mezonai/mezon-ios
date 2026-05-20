@@ -635,7 +635,7 @@ final class CreatePollViewController: BaseViewController {
                 _ = try await self.context.account.network.createPoll(
                     channelId: self.channelId,
                     clanId: self.clanId,
-                    question: questionText,
+                    question: questionText.trimmingCharacters(in: .whitespacesAndNewlines),
                     answers: formattedAnswers,
                     expireHours: durationHours,
                     type: type,
