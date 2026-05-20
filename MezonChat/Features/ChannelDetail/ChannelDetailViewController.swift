@@ -95,7 +95,7 @@ final class ChannelDetailViewController: ViewController {
         guard let cid = Self.notificationInt64(notification.userInfo?["channelId"]), cid == channel.channelID else {
             return
         }
-        refreshChannelFromStores()
+        detailNode.updateMuteButtonState()
     }
 
     private func resolvedChannelSnapshot() -> Mezon_Api_ChannelDescription {
@@ -196,24 +196,49 @@ final class ChannelDetailViewController: ViewController {
     }
 
     private func handleMuteChannel(muteTimeSeconds: Int32) {
+        ChannelMuteHelper.setMuteChannel(
+            context: context,
+            channelId: channel.channelID,
+            clanId: channel.clanID,
+            muteTimeSeconds: muteTimeSeconds
+        )
+    }
+}
+
+enum ChannelMuteHelper {
+    static func setMuteChannel(
+        context: AccountContext,
+        channelId: Int64,
+        clanId: Int64,
+        muteTimeSeconds: Int32
+    ) {
         Task { @MainActor in
-            guard let token = await context.getToken() else { return }
+            guard let token = await context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
             do {
                 try await MezonHTTPClient.shared.setMuteChannel(
-                    id: channel.channelID,
-                    clanId: channel.clanID,
+                    id: channelId,
+                    clanId: clanId,
                     muteTime: muteTimeSeconds,
                     active: 0,
                     token: token
                 )
                 
+                let existingRecord = context.account.postbox.read { tx in
+                    tx.getNotificationSetting(entityId: channelId)
+                }
+                let type = existingRecord?.notificationSettingType ?? 1
+                let active = existingRecord?.active ?? 1
+                
                 let record = NotificationSettingRecord(
                     id: 0,
-                    entityId: channel.channelID,
+                    entityId: channelId,
                     scope: .channel,
-                    notificationSettingType: 1,
+                    notificationSettingType: type,
                     timeMuteSeconds: UInt32(bitPattern: muteTimeSeconds),
-                    active: 1
+                    active: active
                 )
                 context.account.postbox.write { tx in
                     tx.updateNotificationSetting(record)
@@ -222,7 +247,7 @@ final class ChannelDetailViewController: ViewController {
                 NotificationCenter.default.post(
                     name: .mezonNotificationSettingDidUpdate,
                     object: nil,
-                    userInfo: ["channelId": channel.channelID, "record": record]
+                    userInfo: ["channelId": channelId, "record": record]
                 )
             } catch {
                 Toast.error(error.localizedDescription)

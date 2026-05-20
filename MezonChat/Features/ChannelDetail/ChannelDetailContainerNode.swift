@@ -196,6 +196,10 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    func updateMuteButtonState() {
+        actionButtonsNode.updateMuteButtonState()
+    }
+
     private func buildTabs() {
         tabTitleNodes = []
         tabUnderlineNodes = []
