@@ -3,7 +3,18 @@ import AsyncDisplayKit
 final class PollCardNode: ASDisplayNode {
 
     private let cardNode = ASDisplayNode()
-    private let questionNode = ASTextNode2()
+    private let questionNode: ASDisplayNode = {
+        let node = ASDisplayNode {
+            let view = EmojiTextView()
+            view.textView.textContainer.maximumNumberOfLines = 2
+            view.textView.textContainer.lineBreakMode = .byTruncatingTail
+            view.textView.isUserInteractionEnabled = false
+            return view
+        }
+        node.isLayerBacked = false
+        node.isUserInteractionEnabled = false
+        return node
+    }()
     private let instructionNode = ASTextNode2()
     private var optionRowNodes: [PollOptionRowNode] = []
     private let footerSeparator = ASDisplayNode()
@@ -26,7 +37,17 @@ final class PollCardNode: ASDisplayNode {
     var onLongPress: (() -> Void)?
     var onNeedsRelayout: (() -> Void)?
 
+    private var isVotingInProgress = false
     private var cachedWidth: CGFloat = 0
+    private var cachedAttributedQuestionText: NSAttributedString? {
+        didSet {
+            if questionNode.isNodeLoaded {
+                DispatchQueue.main.async {
+                    (self.questionNode.view as? EmojiTextView)?.attributedText = self.cachedAttributedQuestionText
+                }
+            }
+        }
+    }
     private var cachedQuestionSize: CGSize = .zero
     private var cachedInstructionSize: CGSize = .zero
     private var cachedStatsSize: CGSize = .zero
@@ -63,9 +84,28 @@ final class PollCardNode: ASDisplayNode {
     }
 
     func updatePollData(_ newPollData: PollData) {
-        self.pollData = newPollData
-        restoreVoteStateFromCache(fallback: [])
-        refreshUI()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pollData = newPollData
+            let oldSelection = self.selection
+            let oldHasVoted = self.hasVoted
+
+            if self.isVotingInProgress {
+                self.refreshUI()
+                return
+            }
+
+            self.restoreVoteStateFromCache(fallback: [])
+
+            if !oldHasVoted && !oldSelection.isEmpty && !self.hasVoted && !newPollData.isClosed {
+                let cached = PollVoteCache.shared.getVotes(for: self.messageId)
+                if cached == nil {
+                    self.selection = oldSelection
+                }
+            }
+
+            self.refreshUI()
+        }
     }
 
     private func restoreVoteStateFromCache(fallback: [Int]) {
@@ -93,7 +133,8 @@ final class PollCardNode: ASDisplayNode {
     }
 
     private var isMultiple: Bool {
-        pollData?.type == .multiple
+        guard let pollData else { return false }
+        return pollData.type == .multiple
     }
 
     private var shouldVote: Bool {
@@ -121,6 +162,7 @@ final class PollCardNode: ASDisplayNode {
     }
 
     private func buildUI() {
+        guard let pollData else { return }
         let t = UIColor.theme
 
         cardNode.backgroundColor = t.primary
@@ -129,14 +171,14 @@ final class PollCardNode: ASDisplayNode {
         cardNode.borderColor = UIColor.mezonBorder.cgColor
         if cardNode.supernode == nil { addSubnode(cardNode) }
 
-        questionNode.attributedText = NSAttributedString(
-            string: pollData?.question ?? "",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
-                .foregroundColor: t.textStrong,
-            ]
+        let questionFont = UIFont.systemFont(ofSize: 16.sf, weight: .semibold)
+        cachedAttributedQuestionText = PollEmojiParser.parse(
+            pollData.question,
+            font: questionFont,
+            color: t.textStrong,
+            emojiSize: 22.sf,
+            lineBreakMode: .byTruncatingTail
         )
-        questionNode.maximumNumberOfLines = 2
         if questionNode.supernode == nil { cardNode.addSubnode(questionNode) }
 
         let instructionText = isMultiple
@@ -189,6 +231,13 @@ final class PollCardNode: ASDisplayNode {
     }
 
     private func refreshUI() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshUI()
+            }
+            return
+        }
+        
         buildDisplayOptions()
 
         let visible = visibleOptions
@@ -207,6 +256,8 @@ final class PollCardNode: ASDisplayNode {
         updateLoadMoreText()
         let _ = measureSize(maxWidth: cachedWidth)
         setNeedsLayout()
+        view.layoutIfNeeded()
+        onNeedsRelayout?()
     }
 
     private func updateStatsText() {
@@ -267,6 +318,14 @@ final class PollCardNode: ASDisplayNode {
         )
         actionButtonLabel.maximumNumberOfLines = 1
         if actionButtonLabel.supernode == nil { actionButton.addSubnode(actionButtonLabel) }
+
+        if isVotingInProgress {
+            actionButton.alpha = 0.5
+            actionButton.isUserInteractionEnabled = false
+        } else {
+            actionButton.alpha = 1.0
+            actionButton.isUserInteractionEnabled = true
+        }
     }
 
     private func updateLoadMoreText() {
@@ -295,6 +354,7 @@ final class PollCardNode: ASDisplayNode {
     }
 
     private func handleOptionPress(index: Int) {
+        guard !isVotingInProgress else { return }
         guard !hasVoted, !(pollData?.isClosed ?? false) else { return }
 
         if let existing = selection.firstIndex(of: index) {
@@ -312,6 +372,10 @@ final class PollCardNode: ASDisplayNode {
 
     override func didLoad() {
         super.didLoad()
+
+        if let attr = cachedAttributedQuestionText {
+            (questionNode.view as? EmojiTextView)?.attributedText = attr
+        }
 
         let btnTap = UITapGestureRecognizer(target: self, action: #selector(handleActionTap))
         actionButton.view.addGestureRecognizer(btnTap)
@@ -342,16 +406,23 @@ final class PollCardNode: ASDisplayNode {
             return
         }
 
+        guard !isVotingInProgress else { return }
+
         if hasVoted || !selection.isEmpty {
             let indices = hasVoted ? [] : selection.map { Int32($0) }
+            isVotingInProgress = true
+            updateActionButton()
             onVotePoll?(messageId, channelId, indices) { [weak self] myVotes in
                 guard let self else { return }
+                self.isVotingInProgress = false
                 if let myVotes {
                     let intVotes = myVotes.map { Int($0) }
                     self.hasVoted = !intVotes.isEmpty
                     self.selection = intVotes
                     self.showResults = false
                     PollVoteCache.shared.setVotes(for: self.messageId, indices: intVotes)
+                    self.refreshUI()
+                } else {
                     self.refreshUI()
                 }
             }
@@ -371,10 +442,8 @@ final class PollCardNode: ASDisplayNode {
         buildUI()
         let _ = measureSize(maxWidth: cachedWidth)
         setNeedsLayout()
-        
-        Queue.mainQueue().after(0.01) { [weak self] in
-            self?.onNeedsRelayout?()
-        }
+        view.layoutIfNeeded()
+        onNeedsRelayout?()
     }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -392,7 +461,31 @@ final class PollCardNode: ASDisplayNode {
         let contentWidth = max(maxWidth - pad * 2, 1)
         var totalH: CGFloat = pad
 
-        cachedQuestionSize = questionNode.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
+        let qMaxWidth = contentWidth
+        let qAttr = cachedAttributedQuestionText ?? NSAttributedString()
+        let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
+        let textContainer = NSTextContainer(size: CGSize(width: qMaxWidth, height: .greatestFiniteMagnitude))
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = 2
+        textContainer.lineBreakMode = .byTruncatingTail
+        let textStorage = NSTextStorage(attributedString: qAttr)
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: textContainer)
+        let rect = layoutManager.usedRect(for: textContainer)
+        
+        var emojiMaxH: CGFloat = 0
+        if qAttr.length > 0 {
+            qAttr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: qAttr.length)) { value, _, _ in
+                if let em = value as? EmojiTextAttachment {
+                    emojiMaxH = max(emojiMaxH, -em.bounds.origin.y + em.bounds.height)
+                }
+            }
+        }
+        let textW = min(ceil(rect.width), qMaxWidth)
+        let textH = max(ceil(rect.height), emojiMaxH)
+        cachedQuestionSize = CGSize(width: textW, height: textH)
         totalH += cachedQuestionSize.height + 4
 
         cachedInstructionSize = instructionNode.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
@@ -438,12 +531,15 @@ final class PollCardNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        let w = bounds.width
-        let h = bounds.height
+        var safeBounds = bounds
+        safeBounds.size.width = max(safeBounds.size.width, 0)
+        safeBounds.size.height = max(safeBounds.size.height, 0)
+        
+        let w = safeBounds.width
         let pad = Self.cardPadding
         let contentWidth = max(w - pad * 2, 1)
 
-        cardNode.frame = bounds
+        cardNode.frame = safeBounds
 
         var y: CGFloat = pad
 
@@ -509,3 +605,5 @@ final class PollCardNode: ASDisplayNode {
         }
     }
 }
+
+

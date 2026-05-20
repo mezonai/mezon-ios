@@ -109,6 +109,7 @@ enum L10n {
         static let saveChanges    = "common.saveChanges"
         static let enable         = "common.enable"
         static let reset          = "common.reset"
+        static let loading        = "common.loading"
         static let actions        = "common.actions"
         static let notifications  = "common.notifications"
         static let appearance     = "common.appearance"
@@ -903,6 +904,27 @@ enum L10n {
         static let noVotesYet         = "poll.noVotesYet"
     }
 
+    enum CreatePoll {
+        static let poll                  = "advanced.poll"
+        static let title                 = "createPoll.title"
+        static let questionLabel         = "createPoll.questionLabel"
+        static let questionPlaceholder   = "createPoll.questionPlaceholder"
+        static let answersLabel          = "createPoll.answersLabel"
+        static let answerPlaceholder     = "createPoll.answerPlaceholder"
+        static let addAnswerButton       = "createPoll.addAnswerButton"
+        static let durationLabel         = "createPoll.durationLabel"
+        static let multipleAnswersLabel  = "createPoll.multipleAnswersLabel"
+        static let postButton            = "createPoll.postButton"
+        static let selectDuration        = "createPoll.selectDuration"
+        static let cancel                = "createPoll.cancel"
+        static let hour1                 = "createPoll.hour1"
+        static let hours4                = "createPoll.hours4"
+        static let hours8                = "createPoll.hours8"
+        static let hours24               = "createPoll.hours24"
+        static let days3                 = "createPoll.days3"
+        static let week1                 = "createPoll.week1"
+    }
+
     enum CallLog {
         static let cancel             = "callLog.cancel"
         static let missed             = "callLog.missed"
@@ -978,6 +1000,7 @@ extension L10n {
         "common.saveChanges":   "Save Changes",
         "common.enable":        "Enable",
         "common.reset":         "Reset",
+        "common.loading":       "Loading...",
         "common.actions":       "Actions",
         "common.notifications": "Notifications",
         "common.appearance":    "Appearance",
@@ -1495,6 +1518,25 @@ extension L10n {
         "poll.showLess": "Show less",
         "poll.noVotesYet": "No votes yet",
 
+        "advanced.poll": "Poll",
+        "createPoll.title": "Create Poll",
+        "createPoll.questionLabel": "Question",
+        "createPoll.questionPlaceholder": "What question do you want to ask?",
+        "createPoll.answersLabel": "Answers",
+        "createPoll.answerPlaceholder": "Type your answer",
+        "createPoll.addAnswerButton": "+ Add another answer",
+        "createPoll.durationLabel": "Duration",
+        "createPoll.multipleAnswersLabel": "Allow multiple answers",
+        "createPoll.postButton": "Post",
+        "createPoll.selectDuration": "Select Duration",
+        "createPoll.cancel": "Cancel",
+        "createPoll.hour1": "1 Hour",
+        "createPoll.hours4": "4 Hours",
+        "createPoll.hours8": "8 Hours",
+        "createPoll.hours24": "24 Hours",
+        "createPoll.days3": "3 Days",
+        "createPoll.week1": "1 Week",
+
         "chatWelcome.welcomeToChannel": "Welcome to #%@",
         "chatWelcome.startOfChannel": "This is the start of the #%@ %@ channel",
         "chatWelcome.privateChannel": "private",
@@ -1815,11 +1857,12 @@ extension L10n {
         "common.share":         "Chia sẻ",
         "common.download":      "Tải xuống",
         "common.forward":       "Chuyển tiếp",
-        "common.comingSoon":   "Sắp ra mắt",
+        "common.comingSoon":    "Sắp ra mắt",
         "common.forwarded":     "Đã chuyển tiếp",
         "common.saveChanges":   "Lưu thay đổi",
         "common.enable":        "Bật",
         "common.reset":         "Đặt lại",
+        "common.loading":       "Đang tải...",
         "common.actions":       "Hành động",
         "common.notifications": "Thông báo",
         "common.appearance":    "Giao diện",
@@ -2324,7 +2367,7 @@ extension L10n {
         "poll.voteButton": "Bình chọn",
         "poll.removeVote": "Hủy bình chọn",
         "poll.showResults": "Xem kết quả",
-        "poll.backToVote": "Quay lại bình chọn",
+        "poll.backToVote": "Quay lại",
         "poll.vote": "bình chọn",
         "poll.votes": "bình chọn",
         "poll.ended": "Đã kết thúc",
@@ -2335,7 +2378,26 @@ extension L10n {
         "poll.loadMore": "Thêm %d tùy chọn",
         "poll.loadMore1Option": "Thêm 1 tùy chọn",
         "poll.showLess": "Thu gọn",
-        "poll.noVotesYet": "Chưa có bình chọn",
+        "poll.noVotesYet": "Chưa có bình chọn nào",
+
+        "advanced.poll": "Bình chọn",
+        "createPoll.title": "Tạo bình chọn",
+        "createPoll.questionLabel": "Câu hỏi",
+        "createPoll.questionPlaceholder": "Bạn muốn hỏi điều gì?",
+        "createPoll.answersLabel": "Câu trả lời",
+        "createPoll.answerPlaceholder": "Nhập câu trả lời",
+        "createPoll.addAnswerButton": "+ Thêm câu trả lời",
+        "createPoll.durationLabel": "Thời gian",
+        "createPoll.multipleAnswersLabel": "Cho phép chọn nhiều đáp án",
+        "createPoll.postButton": "Đăng",
+        "createPoll.selectDuration": "Chọn thời gian",
+        "createPoll.cancel": "Hủy",
+        "createPoll.hour1": "1 Giờ",
+        "createPoll.hours4": "4 Giờ",
+        "createPoll.hours8": "8 Giờ",
+        "createPoll.hours24": "24 Giờ",
+        "createPoll.days3": "3 Ngày",
+        "createPoll.week1": "1 Tuần",
 
         "chatWelcome.welcomeToChannel": "Chào mừng đến với #%@",
         "chatWelcome.startOfChannel": "Đây là nơi bắt đầu của kênh #%@ %@",

@@ -3205,6 +3205,8 @@ final class ChatViewController: ViewController {
             }
         case "transfer_funds":
             navigateToTransferFunds()
+        case "create_poll":
+            navigateToCreatePoll()
         default:
             let toast = UILabel()
             toast.text = "  \(item.label.replacingOccurrences(of: "\n", with: " ")) — Coming soon  "
@@ -3232,6 +3234,15 @@ final class ChatViewController: ViewController {
             }
         }
     }
+
+    private func navigateToCreatePoll() {
+        view.endEditing(true)
+        sendInputViewController.markAdvancePanelDismissedByHost()
+        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        let createVC = CreatePollViewController(context: self.context, channelId: self.channel.channelID, clanId: self.clanId)
+        navigationController?.pushViewController(createVC, animated: true)
+    }
+
 
     private func navigateToTransferFunds() {
         view.endEditing(true)

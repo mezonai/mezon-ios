@@ -78,7 +78,7 @@ class ReactionEmojiPickerSheetController: ViewController {
     }
 }
 
-private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
+private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecognizerDelegate {
 
     private let engine: MezonEngine
     private let onEmojiSelected: (String, String) -> Void
@@ -88,6 +88,9 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
     private let containerNode = ASDisplayNode()
     private let handleNode = ASDisplayNode()
     private let emojisPanel = EmojisPanel()
+
+    private var panGesture: UIPanGestureRecognizer!
+    private var panStartY: CGFloat = 0
 
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
@@ -145,6 +148,10 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         }
         emojisPanel.logEmojiLoadingState(tag: "didLoadAfterBind")
         syncHostedPanelFrame()
+        
+        panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGesture.delegate = self
+        containerNode.view.addGestureRecognizer(panGesture)
     }
 
     deinit {
@@ -247,10 +254,53 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode {
         let bottomY = layout.size.height
         UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseIn, animations: {
             self.dimmingNode.alpha = 0
-            self.containerNode.frame = CGRect(x: 0, y: bottomY, width: layout.size.width, height: self.containerHeight)
+            self.containerNode.frame.origin.y = bottomY
         }) { _ in
             completion()
         }
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let layout = validLayout else { return }
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+
+        switch gesture.state {
+        case .began:
+            panStartY = containerNode.frame.origin.y
+        case .changed:
+            let offsetY = max(0, translation.y)
+            containerNode.frame.origin.y = panStartY + offsetY
+            dimmingNode.alpha = 1 - offsetY / max(containerHeight, 1)
+        case .ended, .cancelled:
+            if translation.y > containerHeight * 0.3 || velocity.y > 500 {
+                onDimTapped()
+            } else {
+                let targetY = layout.size.height - containerHeight
+                UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
+                    self.containerNode.frame.origin.y = targetY
+                    self.dimmingNode.alpha = 1
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === panGesture else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        let vel = panGesture.velocity(in: view)
+        return vel.y > 0
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGesture, let scrollView = otherGestureRecognizer.view as? UIScrollView {
+            if scrollView.contentOffset.y <= 0 {
+                return true
+            }
+            return false
+        }
+        return false
     }
 }
 

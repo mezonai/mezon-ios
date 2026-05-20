@@ -4,7 +4,18 @@ final class PollOptionRowNode: ASDisplayNode {
 
     private let backgroundNode = ASDisplayNode()
     private let fillNode = ASDisplayNode()
-    private let labelNode = ASTextNode2()
+    private let labelNode: ASDisplayNode = {
+        let node = ASDisplayNode {
+            let view = EmojiTextView()
+            view.textView.textContainer.maximumNumberOfLines = 1
+            view.textView.textContainer.lineBreakMode = .byTruncatingTail
+            view.textView.isUserInteractionEnabled = false
+            return view
+        }
+        node.isLayerBacked = false
+        node.isUserInteractionEnabled = false
+        return node
+    }()
     private let metaNode = ASTextNode2()
     private let checkmarkNode = ASDisplayNode()
     private let checkIconNode = ASImageNode()
@@ -15,6 +26,15 @@ final class PollOptionRowNode: ASDisplayNode {
     private var hasVoted: Bool
 
     private var cachedSize: CGSize = .zero
+    private var cachedAttributedLabelText: NSAttributedString? {
+        didSet {
+            if labelNode.isNodeLoaded {
+                DispatchQueue.main.async {
+                    (self.labelNode.view as? EmojiTextView)?.attributedText = self.cachedAttributedLabelText
+                }
+            }
+        }
+    }
 
     private static let rowHeight: CGFloat = 40
     private static let cornerRadius: CGFloat = 8
@@ -46,9 +66,6 @@ final class PollOptionRowNode: ASDisplayNode {
         updateFillNodeAppearance()
         backgroundNode.addSubnode(fillNode)
 
-        labelNode.maximumNumberOfLines = 1
-        labelNode.displaysAsynchronously = false
-        labelNode.isLayerBacked = true
         updateLabelText()
         addSubnode(labelNode)
 
@@ -94,13 +111,10 @@ final class PollOptionRowNode: ASDisplayNode {
         let t = UIColor.theme
         let shouldUseActiveColor = hasVoted && option.isSelected && shouldShowResults
             && option.percentage >= 0
-        labelNode.attributedText = NSAttributedString(
-            string: option.label,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 14.sf),
-                .foregroundColor: shouldUseActiveColor ? UIColor.white : t.textStrong,
-            ]
-        )
+        let color = shouldUseActiveColor ? UIColor.white : t.textStrong
+        let font = UIFont.systemFont(ofSize: 14.sf)
+        
+        cachedAttributedLabelText = PollEmojiParser.parse(option.label, font: font, color: color, emojiSize: 20.sf)
     }
 
     private func updateMetaText() {
@@ -120,6 +134,13 @@ final class PollOptionRowNode: ASDisplayNode {
     }
 
     func update(option: PollOptionDisplay, shouldShowResults: Bool, hasVoted: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.update(option: option, shouldShowResults: shouldShowResults, hasVoted: hasVoted)
+            }
+            return
+        }
+        
         self.option = option
         self.shouldShowResults = shouldShowResults
         self.hasVoted = hasVoted
@@ -151,6 +172,9 @@ final class PollOptionRowNode: ASDisplayNode {
         super.didLoad()
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         view.addGestureRecognizer(tap)
+        if let attr = cachedAttributedLabelText {
+            (labelNode.view as? EmojiTextView)?.attributedText = attr
+        }
     }
 
     @objc private func handleTap() {
@@ -173,7 +197,30 @@ final class PollOptionRowNode: ASDisplayNode {
         }
 
         let labelMaxWidth = shouldShowResults ? availableWidth * 0.6 : availableWidth
-        cachedLabelSize = labelNode.measure(CGSize(width: labelMaxWidth, height: .greatestFiniteMagnitude))
+        
+        let labelAttr = cachedAttributedLabelText ?? NSAttributedString()
+        let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
+        let textContainer = NSTextContainer(size: CGSize(width: labelMaxWidth, height: .greatestFiniteMagnitude))
+        textContainer.lineFragmentPadding = 0
+        textContainer.maximumNumberOfLines = 1
+        let textStorage = NSTextStorage(attributedString: labelAttr)
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: textContainer)
+        let rect = layoutManager.usedRect(for: textContainer)
+        
+        var emojiMaxH: CGFloat = 0
+        labelAttr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: labelAttr.length)) { value, _, _ in
+            if let em = value as? EmojiTextAttachment {
+                emojiMaxH = max(emojiMaxH, -em.bounds.origin.y + em.bounds.height)
+            }
+        }
+        
+        let textW = min(ceil(rect.width), labelMaxWidth)
+        let textH = max(ceil(rect.height), emojiMaxH)
+        cachedLabelSize = CGSize(width: textW, height: textH)
+        
         let rowHeight = max(Self.rowHeight, cachedLabelSize.height + vPad * 2)
 
         if shouldShowResults {
@@ -189,13 +236,17 @@ final class PollOptionRowNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        let w = bounds.width
-        let h = bounds.height
+        var safeBounds = bounds
+        safeBounds.size.width = max(safeBounds.size.width, 0)
+        safeBounds.size.height = max(safeBounds.size.height, 0)
+        
+        let w = safeBounds.width
+        let h = safeBounds.height
         let hPad: CGFloat = 12
         let checkSize: CGFloat = 20
         let gap: CGFloat = 8
 
-        backgroundNode.frame = bounds
+        backgroundNode.frame = safeBounds
 
         let targetFillWidth: CGFloat = shouldShowResults
             ? w * CGFloat(option.percentage) / 100.0
