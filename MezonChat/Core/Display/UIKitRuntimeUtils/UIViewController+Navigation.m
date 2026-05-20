@@ -173,8 +173,6 @@ static NSMutableArray<CALayerSpringParametersOverride *> *currentSpringParameter
     return array;
 }
 
-
-
 @implementation CALayer (TelegramAddAnimation)
 
 + (void)pushSpringParametersOverride:(CALayerSpringParametersOverride * _Nonnull)springParametersOverride {
@@ -286,8 +284,6 @@ static NSMutableArray<CALayerSpringParametersOverride *> *currentSpringParameter
     }
     [self _65087dc8_addAnimation:updatedAnimation forKey:key];
 }
-
-
 
 @end
 
@@ -559,7 +555,6 @@ static NSMutableDictionary<NSString *, TrustedWebRecord *> *trustedWebRecords() 
         
         [RuntimeUtils swizzleInstanceMethodOfClass:[CALayer class] currentSelector:@selector(addAnimation:forKey:) newSelector:@selector(_65087dc8_addAnimation:forKey:)];
 
-        
         [RuntimeUtils swizzleInstanceMethodOfClass:[UIFocusSystem class] currentSelector:@selector(updateFocusIfNeeded) newSelector:@selector(_65087dc8_updateFocusIfNeeded)];
         
         [RuntimeUtils swizzleInstanceMethodOfClass:[NSBundle class] currentSelector:@selector(objectForInfoDictionaryKey:) newSelector:@selector(_65087dc8_objectForInfoDictionaryKey:)];
