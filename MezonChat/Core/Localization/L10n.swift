@@ -870,6 +870,7 @@ enum L10n {
     }
 
     enum CreatePoll {
+        static let poll                  = "advanced.poll"
         static let title                 = "createPoll.title"
         static let questionLabel         = "createPoll.questionLabel"
         static let questionPlaceholder   = "createPoll.questionPlaceholder"
@@ -1471,6 +1472,7 @@ extension L10n {
         "poll.showLess": "Show less",
         "poll.noVotesYet": "No votes yet",
 
+        "advanced.poll": "Poll",
         "createPoll.title": "Create Poll",
         "createPoll.questionLabel": "Question",
         "createPoll.questionPlaceholder": "What question do you want to ask?",
@@ -2297,6 +2299,7 @@ extension L10n {
         "poll.showLess": "Thu gọn",
         "poll.noVotesYet": "Chưa có bình chọn nào",
 
+        "advanced.poll": "Bình chọn",
         "createPoll.title": "Tạo bình chọn",
         "createPoll.questionLabel": "Câu hỏi",
         "createPoll.questionPlaceholder": "Bạn muốn hỏi điều gì?",

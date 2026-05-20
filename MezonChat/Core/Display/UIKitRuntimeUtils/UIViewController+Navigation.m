@@ -173,11 +173,7 @@ static NSMutableArray<CALayerSpringParametersOverride *> *currentSpringParameter
     return array;
 }
 
-@interface CALayer (BoundsSafety)
 
-- (void)safe_setBounds:(CGRect)bounds;
-
-@end
 
 @implementation CALayer (TelegramAddAnimation)
 
@@ -291,16 +287,7 @@ static NSMutableArray<CALayerSpringParametersOverride *> *currentSpringParameter
     [self _65087dc8_addAnimation:updatedAnimation forKey:key];
 }
 
-- (void)safe_setBounds:(CGRect)bounds {
-    CGRect cleanBounds = bounds;
-    if (cleanBounds.size.width < 0.0) {
-        cleanBounds.size.width = 0.0;
-    }
-    if (cleanBounds.size.height < 0.0) {
-        cleanBounds.size.height = 0.0;
-    }
-    [self safe_setBounds:cleanBounds];
-}
+
 
 @end
 
@@ -571,10 +558,7 @@ static NSMutableDictionary<NSString *, TrustedWebRecord *> *trustedWebRecords() 
         }
         
         [RuntimeUtils swizzleInstanceMethodOfClass:[CALayer class] currentSelector:@selector(addAnimation:forKey:) newSelector:@selector(_65087dc8_addAnimation:forKey:)];
-        Class displayLayerClass = NSClassFromString(@"_ASDisplayLayer");
-        if (displayLayerClass) {
-            [RuntimeUtils swizzleInstanceMethodOfClass:displayLayerClass currentSelector:@selector(setBounds:) withAnotherClass:[CALayer class] newSelector:@selector(safe_setBounds:)];
-        }
+
         
         [RuntimeUtils swizzleInstanceMethodOfClass:[UIFocusSystem class] currentSelector:@selector(updateFocusIfNeeded) newSelector:@selector(_65087dc8_updateFocusIfNeeded)];
         

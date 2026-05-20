@@ -68,7 +68,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         if !anonymousOn {
             items.append(AdvancedFunctionItem(id: "location", label: "Location", systemIcon: "location.fill",
                                               backgroundColor: UIColor(red: 0.91, green: 0.60, blue: 0.58, alpha: 1)))
-            items.append(AdvancedFunctionItem(id: "create_poll", label: "Poll", systemIcon: "chart.bar.xaxis",
+            items.append(AdvancedFunctionItem(id: "create_poll", label: L(L10n.CreatePoll.poll), systemIcon: "chart.bar.xaxis",
                                               backgroundColor: UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)))
         }
         items.append(contentsOf: [

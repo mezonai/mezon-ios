@@ -98,7 +98,10 @@ final class PollCardNode: ASDisplayNode {
             self.restoreVoteStateFromCache(fallback: [])
 
             if !oldHasVoted && !oldSelection.isEmpty && !self.hasVoted && !newPollData.isClosed {
-                self.selection = oldSelection
+                let cached = PollVoteCache.shared.getVotes(for: self.messageId)
+                if cached == nil {
+                    self.selection = oldSelection
+                }
             }
 
             self.refreshUI()
@@ -253,10 +256,8 @@ final class PollCardNode: ASDisplayNode {
         updateLoadMoreText()
         let _ = measureSize(maxWidth: cachedWidth)
         setNeedsLayout()
-
-        Queue.mainQueue().after(0.01) { [weak self] in
-            self?.onNeedsRelayout?()
-        }
+        view.layoutIfNeeded()
+        onNeedsRelayout?()
     }
 
     private func updateStatsText() {
@@ -441,10 +442,8 @@ final class PollCardNode: ASDisplayNode {
         buildUI()
         let _ = measureSize(maxWidth: cachedWidth)
         setNeedsLayout()
-        
-        Queue.mainQueue().after(0.01) { [weak self] in
-            self?.onNeedsRelayout?()
-        }
+        view.layoutIfNeeded()
+        onNeedsRelayout?()
     }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
@@ -532,11 +531,15 @@ final class PollCardNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        let w = bounds.width
+        var safeBounds = bounds
+        safeBounds.size.width = max(safeBounds.size.width, 0)
+        safeBounds.size.height = max(safeBounds.size.height, 0)
+        
+        let w = safeBounds.width
         let pad = Self.cardPadding
         let contentWidth = max(w - pad * 2, 1)
 
-        cardNode.frame = bounds
+        cardNode.frame = safeBounds
 
         var y: CGFloat = pad
 
@@ -603,60 +606,4 @@ final class PollCardNode: ASDisplayNode {
     }
 }
 
-enum PollEmojiParser {
-    static func parse(_ text: String, font: UIFont, color: UIColor, emojiSize: CGFloat = 20, lineBreakMode: NSLineBreakMode = .byTruncatingTail) -> NSAttributedString {
-        let pattern = "\\[e:([^\\]]+)\\]"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
-            return NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
-        }
-        
-        let nsString = text as NSString
-        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
-        
-        let result = NSMutableAttributedString()
-        var lastOffset = 0
-        
-        let ps = NSMutableParagraphStyle()
-        ps.lineBreakMode = lineBreakMode
-        
-        for match in matches {
-            let matchRange = match.range
-            if matchRange.location > lastOffset {
-                let plainText = nsString.substring(with: NSRange(location: lastOffset, length: matchRange.location - lastOffset))
-                result.append(NSAttributedString(string: plainText, attributes: [
-                    .font: font,
-                    .foregroundColor: color,
-                    .paragraphStyle: ps
-                ]))
-            }
-            
-            if match.numberOfRanges > 1, let emojiId = nsString.substring(with: match.range(at: 1)) as String?, !emojiId.isEmpty {
-                let attachment = EmojiTextAttachment(
-                    emojiId: emojiId,
-                    emojiSize: emojiSize,
-                    baselineFont: font,
-                    imgproxyFitSide: Int(emojiSize * 2)
-                )
-                let mas = NSMutableAttributedString(attachment: attachment)
-                mas.addAttributes([
-                    .font: font,
-                    .paragraphStyle: ps
-                ], range: NSRange(location: 0, length: mas.length))
-                result.append(mas)
-            }
-            
-            lastOffset = matchRange.location + matchRange.length
-        }
-        
-        if lastOffset < nsString.length {
-            let plainText = nsString.substring(from: lastOffset)
-            result.append(NSAttributedString(string: plainText, attributes: [
-                .font: font,
-                .foregroundColor: color,
-                .paragraphStyle: ps
-            ]))
-        }
-        
-        return result
-    }
-}
+

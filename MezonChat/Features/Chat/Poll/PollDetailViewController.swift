@@ -420,7 +420,9 @@ final class PollDetailViewController: UIViewController {
 
     @objc private func dismissModal() {
         UIView.animate(withDuration: 0.15, animations: {
-            self.view.alpha = 0
+            self.overlayView.alpha = 0
+            self.containerView.alpha = 0
+            self.containerView.transform = CGAffineTransform(translationX: 0, y: 20)
         }) { _ in
             self.dismiss(animated: false)
         }

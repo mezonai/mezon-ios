@@ -236,13 +236,17 @@ final class PollOptionRowNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        let w = bounds.width
-        let h = bounds.height
+        var safeBounds = bounds
+        safeBounds.size.width = max(safeBounds.size.width, 0)
+        safeBounds.size.height = max(safeBounds.size.height, 0)
+        
+        let w = safeBounds.width
+        let h = safeBounds.height
         let hPad: CGFloat = 12
         let checkSize: CGFloat = 20
         let gap: CGFloat = 8
 
-        backgroundNode.frame = bounds
+        backgroundNode.frame = safeBounds
 
         let targetFillWidth: CGFloat = shouldShowResults
             ? w * CGFloat(option.percentage) / 100.0

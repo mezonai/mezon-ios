@@ -303,6 +303,11 @@ final class CreatePollViewController: BaseViewController {
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        navigationController?.setNavigationBarHidden(false, animated: animated)
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
@@ -516,12 +521,11 @@ final class CreatePollViewController: BaseViewController {
         
         let sheet = UIAlertController(title: L(L10n.CreatePoll.selectDuration), message: nil, preferredStyle: .actionSheet)
         for option in options {
-            let action = UIAlertAction(title: option.title, style: .default) { [weak self] _ in
+            let isSelected = self.durationHours == option.hours
+            let title = isSelected ? "\(option.title) ✓" : option.title
+            let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
                 self?.durationHours = option.hours
                 self?.durationValueLabel?.text = option.title
-            }
-            if self.durationHours == option.hours {
-                action.setValue(true, forKey: "checked")
             }
             sheet.addAction(action)
         }
@@ -626,7 +630,7 @@ final class CreatePollViewController: BaseViewController {
         
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                Toast.error("No session")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 self.postButton.isEnabled = true
                 self.postButton.setTitle(L(L10n.CreatePoll.postButton), for: .normal)
                 return
@@ -670,5 +674,11 @@ extension CreatePollViewController: UITextFieldDelegate {
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         textField.resignFirstResponder()
         return true
+    }
+    
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        let currentText = textField.text ?? ""
+        let newText = (currentText as NSString).replacingCharacters(in: range, with: string)
+        return newText.count <= 55
     }
 }
