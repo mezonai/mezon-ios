@@ -26,7 +26,13 @@ enum ReactionEmojiImageLoader {
             }
             return nil
         }
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
+        let task = URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error {
+                SentryLogger.capture(error, extras: [
+                    "where": "ReactionEmojiImageLoader.load",
+                    "url": url.absoluteString,
+                ])
+            }
             guard let data,
                   let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
             else {
@@ -121,7 +127,13 @@ enum ReactionEmojiImageLoader {
             }
             return nil
         }
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
+        let task = URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error {
+                SentryLogger.capture(error, extras: [
+                    "where": "ReactionEmojiImageLoader.loadData",
+                    "url": url.absoluteString,
+                ])
+            }
             guard let data else {
                 DispatchQueue.main.async { completion(nil) }
                 return

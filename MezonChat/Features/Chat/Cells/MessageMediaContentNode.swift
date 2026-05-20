@@ -381,7 +381,13 @@ final class MessageMediaContentNode: ASDisplayNode {
             return
         }
 
-        URLSession.shared.dataTask(with: imageURL) { data, _, _ in
+        URLSession.shared.dataTask(with: imageURL) { data, _, error in
+            if let error {
+                SentryLogger.capture(error, extras: [
+                    "where": "MessageMediaContentNode.loadImage",
+                    "url": url,
+                ])
+            }
             guard let data else { return }
             let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
             if let image {

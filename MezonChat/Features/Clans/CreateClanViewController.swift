@@ -522,6 +522,10 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                 logoImageView.image = image
                 refreshLogoOverlay()
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "CreateClan.uploadLogo",
+                    "size": data.count,
+                ])
                 Toast.error(error.localizedDescription)
                 logoCenterStack.isHidden = false
             }

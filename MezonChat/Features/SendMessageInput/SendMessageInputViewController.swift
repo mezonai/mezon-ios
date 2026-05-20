@@ -1037,6 +1037,11 @@ final class SendMessageInputViewController: UIViewController {
                         token: token
                     )
                 } catch {
+                    SentryLogger.capture(error, extras: [
+                        "where": "sendWaveMessage",
+                        "channelId": channel.channelID,
+                        "clanId": clanId,
+                    ])
                     self.onError?(error.localizedDescription)
             }
         }
@@ -1099,6 +1104,11 @@ final class SendMessageInputViewController: UIViewController {
                         token: token
                     )
                 } catch {
+                    SentryLogger.capture(error, extras: [
+                        "where": "sendBuzzMessage",
+                        "channelId": channel.channelID,
+                        "clanId": clanId,
+                    ])
                     self.onError?(error.localizedDescription)
             }
         }
@@ -3802,6 +3812,12 @@ final class SendMessageInputViewController: UIViewController {
                 att.duration = Int32(durationSeconds)
                 sendChannelMessageWithAttachments(text: "", attachments: [att])
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "sendVoiceAttachment",
+                    "channelId": self.channel.channelID,
+                    "clanId": self.clanId,
+                    "durationSeconds": durationSeconds,
+                ])
                 self.onError?(error.localizedDescription)
                 try? FileManager.default.removeItem(at: fileURL)
             }
@@ -4475,6 +4491,14 @@ final class SendMessageInputViewController: UIViewController {
                     }
                 }
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "sendChannelMessage",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                    "isEdit": isEdit,
+                    "imageCount": imagesToUpload.count,
+                    "fileCount": filesToUpload.count,
+                ])
                 if !isEdit, !sendAsAnonymous {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
                     ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
@@ -4601,6 +4625,12 @@ final class SendMessageInputViewController: UIViewController {
                     token: token
                 )
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "sendChannelMessageWithAttachments",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                    "attachmentCount": attachments.count,
+                ])
                 self.onError?(error.localizedDescription)
             }
         }

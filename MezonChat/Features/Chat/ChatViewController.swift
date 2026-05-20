@@ -1742,6 +1742,12 @@ final class ChatViewController: ViewController {
                     tx.replaceAllMessages(records, channelId: self.storageChannelId)
                 }
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ChatViewController.fetchMessages",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                    "topicId": self.topicId,
+                ])
                 self.setErrorMessage(error.localizedDescription)
             }
         }
@@ -1776,6 +1782,12 @@ final class ChatViewController: ViewController {
                     }
                 }
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ChatViewController.fetchOlderMessages",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                    "anchorMessageId": msgId,
+                ])
                 self.setHasMoreOlder(false)
             }
         }
@@ -1809,6 +1821,12 @@ final class ChatViewController: ViewController {
                 }
                 self.setIsLoadingNewer(false)
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ChatViewController.fetchNewerMessages",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                    "anchorMessageId": msgId,
+                ])
                 self.setHasMoreNewer(false)
                 self.setIsLoadingNewer(false)
             }
@@ -1843,6 +1861,11 @@ final class ChatViewController: ViewController {
                     )
                 }
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ChatViewController.jumpToPresent",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                ])
                 self.pendingScrollToBottom = false
                 self.setErrorMessage(error.localizedDescription)
             }
@@ -3410,6 +3433,12 @@ final class ChatViewController: ViewController {
                     )
                 }
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "ChatViewController.jumpToMessage",
+                    "channelId": self.channel.channelID,
+                    "clanId": self.clanId,
+                    "anchorMessageId": msgId,
+                ])
                 self.messagesNode.pendingJumpMessageId = nil
             }
         }

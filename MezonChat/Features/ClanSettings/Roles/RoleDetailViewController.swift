@@ -800,6 +800,12 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
                 )
                 self.applyIconURL(cdnURL)
             } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "RoleDetail.uploadIcon",
+                    "roleId": self.roleId,
+                    "clanId": self.clanId,
+                    "size": data.count,
+                ])
                 Toast.error(L(L10n.ClanRoles.iconFailed))
             }
         }
