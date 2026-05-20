@@ -15,6 +15,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
     private let onSettingsTapped: () -> Void
     private let onSearchTapped: () -> Void
     private let onThreadsTapped: () -> Void
+    private let onMuteTapped: () -> Void
 
     private let backButtonNode = ASButtonNode()
     private let headerTrailingSpacerNode = ASDisplayNode()
@@ -39,7 +40,8 @@ final class ChannelDetailContainerNode: ASDisplayNode {
     init(
         context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription,
         onClose: @escaping () -> Void, onSettingsTapped: @escaping () -> Void,
-        onSearchTapped: @escaping () -> Void, onThreadsTapped: @escaping () -> Void
+        onSearchTapped: @escaping () -> Void, onThreadsTapped: @escaping () -> Void,
+        onMuteTapped: @escaping () -> Void
     ) {
         self.context = context
         self.clanId = clanId
@@ -48,6 +50,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         self.onSettingsTapped = onSettingsTapped
         self.onSearchTapped = onSearchTapped
         self.onThreadsTapped = onThreadsTapped
+        self.onMuteTapped = onMuteTapped
 
         let myId = context.currentUser.flatMap { Int64($0.id) }
         self.visibleTabs = Self.visibleTabsList(channel: channel, currentUserId: myId)
@@ -87,6 +90,9 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         }
         actionButtonsNode.onThreadsTapped = { [weak self] in
             self?.onThreadsTapped()
+        }
+        actionButtonsNode.onMuteTapped = { [weak self] in
+            self?.onMuteTapped()
         }
 
         loadDataForTab(at: 0)
@@ -186,7 +192,12 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         guard updated.channelID == channel.channelID else { return }
         channel = updated
         configureChannelHeaderVisuals()
+        actionButtonsNode.applyUpdatedChannel(updated)
         setNeedsLayout()
+    }
+
+    func updateMuteButtonState() {
+        actionButtonsNode.updateMuteButtonState()
     }
 
     private func buildTabs() {

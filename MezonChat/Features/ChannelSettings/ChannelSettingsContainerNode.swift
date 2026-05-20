@@ -142,7 +142,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
 
         let deleteBtn = createActionRow(title: L(L10n.Channel.delete), icon: "ChannelSetting/DeleteIcon", isDestructive: true)
-        deleteBtn.backgroundColor = .mezonBorder
+        deleteBtn.backgroundColor = UIColor.theme.secondary
         deleteBtn.layer.cornerRadius = 12
         stackView.addArrangedSubview(deleteBtn)
     }
@@ -192,7 +192,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private func createGroup(actions: [SettingAction]) -> UIView {
         let v = UIView()
-        v.backgroundColor = .mezonBorder
+        v.backgroundColor = UIColor.theme.secondary
         v.layer.cornerRadius = 12
         v.clipsToBounds = true
 
@@ -213,9 +213,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.tertiary
+                sep.backgroundColor = UIColor.theme.border
                 stack.addArrangedSubview(sep)
-                sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+                sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
         }
         return v

@@ -822,7 +822,7 @@ final class ChannelListViewController: ViewController {
                 }
 
                 NotificationCenter.default.post(
-                    name: Notification.Name("NotificationSettingDidUpdate"),
+                    name: .mezonNotificationSettingDidUpdate,
                     object: nil,
                     userInfo: ["channelId": channelId, "record": record]
                 )
@@ -914,20 +914,12 @@ final class ChannelListViewController: ViewController {
     }
 
     private func handleMuteChannel(_ channel: Mezon_Api_ChannelDescription, muteTimeSeconds: Int32) {
-        Task { @MainActor in
-            guard let token = await context.getToken() else { return }
-            do {
-                try await MezonHTTPClient.shared.setMuteChannel(
-                    id: channel.channelID,
-                    clanId: channel.clanID,
-                    muteTime: muteTimeSeconds,
-                    active: 0,
-                    token: token
-                )
-            } catch {
-                Toast.error(error.localizedDescription)
-            }
-        }
+        ChannelMuteHelper.setMuteChannel(
+            context: context,
+            channelId: channel.channelID,
+            clanId: channel.clanID,
+            muteTimeSeconds: muteTimeSeconds
+        )
     }
 
     private func presentNotificationSettings(_ channel: Mezon_Api_ChannelDescription) {
