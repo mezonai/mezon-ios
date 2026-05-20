@@ -61,7 +61,7 @@ struct ChannelRecord: PostboxCoding, Equatable {
         return proto
     }
 
-    func updating(label: String? = nil, topic: String? = nil) -> ChannelRecord {
+    func updating(label: String? = nil, topic: String? = nil, channelAvatar: String? = nil) -> ChannelRecord {
         let newLabel = label ?? self.label
         let newTopic = topic ?? self.topic
 
@@ -71,6 +71,9 @@ struct ChannelRecord: PostboxCoding, Equatable {
         {
             proto.channelLabel = newLabel
             proto.topic = newTopic
+            if let channelAvatar {
+                proto.channelAvatar = channelAvatar
+            }
             updatedProtoData = try? proto.serializedData()
         }
 
@@ -95,6 +98,7 @@ struct ChannelRecord: PostboxCoding, Equatable {
         var updatedCategoryName = self.categoryName
         var updatedParentId = self.parentId
         var updatedType = self.type
+        var updatedChannelAvatar: String?
 
         if !proto.channelLabel.isEmpty { updatedLabel = proto.channelLabel }
         if !proto.topic.isEmpty { updatedTopic = proto.topic }
@@ -102,6 +106,7 @@ struct ChannelRecord: PostboxCoding, Equatable {
         if !proto.categoryName.isEmpty { updatedCategoryName = proto.categoryName }
         if proto.parentID != 0 { updatedParentId = proto.parentID }
         if proto.type != 0 { updatedType = Int32(proto.type) }
+        updatedChannelAvatar = proto.channelAvatar
 
         var updatedProto = self.toProto()
         if !proto.channelLabel.isEmpty { updatedProto.channelLabel = proto.channelLabel }
@@ -110,6 +115,9 @@ struct ChannelRecord: PostboxCoding, Equatable {
         if !proto.categoryName.isEmpty { updatedProto.categoryName = proto.categoryName }
         if proto.parentID != 0 { updatedProto.parentID = proto.parentID }
         if proto.type != 0 { updatedProto.type = proto.type }
+        if let updatedChannelAvatar {
+            updatedProto.channelAvatar = updatedChannelAvatar
+        }
 
         return ChannelRecord(
             id: self.id,

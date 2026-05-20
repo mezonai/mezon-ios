@@ -51,6 +51,9 @@ final class DirectMessagesViewController: ViewController {
                 let vc = FriendRequestViewController(context: self.context)
                 self.navigationController?.pushViewController(vc, animated: true)
             },
+            onCreateGroupTapped: { [weak self] in
+                self?.openNewGroupDMComposer()
+            },
             onSearchTapped: { [weak self] in
                 guard let self else { return }
                 let vc = SearchViewController(clanId: self.resolvedClanIdForSearch(), context: self.context)
@@ -92,6 +95,7 @@ final class DirectMessagesViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         
@@ -120,6 +124,33 @@ final class DirectMessagesViewController: ViewController {
         guard isNodeLoaded else { return }
         view.backgroundColor = UIColor.theme.secondary
         directMessagesNode.applyTheme()
+    }
+
+    @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
+        let notifyClanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? 0
+        guard notifyClanId == 0 else { return }
+        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
+
+        if (notification.userInfo?["removed"] as? Bool) == true {
+            let oldCount = directMessages.count
+            directMessages.removeAll { $0.channelID == channelId }
+            guard oldCount != directMessages.count else { return }
+            directMessagesPipe.putNext(directMessages)
+            setIsEmpty(directMessages.isEmpty)
+            needsReloadPipe.putNext(())
+            persistDmChannelListToPostbox()
+            return
+        }
+
+        guard let updated = context.account.postbox.getDMChannelDescription(channelId: channelId),
+              let index = directMessages.firstIndex(where: { $0.channelID == channelId })
+        else {
+            return
+        }
+        directMessages[index] = Self.mergeDmApiRowPreservingCachedPreview(updated, cached: directMessages[index])
+        directMessagesPipe.putNext(directMessages)
+        needsReloadPipe.putNext(())
+        persistDmChannelListToPostbox()
     }
 
     @objc private func handleSocketReconnectForDMBadges(_ notification: Notification) {
@@ -344,6 +375,30 @@ final class DirectMessagesViewController: ViewController {
         if changed {
             needsReloadPipe.putNext(())
         }
+    }
+
+    private func openNewGroupDMComposer() {
+        let vc = NewGroupDMViewController(context: context) { [weak self] channel in
+            self?.upsertCreatedDirectMessageChannel(channel)
+        }
+        if let navigationController = navigationController as? NavigationController {
+            navigationController.pushViewController(vc, animated: true)
+        } else {
+            navigationController?.pushViewController(vc, animated: true)
+        }
+    }
+
+    private func upsertCreatedDirectMessageChannel(_ channel: Mezon_Api_ChannelDescription) {
+        var next = directMessages
+        if let idx = next.firstIndex(where: { $0.channelID == channel.channelID }) {
+            next[idx] = Self.mergeDmApiRowPreservingCachedPreview(channel, cached: next[idx])
+        } else {
+            next.insert(channel, at: 0)
+        }
+        let sorted = Self.sortDmChannels(next)
+        setDirectMessages(sorted)
+        setIsEmpty(sorted.isEmpty)
+        persistDmChannelListToPostbox()
     }
 
     private var prefetchFriendListTask: Task<Void, Never>?
@@ -603,6 +658,20 @@ final class DirectMessagesViewController: ViewController {
     private var lastFetchDirectMessagesAt: Date?
     private let fetchDirectMessagesCooldown: TimeInterval = 2.0
 
+    private func listDirectAndGroupMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        var channels = try await context.account.network.listDirectMessageChannels(token: token)
+        do {
+            let groupChannels = try await context.account.network.listGroupMessageChannels(token: token)
+            var existingIds = Set(channels.map(\.channelID))
+            for channel in groupChannels where !existingIds.contains(channel.channelID) {
+                channels.append(channel)
+                existingIds.insert(channel.channelID)
+            }
+        } catch {
+        }
+        return channels
+    }
+
     func fetchDirectMessages() {
         if fetchDirectMessagesTask != nil { return }
         if let last = lastFetchDirectMessagesAt, Date().timeIntervalSince(last) < fetchDirectMessagesCooldown {
@@ -630,7 +699,7 @@ final class DirectMessagesViewController: ViewController {
             await self.fetchUserActivities(token: token)
             do {
                 let cachedRows = self.directMessages
-                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                var channels = try await self.listDirectAndGroupMessageChannels(token: token)
                 channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 do {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
@@ -665,7 +734,7 @@ final class DirectMessagesViewController: ViewController {
             }
             do {
                 let cachedRows = self.directMessages
-                var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
+                var channels = try await self.listDirectAndGroupMessageChannels(token: token)
                 channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 do {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
@@ -728,6 +797,694 @@ final class DirectMessagesViewController: ViewController {
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
             ).start(next: { subscriber.putNext($0) })
+        }
+    }
+}
+
+private struct NewGroupDMFriendGroup {
+    let character: String
+    let friends: [Mezon_Api_Friend]
+}
+
+private let newGroupDMActionColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
+
+private final class NewGroupDMViewController: ViewController, UITableViewDataSource, UITableViewDelegate {
+
+    private static let maximumMembers = 20
+
+    private let context: AccountContext
+    private let onChannelCreated: (Mezon_Api_ChannelDescription) -> Void
+
+    private let headerView = UIView()
+    private let backButton = UIButton(type: .system)
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let createButton = UIButton(type: .system)
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+
+    private let contentView = UIView()
+    private let searchContainerView = UIView()
+    private let searchIconView = UIImageView()
+    private let searchTextField = UITextField()
+    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let emptyLabel = UILabel()
+
+    private var allFriends: [Mezon_Api_Friend] = []
+    private var filteredFriends: [Mezon_Api_Friend] = []
+    private var groups: [NewGroupDMFriendGroup] = []
+    private var selectedFriendIds: Set<Int64> = []
+    private var searchText = ""
+    private var isCreating = false
+    private var refreshTask: Task<Void, Never>?
+    private var friendsUpdatedDisposable: Disposable?
+
+    init(context: AccountContext, onChannelCreated: @escaping (Mezon_Api_ChannelDescription) -> Void) {
+        self.context = context
+        self.onChannelCreated = onChannelCreated
+        super.init(navigationBarPresentationData: nil)
+    }
+
+    required init(coder aDecoder: NSCoder) { fatalError() }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        refreshTask?.cancel()
+        friendsUpdatedDisposable?.dispose()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        setupViews()
+        setupLayout()
+        applyTheme()
+        syncFriendsFromStore()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChanged), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleLanguageChanged), name: LanguageManager.didChangeNotification, object: nil)
+
+        friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] _ in
+                self?.syncFriendsFromStore()
+            })
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        refreshFriends()
+    }
+
+    private func setupViews() {
+        view.addSubview(headerView)
+        view.addSubview(contentView)
+        headerView.addSubview(backButton)
+
+        let titleStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        titleStack.axis = .vertical
+        titleStack.alignment = .center
+        titleStack.spacing = 2.sh
+        titleStack.translatesAutoresizingMaskIntoConstraints = false
+        titleStack.tag = 901
+        headerView.addSubview(titleStack)
+
+        headerView.addSubview(createButton)
+        headerView.addSubview(activityIndicator)
+
+        contentView.addSubview(searchContainerView)
+        contentView.addSubview(tableView)
+
+        searchContainerView.addSubview(searchIconView)
+        searchContainerView.addSubview(searchTextField)
+
+        backButton.setImage(
+            UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
+            for: .normal
+        )
+        backButton.contentHorizontalAlignment = .left
+        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+
+        titleLabel.font = .systemFont(ofSize: 16.sf, weight: .semibold)
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 1
+
+        subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .semibold)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.numberOfLines = 1
+
+        createButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        createButton.contentHorizontalAlignment = .right
+        createButton.addTarget(self, action: #selector(createTapped), for: .touchUpInside)
+
+        activityIndicator.hidesWhenStopped = true
+
+        searchContainerView.layer.cornerRadius = 20.sh
+        searchContainerView.clipsToBounds = true
+
+        searchIconView.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15.sf))
+        searchIconView.contentMode = .scaleAspectFit
+
+        searchTextField.font = .systemFont(ofSize: 14.sf)
+        searchTextField.returnKeyType = .search
+        searchTextField.autocorrectionType = .no
+        searchTextField.autocapitalizationType = .none
+        searchTextField.clearButtonMode = .whileEditing
+        searchTextField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
+
+        tableView.register(NewGroupDMFriendCell.self, forCellReuseIdentifier: NewGroupDMFriendCell.reuseId)
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.separatorStyle = .none
+        tableView.keyboardDismissMode = .onDrag
+        tableView.rowHeight = 60.sh
+        tableView.estimatedRowHeight = 60.sh
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
+
+        emptyLabel.font = .systemFont(ofSize: 14.sf)
+        emptyLabel.textAlignment = .center
+        emptyLabel.numberOfLines = 0
+    }
+
+    private func setupLayout() {
+        [headerView, contentView, backButton, createButton, activityIndicator, searchContainerView, searchIconView, searchTextField, tableView]
+            .forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+
+        let titleStack = headerView.viewWithTag(901)!
+        let sideWidth: CGFloat = 78.sw
+        let headerHeight: CGFloat = 58.sh
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: headerHeight),
+
+            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 18.sw),
+            backButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            backButton.widthAnchor.constraint(equalToConstant: sideWidth),
+            backButton.heightAnchor.constraint(equalToConstant: 44.sh),
+
+            createButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -18.sw),
+            createButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            createButton.widthAnchor.constraint(equalToConstant: sideWidth),
+            createButton.heightAnchor.constraint(equalToConstant: 44.sh),
+
+            activityIndicator.centerXAnchor.constraint(equalTo: createButton.centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: createButton.centerYAnchor),
+
+            titleStack.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4.sw),
+            titleStack.trailingAnchor.constraint(equalTo: createButton.leadingAnchor, constant: -4.sw),
+            titleStack.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            contentView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            contentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            searchContainerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 14.sh),
+            searchContainerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 18.sw),
+            searchContainerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18.sw),
+            searchContainerView.heightAnchor.constraint(equalToConstant: 40.sh),
+
+            searchIconView.leadingAnchor.constraint(equalTo: searchContainerView.leadingAnchor, constant: 12.sw),
+            searchIconView.centerYAnchor.constraint(equalTo: searchContainerView.centerYAnchor),
+            searchIconView.widthAnchor.constraint(equalToConstant: 18.swh),
+            searchIconView.heightAnchor.constraint(equalToConstant: 18.swh),
+
+            searchTextField.leadingAnchor.constraint(equalTo: searchIconView.trailingAnchor, constant: 8.sw),
+            searchTextField.trailingAnchor.constraint(equalTo: searchContainerView.trailingAnchor, constant: -12.sw),
+            searchTextField.topAnchor.constraint(equalTo: searchContainerView.topAnchor),
+            searchTextField.bottomAnchor.constraint(equalTo: searchContainerView.bottomAnchor),
+
+            tableView.topAnchor.constraint(equalTo: searchContainerView.bottomAnchor, constant: 10.sh),
+            tableView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+    }
+
+    @objc private func handleThemeChanged() {
+        applyTheme()
+    }
+
+    @objc private func handleLanguageChanged() {
+        applyLocalizedText()
+    }
+
+    private func applyTheme() {
+        let t = UIColor.theme
+        view.backgroundColor = t.primary
+        headerView.backgroundColor = t.primary
+        contentView.backgroundColor = t.primary
+        searchContainerView.backgroundColor = t.secondary
+        tableView.backgroundColor = t.primary
+
+        backButton.tintColor = t.text
+        titleLabel.textColor = t.text
+        subtitleLabel.textColor = t.textDisabled
+        createButton.setTitleColor(newGroupDMActionColor, for: .normal)
+        createButton.setTitleColor(t.textDisabled, for: .disabled)
+        activityIndicator.color = newGroupDMActionColor
+        searchIconView.tintColor = t.text
+        searchTextField.textColor = t.textStrong
+        searchTextField.tintColor = t.textStrong
+        emptyLabel.textColor = t.textDisabled
+
+        applyLocalizedText()
+        tableView.reloadData()
+    }
+
+    private func applyLocalizedText() {
+        titleLabel.text = L(L10n.DirectMessage.newGroup)
+        createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
+        searchTextField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.DirectMessage.searchFriends),
+            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+        )
+        updateMemberCount()
+        updateEmptyState()
+    }
+
+    private func updateMemberCount() {
+        subtitleLabel.text = L(
+            L10n.DirectMessage.memberCount,
+            selectedFriendIds.count + 1,
+            Self.maximumMembers
+        )
+    }
+
+    private func updateCreateButtonState() {
+        createButton.isEnabled = !selectedFriendIds.isEmpty && !isCreating
+        createButton.isHidden = isCreating
+        if isCreating {
+            activityIndicator.startAnimating()
+        } else {
+            activityIndicator.stopAnimating()
+        }
+    }
+
+    private func updateEmptyState() {
+        let hasQuery = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        emptyLabel.text = hasQuery ? L(L10n.FriendList.noResults) : L(L10n.DirectMessage.noFriends)
+        tableView.backgroundView = groups.isEmpty ? emptyLabel : nil
+    }
+
+    private func syncFriendsFromStore() {
+        allFriends = context.engine.friendsData.allFriends()
+            .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser && $0.user.id != 0 }
+            .sorted { lhs, rhs in
+                displayName(for: lhs).localizedCaseInsensitiveCompare(displayName(for: rhs)) == .orderedAscending
+            }
+        applyFilter()
+    }
+
+    private func refreshFriends() {
+        refreshTask?.cancel()
+        refreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            await self.context.engine.friendsData.refreshFromNetwork(token: token)
+        }
+    }
+
+    private func applyFilter() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if query.isEmpty {
+            filteredFriends = allFriends
+        } else {
+            let normalized = normalizeString(query)
+            filteredFriends = allFriends.filter { friend in
+                normalizeString(friend.user.username).contains(normalized)
+                    || normalizeString(friend.user.displayName).contains(normalized)
+            }
+        }
+        groups = groupByAlphabet(filteredFriends)
+        updateEmptyState()
+        tableView.reloadData()
+    }
+
+    private func groupByAlphabet(_ friends: [Mezon_Api_Friend]) -> [NewGroupDMFriendGroup] {
+        var dict: [String: [Mezon_Api_Friend]] = [:]
+        for friend in friends {
+            let name = displayName(for: friend).trimmingCharacters(in: .whitespacesAndNewlines)
+            let key: String
+            if let first = name.first, first.isLetter {
+                key = String(first).uppercased()
+            } else {
+                key = "#"
+            }
+            dict[key, default: []].append(friend)
+        }
+        return dict.map { NewGroupDMFriendGroup(character: $0.key, friends: $0.value) }
+            .sorted { $0.character < $1.character }
+    }
+
+    private func normalizeString(_ str: String) -> String {
+        str.lowercased()
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func displayName(for friend: Mezon_Api_Friend) -> String {
+        let display = friend.user.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !display.isEmpty { return display }
+        let username = friend.user.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return username.isEmpty ? L(L10n.Common.detail) : username
+    }
+
+    private func canSelectAdditionalFriend() -> Bool {
+        selectedFriendIds.count + 1 < Self.maximumMembers
+    }
+
+    private func toggleSelection(for friend: Mezon_Api_Friend) {
+        let userId = friend.user.id
+        if selectedFriendIds.contains(userId) {
+            selectedFriendIds.remove(userId)
+        } else {
+            guard canSelectAdditionalFriend() else {
+                Toast.info(L(L10n.DirectMessage.memberLimitReached))
+                return
+            }
+            selectedFriendIds.insert(userId)
+        }
+        updateMemberCount()
+        updateCreateButtonState()
+        tableView.reloadData()
+    }
+
+    @objc private func searchTextChanged() {
+        searchText = searchTextField.text ?? ""
+        applyFilter()
+    }
+
+    @objc private func backTapped() {
+        navigationController?.popViewController(animated: true)
+    }
+
+    @objc private func createTapped() {
+        guard !selectedFriendIds.isEmpty, !isCreating else { return }
+        let selectedIds = Array(selectedFriendIds)
+        isCreating = true
+        updateCreateButtonState()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.isCreating = false
+                self.updateCreateButtonState()
+            }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.DirectMessage.createFailed))
+                return
+            }
+
+            do {
+                let channel: Mezon_Api_ChannelDescription
+                if selectedIds.count == 1, let userId = selectedIds.first {
+                    if let existing = await self.existingOneToOneDirectMessage(userId: userId, token: token) {
+                        channel = existing
+                    } else {
+                        channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
+                    }
+                } else {
+                    channel = try await self.context.account.network.createGroupDirectMessage(userIds: selectedIds, token: token)
+                }
+
+                let decorated = self.decoratedChannel(channel, selectedIds: selectedIds)
+                self.openCreatedChannel(decorated, showCreatedToast: selectedIds.count > 1)
+            } catch {
+                Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+            }
+        }
+    }
+
+    private func existingOneToOneDirectMessage(userId: Int64, token: String) async -> Mezon_Api_ChannelDescription? {
+        guard let channels = try? await context.account.network.listDirectMessageChannels(token: token) else {
+            return nil
+        }
+        return channels.first { channel in
+            channel.type == MezonConstants.ChannelType.dm.rawValue
+                && channel.userIds.count == 1
+                && channel.userIds.contains(userId)
+        }
+    }
+
+    private func decoratedChannel(_ channel: Mezon_Api_ChannelDescription, selectedIds: [Int64]) -> Mezon_Api_ChannelDescription {
+        var result = channel
+        if result.clanID != 0 {
+            result.clanID = 0
+        }
+        if result.type == 0 {
+            result.type = selectedIds.count > 1
+                ? MezonConstants.ChannelType.group.rawValue
+                : MezonConstants.ChannelType.dm.rawValue
+        }
+        if result.userIds.isEmpty {
+            result.userIds = selectedIds
+        }
+
+        let selectedFriends = selectedIds.compactMap { id in
+            allFriends.first(where: { $0.user.id == id })?.user
+        }
+        var displayNames = selectedFriends.map { user in
+            let display = user.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return display.isEmpty ? user.username : display
+        }.filter { !$0.isEmpty }
+        var usernames = selectedFriends.map(\.username).filter { !$0.isEmpty }
+        var avatars = selectedFriends.map(\.avatarURL).filter { !$0.isEmpty }
+
+        if let current = context.currentUser {
+            let currentDisplay = current.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            displayNames.append(currentDisplay.isEmpty ? current.username : currentDisplay)
+            if !current.username.isEmpty {
+                usernames.append(current.username)
+            }
+            if let avatar = current.avatarURL?.absoluteString, !avatar.isEmpty {
+                avatars.append(avatar)
+            }
+        }
+
+        if result.displayNames.isEmpty {
+            result.displayNames = displayNames
+        }
+        if result.usernames.isEmpty {
+            result.usernames = usernames
+        }
+        if result.avatars.isEmpty {
+            result.avatars = avatars
+        }
+        if result.type == MezonConstants.ChannelType.group.rawValue,
+           result.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            result.channelLabel = displayNames.joined(separator: ", ")
+        }
+        return result
+    }
+
+    private func openCreatedChannel(_ channel: Mezon_Api_ChannelDescription, showCreatedToast: Bool) {
+        onChannelCreated(channel)
+        if showCreatedToast {
+            Toast.success(L(L10n.DirectMessage.groupCreated))
+        }
+
+        let chatVC = ChatViewController(clanId: 0, channel: channel, context: context, parentName: nil)
+        guard let navigationController else { return }
+        if let navigationController = navigationController as? NavigationController {
+            navigationController.replaceTopController(chatVC, animated: true)
+        } else {
+            var stack = navigationController.viewControllers
+            if !stack.isEmpty {
+                stack.removeLast()
+            }
+            stack.append(chatVC)
+            navigationController.setViewControllers(stack, animated: true)
+        }
+    }
+
+    func numberOfSections(in tableView: UITableView) -> Int {
+        groups.count
+    }
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        guard section < groups.count else { return 0 }
+        return groups[section].friends.count
+    }
+
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        26.sh
+    }
+
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard section < groups.count else { return nil }
+        let view = UIView()
+        view.backgroundColor = UIColor.theme.primary
+
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = groups[section].character
+        label.font = .systemFont(ofSize: 13.sf, weight: .semibold)
+        label.textColor = UIColor.theme.textDisabled
+        view.addSubview(label)
+
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20.sw),
+            label.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4.sh)
+        ])
+        return view
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: NewGroupDMFriendCell.reuseId, for: indexPath) as! NewGroupDMFriendCell
+        let friend = groups[indexPath.section].friends[indexPath.row]
+        let selected = selectedFriendIds.contains(friend.user.id)
+        let disabled = !selected && !canSelectAdditionalFriend()
+        cell.configure(friend: friend, selected: selected, disabled: disabled)
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section < groups.count, indexPath.row < groups[indexPath.section].friends.count else { return }
+        toggleSelection(for: groups[indexPath.section].friends[indexPath.row])
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        searchTextField.resignFirstResponder()
+    }
+}
+
+private final class NewGroupDMFriendCell: UITableViewCell {
+
+    static let reuseId = "NewGroupDMFriendCell"
+
+    private let avatarView = TextAvatarView(username: "", size: 40.swh, fontSize: 16.sf)
+    private let avatarImageView = UIImageView()
+    private let nameLabel = UILabel()
+    private let usernameLabel = UILabel()
+    private let checkImageView = UIImageView()
+
+    private var imageTask: URLSessionDataTask?
+    private var representedAvatarURL: String?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        setup()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        imageTask?.cancel()
+        imageTask = nil
+        representedAvatarURL = nil
+        avatarImageView.image = nil
+        avatarImageView.isHidden = true
+        avatarView.showPlaceholder()
+    }
+
+    private func setup() {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.backgroundColor = UIColor.theme.secondary
+        container.layer.cornerRadius = 10.sf
+        container.clipsToBounds = true
+        contentView.addSubview(container)
+
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        avatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        usernameLabel.translatesAutoresizingMaskIntoConstraints = false
+        checkImageView.translatesAutoresizingMaskIntoConstraints = false
+
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.clipsToBounds = true
+        avatarImageView.layer.cornerRadius = 20.swh
+        avatarImageView.isHidden = true
+
+        nameLabel.font = .systemFont(ofSize: 14.sf, weight: .medium)
+        nameLabel.numberOfLines = 1
+        usernameLabel.font = .systemFont(ofSize: 12.sf)
+        usernameLabel.numberOfLines = 1
+
+        checkImageView.contentMode = .scaleAspectFit
+
+        container.addSubview(avatarView)
+        avatarView.addSubview(avatarImageView)
+        container.addSubview(nameLabel)
+        container.addSubview(usernameLabel)
+        container.addSubview(checkImageView)
+
+        NSLayoutConstraint.activate([
+            container.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 3.sh),
+            container.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -3.sh),
+            container.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 18.sw),
+            container.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18.sw),
+
+            avatarView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12.sw),
+            avatarView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: 40.swh),
+            avatarView.heightAnchor.constraint(equalToConstant: 40.swh),
+
+            avatarImageView.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
+
+            checkImageView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14.sw),
+            checkImageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            checkImageView.widthAnchor.constraint(equalToConstant: 22.swh),
+            checkImageView.heightAnchor.constraint(equalToConstant: 22.swh),
+
+            nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12.sw),
+            nameLabel.trailingAnchor.constraint(equalTo: checkImageView.leadingAnchor, constant: -12.sw),
+            nameLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 9.sh),
+
+            usernameLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            usernameLabel.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
+            usernameLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2.sh)
+        ])
+    }
+
+    func configure(friend: Mezon_Api_Friend, selected: Bool, disabled: Bool) {
+        let t = UIColor.theme
+        contentView.alpha = disabled ? 0.45 : 1.0
+        contentView.subviews.first?.backgroundColor = t.secondary
+
+        let user = friend.user
+        let display = user.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let username = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = display.isEmpty ? username : display
+        nameLabel.text = name.isEmpty ? L(L10n.Common.detail) : name
+        nameLabel.textColor = t.textStrong
+        usernameLabel.text = username.isEmpty ? "" : "@\(username)"
+        usernameLabel.textColor = t.textDisabled
+        avatarView.configure(username: username.isEmpty ? name : username, fontSize: 16.sf)
+
+        let symbol = selected ? "checkmark.circle.fill" : "circle"
+        checkImageView.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 21.sf, weight: .semibold))
+        checkImageView.tintColor = selected ? newGroupDMActionColor : t.textDisabled
+
+        loadAvatarIfNeeded(user.avatarURL)
+    }
+
+    private func loadAvatarIfNeeded(_ rawURL: String) {
+        imageTask?.cancel()
+        imageTask = nil
+        avatarImageView.image = nil
+        avatarImageView.isHidden = true
+
+        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, URL(string: trimmed) != nil else {
+            avatarView.showPlaceholder()
+            return
+        }
+
+        let proxied = ImgproxyURL.avatarProxyURL(from: trimmed, width: 100, height: 100)
+        representedAvatarURL = proxied
+        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+            avatarImageView.image = cached
+            avatarImageView.isHidden = false
+            avatarView.showImageMode()
+            return
+        }
+
+        avatarView.showSkeleton()
+        imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+            guard let self, self.representedAvatarURL == proxied else { return }
+            if let image {
+                self.avatarImageView.image = image
+                self.avatarImageView.isHidden = false
+                self.avatarView.showImageMode()
+            } else {
+                self.avatarImageView.image = nil
+                self.avatarImageView.isHidden = true
+                self.avatarView.showPlaceholder()
+            }
         }
     }
 }

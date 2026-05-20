@@ -733,6 +733,13 @@ enum L10n {
     enum DirectMessage {
         static let you        = "directMessage.you"
         static let addFriend = "directMessage.addFriend"
+        static let newGroup = "directMessage.newGroup"
+        static let create = "directMessage.create"
+        static let searchFriends = "directMessage.searchFriends"
+        static let memberCount = "directMessage.memberCount"
+        static let noFriends = "directMessage.noFriends"
+        static let memberLimitReached = "directMessage.memberLimitReached"
+        static let createFailed = "directMessage.createFailed"
 
         static let groupCreated   = "directMessage.groupCreated"
         static let previewAttachment = "directMessage.previewAttachment"
@@ -828,6 +835,21 @@ enum L10n {
         static let unpinConfirmTitle = "channelDetail.unpinConfirmTitle"
         static let unpinConfirmBody = "channelDetail.unpinConfirmBody"
         static let unpinConfirmAction = "channelDetail.unpinConfirmAction"
+        static let customizeGroup = "channelDetail.customizeGroup"
+        static let leaveGroup = "channelDetail.leaveGroup"
+        static let deleteGroup = "channelDetail.deleteGroup"
+        static let leaveGroupConfirmTitle = "channelDetail.leaveGroupConfirmTitle"
+        static let leaveGroupConfirmBody = "channelDetail.leaveGroupConfirmBody"
+        static let deleteGroupConfirmTitle = "channelDetail.deleteGroupConfirmTitle"
+        static let deleteGroupConfirmBody = "channelDetail.deleteGroupConfirmBody"
+        static let groupName = "channelDetail.groupName"
+        static let removeGroupLogo = "channelDetail.removeGroupLogo"
+        static let groupNameRequired = "channelDetail.groupNameRequired"
+        static let groupUpdated = "channelDetail.groupUpdated"
+        static let groupLeft = "channelDetail.groupLeft"
+        static let groupDeleted = "channelDetail.groupDeleted"
+        static let updateGroupFailed = "channelDetail.updateGroupFailed"
+        static let leaveGroupFailed = "channelDetail.leaveGroupFailed"
     }
 
     enum FriendRequest {
@@ -1481,6 +1503,13 @@ extension L10n {
 
         "directMessage.addFriend": "Add Friend",
         "directMessage.you": "You",
+        "directMessage.newGroup": "New Group",
+        "directMessage.create": "Create",
+        "directMessage.searchFriends": "Search friends",
+        "directMessage.memberCount": "%d of %d members",
+        "directMessage.noFriends": "No friends available",
+        "directMessage.memberLimitReached": "Group chats can have up to 20 members.",
+        "directMessage.createFailed": "Could not create group.",
         "directMessage.groupCreated": "Group created",
         "directMessage.previewAttachment": "Attachment",
         "directMessage.previewLink": "Link",
@@ -1709,6 +1738,21 @@ extension L10n {
         "channelDetail.unpinConfirmTitle": "Unpin this message?",
         "channelDetail.unpinConfirmBody": "It will be removed from pinned for everyone in this channel.",
         "channelDetail.unpinConfirmAction": "Unpin",
+        "channelDetail.customizeGroup": "Customize Group",
+        "channelDetail.leaveGroup": "Leave Group",
+        "channelDetail.deleteGroup": "Delete Group",
+        "channelDetail.leaveGroupConfirmTitle": "Leave this group?",
+        "channelDetail.leaveGroupConfirmBody": "You will stop receiving messages from this group.",
+        "channelDetail.deleteGroupConfirmTitle": "Delete this group?",
+        "channelDetail.deleteGroupConfirmBody": "This group will be deleted for everyone.",
+        "channelDetail.groupName": "Group Name",
+        "channelDetail.removeGroupLogo": "Remove Group Logo",
+        "channelDetail.groupNameRequired": "Group name is required.",
+        "channelDetail.groupUpdated": "Group updated",
+        "channelDetail.groupLeft": "You left the group",
+        "channelDetail.groupDeleted": "Group deleted",
+        "channelDetail.updateGroupFailed": "Could not update group.",
+        "channelDetail.leaveGroupFailed": "Could not leave group.",
 
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
 
@@ -2301,6 +2345,13 @@ extension L10n {
 
         "directMessage.addFriend": "Thêm bạn",
         "directMessage.you": "Bạn",
+        "directMessage.newGroup": "Nhóm mới",
+        "directMessage.create": "Tạo",
+        "directMessage.searchFriends": "Tìm bạn bè",
+        "directMessage.memberCount": "%d trên %d thành viên",
+        "directMessage.noFriends": "Chưa có bạn bè để chọn",
+        "directMessage.memberLimitReached": "Nhóm chat chỉ có tối đa 20 thành viên.",
+        "directMessage.createFailed": "Không thể tạo nhóm.",
         "directMessage.groupCreated": "Nhóm đã được tạo",
         "directMessage.previewAttachment": "Đính kèm",
         "directMessage.previewLink": "Liên kết",
@@ -2530,6 +2581,21 @@ extension L10n {
         "channelDetail.unpinConfirmTitle": "Bỏ ghim tin nhắn này?",
         "channelDetail.unpinConfirmBody": "Tin sẽ được gỡ khỏi mục ghim với mọi người trong kênh.",
         "channelDetail.unpinConfirmAction": "Bỏ ghim",
+        "channelDetail.customizeGroup": "Tùy chỉnh nhóm",
+        "channelDetail.leaveGroup": "Rời nhóm",
+        "channelDetail.deleteGroup": "Xóa nhóm",
+        "channelDetail.leaveGroupConfirmTitle": "Rời nhóm này?",
+        "channelDetail.leaveGroupConfirmBody": "Bạn sẽ không nhận tin nhắn từ nhóm này nữa.",
+        "channelDetail.deleteGroupConfirmTitle": "Xóa nhóm này?",
+        "channelDetail.deleteGroupConfirmBody": "Nhóm này sẽ bị xóa với mọi người.",
+        "channelDetail.groupName": "Tên nhóm",
+        "channelDetail.removeGroupLogo": "Xóa logo nhóm",
+        "channelDetail.groupNameRequired": "Vui lòng nhập tên nhóm.",
+        "channelDetail.groupUpdated": "Đã cập nhật nhóm",
+        "channelDetail.groupLeft": "Bạn đã rời nhóm",
+        "channelDetail.groupDeleted": "Đã xóa nhóm",
+        "channelDetail.updateGroupFailed": "Không thể cập nhật nhóm.",
+        "channelDetail.leaveGroupFailed": "Không thể rời nhóm.",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
 

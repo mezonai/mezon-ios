@@ -16,8 +16,10 @@ final class ChannelDetailContainerNode: ASDisplayNode {
     private let onSearchTapped: () -> Void
     private let onThreadsTapped: () -> Void
     private let onMuteTapped: () -> Void
+    private let onGroupOptionsTapped: () -> Void
 
     private let backButtonNode = ASButtonNode()
+    private let moreButtonNode = ASButtonNode()
     private let headerTrailingSpacerNode = ASDisplayNode()
     private let titleNode = ASTextNode2()
     private let channelIconNode = ASImageNode()
@@ -41,7 +43,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription,
         onClose: @escaping () -> Void, onSettingsTapped: @escaping () -> Void,
         onSearchTapped: @escaping () -> Void, onThreadsTapped: @escaping () -> Void,
-        onMuteTapped: @escaping () -> Void
+        onMuteTapped: @escaping () -> Void, onGroupOptionsTapped: @escaping () -> Void
     ) {
         self.context = context
         self.clanId = clanId
@@ -51,6 +53,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         self.onSearchTapped = onSearchTapped
         self.onThreadsTapped = onThreadsTapped
         self.onMuteTapped = onMuteTapped
+        self.onGroupOptionsTapped = onGroupOptionsTapped
 
         let myId = context.currentUser.flatMap { Int64($0.id) }
         self.visibleTabs = Self.visibleTabsList(channel: channel, currentUserId: myId)
@@ -158,9 +161,21 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         backButtonNode.contentHorizontalAlignment = .middle
         backButtonNode.contentVerticalAlignment = .center
 
-        configureChannelHeaderVisuals()
+        moreButtonNode.setImage(
+            UIImage(systemName: "ellipsis")?.withTintColor(
+                UIColor.theme.textStrong, renderingMode: .alwaysOriginal), for: .normal)
+        moreButtonNode.addTarget(
+            self, action: #selector(groupOptionsPressed), forControlEvents: .touchUpInside)
+        moreButtonNode.style.preferredSize = CGSize(width: 52.sf, height: 44.sf)
+        moreButtonNode.contentHorizontalAlignment = .middle
+        moreButtonNode.contentVerticalAlignment = .center
 
-        headerTrailingSpacerNode.style.preferredSize = CGSize(width: 44.sf, height: 44.sf)
+        configureChannelHeaderVisuals()
+        titleNode.maximumNumberOfLines = 1
+        titleNode.truncationMode = .byTruncatingTail
+        titleNode.style.flexShrink = 1
+
+        headerTrailingSpacerNode.style.preferredSize = CGSize(width: 52.sf, height: 44.sf)
         headerTrailingSpacerNode.isUserInteractionEnabled = false
         headerTrailingSpacerNode.backgroundColor = .clear
     }
@@ -259,6 +274,11 @@ final class ChannelDetailContainerNode: ASDisplayNode {
 
     @objc private func backPressed() { onClose() }
     @objc private func settingsPressed() { onSettingsTapped() }
+    @objc private func groupOptionsPressed() { onGroupOptionsTapped() }
+
+    private var isGroupDirectMessage: Bool {
+        clanId == 0 && channel.type == MezonConstants.ChannelType.group.rawValue
+    }
 
     private func activeContentNode() -> ASDisplayNode {
         guard activeTabIndex < visibleTabs.count else { return membersListNode }
@@ -280,6 +300,13 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             alignItems: .center,
             children: [channelIconNode, titleNode]
         )
+        let headerHorizontalControlsWidth = 44.sf + 52.sf
+        let headerTitlePadding: CGFloat = 20.sw
+        let maxHeaderContentWidth = max(
+            0,
+            constrainedSize.max.width - 32.sw - headerHorizontalControlsWidth - headerTitlePadding
+        )
+        titleNode.style.maxWidth = ASDimension(unit: .points, value: maxHeaderContentWidth)
         headerContent.style.flexShrink = 1
 
         let titleCentered = ASCenterLayoutSpec(
@@ -294,7 +321,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             spacing: 0,
             justifyContent: .start,
             alignItems: .center,
-            children: [backButtonNode, titleCentered, headerTrailingSpacerNode]
+            children: [backButtonNode, titleCentered, isGroupDirectMessage ? moreButtonNode : headerTrailingSpacerNode]
         )
         topBar.style.height = ASDimensionMake(56.sf)
         topBar.style.alignSelf = .stretch
@@ -364,6 +391,9 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         configureChannelHeaderVisuals()
         backButtonNode.setImage(
             UIImage(systemName: "chevron.left")?.withTintColor(
+                t.textStrong, renderingMode: .alwaysOriginal), for: .normal)
+        moreButtonNode.setImage(
+            UIImage(systemName: "ellipsis")?.withTintColor(
                 t.textStrong, renderingMode: .alwaysOriginal), for: .normal)
         for i in 0..<visibleTabs.count {
             updateTabAppearance(index: i, title: title(for: visibleTabs[i]))

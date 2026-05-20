@@ -193,11 +193,17 @@ final class PostboxTransaction {
         clanMemberTable.getMembers(clanId: clanId)
     }
 
-    func updateChannelDescription(clanId: Int64, channelId: Int64, name: String?, topic: String?) {
+    func updateChannelDescription(
+        clanId: Int64,
+        channelId: Int64,
+        name: String?,
+        topic: String?,
+        channelAvatar: String? = nil
+    ) {
         let channels = channelTable.getChannels(clanId: clanId)
         if let index = channels.firstIndex(where: { $0.id == channelId }) {
             let existing = channels[index]
-            let updated = existing.updating(label: name, topic: topic)
+            let updated = existing.updating(label: name, topic: topic, channelAvatar: channelAvatar)
             channelTable.updateSingleChannelRecord(updated)
             updatedChannelClanIds.insert(clanId)
         }
