@@ -553,6 +553,19 @@ final class MezonHTTPClient {
         )
     }
 
+    func createGroupDirectMessage(userIds: [Int64], token: String) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_CreateChannelDescRequest()
+        req.clanID = 0
+        req.type = MezonConstants.ChannelType.group.rawValue
+        req.channelPrivate = 1
+        req.userIds = userIds
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateChannelDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listUserActivity(token: String) async throws -> Mezon_Api_ListUserActivity {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(
@@ -881,6 +894,7 @@ final class MezonHTTPClient {
         clanId: Int64,
         channelId: Int64,
         channelLabel: String? = nil,
+        channelAvatar: String? = nil,
         topic: String? = nil,
         categoryId: Int64? = nil,
         token: String
@@ -892,6 +906,11 @@ final class MezonHTTPClient {
             var labelValue = SwiftProtobuf.Google_Protobuf_StringValue()
             labelValue.value = channelLabel
             req.channelLabel = labelValue
+        }
+        if let channelAvatar = channelAvatar {
+            var avatarValue = SwiftProtobuf.Google_Protobuf_StringValue()
+            avatarValue.value = channelAvatar
+            req.channelAvatar = avatarValue
         }
         if let topic = topic {
             req.topic = topic

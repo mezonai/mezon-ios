@@ -461,6 +461,24 @@ final class Postbox {
         return decodeChannelList(data)
     }
 
+    func updateCachedDMChannelDescription(_ channel: Mezon_Api_ChannelDescription) {
+        var channels = getCachedDMChannelList()
+        if let index = channels.firstIndex(where: { $0.channelID == channel.channelID }) {
+            channels[index] = channel
+        } else {
+            channels.insert(channel, at: 0)
+        }
+        setPreferenceDataSync(key: PreferencesKeys.dmChannelList, value: encodeChannelList(channels))
+        updateCachedAllChannelsByUser(channel)
+    }
+
+    func removeCachedDMChannelDescription(channelId: Int64) {
+        var channels = getCachedDMChannelList()
+        channels.removeAll { $0.channelID == channelId }
+        setPreferenceDataSync(key: PreferencesKeys.dmChannelList, value: encodeChannelList(channels))
+        removeCachedAllChannelsByUser(channelId: channelId)
+    }
+
     private func decodeChannelList(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
         let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
@@ -477,6 +495,43 @@ final class Postbox {
             offset += Int(len)
         }
         return result
+    }
+
+    private func encodeChannelList(_ channels: [Mezon_Api_ChannelDescription]) -> Data {
+        var result = Data()
+        var count = UInt32(channels.count)
+        result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+        for channel in channels {
+            guard let data = try? channel.serializedData() else { continue }
+            var length = UInt32(data.count)
+            result.append(contentsOf: withUnsafeBytes(of: &length) { Array($0) })
+            result.append(data)
+        }
+        return result
+    }
+
+    private func updateCachedAllChannelsByUser(_ channel: Mezon_Api_ChannelDescription) {
+        guard let data = getPreferenceData(key: PreferencesKeys.allChannelsByUser),
+              var list = try? Mezon_Api_ChannelDescList(serializedBytes: data)
+        else {
+            return
+        }
+        if let index = list.channeldesc.firstIndex(where: { $0.channelID == channel.channelID }) {
+            list.channeldesc[index] = channel
+        } else {
+            list.channeldesc.append(channel)
+        }
+        setPreferenceDataSync(key: PreferencesKeys.allChannelsByUser, value: try? list.serializedData())
+    }
+
+    private func removeCachedAllChannelsByUser(channelId: Int64) {
+        guard let data = getPreferenceData(key: PreferencesKeys.allChannelsByUser),
+              var list = try? Mezon_Api_ChannelDescList(serializedBytes: data)
+        else {
+            return
+        }
+        list.channeldesc.removeAll { $0.channelID == channelId }
+        setPreferenceDataSync(key: PreferencesKeys.allChannelsByUser, value: try? list.serializedData())
     }
 
     func clearAll() {

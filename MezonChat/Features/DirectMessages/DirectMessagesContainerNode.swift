@@ -4,6 +4,7 @@ import AsyncDisplayKit
 struct DirectMessagesInteraction {
     let onSelectDirectMessage: (Mezon_Api_ChannelDescription) -> Void
     let onAddFriendTapped: () -> Void
+    let onCreateGroupTapped: () -> Void
     let onSearchTapped: () -> Void
     let onBackTapped: () -> Void
     let onRefresh: () -> Void
@@ -17,6 +18,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let addFriendButton = UIButton(type: .system)
     private let badgeLabel = UILabel()
     private let searchButton = UIButton(type: .system)
+    private let createGroupButton = UIButton(type: .system)
     private let tableView: UITableView
     private let activityStrip = DmMessageActivityStripView()
     private let activityTableHeaderWrapper = UIView()
@@ -140,6 +142,20 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         }
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
+        createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
+        createGroupButton.tintColor = .white
+        createGroupButton.layer.cornerRadius = 25.swh
+        createGroupButton.layer.shadowColor = UIColor.black.cgColor
+        createGroupButton.layer.shadowOpacity = 0.22
+        createGroupButton.layer.shadowRadius = 10
+        createGroupButton.layer.shadowOffset = CGSize(width: 0, height: 4)
+        createGroupButton.setImage(
+            UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
+            for: .normal
+        )
+        createGroupButton.accessibilityLabel = L(L10n.DirectMessage.newGroup)
+        createGroupButton.addTarget(self, action: #selector(createGroupTapped), for: .touchUpInside)
+
         activityStrip.onSelect = { [weak self] item in
             self?.interaction.onSelectMessageActivity(item)
         }
@@ -149,6 +165,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         view.addSubview(badgeLabel)
         view.addSubview(searchButton)
         view.addSubview(tableView)
+        view.addSubview(createGroupButton)
 
         activityTableHeaderWrapper.backgroundColor = .clear
         activityStrip.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -208,6 +225,17 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         let tvHeight = size.height - tvTop - bottomInset
 
         transition.updateFrame(view: tableView, frame: CGRect(x: 0, y: tvTop, width: size.width, height: tvHeight))
+        tableView.contentInset.bottom = 76.sh
+        tableView.scrollIndicatorInsets.bottom = 76.sh
+
+        let createButtonSize: CGFloat = 50.swh
+        let createButtonX = size.width - sideInset - createButtonSize
+        let createButtonY = size.height - bottomInset - createButtonSize - 18.sh
+        transition.updateFrame(
+            view: createGroupButton,
+            frame: CGRect(x: createButtonX, y: createButtonY, width: createButtonSize, height: createButtonSize)
+        )
+        createGroupButton.layer.cornerRadius = createButtonSize / 2
         syncActivityTableHeader(width: size.width)
     }
 
@@ -262,11 +290,20 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             searchButton.backgroundColor = UIColor.theme.primary
         }
 
+        createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
+        createGroupButton.tintColor = .white
+        createGroupButton.setImage(
+            UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
+            for: .normal
+        )
+        createGroupButton.accessibilityLabel = L(L10n.DirectMessage.newGroup)
+
         tableView.reloadData()
         activityStrip.applyTheme()
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
+    @objc private func createGroupTapped() { interaction.onCreateGroupTapped() }
     @objc private func searchTapped() { interaction.onSearchTapped() }
     @objc private func handleRefresh() { interaction.onRefresh() }
 

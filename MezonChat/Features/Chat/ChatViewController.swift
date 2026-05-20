@@ -775,15 +775,29 @@ final class ChatViewController: ViewController {
 
     @objc private func handleChannelMetadataChanged(_ notification: Notification) {
         guard let cid = Self.userInfoInt64(notification.userInfo?["channelId"]), cid == channel.channelID else { return }
+        let typeWasUnknown = channel.type == 0
+        var updatedChannel: Mezon_Api_ChannelDescription?
         if clanId != 0 {
             if let notifyClan = Self.userInfoInt64(notification.userInfo?["clanId"]), notifyClan != clanId {
                 return
             }
             if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID) {
-                channel = cached
+                updatedChannel = cached
             }
         } else if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
-            channel = cached
+            updatedChannel = cached
+        }
+
+        if let updatedChannel {
+            channel = updatedChannel
+            if !updatedChannel.channelLabel.isEmpty {
+                setChannelLabel(updatedChannel.channelLabel)
+            }
+            sendInputViewController.channel = updatedChannel
+            syncChannelToComposer()
+            if typeWasUnknown && updatedChannel.type != 0 {
+                rejoinChatIfChannelMetadataChanged()
+            }
         }
         metadataOnlyPipe.putNext(())
     }
