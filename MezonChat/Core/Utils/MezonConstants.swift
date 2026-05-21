@@ -28,6 +28,7 @@ enum MezonConstants {
         "https://cdn.mezon.ai/stickers/mezon.gif",
         "http://cdn.mezon.ai/landing-page-mezon/2021919345600368640.gif",
     ]
+    static let shareContactKey = "share_contact"
 
     enum ChannelType: Int32 {
         case channel = 1
@@ -61,6 +62,8 @@ enum MezonConstants {
         case upcomingEvent = 13
         case updateEphemeral = 14  
         case deleteEphemeral = 15  
+        case shareContact = 16
+        case location = 17
         case poll = 18
     }
 }

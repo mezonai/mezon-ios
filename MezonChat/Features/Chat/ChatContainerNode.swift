@@ -44,6 +44,9 @@ struct ChatInteraction {
     let onReactionDetailRequested: (ParsedReaction, ChatMessageDisplay) -> Void
     let onAddReactionTapped: (ChatMessageDisplay) -> Void
     let onAvatarTapped: (ChatMessageDisplay) -> Void
+    let onShareContactProfileTapped: (ShareContactData) -> Void
+    let onShareContactMessageTapped: (ShareContactData) -> Void
+    let onShareContactCallTapped: (ShareContactData) -> Void
     let onSwipeReply: (ChatMessageDisplay) -> Void
     let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
     let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void

@@ -174,7 +174,7 @@ final class ImageCache {
     ) -> URLSessionDataTask {
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             if let error {
-                SentryLogger.capture(error, extras: [
+                SentryLogger.captureMediaError(error, extras: [
                     "where": "ImageCache.downloadImage",
                     "url": url.absoluteString,
                 ])
@@ -414,7 +414,7 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
             let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
                 guard !cancelled.with({ $0 }) else { return }
                 if let error {
-                    SentryLogger.capture(error, extras: [
+                    SentryLogger.captureMediaError(error, extras: [
                         "where": "remoteImageSignal",
                         "url": url,
                     ])
@@ -469,7 +469,7 @@ func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMo
             let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
                 guard !cancelled.with({ $0 }) else { return }
                 if let error {
-                    SentryLogger.capture(error, extras: [
+                    SentryLogger.captureMediaError(error, extras: [
                         "where": "remoteAttachmentImageSignal",
                         "url": urlString,
                     ])
@@ -565,7 +565,7 @@ func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
             let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
                 guard !cancelled.with({ $0 }) else { return }
                 if let error {
-                    SentryLogger.capture(error, extras: [
+                    SentryLogger.captureMediaError(error, extras: [
                         "where": "rawImageSignal",
                         "url": url,
                     ])

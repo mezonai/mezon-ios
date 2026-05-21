@@ -383,7 +383,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         URLSession.shared.dataTask(with: imageURL) { data, _, error in
             if let error {
-                SentryLogger.capture(error, extras: [
+                SentryLogger.captureMediaError(error, extras: [
                     "where": "MessageMediaContentNode.loadImage",
                     "url": url,
                 ])

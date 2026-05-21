@@ -666,9 +666,28 @@ final class CreateThreadFormViewController: UIViewController {
             DispatchQueue.main.async { [weak self] in self?.sendInputVC.focusTextInput() }
         case "transfer_funds":
             navigateToTransferFundsForThreadForm()
+        case "share_contact":
+            navigateToShareContactForThreadForm()
         default:
             Toast.comingSoonLine(item.label.replacingOccurrences(of: "\n", with: " "))
         }
+    }
+
+    private func navigateToShareContactForThreadForm() {
+        view.endEditing(true)
+        sendInputVC.markAdvancePanelDismissedByHost()
+        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+
+        let vc = ShareContactPickerViewController(context: context)
+        vc.onSelectFriend = { [weak self, weak vc] friend in
+            guard let self else { return }
+            self.sendInputVC.sendShareContact(friend: friend)
+            vc?.navigationController?.popViewController(animated: true)
+            DispatchQueue.main.async {
+                self.sendInputVC.focusTextInput()
+            }
+        }
+        navigationController?.pushViewController(vc, animated: true)
     }
 
     private func handleSendLocationForThreadForm() {

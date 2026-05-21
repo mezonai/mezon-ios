@@ -28,7 +28,7 @@ enum ReactionEmojiImageLoader {
         }
         let task = URLSession.shared.dataTask(with: url) { data, _, error in
             if let error {
-                SentryLogger.capture(error, extras: [
+                SentryLogger.captureMediaError(error, extras: [
                     "where": "ReactionEmojiImageLoader.load",
                     "url": url.absoluteString,
                 ])
@@ -129,7 +129,7 @@ enum ReactionEmojiImageLoader {
         }
         let task = URLSession.shared.dataTask(with: url) { data, _, error in
             if let error {
-                SentryLogger.capture(error, extras: [
+                SentryLogger.captureMediaError(error, extras: [
                     "where": "ReactionEmojiImageLoader.loadData",
                     "url": url.absoluteString,
                 ])
