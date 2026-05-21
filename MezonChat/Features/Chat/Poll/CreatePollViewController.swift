@@ -436,11 +436,11 @@ final class CreatePollViewController: BaseViewController {
             postButton.leadingAnchor.constraint(equalTo: bottomBar.leadingAnchor, constant: 20),
             postButton.trailingAnchor.constraint(equalTo: bottomBar.trailingAnchor, constant: -20),
             postButton.topAnchor.constraint(equalTo: bottomBar.topAnchor, constant: 12),
-            postButton.bottomAnchor.constraint(equalTo: bottomBar.bottomAnchor, constant: -12),
+            postButton.bottomAnchor.constraint(equalTo: bottomBar.safeAreaLayoutGuide.bottomAnchor, constant: -12),
             postButton.heightAnchor.constraint(equalToConstant: 50)
         ])
         
-        let bbBottom = bottomBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        let bbBottom = bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         bbBottom.isActive = true
         bottomBarBottomConstraint = bbBottom
     }
