@@ -39,7 +39,6 @@ final class PollOptionRowNode: ASDisplayNode {
     private static let rowHeight: CGFloat = 40
     private static let cornerRadius: CGFloat = 8
     private static let fillAnimationDuration: CFTimeInterval = 0.6
-    private static let activeTextWhiteThreshold = 0
     private static let blurpleColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1)
     private static let blurpleFillResult = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 0.35)
 
@@ -109,9 +108,7 @@ final class PollOptionRowNode: ASDisplayNode {
 
     private func updateLabelText() {
         let t = UIColor.theme
-        let shouldUseActiveColor = hasVoted && option.isSelected && shouldShowResults
-            && option.percentage >= 0
-        let color = shouldUseActiveColor ? UIColor.white : t.textStrong
+        let color = isLabelWhite == true ? UIColor.white : t.textStrong
         let font = UIFont.systemFont(ofSize: 14.sf)
         
         cachedAttributedLabelText = PollEmojiParser.parse(option.label, font: font, color: color, emojiSize: 20.sf)
@@ -119,8 +116,6 @@ final class PollOptionRowNode: ASDisplayNode {
 
     private func updateMetaText() {
         let t = UIColor.theme
-        let shouldUseActiveColor = hasVoted && option.isSelected && shouldShowResults
-            && option.percentage >= Self.activeTextWhiteThreshold
         let voteWord = option.voteCount > 1
             ? L(L10n.Poll.votes)
             : L(L10n.Poll.vote)
@@ -128,7 +123,7 @@ final class PollOptionRowNode: ASDisplayNode {
             string: "\(option.percentage)% \(option.voteCount) \(voteWord)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
-                .foregroundColor: shouldUseActiveColor ? UIColor.white : t.textDisabled,
+                .foregroundColor: isMetaWhite == true ? UIColor.white : t.textStrong,
             ]
         )
     }
@@ -184,6 +179,9 @@ final class PollOptionRowNode: ASDisplayNode {
 
     private var cachedLabelSize: CGSize = .zero
     private var cachedMetaSize: CGSize = .zero
+    
+    private var isLabelWhite: Bool?
+    private var isMetaWhite: Bool?
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
         let hPad: CGFloat = 12
@@ -231,6 +229,33 @@ final class PollOptionRowNode: ASDisplayNode {
         }
 
         cachedSize = CGSize(width: maxWidth, height: rowHeight)
+        
+        let targetFillWidth: CGFloat = shouldShowResults ? maxWidth * CGFloat(option.percentage) / 100.0 : 0
+        let touchesLabel = targetFillWidth > hPad + (cachedLabelSize.width * 0.4)
+        
+        let rightReserved: CGFloat = option.isSelected ? (checkSize + gap) : 0
+        let metaX = maxWidth - hPad - rightReserved - cachedMetaSize.width
+        let coversMeta = targetFillWidth >= (metaX + cachedMetaSize.width - 4)
+        
+        let shouldLabelBeWhite = hasVoted && option.isSelected && shouldShowResults && touchesLabel
+        let shouldMetaBeWhite = hasVoted && option.isSelected && shouldShowResults && coversMeta
+        
+        if isLabelWhite == nil {
+            isLabelWhite = shouldLabelBeWhite
+            if shouldLabelBeWhite { updateLabelText() }
+        } else if isLabelWhite != shouldLabelBeWhite {
+            isLabelWhite = shouldLabelBeWhite
+            updateLabelText()
+        }
+        
+        if isMetaWhite == nil {
+            isMetaWhite = shouldMetaBeWhite
+            if shouldMetaBeWhite { updateMetaText() }
+        } else if isMetaWhite != shouldMetaBeWhite {
+            isMetaWhite = shouldMetaBeWhite
+            updateMetaText()
+        }
+        
         return cachedSize
     }
 
