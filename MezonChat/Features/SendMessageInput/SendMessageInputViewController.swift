@@ -1114,6 +1114,93 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    func sendShareContact(friend: Mezon_Api_Friend) {
+        guard !composerSendPermissionBlocked else { return }
+        guard !shouldSendAsAnonymousMessage else { return }
+        if editingDisplay != nil {
+            clearEditingMessage()
+        }
+        guard friend.hasUser, friend.user.id != 0 else { return }
+
+        let user = friend.user
+        let username = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayNameRaw = user.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = displayNameRaw.isEmpty ? username : displayNameRaw
+        let avatar = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let contentJSON: [String: Any] = [
+            "t": "",
+            "embed": [[
+                "fields": [
+                    ["name": "key", "value": MezonConstants.shareContactKey, "inline": true],
+                    ["name": "user_id", "value": "\(user.id)", "inline": true],
+                    ["name": "username", "value": username, "inline": true],
+                    ["name": "display_name", "value": displayName, "inline": true],
+                    ["name": "avatar", "value": avatar, "inline": true],
+                ],
+            ]],
+        ]
+        let contentStr: String
+        if let data = try? JSONSerialization.data(withJSONObject: contentJSON),
+           let str = String(data: data, encoding: .utf8) {
+            contentStr = str
+        } else {
+            contentStr = "{}"
+        }
+
+        let mode: Int32 = {
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                return MezonConstants.ChannelStreamMode.thread.rawValue
+            case MezonConstants.ChannelType.dm.rawValue:
+                return MezonConstants.ChannelStreamMode.dm.rawValue
+            case MezonConstants.ChannelType.group.rawValue:
+                return MezonConstants.ChannelStreamMode.group.rawValue
+            default:
+                return clanId == 0
+                    ? MezonConstants.ChannelStreamMode.group.rawValue
+                    : MezonConstants.ChannelStreamMode.channel.rawValue
+            }
+        }()
+        let isPublic = channel.channelPrivate == 0
+        let senderAvatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+
+        clearReply()
+        onSent?()
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.onError?("No session")
+                return
+            }
+            do {
+                _ = try await self.context.account.network.sendChannelMessage(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    content: contentStr,
+                    mentions: [],
+                    attachments: [],
+                    references: [],
+                    anonymous: false,
+                    mentionEveryone: false,
+                    avatar: senderAvatar,
+                    topicId: self.topicId,
+                    code: MezonConstants.MessageCode.shareContact.rawValue,
+                    token: token
+                )
+            } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "sendShareContact",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                ])
+                self.onError?(error.localizedDescription)
+            }
+        }
+    }
+
     func sendSticker(_ sticker: CachedClanStickerRecord) {
         if editingDisplay != nil {
             clearEditingMessage()
@@ -5027,4 +5114,3 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
     }
 }
-

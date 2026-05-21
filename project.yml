@@ -109,6 +109,11 @@ targets:
           /bin/sh "${SRCROOT}/scripts/generate_livekit_webrtc_dsym.sh"
         shell: /bin/sh
         basedOnDependencyAnalysis: false
+      - name: Copy Sentry dSYM
+        script: |
+          /bin/sh "${SRCROOT}/scripts/copy_sentry_dsym.sh"
+        shell: /bin/sh
+        basedOnDependencyAnalysis: false
     settings:
       base:
         ENABLE_USER_SCRIPT_SANDBOXING: NO

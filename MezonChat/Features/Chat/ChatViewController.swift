@@ -133,6 +133,28 @@ struct TopicData {
     let replyCount: Int
 }
 
+struct ShareContactData: Equatable {
+    let userId: String
+    let username: String
+    let displayName: String
+    let avatar: String
+
+    var resolvedDisplayName: String {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { return name }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        return user.isEmpty ? userId : user
+    }
+
+    var resolvedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var userIdInt: Int64? {
+        Int64(userId.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
 struct ChatMessageDisplay: Identifiable {
     let message: Message
     let senderDisplayName: String
@@ -169,6 +191,32 @@ struct ChatMessageDisplay: Identifiable {
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
     var isLocation: Bool { locationData != nil }
+    var shareContactData: ShareContactData? {
+        guard let embed = parsedContent.embeds.first else { return nil }
+        let isShareContact = messageCode == MezonConstants.MessageCode.shareContact.rawValue
+            || embed.fields.first?.value == MezonConstants.shareContactKey
+            || embed.fields.contains { $0.name == "key" && $0.value == MezonConstants.shareContactKey }
+        guard isShareContact else { return nil }
+
+        func value(named name: String, fallbackIndex: Int) -> String {
+            if let byName = embed.fields.first(where: { $0.name == name })?.value {
+                return byName
+            }
+            guard fallbackIndex >= 0, fallbackIndex < embed.fields.count else { return "" }
+            return embed.fields[fallbackIndex].value
+        }
+
+        let data = ShareContactData(
+            userId: value(named: "user_id", fallbackIndex: 1),
+            username: value(named: "username", fallbackIndex: 2),
+            displayName: value(named: "display_name", fallbackIndex: 3),
+            avatar: value(named: "avatar", fallbackIndex: 4)
+        )
+        guard data.userIdInt != nil || !data.resolvedUsername.isEmpty || !data.resolvedDisplayName.isEmpty else {
+            return nil
+        }
+        return data
+    }
 
     var isAnonymousSender: Bool {
         senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -517,6 +565,15 @@ final class ChatViewController: ViewController {
             },
             onAvatarTapped: { [weak self] display in
                 self?.showMemberProfile(display)
+            },
+            onShareContactProfileTapped: { [weak self] data in
+                self?.showShareContactProfile(data)
+            },
+            onShareContactMessageTapped: { [weak self] data in
+                self?.openShareContactDirectMessage(data)
+            },
+            onShareContactCallTapped: { [weak self] data in
+                self?.startShareContactCall(data)
             },
             onSwipeReply: { [weak self] display in
                 self?.sendInputViewController.setReply(display)
@@ -3230,6 +3287,8 @@ final class ChatViewController: ViewController {
             navigateToTransferFunds()
         case "create_poll":
             navigateToCreatePoll()
+        case "share_contact":
+            navigateToShareContact()
         default:
             let toast = UILabel()
             toast.text = "  \(item.label.replacingOccurrences(of: "\n", with: " ")) — Coming soon  "
@@ -3255,6 +3314,28 @@ final class ChatViewController: ViewController {
                     toast.removeFromSuperview()
                 }
             }
+        }
+    }
+
+    private func navigateToShareContact() {
+        view.endEditing(true)
+        sendInputViewController.markAdvancePanelDismissedByHost()
+        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+
+        let vc = ShareContactPickerViewController(context: context)
+        vc.onSelectFriend = { [weak self, weak vc] friend in
+            guard let self else { return }
+            self.sendInputViewController.sendShareContact(friend: friend)
+            vc?.navigationController?.popViewController(animated: true)
+            DispatchQueue.main.async {
+                self.sendInputViewController.focusTextInput()
+            }
+        }
+
+        if let nav = navigationController {
+            nav.pushViewController(vc, animated: true)
+        } else {
+            present(UINavigationController(rootViewController: vc), animated: true)
         }
     }
 
@@ -3944,6 +4025,122 @@ final class ChatViewController: ViewController {
         )
         presentInGlobalOverlay(sheet)
         sheet.animateIn()
+    }
+
+    private func showShareContactProfile(_ data: ShareContactData) {
+        guard let userId = data.userIdInt else { return }
+        let isCurrentUser = "\(userId)" == context.currentUser?.id
+        let user = apiUserForShareContact(data)
+
+        view.endEditing(true)
+        let sheet = MemberProfileSheetController(
+            user: user,
+            context: context,
+            isCurrentUser: isCurrentUser,
+            onSendMessage: { [weak self] dmChannel in
+                guard let self else { return }
+                self.context.currentClanId = 0
+                let chatVC = ChatViewController(
+                    clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
+                self.navigationController?.pushViewController(chatVC, animated: true)
+            }
+        )
+        presentInGlobalOverlay(sheet)
+        sheet.animateIn()
+    }
+
+    private func apiUserForShareContact(_ data: ShareContactData) -> Mezon_Api_User {
+        let userId = data.userIdInt ?? 0
+        var user = Mezon_Api_User()
+        user.id = userId
+        user.username = data.resolvedUsername
+        user.displayName = data.resolvedDisplayName
+        user.avatarURL = data.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let friend = context.engine.friendsData.allFriends().first(where: { $0.hasUser && $0.user.id == userId }) {
+            if user.username.isEmpty { user.username = friend.user.username }
+            if user.displayName.isEmpty || user.displayName == "\(userId)" { user.displayName = friend.user.displayName }
+            if user.avatarURL.isEmpty { user.avatarURL = friend.user.avatarURL }
+        } else if clanId != 0,
+                  let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+                  let found = clanUsers.clanUsers.first(where: { $0.user.id == userId }) {
+            let clanUser = Self.apiUserForMemberProfile(from: found)
+            if user.username.isEmpty { user.username = clanUser.username }
+            if user.displayName.isEmpty || user.displayName == "\(userId)" { user.displayName = clanUser.displayName }
+            if user.avatarURL.isEmpty { user.avatarURL = clanUser.avatarURL }
+        } else if let allUsers = context.engine.clanData.getAllUserClans(),
+                  let found = allUsers.users.first(where: { $0.id == userId }) {
+            if user.username.isEmpty { user.username = found.username }
+            if user.displayName.isEmpty || user.displayName == "\(userId)" { user.displayName = found.displayName }
+            if user.avatarURL.isEmpty { user.avatarURL = found.avatarURL }
+        }
+        return user
+    }
+
+    private func openShareContactDirectMessage(_ data: ShareContactData) {
+        loadOrCreateShareContactDirectMessage(data) { [weak self] channel in
+            guard let self else { return }
+            self.context.currentClanId = 0
+            let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
+            self.navigationController?.pushViewController(chatVC, animated: true)
+        }
+    }
+
+    private func startShareContactCall(_ data: ShareContactData) {
+        guard data.userId != context.currentUser?.id else {
+            Toast.error("Cannot call yourself")
+            return
+        }
+        loadOrCreateShareContactDirectMessage(data) { [weak self] channel in
+            guard let self, let remoteUserId = data.userIdInt else { return }
+            PeerCallLogMessage.sendStartCallLog(
+                context: self.context,
+                channel: channel,
+                isVideoCall: false
+            )
+            let callVC = PeerCallViewController(
+                context: self.context,
+                remoteUserName: data.resolvedDisplayName,
+                remoteAvatarURL: data.avatar.trimmingCharacters(in: .whitespacesAndNewlines),
+                remoteUserId: remoteUserId,
+                channelId: channel.channelID,
+                isVideo: false
+            )
+            self.pushPeerCallScreen(callVC)
+        }
+    }
+
+    private func loadOrCreateShareContactDirectMessage(
+        _ data: ShareContactData,
+        completion: @escaping (Mezon_Api_ChannelDescription) -> Void
+    ) {
+        guard let targetUserId = data.userIdInt, targetUserId != 0 else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+
+            let dmChannels = try? await context.account.network.listDirectMessageChannels(token: token)
+            if let existing = dmChannels?.first(where: { ch in
+                ch.type == MezonConstants.ChannelType.dm.rawValue
+                    && ch.userIds.count == 1
+                    && ch.userIds.contains(targetUserId)
+            }) {
+                completion(existing)
+                return
+            }
+
+            do {
+                let channel = try await context.account.network.createDirectMessage(
+                    userId: targetUserId,
+                    token: token
+                )
+                completion(channel)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
     }
 
     private weak var activeActionSheet: MessageActionSheetController?
