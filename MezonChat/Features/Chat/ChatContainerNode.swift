@@ -581,8 +581,11 @@ final class ChatContainerNode: ASDisplayNode {
                 return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
             }.joined(separator: "§")
         }()
+        let ogpHash = m.parsedContent.ogpPreviews.map {
+            "\($0.url)|\($0.title)|\($0.description)|\($0.imageURL)"
+        }.joined(separator: "§")
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(sendFeedback)"
+        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(sendFeedback)"
     }
 
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {

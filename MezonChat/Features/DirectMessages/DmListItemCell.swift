@@ -345,7 +345,7 @@ final class DmListItemCell: UITableViewCell {
     }
 
     private static func shouldInferAttachmentOnlyListPreview(msg: Mezon_Api_ChannelMessageHeader) -> Bool {
-        guard msg.id != 0 || msg.timestampSeconds > 0 else { return false }
+        guard msg.senderID != 0, msg.id != 0 || msg.timestampSeconds > 0 else { return false }
         let c = msg.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if c.isEmpty || c == "{}" { return true }
         guard let payload = messageContentPayload(from: msg.content) else { return false }

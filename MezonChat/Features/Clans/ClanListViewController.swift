@@ -161,7 +161,7 @@ final class ClanListViewController: ViewController {
             return 0
         }()
         guard let idx = clans.firstIndex(where: { $0.clanID == clanId }) else { return }
-        guard clans[idx].badgeCount < total else { return }
+        guard clans[idx].badgeCount != total else { return }
         clans[idx].badgeCount = total
         clansPipe.putNext(clans)
         persistClanRecordsToPostbox(clans)

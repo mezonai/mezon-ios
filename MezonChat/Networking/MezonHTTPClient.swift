@@ -367,9 +367,8 @@ final class MezonHTTPClient {
     }
 
     func listCategoryDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_CategoryDesc] {
-        var req = Mezon_Api_ListChannelDescsRequest()
+        var req = Mezon_Api_CategoryDesc()
         req.clanID = clanId
-        req.limit = 100
         let response: Mezon_Api_CategoryDescList = try await postProto(
             path: "/mezon.api.Mezon/ListCategoryDescs",
             message: req,
@@ -1656,21 +1655,6 @@ final class MezonHTTPClient {
     private static let httpOnlyApiNames: Set<String> = [
         "SessionRefresh"
     ]
-    private static let socketFailureHttpFallbackApiNames: Set<String> = [
-        "GetAccount",
-        "ListActivity",
-        "SendChannelMessage",
-        "ListClanDescs",
-        "ListChannelDescs",
-        "ListCategoryDescs",
-        "GetListFavoriteChannel",
-        "ListChannelBadgeCount",
-        "ListClanBadgeCount",
-        "ListUserClansByUserId",
-        "ListChannelByUserId",
-        "ListFriends",
-    ]
-    private static let socketWaitNanoseconds: UInt64 = 30_000_000_000
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
 
     private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
@@ -1680,7 +1664,6 @@ final class MezonHTTPClient {
         let prefix = "/mezon.api.Mezon/"
         guard path.hasPrefix(prefix) else { return nil }
         let apiName = String(path.dropFirst(prefix.count))
-        let allowHttpFallbackAfterSocketFailure = Self.socketFailureHttpFallbackApiNames.contains(apiName)
 
         if Self.httpOnlyApiNames.contains(apiName) {
             return nil
@@ -1688,18 +1671,13 @@ final class MezonHTTPClient {
 
         var connected = await MezonSocket.shared.isConnected
         if !connected {
-            let waitNanoseconds = allowHttpFallbackAfterSocketFailure
-                ? Self.socketFallbackGraceWaitNanoseconds
-                : Self.socketWaitNanoseconds
-            connected = await MezonSocket.shared.waitForConnected(timeoutNanoseconds: waitNanoseconds)
+            connected = await MezonSocket.shared.waitForConnected(
+                timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
         }
         guard connected else {
-            if allowHttpFallbackAfterSocketFailure {
-                let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
-                MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
-                return nil
-            }
-            throw MezonError.socketError("WebSocket unavailable for '\(apiName)'")
+            let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
+            MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
+            return nil
         }
 
         let body: Data
@@ -1720,20 +1698,13 @@ final class MezonHTTPClient {
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription)")
-                if allowHttpFallbackAfterSocketFailure {
-                    return nil
-                }
-                throw error
+                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription) → HTTP fallback")
+                return nil
             }
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            if allowHttpFallbackAfterSocketFailure {
-                MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
-                return nil
-            }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) (rethrow, no HTTP fallback)")
-            throw error
+            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
+            return nil
         }
     }
 

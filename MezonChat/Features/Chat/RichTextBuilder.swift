@@ -550,7 +550,7 @@ enum RichTextBuilder {
             return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind)
         }
 
-        return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [])
+        return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [], ogpPreviews: [])
     }
 
     private static func bodyParagraphStyle() -> NSParagraphStyle {

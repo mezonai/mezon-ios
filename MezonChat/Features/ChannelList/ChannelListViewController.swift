@@ -1233,6 +1233,7 @@ final class ChannelListViewController: ViewController {
 
     private func postClanSidebarUnreadDerivedFromCurrentChannels() {
         guard clanId != 0 else { return }
+        guard !allChannels.isEmpty else { return }
         let total = allChannels.reduce(Int32(0)) { $0 + $1.countMessUnread }
         NotificationCenter.default.post(
             name: Notification.Name("MezonClanChannelUnreadDerived"),

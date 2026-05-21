@@ -20,6 +20,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var audioAttachmentNode: MessageAudioAttachmentNode?
     private var fileAttachmentNode: MessageFileAttachmentNode?
     private var embedNode: MessageEmbedNode?
+    private var ogpPreviewNode: MessageOgpPreviewNode?
     private var shareContactNode: MessageShareContactNode?
     private var reactionsNode: MessageReactionsNode?
     private var locationNode: MessageLocationNode?
@@ -73,6 +74,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedAudioSize: CGSize = .zero
     private var cachedFileSize: CGSize = .zero
     private var cachedEmbedSize: CGSize = .zero
+    private var cachedOgpPreviewSize: CGSize = .zero
     private var cachedShareContactSize: CGSize = .zero
     private var cachedReactionsSize: CGSize = .zero
     private var cachedLocationSize: CGSize = .zero
@@ -405,6 +407,16 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(tcn)
         }
 
+        if Self.shouldShowOgpPreview(for: display), let preview = parsed.ogpPreviews.first {
+            let on = MessageOgpPreviewNode()
+            on.configure(preview)
+            on.onTapped = { url in
+                UIApplication.shared.open(url)
+            }
+            ogpPreviewNode = on
+            addSubnode(on)
+        }
+
         if Self.hasClanInviteCard(for: display), let code = display.clanInviteLinkCode {
             let n = MessageClanInviteLinkNode(inviteCode: code, interaction: interaction)
             clanInviteLinkNode = n
@@ -531,6 +543,8 @@ final class MessageBubbleNode: ASDisplayNode {
         let timeChanged = oldTimeText != newTimeText
         let textChanged = oldDisplay.parsedContent.text != newDisplay.parsedContent.text
             || oldDisplay.isBuzzMessage != newDisplay.isBuzzMessage
+        let ogpPreviewChanged = oldDisplay.parsedContent.ogpPreviews != newDisplay.parsedContent.ogpPreviews
+            || Self.shouldShowOgpPreview(for: oldDisplay) != Self.shouldShowOgpPreview(for: newDisplay)
         let oldWantInvite = Self.hasClanInviteCard(for: oldDisplay)
         let newWantInvite = Self.hasClanInviteCard(for: newDisplay)
         let inviteChanged = oldDisplay.clanInviteLinkCode != newDisplay.clanInviteLinkCode
@@ -650,6 +664,25 @@ final class MessageBubbleNode: ASDisplayNode {
             }
         }
 
+        if Self.shouldShowOgpPreview(for: newDisplay), let preview = newDisplay.parsedContent.ogpPreviews.first {
+            if let existing = ogpPreviewNode {
+                if ogpPreviewChanged {
+                    existing.configure(preview)
+                }
+            } else {
+                let on = MessageOgpPreviewNode()
+                on.configure(preview)
+                on.onTapped = { url in
+                    UIApplication.shared.open(url)
+                }
+                ogpPreviewNode = on
+                addSubnode(on)
+            }
+        } else if let on = ogpPreviewNode {
+            on.removeFromSupernode()
+            ogpPreviewNode = nil
+        }
+
         let oldShareContact = oldDisplay.shareContactData
         let newShareContact = newDisplay.shareContactData
         let shareContactChanged = oldShareContact != newShareContact
@@ -747,6 +780,7 @@ final class MessageBubbleNode: ASDisplayNode {
             || editedChanged
             || mentionHighlightChanged
             || senderChanged
+            || ogpPreviewChanged
             || (oldFailed != newDisplay.isFailed)
             || inviteChanged || (oldWantInvite != newWantInvite)
             || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
@@ -770,6 +804,16 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.shareContactData != nil { return false }
         if display.checkOneLinkImage { return false }
         return !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func shouldShowOgpPreview(for display: ChatMessageDisplay) -> Bool {
+        if display.isCallLog { return false }
+        if display.isLocation { return false }
+        if display.isPollMessage { return false }
+        if display.isSendTokenLog { return false }
+        if display.shareContactData != nil { return false }
+        if display.parsedContent.ogpPreviews.isEmpty { return false }
+        return true
     }
 
     private static func timeText(for display: ChatMessageDisplay) -> String {
@@ -1253,6 +1297,13 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedTextSize = .zero
         }
 
+        if let ogpPreviewNode {
+            cachedOgpPreviewSize = ogpPreviewNode.measureSize(maxWidth: bodyContentWidth)
+            totalH += cachedOgpPreviewSize.height + vertSpacing
+        } else {
+            cachedOgpPreviewSize = .zero
+        }
+
         if Self.hasClanInviteCard(for: display) {
             cachedClanInviteSize = CGSize(
                 width: bodyContentWidth,
@@ -1450,6 +1501,12 @@ final class MessageBubbleNode: ASDisplayNode {
             y += cachedTextSize.height + vertSpacing
         }
 
+        if let ogpPreviewNode {
+            ogpPreviewNode.frame = CGRect(x: contentInnerX, y: y, width: cachedOgpPreviewSize.width, height: cachedOgpPreviewSize.height)
+            noteForwardBlock(topY: y, height: cachedOgpPreviewSize.height)
+            y += cachedOgpPreviewSize.height + vertSpacing
+        }
+
         if let clanInviteLinkNode {
             clanInviteLinkNode.frame = CGRect(
                 x: contentInnerX,
@@ -1568,6 +1625,7 @@ final class MessageBubbleNode: ASDisplayNode {
         audioAttachmentNode?.alpha = a
         fileAttachmentNode?.alpha = a
         embedNode?.alpha = a
+        ogpPreviewNode?.alpha = a
         shareContactNode?.alpha = a
         locationNode?.alpha = a
         clanInviteLinkNode?.alpha = a
@@ -1956,6 +2014,162 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
             height: labelSize.height
         )
         controlNode.frame = bounds
+    }
+}
+
+private final class MessageOgpPreviewNode: ASDisplayNode {
+    private let backgroundNode = ASDisplayNode()
+    private let leftBarNode = ASDisplayNode()
+    private let titleNode = ASTextNode2()
+    private let descriptionNode = ASTextNode2()
+    private let imageNode = TransformImageNode()
+
+    private var preview: ParsedOgpPreview?
+    private var cachedTitleSize: CGSize = .zero
+    private var cachedDescriptionSize: CGSize = .zero
+    private var cachedImageSize: CGSize = .zero
+    private var cachedSize: CGSize = .zero
+
+    var onTapped: ((URL) -> Void)?
+
+    private static let leftBarWidth: CGFloat = 4
+    private static let inset: CGFloat = 10
+    private static let verticalGap: CGFloat = 7
+    private static let imageTopGap: CGFloat = 10
+    private static let maxImageHeight: CGFloat = 150
+
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = false
+        isUserInteractionEnabled = true
+
+        backgroundNode.backgroundColor = UIColor.theme.border
+        backgroundNode.cornerRadius = 4
+        backgroundNode.clipsToBounds = true
+        addSubnode(backgroundNode)
+
+        leftBarNode.backgroundColor = UIColor.theme.bgViolet
+        addSubnode(leftBarNode)
+
+        titleNode.maximumNumberOfLines = 2
+        titleNode.truncationMode = .byTruncatingTail
+        addSubnode(titleNode)
+
+        descriptionNode.maximumNumberOfLines = 2
+        descriptionNode.truncationMode = .byTruncatingTail
+        addSubnode(descriptionNode)
+
+        imageNode.contentAnimations = [.firstUpdate]
+        addSubnode(imageNode)
+    }
+
+    func configure(_ preview: ParsedOgpPreview) {
+        self.preview = preview
+        let t = UIColor.theme
+        titleNode.attributedText = NSAttributedString(
+            string: preview.title,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
+                .foregroundColor: t.textLink,
+            ]
+        )
+        descriptionNode.attributedText = NSAttributedString(
+            string: preview.description,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf),
+                .foregroundColor: t.text,
+            ]
+        )
+
+        let imageURL = preview.imageURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if imageURL.isEmpty {
+            imageNode.reset()
+        } else {
+            let proxyURL = ImgproxyURL.attachmentURL(
+                from: imageURL,
+                width: 600,
+                height: 300,
+                resizeType: "fill"
+            )
+            let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
+            imageNode.reset()
+            imageNode.setSignal(remoteImageSignal(url: proxyURL, resizeMode: .fillLeading), attemptSynchronously: hasMem)
+        }
+        setNeedsLayout()
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+    }
+
+    @objc private func tapped() {
+        guard let urlString = preview?.url,
+              let url = URL(string: urlString),
+              ["http", "https"].contains((url.scheme ?? "").lowercased()) else { return }
+        onTapped?(url)
+    }
+
+    func measureSize(maxWidth: CGFloat) -> CGSize {
+        guard preview != nil else {
+            cachedSize = .zero
+            return .zero
+        }
+        let contentW = max(maxWidth - Self.leftBarWidth - Self.inset * 2, 1)
+        cachedTitleSize = titleNode.measure(CGSize(width: contentW, height: .greatestFiniteMagnitude))
+        cachedDescriptionSize = descriptionNode.measure(CGSize(width: contentW, height: .greatestFiniteMagnitude))
+
+        var totalH = Self.inset + cachedTitleSize.height
+        if cachedDescriptionSize.height > 0 {
+            totalH += Self.verticalGap + cachedDescriptionSize.height
+        }
+
+        if let image = preview?.imageURL, !image.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let imageH = min(Self.maxImageHeight.sh, max(96.sh, floor(contentW * 0.5)))
+            cachedImageSize = CGSize(width: contentW, height: imageH)
+            let layout = imageNode.asyncLayout()
+            let apply = layout(TransformImageArguments(
+                corners: ImageCorners(radius: 4),
+                imageSize: cachedImageSize,
+                boundingSize: cachedImageSize,
+                intrinsicInsets: .zero
+            ))
+            apply()
+            totalH += Self.imageTopGap + imageH
+        } else {
+            cachedImageSize = .zero
+        }
+
+        totalH += Self.inset
+        cachedSize = CGSize(width: maxWidth, height: totalH)
+        return cachedSize
+    }
+
+    override func layout() {
+        super.layout()
+        backgroundNode.frame = bounds
+        leftBarNode.frame = CGRect(x: 0, y: 0, width: Self.leftBarWidth, height: bounds.height)
+
+        let contentX = Self.leftBarWidth + Self.inset
+        let contentW = max(bounds.width - contentX - Self.inset, 1)
+        var y = Self.inset
+        titleNode.frame = CGRect(x: contentX, y: y, width: contentW, height: cachedTitleSize.height)
+        y += cachedTitleSize.height
+
+        if cachedDescriptionSize.height > 0 {
+            y += Self.verticalGap
+            descriptionNode.frame = CGRect(x: contentX, y: y, width: contentW, height: cachedDescriptionSize.height)
+            y += cachedDescriptionSize.height
+        } else {
+            descriptionNode.frame = .zero
+        }
+
+        if cachedImageSize.height > 0 {
+            y += Self.imageTopGap
+            imageNode.frame = CGRect(x: contentX, y: y, width: cachedImageSize.width, height: cachedImageSize.height)
+        } else {
+            imageNode.frame = .zero
+        }
     }
 }
 

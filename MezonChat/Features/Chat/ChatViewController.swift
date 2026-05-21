@@ -2135,9 +2135,12 @@ final class ChatViewController: ViewController {
                 return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
             }.joined(separator: "§")
         }()
+        let ogpHash = m.parsedContent.ogpPreviews.map {
+            "\($0.url)|\($0.title)|\($0.description)|\($0.imageURL)"
+        }.joined(separator: "§")
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(sendFeedback)"
+        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(sendFeedback)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -3651,7 +3654,7 @@ final class ChatViewController: ViewController {
                 return token
             }
         }
-        return ParsedContent(text: parsed.text, tokens: newTokens, embeds: parsed.embeds)
+        return ParsedContent(text: parsed.text, tokens: newTokens, embeds: parsed.embeds, ogpPreviews: parsed.ogpPreviews)
     }
 
     private func enrichMezonChannelLinkToken(

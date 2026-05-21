@@ -18,6 +18,7 @@ enum MezonConfig {
     static var dongServiceAPIURL: URL { env.dongServiceAPIURL }
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
+    static var ogpURL: URL { env.ogpURL }
 
     static var webRTCIceServerURL: String { env.webRTCIceServerURL }
     static var webRTCIceUsername: String { env.webRTCIceUsername }
