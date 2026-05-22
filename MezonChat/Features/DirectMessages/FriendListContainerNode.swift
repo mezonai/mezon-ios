@@ -561,7 +561,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
         let name = user.displayName.isEmpty ? user.username : user.displayName
         let initialChar = user.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "?"
+            ? ""
             : String(user.username.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
         avatarPlaceholderNode.attributedText = NSAttributedString(
             string: initialChar,

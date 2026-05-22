@@ -192,12 +192,9 @@ final class ProfileContainerNode: ASDisplayNode {
         }.withRenderingMode(.alwaysOriginal)
     }
 
-    private static func profileAvatarInitials(displayName: String?, username: String?) -> String {
-        let d = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    private static func profileAvatarInitials(username: String?) -> String {
         let u = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let base = !d.isEmpty ? d : u
-        if base.isEmpty { return "?" }
-        return base.first.map { String($0).uppercased() } ?? "?"
+        return u.first.map { String($0).uppercased() } ?? ""
     }
 
     private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {
@@ -606,7 +603,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private func applyProfileAvatarPlaceholder() {
         let u = context.currentUser
-        avatarPlaceholderLabel.text = Self.profileAvatarInitials(displayName: u?.displayName, username: u?.username)
+        avatarPlaceholderLabel.text = Self.profileAvatarInitials(username: u?.username)
         avatarImageView.image = nil
         avatarPlaceholderLabel.isHidden = false
         avatarContainerView.backgroundColor = UIColor.avatarColor(for: u?.username ?? "")
@@ -625,7 +622,7 @@ final class ProfileContainerNode: ASDisplayNode {
     func updateContent() {
         let user = context.currentUser
 
-        let initials = Self.profileAvatarInitials(displayName: user?.displayName, username: user?.username)
+        let initials = Self.profileAvatarInitials(username: user?.username)
         avatarPlaceholderLabel.text = initials
 
         if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -743,22 +740,14 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private func applyFriendAvatarsFromFriendsData() {
         let list = context.engine.friendsData.allFriends()
-        let previews: [(avatarURL: String?, displayName: String, username: String)] = Array(
+        let previews: [(avatarURL: String?, username: String)] = Array(
             list
                 .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser }
                 .prefix(5)
-                .map { f -> (avatarURL: String?, displayName: String, username: String) in
+                .map { f -> (avatarURL: String?, username: String) in
                     let u = f.user
                     let url = u.avatarURL.isEmpty ? nil : u.avatarURL
-                    let name: String
-                    if !u.username.isEmpty {
-                        name = u.username
-                    } else if !u.displayName.isEmpty {
-                        name = u.displayName
-                    } else {
-                        name = "?"
-                    }
-                    return (avatarURL: url, displayName: name, username: u.username)
+                    return (avatarURL: url, username: u.username)
                 }
         )
         setupFriendAvatars(previews: previews)
@@ -822,14 +811,13 @@ final class ProfileContainerNode: ASDisplayNode {
         return formatter.string(from: date)
     }
 
-    private func setupFriendAvatars(previews: [(avatarURL: String?, displayName: String, username: String)]) {
+    private func setupFriendAvatars(previews: [(avatarURL: String?, username: String)]) {
         friendsAvatarStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
 
         let avatarSmall: CGFloat = 28.swh
         for item in previews {
             let view = friendAvatarView(
                 avatarURL: item.avatarURL,
-                displayName: item.displayName,
                 username: item.username,
                 size: avatarSmall
             )
@@ -839,7 +827,6 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private func friendAvatarView(
         avatarURL: String?,
-        displayName: String,
         username: String,
         size: CGFloat
     ) -> UIView {

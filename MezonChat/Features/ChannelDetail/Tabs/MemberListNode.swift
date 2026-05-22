@@ -345,7 +345,7 @@ fileprivate func memberListResolvedAvatarURL(_ raw: String) -> String {
 
 fileprivate func memberListAvatarInitial(from name: String) -> String {
     let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !t.isEmpty else { return "?" }
+    guard !t.isEmpty else { return "" }
     for ch in t {
         if ch.isLetter || ch.isNumber {
             return String(ch).uppercased(with: Locale.current)

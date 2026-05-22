@@ -5212,7 +5212,7 @@ final class SendMessageInputViewController: UIViewController {
         ref.messageRefID = Int64(display.message.id) ?? 0
         ref.refType = 0
         ref.messageSenderID = Int64(display.message.senderId) ?? 0
-        ref.messageSenderUsername = display.senderDisplayName
+        ref.messageSenderUsername = display.senderUsername
         ref.messageSenderDisplayName = display.senderDisplayName
         ref.messageSenderAvatar = display.avatarURL ?? ""
         ref.hasAttachment_p = !display.attachments.isEmpty
