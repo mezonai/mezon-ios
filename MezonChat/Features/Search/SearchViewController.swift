@@ -693,7 +693,10 @@ final class SearchViewController: ViewController {
     }
 
     private func effectiveClanId(for channel: Mezon_Api_ChannelDescription) -> Int64 {
-        channel.clanID != 0 ? channel.clanID : clanId
+        if channel.type == MezonConstants.ChannelType.dm.rawValue || channel.type == MezonConstants.ChannelType.group.rawValue {
+            return 0
+        }
+        return channel.clanID != 0 ? channel.clanID : clanId
     }
 
     private func encodeChannelIdPreference(_ id: Int64) -> Data {

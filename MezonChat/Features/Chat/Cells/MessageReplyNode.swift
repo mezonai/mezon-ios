@@ -79,7 +79,35 @@ final class MessageReplyNode: ASDisplayNode {
             ]
         )
 
-        if !ref.messageSenderAvatar.isEmpty, let url = URL(string: ref.messageSenderAvatar) {
+        let isAnonymous = ref.messageSenderID == MezonConstants.anonymousUserId
+
+        if isAnonymous {
+            hasAvatar = true
+            avatarPlaceholderNode.isHidden = true
+            avatarImageNode.isHidden = false
+            avatarImageNode.url = nil
+            avatarImageNode.backgroundColor = UIColor.theme.tertiary
+            
+            if let raw = UIImage(named: "Chat/AnonymousIcon") {
+                let size = CGSize(width: avatarSz, height: avatarSz)
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = UIScreen.main.scale
+                format.opaque = false
+                let img = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                    let tinted = raw.withRenderingMode(.alwaysTemplate).withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+                    let iconSz = CGSize(width: 14, height: 14)
+                    let origin = CGPoint(x: (size.width - iconSz.width) / 2, y: (size.height - iconSz.height) / 2)
+                    tinted.draw(in: CGRect(origin: origin, size: iconSz))
+                }
+                avatarImageNode.image = img
+            } else {
+                avatarImageNode.image = nil
+            }
+            
+            avatarContainerNode.removeFromSupernode()
+            avatarPlaceholderNode.removeFromSupernode()
+            if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
+        } else if !ref.messageSenderAvatar.isEmpty, let url = URL(string: ref.messageSenderAvatar) {
             hasAvatar = true
             avatarPlaceholderNode.isHidden = true
             avatarImageNode.isHidden = false
@@ -92,14 +120,18 @@ final class MessageReplyNode: ASDisplayNode {
             hasAvatar = false
             avatarImageNode.isHidden = true
             avatarPlaceholderNode.isHidden = false
+            
+            let charSource = ref.messageSenderUsername
+            let charStr = String(charSource.prefix(1)).uppercased()
+            
             avatarPlaceholderNode.attributedText = NSAttributedString(
-                string: String(ref.messageSenderUsername.prefix(1)).uppercased(),
+                string: charStr,
                 attributes: [
-                    .font: UIFont.systemFont(ofSize: 8.sf, weight: .semibold),
+                    .font: UIFont.systemFont(ofSize: 10.sf, weight: .semibold),
                     .foregroundColor: UIColor.white
                 ]
             )
-            avatarContainerNode.backgroundColor = UIColor.avatarColor(for: ref.messageSenderUsername)
+            avatarContainerNode.backgroundColor = UIColor.avatarColor(for: charSource)
             avatarImageNode.removeFromSupernode()
             if avatarContainerNode.supernode == nil {
                 addSubnode(avatarContainerNode)

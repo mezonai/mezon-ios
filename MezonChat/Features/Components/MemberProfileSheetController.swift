@@ -339,10 +339,18 @@ final class MemberProfileSheetController: ViewController {
             }
 
             do {
-                let channel = try await context.account.network.createDirectMessage(
+                var channel = try await context.account.network.createDirectMessage(
                     userId: targetUserId,
                     token: token
                 )
+                if channel.usernames.isEmpty {
+                    channel.usernames = [user.username]
+                    channel.displayNames = [user.displayName]
+                    channel.avatars = [user.avatarURL]
+                    if channel.userIds.isEmpty {
+                        channel.userIds = [user.id]
+                    }
+                }
                 animateDismiss()
                 onSendMessage?(channel)
             } catch {
