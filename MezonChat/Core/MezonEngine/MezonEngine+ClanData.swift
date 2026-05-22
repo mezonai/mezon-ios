@@ -610,12 +610,23 @@ extension MezonEngine {
             async let myPendingList = (try? net.listFriends(token: token, state: EStateFriend.myPending.rawValue))?.friends
             async let blockList = (try? net.listFriends(token: token, state: EStateFriend.block.rawValue))?.friends
 
+            let lists = [await friendList, await otherPendingList, await myPendingList, await blockList].compactMap { $0 }
+            let cached = allFriends()
+
+            guard !lists.isEmpty else { return }
+
+            if lists.count == 4, isAllListsIdentical(lists), !cached.isEmpty {
+                return
+            }
+
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
-            for list in [await friendList, await otherPendingList, await myPendingList, await blockList].compactMap({ $0 }) {
+            for list in lists {
                 for friend in list {
                     dedupByUserId[friend.user.id] = friend
                 }
             }
+
+            guard !dedupByUserId.isEmpty || cached.isEmpty else { return }
 
             let merged = dedupByUserId.values.sorted { lhs, rhs in
                 let lName = lhs.user.displayName.isEmpty ? lhs.user.username : lhs.user.displayName
@@ -626,6 +637,14 @@ extension MezonEngine {
                 return lName.localizedCaseInsensitiveCompare(rName) == .orderedAscending
             }
             persistFriends(Array(merged))
+        }
+
+        private func isAllListsIdentical(_ lists: [[Mezon_Api_Friend]]) -> Bool {
+            guard let first = lists.first, !first.isEmpty else { return false }
+            let firstSignature = first.map { "\($0.user.id):\($0.state)" }.sorted()
+            return lists.dropFirst().allSatisfy {
+                $0.map { "\($0.user.id):\($0.state)" }.sorted() == firstSignature
+            }
         }
 
         func removePendingRequest(userId: Int64) {

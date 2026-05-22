@@ -153,7 +153,7 @@ extension MessageRecord {
                 senderAvatarURL: mergedAvatarURL,
                 sendingState: fresh.sendingState,
                 attachmentsJSON: fresh.attachmentsJSON,
-                reactionsJSON: fresh.reactionsJSON,
+                reactionsJSON: mergedReactionsJSON(fresh: fresh, previous: prev),
                 referencesData: fresh.referencesData,
                 mentionsJSON: fresh.mentionsJSON
             )
@@ -162,12 +162,16 @@ extension MessageRecord {
         if isClanContext {
             let nick = api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
             let clanAv = api.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !nick.isEmpty || !clanAv.isEmpty { return fresh }
+            if !nick.isEmpty || !clanAv.isEmpty {
+                return recordByMergingReactions(fresh: fresh, previous: prev)
+            }
         }
         let dn = api.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
         let av = api.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !dn.isEmpty || !un.isEmpty || !av.isEmpty { return fresh }
+        if !dn.isEmpty || !un.isEmpty || !av.isEmpty {
+            return recordByMergingReactions(fresh: fresh, previous: prev)
+        }
 
         let prevIsPoll = prev.code == 18 || PollData.parse(from: prev.content) != nil
         let freshIsPoll = fresh.code == 18 || PollData.parse(from: fresh.content) != nil
@@ -202,7 +206,34 @@ extension MessageRecord {
             senderAvatarURL: fresh.senderAvatarURL ?? prev.senderAvatarURL,
             sendingState: fresh.sendingState,
             attachmentsJSON: fresh.attachmentsJSON,
-            reactionsJSON: fresh.reactionsJSON,
+            reactionsJSON: mergedReactionsJSON(fresh: fresh, previous: prev),
+            referencesData: fresh.referencesData,
+            mentionsJSON: fresh.mentionsJSON
+        )
+    }
+
+    private static func mergedReactionsJSON(fresh: MessageRecord, previous: MessageRecord) -> Data {
+        fresh.reactionsJSON.isEmpty ? previous.reactionsJSON : fresh.reactionsJSON
+    }
+
+    private static func recordByMergingReactions(fresh: MessageRecord, previous: MessageRecord) -> MessageRecord {
+        let reactionsJSON = mergedReactionsJSON(fresh: fresh, previous: previous)
+        guard reactionsJSON != fresh.reactionsJSON else { return fresh }
+        return MessageRecord(
+            id: fresh.id,
+            channelId: fresh.channelId,
+            clanId: fresh.clanId,
+            senderId: fresh.senderId,
+            content: fresh.content,
+            createdAt: fresh.createdAt,
+            editedAt: fresh.editedAt,
+            isDeleted: fresh.isDeleted,
+            code: fresh.code,
+            senderDisplayName: fresh.senderDisplayName,
+            senderAvatarURL: fresh.senderAvatarURL,
+            sendingState: fresh.sendingState,
+            attachmentsJSON: fresh.attachmentsJSON,
+            reactionsJSON: reactionsJSON,
             referencesData: fresh.referencesData,
             mentionsJSON: fresh.mentionsJSON
         )

@@ -763,6 +763,48 @@ final class AccountContextImpl: AccountContext {
         applyCurrentUser(u)
     }
 
+    private func applySdTopicEvent(_ event: Mezon_Realtime_SdTopicEvent) {
+        guard event.id != 0 else { return }
+        let creatorId = event.userID != 0 ? event.userID : (Int64(currentUser?.id ?? "") ?? 0)
+        let lastSent = event.hasLastSentMessage ? event.lastSentMessage : nil
+        let topicContent = event.hasMessage ? event.message.content : ""
+        let updateTime: UInt32 = {
+            if let lastSent, lastSent.timestampSeconds != 0 { return lastSent.timestampSeconds }
+            if event.hasMessage {
+                if event.message.updateTimeSeconds != 0 { return event.message.updateTimeSeconds }
+                if event.message.createTimeSeconds != 0 { return event.message.createTimeSeconds }
+            }
+            return UInt32(Date().timeIntervalSince1970)
+        }()
+        let topic = TopicRecord(
+            id: event.id,
+            channelID: event.channelID,
+            clanID: event.clanID,
+            creatorID: creatorId,
+            lastSenderID: lastSent?.senderID ?? creatorId,
+            content: topicContent,
+            updateTimeSeconds: updateTime,
+            lastSentMessageContent: lastSent?.content ?? ""
+        )
+
+        account.postbox.write { tx in
+            if event.channelID != 0, event.messageID != 0 {
+                tx.updateMessageTopicMetadata(
+                    messageId: "\(event.messageID)",
+                    channelId: "\(event.channelID)",
+                    topicId: event.id,
+                    creatorId: creatorId
+                )
+            }
+            if event.clanID != 0 {
+                var topics = tx.topicTable.getTopics(clanId: event.clanID)
+                topics.removeAll { $0.id == topic.id }
+                topics.insert(topic, at: 0)
+                tx.updateTopics(topics, clanId: event.clanID)
+            }
+        }
+    }
+
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
@@ -790,7 +832,16 @@ final class AccountContextImpl: AccountContext {
             let channelId = Int64(apiMessage.channelID) ?? 0
             let clanId = Int64(apiMessage.clanID) ?? 0
             if apiMessage.code == 2 {
-                account.postbox.write { tx in tx.deleteMessage(id: "\(apiMessage.messageID)") }
+                account.postbox.write { tx in
+                    tx.deleteMessage(id: "\(apiMessage.messageID)")
+                    if apiMessage.topicID != 0 {
+                        tx.updateTopicReplyCount(
+                            parentChannelId: "\(apiMessage.channelID)",
+                            topicId: apiMessage.topicID,
+                            delta: -1
+                        )
+                    }
+                }
                 return
             }
 
@@ -830,7 +881,22 @@ final class AccountContextImpl: AccountContext {
             let merged = account.postbox.read { tx in
                 MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid, channelId: msgChannelId))
             }
-            account.postbox.write { tx in tx.addMessages([merged]) }
+            let shouldIncrementTopicReplyCount = apiMessage.topicID != 0
+                && apiMessage.code != 1
+                && apiMessage.code != 2
+                && apiMessage.code != 9
+                && apiMessage.code != MezonConstants.MessageCode.updateEphemeral.rawValue
+                && apiMessage.code != MezonConstants.MessageCode.deleteEphemeral.rawValue
+            account.postbox.write { tx in
+                tx.addMessages([merged])
+                if shouldIncrementTopicReplyCount {
+                    tx.updateTopicReplyCount(
+                        parentChannelId: "\(apiMessage.channelID)",
+                        topicId: apiMessage.topicID,
+                        delta: 1
+                    )
+                }
+            }
             
             if apiMessage.code == 1 {
                 NotificationCenter.default.post(
@@ -938,6 +1004,9 @@ final class AccountContextImpl: AccountContext {
             let cid = Int64(ev.voiceChannelID) ?? 0
             guard cid != 0 else { return }
             engine.clanData.applyVoiceEnded(clanId: ev.clanID, channelId: cid)
+
+        case .sdTopicEvent(let event):
+            applySdTopicEvent(event)
 
         case .notification(let noti):
             handleSocketNotification(noti)

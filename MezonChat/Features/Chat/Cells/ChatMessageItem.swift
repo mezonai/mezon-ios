@@ -65,6 +65,7 @@ final class ChatMessageItem: ListViewItem {
             && self.display.isForward == other.display.isForward
             && self.display.showForwardHeader == other.display.showForwardHeader
             && self.display.messageCode == other.display.messageCode
+            && self.display.topicData == other.display.topicData
             && self.display.clanInviteLinkCode == other.display.clanInviteLinkCode
             && self.display.parsedContent.text == other.display.parsedContent.text
             && self.display.attachments == other.display.attachments
@@ -235,6 +236,8 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                         && existing.display.pollData?.answerCounts == item.display.pollData?.answerCounts
                         && existing.display.parsedContent.embeds == item.display.parsedContent.embeds
                         && existing.display.parsedContent.ogpPreviews == item.display.parsedContent.ogpPreviews
+                        && existing.display.messageCode == item.display.messageCode
+                        && existing.display.topicData == item.display.topicData
                     if bodyUnchanged {
                         existing.updateReactions(newDisplay: item.display)
                         bubble = existing

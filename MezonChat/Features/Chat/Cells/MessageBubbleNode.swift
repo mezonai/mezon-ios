@@ -551,6 +551,7 @@ final class MessageBubbleNode: ASDisplayNode {
         let avatarChanged = oldDisplay.avatarURL != newDisplay.avatarURL
         let editedChanged = Self.shouldShowEditedLabel(for: oldDisplay) != Self.shouldShowEditedLabel(for: newDisplay)
         let mentionHighlightChanged = oldDisplay.hasIncludeMention != newDisplay.hasIncludeMention
+        let topicChanged = oldDisplay.topicData != newDisplay.topicData
         if mentionHighlightChanged {
             if newDisplay.hasIncludeMention {
                 mentionHighlightNode.backgroundColor = UIColor(red: 201.0/255, green: 157.0/255, blue: 7.0/255, alpha: 0.1)
@@ -710,6 +711,31 @@ final class MessageBubbleNode: ASDisplayNode {
             scn.removeFromSupernode()
             shareContactNode = nil
         }
+
+        if let topic = newDisplay.topicData {
+            let wireTopicTap: (MessageTopicNode) -> Void = { [weak self] node in
+                node.onTapped = { [weak self] in
+                    guard let self, let topic = self.display.topicData else { return }
+                    self.interaction.onTopicTapped(topic)
+                }
+            }
+            if let tn = topicNode {
+                if topicChanged {
+                    tn.configure(topicData: topic)
+                }
+                wireTopicTap(tn)
+            } else {
+                let tn = MessageTopicNode()
+                tn.configure(topicData: topic)
+                wireTopicTap(tn)
+                topicNode = tn
+                addSubnode(tn)
+            }
+        } else if let tn = topicNode {
+            tn.removeFromSupernode()
+            topicNode = nil
+        }
+
         if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
             cln.configure(
                 callLog: callLog,
@@ -786,6 +812,7 @@ final class MessageBubbleNode: ASDisplayNode {
             || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
             || shareContactChanged
             || embedChanged
+            || topicChanged
             || oldDisplay.isSending != newDisplay.isSending
         if needsRelayout {
             let _ = measureSize(width: cachedTotalSize.width)
@@ -1706,7 +1733,6 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
         if display.isPollMessage { return false }
-        if display.isTopic { return false }
         if display.message.isDeleted { return false }
         return true
     }

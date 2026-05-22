@@ -19,6 +19,24 @@ extension MezonEngine {
             }
         }
 
+        func createTopic(clanId: Int64, channelId: Int64, messageId: Int64, token: String) async throws -> Mezon_Api_SdTopic {
+            let apiTopic = try await network.createSdTopic(
+                clanID: clanId,
+                channelID: channelId,
+                messageID: messageId,
+                token: token
+            )
+            let topic = TopicRecord(from: apiTopic)
+            postbox.write { tx in
+                let enriched = Self.enrichSenderAvatar(topic, tx: tx)
+                var topics = tx.topicTable.getTopics(clanId: clanId)
+                topics.removeAll { $0.id == enriched.id }
+                topics.insert(enriched, at: 0)
+                tx.updateTopics(topics, clanId: clanId)
+            }
+            return apiTopic
+        }
+
         private static func enrichSenderAvatar(_ topic: TopicRecord, tx: PostboxTransaction) -> TopicRecord {
             let senderId = topic.lastSenderID
             guard senderId != 0 else { return topic }

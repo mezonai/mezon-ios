@@ -26,6 +26,7 @@ final class SharingViewController: UIViewController {
     private var filterTooltipHost: UIView?
     private var filterTooltipPanel: UIView?
     private var isUploading = false
+    private var sendTask: Task<Void, Never>?
     private var searchDebounceTimer: Foundation.Timer?
 
     private var diffableDataSource: UITableViewDiffableDataSource<Section, SharingSuggestionItem>!
@@ -1035,7 +1036,10 @@ final class SharingViewController: UIViewController {
     }
 
     @objc private func closeTapped() {
+        guard !isUploading else { return }
         view.endEditing(true)
+        sendTask?.cancel()
+        sendTask = nil
         SharingManager.shared.cleanupSharedFiles(sharedMediaFiles)
         dismiss(animated: true)
     }
@@ -1317,19 +1321,46 @@ final class SharingViewController: UIViewController {
     }
 
     private func performSend(to channel: Mezon_Api_ChannelDescription) {
+        sendTask?.cancel()
         isUploading = true
+        closeButton.isEnabled = false
         loadingOverlay.isHidden = false
         activityIndicator.startAnimating()
         updateSendButton()
 
-        Task { @MainActor [weak self] in
+        sendTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                self.showError(L(L10n.Sharing.sessionExpired))
+            var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+            backgroundTaskID = UIApplication.shared.beginBackgroundTask {
+                if backgroundTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTaskID)
+                    backgroundTaskID = .invalid
+                }
+            }
+
+            defer {
+                if backgroundTaskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(backgroundTaskID)
+                }
+            }
+
+            func finishUploadingUI() {
                 self.isUploading = false
+                self.closeButton.isEnabled = true
                 self.loadingOverlay.isHidden = true
                 self.activityIndicator.stopAnimating()
                 self.updateSendButton()
+                self.sendTask = nil
+            }
+
+            guard !Task.isCancelled else {
+                finishUploadingUI()
+                return
+            }
+
+            guard let token = await self.context.getToken() else {
+                self.showError(L(L10n.Sharing.sessionExpired))
+                finishUploadingUI()
                 return
             }
 
@@ -1337,16 +1368,31 @@ final class SharingViewController: UIViewController {
                 var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
 
                 for file in self.sharedMediaFiles {
-                    guard let fileURL = SharingManager.shared.localFileURL(from: file.path),
-                          let fileData = try? Data(contentsOf: fileURL) else { continue }
+                    try Task.checkCancellation()
+                    guard let fileURL = SharingManager.shared.localFileURL(from: file.path) else {
+                        throw SharingSendError.fileUnavailable
+                    }
+                    guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                        throw SharingSendError.fileUnavailable
+                    }
 
                     let filename = fileURL.lastPathComponent
                     let ext = fileURL.pathExtension.lowercased()
                     let filetype = SendMessageInputViewController.mimeType(for: ext)
+                    let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+                    guard let fileSizeNumber = attrs[.size] as? NSNumber else {
+                        throw SharingSendError.fileUnavailable
+                    }
+                    let fileSize = fileSizeNumber.intValue
+                    guard fileSize > 0 else {
+                        throw SharingSendError.fileUnavailable
+                    }
 
                     var width = 0
                     var height = 0
-                    if file.type == .image, let image = UIImage(data: fileData) {
+                    if file.type == .image,
+                       let imageData = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]),
+                       let image = UIImage(data: imageData) {
                         width = Int(image.size.width)
                         height = Int(image.size.height)
                     }
@@ -1356,15 +1402,16 @@ final class SharingViewController: UIViewController {
                     let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
                         filename: sanitized,
                         filetype: filetype,
-                        size: fileData.count,
+                        size: fileSize,
                         width: width,
                         height: height,
-                        token: token
+                        token: token,
+                        preferHTTPFirst: true
                     )
 
-                    try await self.context.account.network.uploadToMinIO(
+                    try await self.uploadToMinIORetrying(
                         url: uploadInfo.url,
-                        data: fileData,
+                        fileURL: fileURL,
                         contentType: filetype
                     )
 
@@ -1373,7 +1420,7 @@ final class SharingViewController: UIViewController {
                     att.filename = filename
                     att.url = cdnURL
                     att.filetype = filetype
-                    att.size = Int32(fileData.count)
+                    att.size = Int32(fileSize)
                     if width > 0 { att.width = Int32(width) }
                     if height > 0 { att.height = Int32(height) }
                     if let duration = file.duration { att.duration = Int32(duration / 1000) }
@@ -1421,6 +1468,10 @@ final class SharingViewController: UIViewController {
                 }
                 let isPublic = channel.channelPrivate == 0
 
+                if uploadedAttachments.isEmpty, !self.sharedMediaFiles.isEmpty {
+                    throw SharingSendError.fileUnavailable
+                }
+
                 _ = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
@@ -1434,27 +1485,65 @@ final class SharingViewController: UIViewController {
                     mentionEveryone: false,
                     avatar: self.context.currentUser?.avatarURL?.absoluteString ?? "",
                     topicId: 0,
-                    token: token
+                    token: token,
+                    preferHTTPFirst: true
                 )
 
                 SharingManager.shared.cleanupSharedFiles(self.sharedMediaFiles)
-                self.isUploading = false
-                self.loadingOverlay.isHidden = true
-                self.activityIndicator.stopAnimating()
+                finishUploadingUI()
                 self.dismiss(animated: true)
 
+            } catch is CancellationError {
+                finishUploadingUI()
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "Sharing.sendWithAttachments",
                     "mediaCount": self.sharedMediaFiles.count,
                 ])
-                self.isUploading = false
-                self.loadingOverlay.isHidden = true
-                self.activityIndicator.stopAnimating()
-                self.updateSendButton()
-                self.showError(error.localizedDescription)
+                finishUploadingUI()
+                self.showError(self.userFacingShareError(error))
             }
         }
+    }
+
+    private func uploadToMinIORetrying(url: String, fileURL: URL, contentType: String) async throws {
+        do {
+            try await context.account.network.uploadToMinIO(url: url, fileURL: fileURL, contentType: contentType)
+        } catch let error as URLError where error.code == .cancelled {
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 400_000_000)
+            try await context.account.network.uploadToMinIO(url: url, fileURL: fileURL, contentType: contentType)
+        }
+    }
+
+    private func userFacingShareError(_ error: Error) -> String {
+        if let sharingError = error as? SharingSendError {
+            return sharingError.message
+        }
+        if error is CancellationError {
+            return L(L10n.Sharing.uploadCancelled)
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled:
+                return L(L10n.Sharing.uploadCancelled)
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost:
+                return L(L10n.Sharing.uploadNetworkError)
+            default:
+                break
+            }
+        }
+        if let mezon = error as? MezonError, let desc = mezon.errorDescription, !desc.isEmpty {
+            return desc
+        }
+        let system = error.localizedDescription
+        if system.localizedCaseInsensitiveContains("cancel") {
+            return L(L10n.Sharing.uploadCancelled)
+        }
+        if system.isEmpty {
+            return L(L10n.Sharing.uploadFailed)
+        }
+        return system
     }
 
     private func showError(_ message: String) {
@@ -1464,8 +1553,20 @@ final class SharingViewController: UIViewController {
     }
 
     deinit {
+        sendTask?.cancel()
         searchDebounceTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
+    }
+}
+
+private enum SharingSendError: Error {
+    case fileUnavailable
+
+    var message: String {
+        switch self {
+        case .fileUnavailable:
+            return L(L10n.Sharing.fileUnavailable)
+        }
     }
 }
 

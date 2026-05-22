@@ -105,7 +105,27 @@ final class PostboxTransaction {
     }
 
     func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {
-        if let ch = messageTable.updateMessageReactions(messageId: messageId, reaction: reaction) {
+        let updatedChannels = messageTable.updateMessageReactions(messageId: messageId, reaction: reaction)
+        updatedMessageChannelIds.formUnion(updatedChannels)
+    }
+
+    func updateMessageTopicMetadata(messageId: String, channelId: String, topicId: Int64, creatorId: Int64) {
+        if let ch = messageTable.updateMessageTopicMetadata(
+            messageId: messageId,
+            channelId: channelId,
+            topicId: topicId,
+            creatorId: creatorId
+        ) {
+            updatedMessageChannelIds.insert(ch)
+        }
+    }
+
+    func updateTopicReplyCount(parentChannelId: String, topicId: Int64, delta: Int) {
+        if let ch = messageTable.updateTopicReplyCount(
+            parentChannelId: parentChannelId,
+            topicId: topicId,
+            delta: delta
+        ) {
             updatedMessageChannelIds.insert(ch)
         }
     }

@@ -98,6 +98,7 @@ enum PreferencesKeys {
     static let allUserClans = "allUserClans"
     static let allChannelsByUser = "allChannelsByUser"
     static func collapsedCategories(clanId: Int64) -> String { "collapsedCats_\(clanId)" }
+    static func showEmptyCategories(clanId: Int64) -> String { "showEmptyCats_\(clanId)" }
     static func threadList(clanId: Int64, parentChannelId: Int64) -> String {
         "threadList_\(clanId)_\(parentChannelId)"
     }

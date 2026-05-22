@@ -555,6 +555,10 @@ enum L10n {
         static let sessionExpired        = "sharing.sessionExpired"
         static let errorTitle            = "sharing.errorTitle"
         static let alertOK             = "sharing.alertOK"
+        static let uploadFailed          = "sharing.uploadFailed"
+        static let uploadCancelled       = "sharing.uploadCancelled"
+        static let uploadNetworkError    = "sharing.uploadNetworkError"
+        static let fileUnavailable       = "sharing.fileUnavailable"
     }
 
     enum ChannelApp {
@@ -1355,6 +1359,10 @@ extension L10n {
         "sharing.sessionExpired":           "Session expired",
         "sharing.errorTitle": "Error",
         "sharing.alertOK": "OK",
+        "sharing.uploadFailed":             "Could not send. Please try again.",
+        "sharing.uploadCancelled":          "Upload was interrupted. Stay in Mezon and try again.",
+        "sharing.uploadNetworkError":       "Network error while uploading. Check your connection and try again.",
+        "sharing.fileUnavailable":          "The shared file is no longer available. Share it again from the other app.",
 
         "clan.inviteSheet.title":           "Invite a friend",
         "clan.inviteSheet.share":           "Share Invite",
@@ -2218,6 +2226,10 @@ extension L10n {
         "sharing.sessionExpired":           "Phiên đăng nhập hết hạn",
         "sharing.errorTitle":               "Lỗi",
         "sharing.alertOK":                  "OK",
+        "sharing.uploadFailed":             "Không gửi được. Vui lòng thử lại.",
+        "sharing.uploadCancelled":          "Tải lên bị gián đoạn. Ở lại Mezon và thử lại.",
+        "sharing.uploadNetworkError":       "Lỗi mạng khi tải lên. Kiểm tra kết nối và thử lại.",
+        "sharing.fileUnavailable":          "Không còn file được chia sẻ. Hãy chia sẻ lại từ ứng dụng kia.",
         "clan.inviteSheet.title":           "Mời bạn bè",
         "clan.inviteSheet.share":           "Chia sẻ",
         "clan.inviteSheet.copy":            "Sao chép",

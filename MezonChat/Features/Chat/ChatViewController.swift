@@ -127,7 +127,7 @@ struct CallLogData {
     let isVideo: Bool
 }
 
-struct TopicData {
+struct TopicData: Equatable {
     let topicId: String
     let creatorId: String
     let replyCount: Int
@@ -243,9 +243,18 @@ struct ChatMessageDisplay: Identifiable {
 
     static func isCombineWithPrevious(current: Message, previous: Message?) -> Bool {
         guard let prev = previous else { return false }
-        guard current.senderId == prev.senderId else { return false }
-        let diff = current.createdAt.timeIntervalSince(prev.createdAt)
-        return diff < 120 && diff >= 0
+        guard sameSenderId(current.senderId, prev.senderId) else { return false }
+        let diff = abs(current.createdAt.timeIntervalSince(prev.createdAt))
+        return diff < 120
+    }
+
+    static func sameSenderId(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        let ta = a.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tb = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ta == tb { return true }
+        if let ia = Int64(ta), let ib = Int64(tb) { return ia == ib }
+        return false
     }
 
     static let mentionHereUserId: String = "1775731111020111321"
@@ -980,7 +989,11 @@ final class ChatViewController: ViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if isMovingFromParent { onLeave() }
+        if isMovingFromParent {
+            onLeave()
+        } else {
+            wasCoveredByPushedController = true
+        }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -1113,6 +1126,8 @@ final class ChatViewController: ViewController {
     }
 
     private var lastLayout: ContainerViewLayout?
+    private var wasCoveredByPushedController = false
+    private var needsRefreshAfterTopicDiscussion = false
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -1120,6 +1135,18 @@ final class ChatViewController: ViewController {
             context.currentClanId = clanId
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
+        }
+        if wasCoveredByPushedController {
+            wasCoveredByPushedController = false
+            reloadDisplaysWithCurrentPins()
+            if isViewLoaded {
+                messagesNode.forceUpdateAllMessageItems()
+            }
+            if needsRefreshAfterTopicDiscussion, topicId == 0 {
+                needsRefreshAfterTopicDiscussion = false
+                markNextFetchPrefersHTTPFirst()
+                fetchMessages()
+            }
         }
         let hasComposerFR = sendInputViewController.view.findFirstResponder() != nil
         if !hasComposerFR && !isReactionEmojiPickerSheetHostingFirstResponder {
@@ -2138,9 +2165,13 @@ final class ChatViewController: ViewController {
         let ogpHash = m.parsedContent.ogpPreviews.map {
             "\($0.url)|\($0.title)|\($0.description)|\($0.imageURL)"
         }.joined(separator: "§")
+        let topicHash: String = {
+            guard let topic = m.topicData else { return "" }
+            return "\(topic.topicId)|\(topic.creatorId)|\(topic.replyCount)"
+        }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(sendFeedback)"
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -2438,16 +2469,16 @@ final class ChatViewController: ViewController {
 
     private static func messageDisplayLessThan(_ a: ChatMessageDisplay, _ b: ChatMessageDisplay) -> Bool {
         if a.id == b.id { return false }
-        let aSnowflake = isSnowflakeMessageId(a.id)
-        let bSnowflake = isSnowflakeMessageId(b.id)
-        if aSnowflake && bSnowflake {
-            return messageSnowflakeIdLessThan(a.id, b.id)
-        }
         if a.message.createdAt != b.message.createdAt {
             return a.message.createdAt < b.message.createdAt
         }
+        let aSnowflake = isSnowflakeMessageId(a.id)
+        let bSnowflake = isSnowflakeMessageId(b.id)
         if aSnowflake != bSnowflake {
             return aSnowflake
+        }
+        if aSnowflake && bSnowflake {
+            return messageSnowflakeIdLessThan(a.id, b.id)
         }
         return a.id < b.id
     }
@@ -2510,7 +2541,7 @@ final class ChatViewController: ViewController {
         let mid = "\(api.messageID)"
         let existing = context.account.postbox.read { tx in tx.getMessageById(mid, channelId: storageChannelId) }
         var record = MessageRecord.fromApi(api, merging: existing)
-        if topicId != 0 {
+        if record.channelId != storageChannelId {
             record = MessageRecord(
                 id: record.id, channelId: storageChannelId, clanId: record.clanId,
                 senderId: record.senderId, content: record.content,
@@ -2736,12 +2767,7 @@ final class ChatViewController: ViewController {
         for item in items {
             guard let key = reactionEmojiKeyJSON(item) else { continue }
             let emoji = item["emoji"] as? String ?? ""
-            let countFromApi: Int = {
-                if let n = item["count"] as? Int { return n }
-                if let n = item["count"] as? Int32 { return Int(n) }
-                if let n = item["count"] as? Int64 { return Int(n) }
-                return 0
-            }()
+            let countFromApi = reactionTotalCountJSON(item) ?? 0
             if emojiMeta[key] == nil {
                 insertionOrder.append(key)
             }
@@ -2753,12 +2779,7 @@ final class ChatViewController: ViewController {
         return insertionOrder.compactMap { key in
             let meta = emojiMeta[key]!
             let senderTuples = orderedActiveSendersWithStackCountsJSON(items: items, emojiKey: key)
-            let hadPerSenderRows = items.contains { item in
-                guard reactionEmojiKeyJSON(item) == key else { return false }
-                return !reactionSenderIdJSON(item).isEmpty
-            }
             if senderTuples.isEmpty {
-                if hadPerSenderRows { return nil }
                 guard meta.countFromApi > 0 else { return nil }
             }
             let senders: [ParsedReactionSender] = senderTuples.map { tuple in
@@ -2766,7 +2787,7 @@ final class ChatViewController: ViewController {
                 return ParsedReactionSender(userId: tuple.userId, count: tuple.count, nameHint: hint)
             }
             let sumSender = senders.reduce(0) { $0 + $1.count }
-            let count = sumSender > 0 ? sumSender : meta.countFromApi
+            let count = max(sumSender, meta.countFromApi)
             let isMe = currentUserId.map { uid in senders.contains { $0.userId == uid } } ?? false
             return ParsedReaction(
                 emojiId: key,
@@ -2779,40 +2800,96 @@ final class ChatViewController: ViewController {
     }
 
     private static func reactionEmojiKeyJSON(_ item: [String: Any]) -> String? {
-        let emojiId: String = {
-            if let s = item["emoji_id"] as? String { return s }
-            if let n = item["emoji_id"] as? Int { return "\(n)" }
-            if let n = item["emoji_id"] as? Int64 { return "\(n)" }
-            if let s = item["emojiid"] as? String { return s }
-            if let n = item["emojiid"] as? Int { return "\(n)" }
-            return ""
-        }()
-        let emoji = item["emoji"] as? String ?? ""
+        let emojiId = reactionStringIdJSON(
+            item,
+            keys: ["emoji_id", "emojiId", "emojiID", "emojiid"]
+        )
+        let emoji = (item["emoji"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let key = emojiId.isEmpty ? emoji : emojiId
         return key.isEmpty ? nil : key
     }
 
     private static func reactionSenderIdJSON(_ item: [String: Any]) -> String {
-        if let s = item["sender_id"] as? String { return s }
-        if let n = item["sender_id"] as? Int { return "\(n)" }
-        if let n = item["sender_id"] as? Int64 { return "\(n)" }
+        reactionStringIdJSON(
+            item,
+            keys: ["sender_id", "senderId", "senderID", "user_id", "userId", "userID"]
+        )
+    }
+
+    private static func reactionStringIdJSON(_ item: [String: Any], keys: [String]) -> String {
+        for key in keys {
+            if let s = item[key] as? String {
+                let value = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, value != "0" { return value }
+            }
+            if let n = item[key] as? Int, n != 0 { return "\(n)" }
+            if let n = item[key] as? Int32, n != 0 { return "\(n)" }
+            if let n = item[key] as? Int64, n != 0 { return "\(n)" }
+            if let n = item[key] as? NSNumber, n.int64Value != 0 { return "\(n.int64Value)" }
+            if let n = item[key] as? Double, n != 0 { return "\(Int64(n))" }
+        }
         return ""
+    }
+
+    private static func reactionIntJSON(_ value: Any?) -> Int {
+        if let n = value as? Int { return n }
+        if let n = value as? Int32 { return Int(n) }
+        if let n = value as? Int64 { return Int(n) }
+        if let n = value as? NSNumber { return n.intValue }
+        if let n = value as? Double { return Int(n) }
+        if let s = value as? String { return Int(s.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0 }
+        return 0
+    }
+
+    private static func reactionBoolJSON(_ value: Any?, default defaultValue: Bool) -> Bool {
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let s = value as? String {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if t == "true" || t == "1" { return true }
+            if t == "false" || t == "0" { return false }
+        }
+        return defaultValue
+    }
+
+    private static func reactionTotalCountJSON(_ item: [String: Any]) -> Int? {
+        let explicitTotal = max(
+            reactionIntJSON(item["total_count"]),
+            reactionIntJSON(item["totalCount"])
+        )
+        if explicitTotal > 0 { return explicitTotal }
+        if reactionBoolJSON(item["count_is_total"], default: false)
+            || reactionBoolJSON(item["countIsTotal"], default: false)
+        {
+            return reactionIntJSON(item["count"])
+        }
+        if reactionSenderIdJSON(item).isEmpty {
+            let count = reactionIntJSON(item["count"])
+            return count > 0 ? count : nil
+        }
+        return nil
+    }
+
+    private static func isReactionTotalCountRowJSON(_ item: [String: Any]) -> Bool {
+        reactionTotalCountJSON(item) != nil
+    }
+
+    private static func reactionSenderRowCountJSON(_ item: [String: Any]) -> Int {
+        if isReactionTotalCountRowJSON(item) { return 0 }
+        return reactionIntJSON(item["count"])
     }
 
     private static func orderedActiveSendersWithStackCountsJSON(items: [[String: Any]], emojiKey: String) -> [(userId: String, count: Int)] {
         var balance: [String: Int] = [:]
         var order: [String] = []
         func parseRowCount(_ item: [String: Any]) -> Int {
-            if let n = item["count"] as? Int { return n }
-            if let n = item["count"] as? Int32 { return Int(n) }
-            if let n = item["count"] as? Int64 { return Int(n) }
-            return 0
+            reactionSenderRowCountJSON(item)
         }
         for item in items {
             guard reactionEmojiKeyJSON(item) == emojiKey else { continue }
             let sid = reactionSenderIdJSON(item)
             guard !sid.isEmpty else { continue }
-            let actionAdd = item["action"] as? Bool ?? true
+            let actionAdd = reactionBoolJSON(item["action"], default: true)
             let rowCount = parseRowCount(item)
             if actionAdd {
                 let prev = balance[sid] ?? 0
@@ -2847,7 +2924,7 @@ final class ChatViewController: ViewController {
         for item in items.reversed() {
             guard reactionEmojiKeyJSON(item) == emojiKey else { continue }
             guard reactionSenderIdJSON(item) == senderId else { continue }
-            let action = item["action"] as? Bool ?? true
+            let action = reactionBoolJSON(item["action"], default: true)
             guard action else { continue }
             if let name = item["sender_name"] as? String, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return name
@@ -2883,7 +2960,7 @@ final class ChatViewController: ViewController {
             }
             let senders: [ParsedReactionSender] = senderTuples.map { ParsedReactionSender(userId: $0.userId, count: $0.count, nameHint: nil) }
             let sumSender = senders.reduce(0) { $0 + $1.count }
-            let count = sumSender > 0 ? sumSender : meta.countFromApi
+            let count = max(sumSender, meta.countFromApi)
             let isMe = currentUserId.map { uid in senders.contains { $0.userId == uid } } ?? false
             return ParsedReaction(
                 emojiId: key,
@@ -2906,8 +2983,8 @@ final class ChatViewController: ViewController {
         var order: [String] = []
         for r in reactions {
             guard protoEmojiKey(r) == emojiKey else { continue }
+            guard r.senderID != 0 else { continue }
             let sid = "\(r.senderID)"
-            guard !sid.isEmpty else { continue }
             let isRemove = r.action
             let rowCount = Int(r.count)
             if !isRemove {
@@ -3575,11 +3652,60 @@ final class ChatViewController: ViewController {
     private func openTopicDiscussion(topicData: TopicData) {
         guard let topicIdInt = Int64(topicData.topicId), topicIdInt != 0 else { return }
         var topicChannel = channel
-        topicChannel.channelLabel = "Topic Discussion"
+        topicChannel.channelLabel = L(L10n.MessageAction.topicDiscussion)
         let topicVC = ChatViewController(
             clanId: clanId, channel: topicChannel, context: context, parentName: nil)
         topicVC.topicId = topicIdInt
+        needsRefreshAfterTopicDiscussion = true
         navigationController?.pushViewController(topicVC, animated: true)
+    }
+
+    private func createTopicDiscussion(from display: ChatMessageDisplay) {
+        guard canCreateTopicDiscussion(for: display),
+              let messageId = Int64(display.message.id) else { return }
+        guard !isCreatingTopicDiscussion else { return }
+        isCreatingTopicDiscussion = true
+
+        Task { @MainActor in
+            defer { self.isCreatingTopicDiscussion = false }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+
+            do {
+                let topic = try await self.context.engine.topicDiscussion.createTopic(
+                    clanId: self.clanId,
+                    channelId: self.channel.channelID,
+                    messageId: messageId,
+                    token: token
+                )
+                guard topic.id != 0 else {
+                    Toast.error(MezonError.invalidResponse.localizedDescription)
+                    return
+                }
+                let creatorIdValue = topic.creatorID != 0
+                    ? topic.creatorID
+                    : (Int64(self.context.currentUser?.id ?? "") ?? 0)
+                self.context.account.postbox.write { tx in
+                    tx.updateMessageTopicMetadata(
+                        messageId: "\(messageId)",
+                        channelId: "\(self.channel.channelID)",
+                        topicId: topic.id,
+                        creatorId: creatorIdValue
+                    )
+                }
+                self.reloadDisplaysWithCurrentPins()
+                let creatorId = topic.creatorID != 0
+                    ? "\(topic.creatorID)"
+                    : (self.context.currentUser?.id ?? "")
+                self.openTopicDiscussion(
+                    topicData: TopicData(topicId: "\(topic.id)", creatorId: creatorId, replyCount: 0)
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
     }
 
     private func openThreadListFromChat() {
@@ -4147,6 +4273,7 @@ final class ChatViewController: ViewController {
     }
 
     private weak var activeActionSheet: MessageActionSheetController?
+    private var isCreatingTopicDiscussion = false
     private weak var reportMessageModal: ReportMessageModalController?
 
     private var isDirectMessageStreamChannel: Bool {
@@ -4202,7 +4329,8 @@ final class ChatViewController: ViewController {
             display: display,
             isOwnMessage: isOwn,
             canShowDeleteMessage: canDelete,
-            forwardAllAvailable: fwdCluster
+            forwardAllAvailable: fwdCluster,
+            canCreateTopicDiscussion: canCreateTopicDiscussion(for: display)
         ) { [weak self] action in
             self?.handleMessageAction(action, display: display)
         }
@@ -4219,6 +4347,39 @@ final class ChatViewController: ViewController {
         activeActionSheet = controller
         self.presentInGlobalOverlay(controller)
         controller.animateIn()
+    }
+
+    private func canCreateTopicDiscussion(for display: ChatMessageDisplay) -> Bool {
+        if topicId != 0 { return false }
+        if clanId == 0 { return false }
+        if display.isFailed { return false }
+        if display.message.id.hasPrefix("pending-") { return false }
+        if display.message.isDeleted { return false }
+        if display.isSystemMessage { return false }
+        if display.isTopic { return false }
+        if display.isBuzzMessage { return false }
+        if AnonymousMessageStore.isEnabled(clanId: clanId) { return false }
+        if display.message.channelId != "\(channel.channelID)" { return false }
+
+        switch channel.type {
+        case MezonConstants.ChannelType.dm.rawValue,
+             MezonConstants.ChannelType.group.rawValue,
+             MezonConstants.ChannelType.app.rawValue,
+             MezonConstants.ChannelType.mezonVoice.rawValue,
+             MezonConstants.ChannelType.streaming.rawValue:
+            return false
+        default:
+            break
+        }
+
+        let channelId = channel.channelID
+        if channelId != 0,
+           context.rolePermissions.hasResolvedChannelOverriddenPermissionsSnapshot(channelId: channelId),
+           !context.rolePermissions.canSendMessage(clanId: clanId, channelId: channelId) {
+            return false
+        }
+
+        return Int64(display.message.id) != nil
     }
 
     private func forwardClusterAvailable(for display: ChatMessageDisplay) -> Bool {
@@ -4320,18 +4481,40 @@ final class ChatViewController: ViewController {
         clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
     }
 
-    private func applyLocalReactionRemoveForMessage(display: ChatMessageDisplay, emojiId: String, shortname: String, removeCount: Int32) {
-        guard removeCount > 0 else { return }
-        guard let uid = context.currentUser?.id, let senderId = Int64(uid) else { return }
+    private func makeLocalReactionEvent(
+        display: ChatMessageDisplay,
+        emojiId: String,
+        shortname: String,
+        count: Int32,
+        actionDelete: Bool
+    ) -> Mezon_Api_MessageReaction? {
+        guard let messageId = Int64(display.message.id) else { return nil }
+        guard let uid = context.currentUser?.id, let senderId = Int64(uid) else { return nil }
         var r = Mezon_Api_MessageReaction()
+        r.channelID = Int64(display.message.channelId) ?? channel.channelID
+        r.clanID = clanId
+        r.messageID = messageId
+        r.topicID = topicId
         r.emojiID = Int64(emojiId) ?? 0
         r.emoji = shortname.isEmpty ? emojiId : shortname
         r.senderID = senderId
         if let n = context.currentUser?.displayName, !n.isEmpty {
             r.senderName = n
         }
-        r.action = true
-        r.count = removeCount
+        r.action = actionDelete
+        r.count = count
+        return r
+    }
+
+    private func applyLocalReactionRemoveForMessage(display: ChatMessageDisplay, emojiId: String, shortname: String, removeCount: Int32) {
+        guard removeCount > 0,
+              let r = makeLocalReactionEvent(
+                display: display,
+                emojiId: emojiId,
+                shortname: shortname,
+                count: removeCount,
+                actionDelete: true
+              ) else { return }
         context.account.postbox.write { tx in
             tx.updateMessageReactions(messageId: display.message.id, reaction: r)
         }
@@ -4349,11 +4532,23 @@ final class ChatViewController: ViewController {
         let messageSenderId = Int64(display.message.senderId) ?? 0
         let mode = streamModeForCurrentChannel()
         let isPublic = isCurrentChannelPublicClanRoot
+        if !actionDelete,
+           let optimisticReaction = makeLocalReactionEvent(
+            display: display,
+            emojiId: emojiId,
+            shortname: shortname,
+            count: 0,
+            actionDelete: false
+           ) {
+            context.account.postbox.write { tx in
+                tx.updateMessageReactions(messageId: display.message.id, reaction: optimisticReaction)
+            }
+        }
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else { return }
             do {
-                let _ = try await self.context.account.network.writeMessageReaction(
+                var applied = try await self.context.account.network.writeMessageReaction(
                     clanId: self.clanId,
                     channelId: self.channel.channelID,
                     mode: mode,
@@ -4367,6 +4562,34 @@ final class ChatViewController: ViewController {
                     topicId: self.topicId,
                     token: token
                 )
+                let responseCarriesReaction = applied.id != 0
+                    || applied.messageID != 0
+                    || applied.channelID != 0
+                    || applied.topicID != 0
+                    || applied.emojiID != 0
+                    || !applied.emoji.isEmpty
+                    || applied.senderID != 0
+                    || applied.count != 0
+                guard responseCarriesReaction else { return }
+                if applied.messageID == 0 { applied.messageID = msgId }
+                if applied.channelID == 0 { applied.channelID = self.channel.channelID }
+                if applied.clanID == 0 { applied.clanID = self.clanId }
+                if applied.topicID == 0 { applied.topicID = self.topicId }
+                if applied.emojiID == 0 { applied.emojiID = emojiIdInt }
+                if applied.emoji.isEmpty { applied.emoji = shortname }
+                if applied.senderID == 0, let uid = self.context.currentUser?.id {
+                    applied.senderID = Int64(uid) ?? 0
+                }
+                if applied.senderName.isEmpty, let name = self.context.currentUser?.displayName {
+                    applied.senderName = name
+                }
+                applied.action = actionDelete
+                if applied.count == 0, actionDelete {
+                    applied.count = count
+                }
+                self.context.account.postbox.write { tx in
+                    tx.updateMessageReactions(messageId: "\(applied.messageID)", reaction: applied)
+                }
             } catch {
             }
         }
@@ -4478,7 +4701,7 @@ final class ChatViewController: ViewController {
         case .markUnread:
             showMessageActionComingSoon(.markUnread)
         case .topicDiscussion:
-            showMessageActionComingSoon(.topicDiscussion)
+            createTopicDiscussion(from: display)
         case .markMessage:
             showMessageActionComingSoon(.markMessage)
         case .quickMenu:

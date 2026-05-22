@@ -57,7 +57,9 @@ final class ClanActionSheetController: ViewController {
     private let avatarURL: String
     private let memberCount: Int
     private let isCommunity: Bool
+    private let initialShowEmptyCategories: Bool
     private let onAction: (ClanAction) -> Void
+    private let onToggleShowEmptyCategories: ((Bool) -> Void)?
     var onDismiss: (() -> Void)?
 
     private var sheetNode: ClanActionSheetNode {
@@ -66,13 +68,17 @@ final class ClanActionSheetController: ViewController {
 
     init(
         clanName: String, avatarURL: String, memberCount: Int, isCommunity: Bool,
-        onAction: @escaping (ClanAction) -> Void
+        initialShowEmptyCategories: Bool = false,
+        onAction: @escaping (ClanAction) -> Void,
+        onToggleShowEmptyCategories: ((Bool) -> Void)? = nil
     ) {
         self.clanName = clanName
         self.avatarURL = avatarURL
         self.memberCount = memberCount
         self.isCommunity = isCommunity
+        self.initialShowEmptyCategories = initialShowEmptyCategories
         self.onAction = onAction
+        self.onToggleShowEmptyCategories = onToggleShowEmptyCategories
 
         super.init(navigationBarPresentationData: nil)
 
@@ -88,11 +94,15 @@ final class ClanActionSheetController: ViewController {
             avatarURL: avatarURL,
             memberCount: memberCount,
             isCommunity: isCommunity,
+            initialShowEmptyCategories: initialShowEmptyCategories,
             onAction: { [weak self] action in
                 guard let self else { return }
                 self.animateDismiss {
                     self.onAction(action)
                 }
+            },
+            onToggleShowEmptyCategories: { [weak self] value in
+                self?.onToggleShowEmptyCategories?(value)
             },
             onDimTapped: { [weak self] in
                 self?.animateDismiss(completion: nil)
@@ -134,12 +144,17 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private let avatarURL: String
     private let memberCount: Int
     private let isCommunity: Bool
+    private let initialShowEmptyCategories: Bool
     private let onAction: (ClanAction) -> Void
+    private let onToggleShowEmptyCategories: (Bool) -> Void
     private let onDimTapped: () -> Void
 
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
     private var didBuildContent = false
+    private var measuredContentH: CGFloat = 0
+    private var detents: [CGFloat] = []
+    private var currentDetentIndex = 0
 
     private var panGesture: UIPanGestureRecognizer!
     private var panStartY: CGFloat = 0
@@ -150,13 +165,18 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
     init(
         clanName: String, avatarURL: String, memberCount: Int, isCommunity: Bool,
-        onAction: @escaping (ClanAction) -> Void, onDimTapped: @escaping () -> Void
+        initialShowEmptyCategories: Bool,
+        onAction: @escaping (ClanAction) -> Void,
+        onToggleShowEmptyCategories: @escaping (Bool) -> Void,
+        onDimTapped: @escaping () -> Void
     ) {
         self.clanName = clanName
         self.avatarURL = avatarURL
         self.memberCount = memberCount
         self.isCommunity = isCommunity
+        self.initialShowEmptyCategories = initialShowEmptyCategories
         self.onAction = onAction
+        self.onToggleShowEmptyCategories = onToggleShowEmptyCategories
         self.onDimTapped = onDimTapped
 
         self.dimmingNode = ASDisplayNode()
@@ -204,11 +224,18 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         onDimTapped()
     }
 
+    @objc private func handleShowEmptyCategoriesToggle(_ sender: UISwitch) {
+        onToggleShowEmptyCategories(sender.isOn)
+    }
+
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard let layout = validLayout else { return }
+        guard let layout = validLayout, !detents.isEmpty else { return }
 
         let translation = gesture.translation(in: view)
         let velocity = gesture.velocity(in: view)
+        let safeBottom = layout.intrinsicInsets.bottom
+        let largestHeight = detents.last ?? containerHeight
+        let smallestHeight = detents.first ?? containerHeight
 
         switch gesture.state {
         case .began:
@@ -216,34 +243,99 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
             isDraggingSheet = true
 
         case .changed:
-            let offsetY = max(0, translation.y)
-            containerNode.frame.origin.y = panStartY + offsetY
-            dimmingNode.alpha = 1 - offsetY / containerHeight
+            let minTop = layout.size.height - largestHeight
+            let proposedTop = max(minTop, panStartY + translation.y)
+            let height = layout.size.height - proposedTop
+            containerNode.frame = CGRect(x: 0, y: proposedTop, width: layout.size.width, height: height)
+            scrollView.frame = CGRect(
+                x: 0, y: handleH, width: layout.size.width,
+                height: scrollHeight(forContainerHeight: height, safeBottom: safeBottom))
+            let smallestTop = layout.size.height - smallestHeight
+            if proposedTop > smallestTop {
+                dimmingNode.alpha = max(0, 1 - (proposedTop - smallestTop) / smallestHeight)
+            } else {
+                dimmingNode.alpha = 1
+            }
 
         case .ended, .cancelled:
             isDraggingSheet = false
-            if translation.y > containerHeight * 0.3 || velocity.y > 500 {
+            let currentTop = containerNode.frame.origin.y
+            let smallestTop = layout.size.height - smallestHeight
+            let dismissThreshold = smallestTop + smallestHeight * 0.25
+            if (velocity.y > 800 && currentTop >= smallestTop) || currentTop > dismissThreshold {
                 onDimTapped()
-            } else {
-                let targetY = layout.size.height - containerHeight
-                UIView.animate(
-                    withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9,
-                    initialSpringVelocity: 0, options: []
-                ) {
-                    self.containerNode.frame.origin.y = targetY
-                    self.dimmingNode.alpha = 1
-                }
+                return
             }
+            let detentTops = detents.map { layout.size.height - $0 }
+            var targetIndex = 0
+            var bestDistance = CGFloat.greatestFiniteMagnitude
+            for (i, top) in detentTops.enumerated() {
+                let distance = abs(top - currentTop)
+                if distance < bestDistance { bestDistance = distance; targetIndex = i }
+            }
+            if velocity.y < -600 {
+                targetIndex = min(targetIndex + 1, detents.count - 1)
+            } else if velocity.y > 600 {
+                targetIndex = max(targetIndex - 1, 0)
+            }
+            snapToDetent(index: targetIndex, layout: layout)
 
         default:
             break
         }
     }
 
+    private func snapToDetent(index: Int, layout: ContainerViewLayout) {
+        guard index >= 0, index < detents.count else { return }
+        currentDetentIndex = index
+        containerHeight = detents[index]
+        let safeBottom = layout.intrinsicInsets.bottom
+        let targetTop = layout.size.height - containerHeight
+        UIView.animate(
+            withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0, options: []
+        ) {
+            self.containerNode.frame = CGRect(
+                x: 0, y: targetTop, width: layout.size.width, height: self.containerHeight)
+            self.scrollView.frame = CGRect(
+                x: 0, y: self.handleH, width: layout.size.width,
+                height: self.scrollHeight(forContainerHeight: self.containerHeight, safeBottom: safeBottom))
+            self.dimmingNode.alpha = 1
+        }
+    }
+
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer === panGesture else { return true }
         let vel = panGesture.velocity(in: view)
-        return scrollView.contentOffset.y <= 0 && vel.y > 0
+        let atLargestDetent = currentDetentIndex >= detents.count - 1
+        if vel.y > 0 {
+            return scrollView.contentOffset.y <= 0
+        }
+        return !atLargestDetent
+    }
+
+    private func fullContentHeight() -> CGFloat {
+        if measuredContentH > 0 { return measuredContentH }
+        let topHeaderH: CGFloat = 160.sh
+        let quickActionsH: CGFloat = 70.sh
+        let listActionsH: CGFloat = 4 * 56.sh + 40.sh
+        let toggleH: CGFloat = 80.sh
+        return topHeaderH + quickActionsH + listActionsH + toggleH + 40.sh
+    }
+
+    private func computeDetents(layout: ContainerViewLayout) -> [CGFloat] {
+        let safeBottom = layout.intrinsicInsets.bottom
+        let maxHeight = layout.size.height * 0.92
+        let largeHeight = min(handleH + fullContentHeight() + safeBottom + 20.sh, maxHeight)
+        let mediumHeight = min(largeHeight, layout.size.height * 0.6)
+        if largeHeight - mediumHeight < 60.sh {
+            return [largeHeight]
+        }
+        return [mediumHeight, largeHeight]
+    }
+
+    private func scrollHeight(forContainerHeight h: CGFloat, safeBottom: CGFloat) -> CGFloat {
+        max(0, h - handleH - safeBottom - 20.sh)
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -253,16 +345,14 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         transition.updateFrame(node: dimmingNode, frame: CGRect(origin: .zero, size: layout.size))
 
-        let topHeaderH: CGFloat = 160.sh
-        let quickActionsH: CGFloat = 70.sh
-        let listActionsH: CGFloat = 4 * 56.sh + 40.sh
-        let toggleH: CGFloat = 80.sh
+        if !didBuildContent {
+            didBuildContent = true
+            buildContent(screenW: screenW)
+        }
 
-        let totalContentH = topHeaderH + quickActionsH + listActionsH + toggleH + 40.sh
-
-        let maxScrollH = layout.size.height * 0.95 - handleH - safeBottom
-        let scrollH = min(totalContentH, maxScrollH)
-        containerHeight = handleH + scrollH + safeBottom + 20.sh
+        detents = computeDetents(layout: layout)
+        currentDetentIndex = min(currentDetentIndex, detents.count - 1)
+        containerHeight = detents[currentDetentIndex]
 
         let containerY = layout.size.height - containerHeight
         transition.updateFrame(
@@ -272,14 +362,10 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
             node: handleNode,
             frame: CGRect(x: (screenW - 48.sw) / 2, y: 10.sh, width: 48.sw, height: 5.sh))
 
+        let scrollH = scrollHeight(forContainerHeight: containerHeight, safeBottom: safeBottom)
         scrollView.frame = CGRect(x: 0, y: handleH, width: screenW, height: scrollH)
-        scrollView.contentSize = CGSize(width: screenW, height: totalContentH)
-        scrollView.alwaysBounceVertical = totalContentH > scrollH
-
-        if !didBuildContent {
-            didBuildContent = true
-            buildContent(screenW: screenW)
-        }
+        scrollView.contentSize = CGSize(width: screenW, height: fullContentHeight())
+        scrollView.alwaysBounceVertical = true
     }
 
     func animateIn() {
@@ -425,6 +511,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         scrollView.addSubview(toggleRow)
 
         y += toggleRow.frame.height + 20.sh
+        measuredContentH = y
         scrollView.contentSize.height = y
     }
 
@@ -636,6 +723,8 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         let sw = UISwitch()
         sw.onTintColor = UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1)
+        sw.isOn = initialShowEmptyCategories
+        sw.addTarget(self, action: #selector(handleShowEmptyCategoriesToggle(_:)), for: .valueChanged)
 
         v.addSubview(l)
         v.addSubview(sw)
