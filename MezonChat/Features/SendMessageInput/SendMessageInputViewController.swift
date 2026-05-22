@@ -56,6 +56,348 @@ private struct ComposerDraftSnapshot: Codable {
     var fileDrafts: [FileDraftSnapshot]
 }
 
+private struct OgpLinkCandidate {
+    let url: String
+    let range: NSRange
+}
+
+private struct OgpPreviewItem: Equatable {
+    let url: String
+    let title: String
+    let description: String
+    let image: String
+    let type: String
+    let index: Int
+
+    var hasSendableMetadata: Bool {
+        !title.isEmpty && !description.isEmpty && !image.isEmpty
+    }
+
+    func markdownPayload(textLength: Int) -> [String: Any] {
+        [
+            "title": title,
+            "description": description,
+            "image": image,
+            "url": url,
+            "s": textLength,
+            "e": textLength + 1,
+            "type": "lk_ogp",
+            "index": index,
+        ]
+    }
+}
+
+private struct OgpPreviewResponse: Decodable {
+    let title: String?
+    let description: String?
+    let image: String?
+    let key: String?
+    let type: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case description
+        case image
+        case key
+        case type
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = Self.stringValue(c, forKey: .title)
+        description = Self.stringValue(c, forKey: .description)
+        image = Self.stringValue(c, forKey: .image)
+        key = Self.stringValue(c, forKey: .key)
+        type = Self.stringValue(c, forKey: .type)
+    }
+
+    private static func stringValue(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> String? {
+        if let s = try? c.decode(String.self, forKey: key) {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let n = try? c.decode(Int.self, forKey: key) {
+            return "\(n)"
+        }
+        if let n = try? c.decode(Double.self, forKey: key) {
+            return "\(n)"
+        }
+        return nil
+    }
+}
+
+private enum OgpPreviewService {
+    private static let mezonAIRegex = try! NSRegularExpression(
+        pattern: #"^https:\/\/mezon\.ai\/(chat|invite)(\/|$)"#,
+        options: [.caseInsensitive]
+    )
+    private static let youtubeRegex = try! NSRegularExpression(
+        pattern: #"(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|e\/|shorts\/)|youtu\.be\/)"#,
+        options: [.caseInsensitive]
+    )
+    private static let facebookRegex = try! NSRegularExpression(
+        pattern: #"(?:facebook\.com\/(?:reel\/|watch\?v=|[\w.]+\/videos\/(?:[\w.]+\/)?))([\w-]+)"#,
+        options: [.caseInsensitive]
+    )
+    private static let tiktokRegex = try! NSRegularExpression(
+        pattern: #"(?:tiktok\.com\/@[^\/]+\/video\/\d+|vm\.tiktok\.com\/[a-zA-Z0-9]+|tiktok\.com\/t\/[a-zA-Z0-9]+)"#,
+        options: [.caseInsensitive]
+    )
+
+    static func fetchableCandidates(in text: String) -> [OgpLinkCandidate] {
+        linkCandidates(in: text).filter { !shouldSkip(link: $0.url) }
+    }
+
+    static func fetch(link: OgpLinkCandidate) async throws -> OgpPreviewItem? {
+        var request = URLRequest(url: MezonConfig.ogpURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 12
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["url": link.url])
+
+        let (data, response) = try await httpData(request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return nil
+        }
+        let decoded = try JSONDecoder().decode(OgpPreviewResponse.self, from: data)
+        let title = decoded.title ?? ""
+        let image = decoded.image ?? ""
+        guard !title.isEmpty, !image.isEmpty else { return nil }
+        return OgpPreviewItem(
+            url: link.url,
+            title: title,
+            description: decoded.description ?? "",
+            image: image,
+            type: decoded.type ?? "",
+            index: link.range.location
+        )
+    }
+
+    private static func httpData(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        if #available(iOS 15.0, *) {
+            return try await URLSession.shared.data(for: request)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let data, let response else {
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                    return
+                }
+                continuation.resume(returning: (data, response))
+            }
+            task.resume()
+        }
+    }
+
+    private static func linkCandidates(in text: String) -> [OgpLinkCandidate] {
+        let ns = text as NSString
+        let len = ns.length
+        let httpLen = ("http://" as NSString).length
+        let httpsLen = ("https://" as NSString).length
+        let stop: Set<unichar> = [0x20, 0x0A, 0x0D, 0x09]
+        let trailing: Set<unichar> = [0x2C, 0x2E, 0x21, 0x3F, 0x3B, 0x3A]
+
+        var links: [OgpLinkCandidate] = []
+        var i = 0
+        while i < len {
+            let hasHTTPS = i + httpsLen <= len
+                && ns.substring(with: NSRange(location: i, length: httpsLen)).lowercased() == "https://"
+            let hasHTTP = i + httpLen <= len
+                && ns.substring(with: NSRange(location: i, length: httpLen)).lowercased() == "http://"
+            guard hasHTTPS || hasHTTP else {
+                i += 1
+                continue
+            }
+
+            let start = i
+            var end = i + (hasHTTPS ? httpsLen : httpLen)
+            while end < len, !stop.contains(ns.character(at: end)) {
+                end += 1
+            }
+            let minEnd = start + (hasHTTPS ? httpsLen : httpLen)
+            var cleanEnd = end
+            while cleanEnd > minEnd, trailing.contains(ns.character(at: cleanEnd - 1)) {
+                cleanEnd -= 1
+            }
+            if cleanEnd > minEnd {
+                let range = NSRange(location: start, length: cleanEnd - start)
+                links.append(OgpLinkCandidate(url: ns.substring(with: range), range: range))
+            }
+            i = max(end, start + 1)
+        }
+        return links
+    }
+
+    private static func shouldSkip(link: String) -> Bool {
+        if regex(mezonAIRegex, matches: link) { return true }
+        if regex(youtubeRegex, matches: link) { return true }
+        if regex(tiktokRegex, matches: link) { return true }
+        if regex(facebookRegex, matches: link) { return true }
+        if isGoogleMapLink(link) { return true }
+        return false
+    }
+
+    private static func regex(_ regex: NSRegularExpression, matches text: String) -> Bool {
+        let range = NSRange(location: 0, length: (text as NSString).length)
+        return regex.firstMatch(in: text, options: [], range: range) != nil
+    }
+
+    private static func isGoogleMapLink(_ link: String) -> Bool {
+        let lower = link.lowercased()
+        guard let components = URLComponents(string: lower), let host = components.host else {
+            return false
+        }
+        if host == "maps.app.goo.gl" || host == "goo.gl" && components.path.hasPrefix("/maps") {
+            return true
+        }
+        if host.hasSuffix("google.com") && components.path.hasPrefix("/maps") {
+            return true
+        }
+        return lower.contains("google.com/maps")
+    }
+}
+
+private final class OgpPreviewView: UIView {
+    static let preferredHeight: CGFloat = 70
+
+    var onClose: (() -> Void)?
+
+    private var currentImageURL: String?
+    private let gradientLayer = CAGradientLayer()
+
+    private let imageView: UIImageView = {
+        let iv = UIImageView()
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        iv.contentMode = .scaleAspectFill
+        iv.clipsToBounds = true
+        return iv
+    }()
+
+    private let titleLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 14.sf, weight: .bold)
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }()
+
+    private let descriptionLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 12.sf, weight: .regular)
+        label.numberOfLines = 2
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }()
+
+    private lazy var closeButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        let config = UIImage.SymbolConfiguration(pointSize: 13.sf, weight: .semibold)
+        button.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        return button
+    }()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        isHidden = true
+        gradientLayer.startPoint = CGPoint(x: 1, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 0, y: 0)
+        layer.insertSublayer(gradientLayer, at: 0)
+
+        let content = UIView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        content.addSubview(imageView)
+        content.addSubview(titleLabel)
+        content.addSubview(descriptionLabel)
+        content.addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10.sw),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10.sw),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+
+            imageView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            imageView.topAnchor.constraint(equalTo: content.topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 50),
+
+            closeButton.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 32),
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
+
+            titleLabel.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 10.sw),
+            titleLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -8.sw),
+            titleLabel.topAnchor.constraint(equalTo: content.topAnchor, constant: 1),
+
+            descriptionLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            descriptionLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
+            descriptionLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+            descriptionLabel.bottomAnchor.constraint(lessThanOrEqualTo: content.bottomAnchor),
+        ])
+
+        applyTheme()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = bounds
+    }
+
+    @objc private func closeTapped() {
+        onClose?()
+    }
+
+    func configure(_ item: OgpPreviewItem) {
+        isHidden = false
+        titleLabel.text = item.title
+        descriptionLabel.text = item.description
+        let imageURL = item.image.trimmingCharacters(in: .whitespacesAndNewlines)
+        currentImageURL = imageURL
+        imageView.isHidden = imageURL.isEmpty
+        imageView.image = nil
+        guard !imageURL.isEmpty else { return }
+        if let cached = ImageCache.shared.image(forKey: imageURL) {
+            imageView.image = cached
+            return
+        }
+        ImageCache.shared.loadImage(urlString: imageURL) { [weak self] image in
+            guard let self, self.currentImageURL == imageURL else { return }
+            self.imageView.image = image
+        }
+    }
+
+    func clear() {
+        isHidden = true
+        currentImageURL = nil
+        titleLabel.text = nil
+        descriptionLabel.text = nil
+        imageView.image = nil
+    }
+
+    func applyTheme() {
+        let t = UIColor.theme
+        backgroundColor = t.secondaryLight
+        gradientLayer.colors = [t.secondary.cgColor, t.secondaryLight.cgColor]
+        titleLabel.textColor = t.textLink
+        descriptionLabel.textColor = t.text
+        closeButton.tintColor = t.text
+    }
+}
+
 final class SendMessageInputViewController: UIViewController {
 
     private static let mentionHereUserId: Int64 = 1_775_731_111_020_111_321
@@ -136,6 +478,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private var previewHeightConstraint: NSLayoutConstraint?
+    private var ogpPreviewHeightConstraint: NSLayoutConstraint?
     private var replyBannerHeightConstraint: NSLayoutConstraint?
 
     private(set) var replyDisplay: ChatMessageDisplay?
@@ -207,6 +550,16 @@ final class SendMessageInputViewController: UIViewController {
         return v
     }()
 
+    private lazy var ogpPreviewView: OgpPreviewView = {
+        let v = OgpPreviewView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.clipsToBounds = true
+        v.onClose = { [weak self] in
+            self?.clearOgpPreview(userDismissed: true, resetDismissed: false)
+        }
+        return v
+    }()
+
     private lazy var inputBarView: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -265,6 +618,10 @@ final class SendMessageInputViewController: UIViewController {
     private var voiceRecordingCancelled = false
     private var voiceRecordingStartAborted = false
     private var voiceSlideAnchorX: CGFloat?
+    private var activeOgpPreviewItem: OgpPreviewItem?
+    private var ogpFetchTask: Task<Void, Never>?
+    private var ogpRequestedKey: String = ""
+    private var dismissedOgpLink: String = ""
 
     private lazy var chevronButton: UIButton = {
         let btn = UIButton(type: .system)
@@ -441,6 +798,9 @@ final class SendMessageInputViewController: UIViewController {
             h += AttachmentPreviewView.preferredHeight(
                 imageCount: totalImg, fileCount: totalFile)
         }
+        if activeOgpPreviewItem != nil {
+            h += OgpPreviewView.preferredHeight
+        }
         if replyDisplay != nil || editingDisplay != nil {
             h += Self.replyBannerHeight
         }
@@ -613,10 +973,13 @@ final class SendMessageInputViewController: UIViewController {
             inputBarHeightConstraint?.constant = 0
             replyBannerHeightConstraint?.constant = 0
             previewHeightConstraint?.constant = 0
+            ogpPreviewHeightConstraint?.constant = 0
+            ogpPreviewView.isHidden = true
         } else {
             inputBarHeightConstraint?.constant = currentTextViewHeight + Self.inputBarPadding
             updateReplyBannerVisibility()
             updatePreviewVisibility()
+            updateOgpPreviewVisibility()
         }
     }
 
@@ -850,6 +1213,7 @@ final class SendMessageInputViewController: UIViewController {
         textView.isScrollEnabled = false
         flushComposerHeightAfterContentMutation()
         textPipe.putNext(text)
+        scheduleOgpPreviewUpdate(for: text)
 
         for f in snap.fileDrafts {
             let url = URL(fileURLWithPath: f.path)
@@ -886,6 +1250,7 @@ final class SendMessageInputViewController: UIViewController {
         hideEmojiSuggestions()
         hideHashtagSuggestions()
         textPipe.putNext("")
+        clearOgpPreview(userDismissed: false, resetDismissed: true)
         resetTextViewHeight()
         syncAttachControlsWithTypedText()
         updateSendVoiceToggle()
@@ -1461,6 +1826,7 @@ final class SendMessageInputViewController: UIViewController {
         hideHashtagSuggestions()
         loadEditingRemoteAttachments(from: display)
         refreshComposerTypingAttributesForSelection()
+        scheduleOgpPreviewUpdate(for: text)
     }
 
     private func loadEditingRemoteAttachments(from display: ChatMessageDisplay) {
@@ -1499,10 +1865,15 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideHashtagSuggestions()
         textPipe.putNext("")
+        clearOgpPreview(userDismissed: false, resetDismissed: true)
         syncAttachControlsWithTypedText()
         updateSendVoiceToggle()
     }
-    func updateText(_ newText: String) { text = newText; textPipe.putNext(newText) }
+    func updateText(_ newText: String) {
+        text = newText
+        textPipe.putNext(newText)
+        scheduleOgpPreviewUpdate(for: newText)
+    }
 
     func focusTextInput() {
         guard !composerSendPermissionBlocked else { return }
@@ -1891,6 +2262,95 @@ final class SendMessageInputViewController: UIViewController {
         syncAttachControlsWithTypedText()
     }
 
+    private func setOgpPreviewItem(_ item: OgpPreviewItem?) {
+        guard activeOgpPreviewItem != item else { return }
+        activeOgpPreviewItem = item
+        if let item {
+            ogpPreviewView.configure(item)
+        } else {
+            ogpPreviewView.clear()
+        }
+        updateOgpPreviewVisibility()
+    }
+
+    private func updateOgpPreviewVisibility() {
+        let shouldShow = !composerSendPermissionBlocked && activeOgpPreviewItem != nil
+        let targetH: CGFloat = shouldShow ? OgpPreviewView.preferredHeight : 0
+        let heightChanged = ogpPreviewHeightConstraint?.constant != targetH
+        ogpPreviewView.isHidden = !shouldShow
+        if heightChanged {
+            ogpPreviewHeightConstraint?.constant = targetH
+            onHeightChanged?(totalHeight)
+        }
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: heightChanged, duration: 0.25)
+    }
+
+    private func clearOgpPreview(userDismissed: Bool, resetDismissed: Bool) {
+        if userDismissed {
+            if let item = activeOgpPreviewItem {
+                dismissedOgpLink = item.url
+            } else if !ogpRequestedKey.isEmpty {
+                dismissedOgpLink = ogpRequestedKey.components(separatedBy: "\n").first ?? ""
+            }
+        } else if resetDismissed {
+            dismissedOgpLink = ""
+        }
+        ogpFetchTask?.cancel()
+        ogpFetchTask = nil
+        ogpRequestedKey = ""
+        setOgpPreviewItem(nil)
+    }
+
+    private func scheduleOgpPreviewUpdate(for rawText: String) {
+        guard !composerSendPermissionBlocked else {
+            clearOgpPreview(userDismissed: false, resetDismissed: false)
+            return
+        }
+        let candidates = OgpPreviewService.fetchableCandidates(in: rawText)
+        guard !candidates.isEmpty else {
+            clearOgpPreview(userDismissed: false, resetDismissed: true)
+            return
+        }
+        if let active = activeOgpPreviewItem, rawText.contains(active.url) {
+            return
+        }
+        if !dismissedOgpLink.isEmpty, rawText.contains(dismissedOgpLink) {
+            ogpFetchTask?.cancel()
+            ogpFetchTask = nil
+            ogpRequestedKey = ""
+            setOgpPreviewItem(nil)
+            return
+        }
+
+        let requestKey = candidates.map(\.url).joined(separator: "\n")
+        guard requestKey != ogpRequestedKey else { return }
+        ogpFetchTask?.cancel()
+        ogpRequestedKey = requestKey
+        setOgpPreviewItem(nil)
+
+        ogpFetchTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+
+            for candidate in candidates {
+                guard !Task.isCancelled else { return }
+                guard let item = try? await OgpPreviewService.fetch(link: candidate) else { continue }
+                await MainActor.run { [weak self] in
+                    guard let self, self.ogpRequestedKey == requestKey, self.text.contains(item.url) else { return }
+                    self.ogpRequestedKey = ""
+                    self.setOgpPreviewItem(item)
+                }
+                return
+            }
+
+            await MainActor.run { [weak self] in
+                guard let self, self.ogpRequestedKey == requestKey else { return }
+                self.ogpRequestedKey = ""
+                self.setOgpPreviewItem(nil)
+            }
+        }
+    }
+
     private func syncAttachControlsWithTypedText() {
         if alwaysShowAttachToolbarWhileTyping {
             if isAttachControlCollapsed {
@@ -1914,6 +2374,7 @@ final class SendMessageInputViewController: UIViewController {
         view.addSubview(replyBannerView)
 
         view.addSubview(attachmentPreviewView)
+        view.addSubview(ogpPreviewView)
         view.addSubview(inputBarView)
         inputBarView.addSubview(topSeparator)
         inputBarView.addSubview(chevronButton)
@@ -1961,7 +2422,11 @@ final class SendMessageInputViewController: UIViewController {
             attachmentPreviewView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             attachmentPreviewView.topAnchor.constraint(equalTo: replyBannerView.bottomAnchor),
 
-            inputBarView.topAnchor.constraint(equalTo: attachmentPreviewView.bottomAnchor),
+            ogpPreviewView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            ogpPreviewView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ogpPreviewView.topAnchor.constraint(equalTo: attachmentPreviewView.bottomAnchor),
+
+            inputBarView.topAnchor.constraint(equalTo: ogpPreviewView.bottomAnchor),
             inputBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             inputBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             barHeight,
@@ -2017,6 +2482,10 @@ final class SendMessageInputViewController: UIViewController {
         phc.isActive = true
         previewHeightConstraint = phc
 
+        let ogpH = ogpPreviewView.heightAnchor.constraint(equalToConstant: 0)
+        ogpH.isActive = true
+        ogpPreviewHeightConstraint = ogpH
+
         let chevW = chevronButton.widthAnchor.constraint(equalToConstant: 0)
         chevronButtonWidthConstraint = chevW
         chevW.isActive = true
@@ -2066,7 +2535,7 @@ final class SendMessageInputViewController: UIViewController {
         NSLayoutConstraint.activate([
             sendPermissionRestrictedChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sendPermissionRestrictedChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            sendPermissionRestrictedChrome.topAnchor.constraint(equalTo: attachmentPreviewView.bottomAnchor),
+            sendPermissionRestrictedChrome.topAnchor.constraint(equalTo: ogpPreviewView.bottomAnchor),
             sendPermissionRestrictedChrome.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding),
             sendPermissionRestrictedChrome.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor),
 
@@ -3583,6 +4052,7 @@ final class SendMessageInputViewController: UIViewController {
                 self.textView.text = text
                 self.placeholderLabel.isHidden = !text.isEmpty
                 self.updateTextViewHeight()
+                self.scheduleOgpPreviewUpdate(for: text)
             })
         )
     }
@@ -3624,6 +4094,7 @@ final class SendMessageInputViewController: UIViewController {
         chevronButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
         attachmentPreviewView.applyTheme()
+        ogpPreviewView.applyTheme()
         replyBannerView.backgroundColor = t.secondary
         replyLabel.textColor = t.textDisabled
         replyCancelButton.tintColor = t.textDisabled
@@ -3664,6 +4135,7 @@ final class SendMessageInputViewController: UIViewController {
         reloadHashtagChannelCandidates()
         if !(textView.text ?? "").isEmpty {
             flushComposerHeightAfterContentMutation()
+            scheduleOgpPreviewUpdate(for: textView.text ?? "")
         }
     }
 
@@ -3683,6 +4155,7 @@ final class SendMessageInputViewController: UIViewController {
         if let u = voiceRecordingFileURL {
             try? FileManager.default.removeItem(at: u)
         }
+        ogpFetchTask?.cancel()
         disposables.dispose()
         mentionDisposables.dispose()
         NotificationCenter.default.removeObserver(self)
@@ -4183,6 +4656,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        clearOgpPreview(userDismissed: false, resetDismissed: true)
         onSent?()
     }
 
@@ -4232,6 +4706,14 @@ final class SendMessageInputViewController: UIViewController {
         let displayText = built.displayText
         let mentionList = buildMentionList(displayPlain: displayText)
         let hashtagListForContent = buildHashtagList(displayPlain: displayText)
+        var markdownList = built.mk
+        if !isEdit,
+           let ogpItem = activeOgpPreviewItem,
+           ogpItem.hasSendableMetadata,
+           text.contains(ogpItem.url),
+           markdownList.contains(where: { ($0["type"] as? String) == "lk" }) {
+            markdownList.append(ogpItem.markdownPayload(textLength: displayText.utf16.count))
+        }
         let threadEditTargetSenderId: Int64? = {
             guard isEdit,
                   channel.type == MezonConstants.ChannelType.thread.rawValue,
@@ -4243,8 +4725,8 @@ final class SendMessageInputViewController: UIViewController {
 
         var contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": displayText]
         if !text.isEmpty {
-            if !built.mk.isEmpty {
-                contentJSON["mk"] = built.mk
+            if !markdownList.isEmpty {
+                contentJSON["mk"] = markdownList
             }
             if !built.ej.isEmpty {
                 contentJSON["ej"] = built.ej
@@ -4831,6 +5313,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         updateSendVoiceToggle()
         syncAttachControlsWithTypedText()
         refreshComposerTypingAttributesForSelection()
+        scheduleOgpPreviewUpdate(for: text)
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {

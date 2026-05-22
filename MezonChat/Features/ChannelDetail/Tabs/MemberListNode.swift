@@ -8,6 +8,7 @@ final class MemberListNode: ASDisplayNode {
     private let clanId: Int64
     private let channelId: Int64
     private let channelType: Int32
+    private let channelDescription: Mezon_Api_ChannelDescription
     private let dmMemberLabelByUserId: [Int64: String]
     private let useClanListWhenChannelUsersEmpty: Bool
     private let tableNode = ASTableNode()
@@ -58,6 +59,7 @@ final class MemberListNode: ASDisplayNode {
             return resolvedT
         }()
         self.channelType = effectiveType
+        self.channelDescription = channelDescription
         self.dmMemberLabelByUserId = channelDescription.dmMemberLabelsForChannelList()
         self.useClanListWhenChannelUsersEmpty =
             clanId > 0
@@ -471,7 +473,10 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: true)
-        guard indexPath.section != 0 else { return }
+        if indexPath.section == 0 {
+            handleHeaderActionTapped(tableNode: tableNode)
+            return
+        }
 
         let user: Mezon_Api_User?
         switch indexPath.section {
@@ -528,6 +533,17 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         )
         host.presentInGlobalOverlay(sheet)
         sheet.animateIn()
+    }
+
+    private func handleHeaderActionTapped(tableNode: ASTableNode) {
+        guard let host = tableNode.view.findHostingViewController() else { return }
+        guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
+        let vc = NewGroupDMViewController(
+            context: context,
+            existingGroupChannel: channelDescription,
+            onMembersAdded: { _ in }
+        )
+        host.navigationController?.pushViewController(vc, animated: true)
     }
 
     private static func apiUser(from member: ChannelMemberRecord) -> Mezon_Api_User {

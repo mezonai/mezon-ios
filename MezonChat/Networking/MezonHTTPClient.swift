@@ -9,6 +9,7 @@ final class MezonHTTPClient {
     var bearerUnauthorizedRecovery: (() async throws -> String?)?
 
     private let urlSession: URLSession
+    private let uploadURLSession: URLSession
     private var authBaseURL: URL = MezonConfig.authBaseURL
     private var protoBaseURL: URL = MezonConfig.protoBaseURL
 
@@ -30,6 +31,16 @@ final class MezonHTTPClient {
             config.setValue(true, forKey: "assumesHTTP3Capable")
         }
         urlSession = URLSession(configuration: config)
+
+        let uploadConfig = URLSessionConfiguration.default
+        uploadConfig.timeoutIntervalForRequest = 120
+        uploadConfig.timeoutIntervalForResource = 600
+        uploadConfig.waitsForConnectivity = true
+        uploadConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
+        uploadConfig.urlCache = nil
+        uploadConfig.httpShouldSetCookies = false
+        uploadConfig.httpCookieAcceptPolicy = .never
+        uploadURLSession = URLSession(configuration: uploadConfig)
     }
 
     private static let userAgent: String = {
@@ -367,9 +378,8 @@ final class MezonHTTPClient {
     }
 
     func listCategoryDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_CategoryDesc] {
-        var req = Mezon_Api_ListChannelDescsRequest()
+        var req = Mezon_Api_CategoryDesc()
         req.clanID = clanId
-        req.limit = 100
         let response: Mezon_Api_CategoryDescList = try await postProto(
             path: "/mezon.api.Mezon/ListCategoryDescs",
             message: req,
@@ -680,6 +690,18 @@ final class MezonHTTPClient {
         return response
     }
 
+    func createSdTopic(clanID: Int64, channelID: Int64, messageID: Int64, token: String) async throws -> Mezon_Api_SdTopic {
+        var req = Mezon_Api_SdTopicRequest()
+        req.clanID = clanID
+        req.channelID = channelID
+        req.messageID = messageID
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateSdTopic",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func getUserProfileOnClan(clanId: Int64, token: String) async throws -> Mezon_Api_ClanProfile {
         var req = Mezon_Api_ClanProfileRequest()
         req.clanID = clanId
@@ -782,7 +804,8 @@ final class MezonHTTPClient {
         avatar: String = "",
         topicId: Int64 = 0,
         code: Int32 = 0,
-        token: String
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
         var req = Mezon_Realtime_ChannelMessageSend()
         req.clanID = clanId
@@ -802,7 +825,8 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/SendChannelMessage",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
     }
 
@@ -1306,7 +1330,8 @@ final class MezonHTTPClient {
         size: Int,
         width: Int = 0,
         height: Int = 0,
-        token: String
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_UploadAttachment {
         var req = Mezon_Api_UploadAttachmentRequest()
         req.filename = filename
@@ -1317,7 +1342,8 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/UploadAttachmentFile",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
     }
 
@@ -1331,10 +1357,79 @@ final class MezonHTTPClient {
         request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
         request.httpBody = data
 
-        let (_, response) = try await httpData(request)
+        let (_, response) = try await uploadHTTPData(request)
         guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")
+        }
+    }
+
+    func uploadToMinIO(url: String, fileURL: URL, contentType: String) async throws {
+        guard let uploadURL = URL(string: url) else {
+            throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
+        }
+        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        guard let fileSize = attrs[.size] as? NSNumber else {
+            throw MezonError.httpError(statusCode: 0, message: "Cannot read file size")
+        }
+
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("\(fileSize.intValue)", forHTTPHeaderField: "Content-Length")
+
+        let (_, response) = try await uploadFromFile(request, fileURL: fileURL)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO upload failed")
+        }
+    }
+
+    private func uploadHTTPData(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        if #available(iOS 15.0, *) {
+            return try await uploadURLSession.data(for: request)
+        }
+        return try await legacyUploadData(for: request)
+    }
+
+    private func uploadFromFile(_ request: URLRequest, fileURL: URL) async throws -> (Data, URLResponse) {
+        if #available(iOS 15.0, *) {
+            return try await uploadURLSession.upload(for: request, fromFile: fileURL)
+        }
+        return try await legacyUploadFromFile(request, fileURL: fileURL)
+    }
+
+    private func legacyUploadData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
+            let task = uploadURLSession.dataTask(with: request) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let response else {
+                    continuation.resume(throwing: MezonError.invalidResponse)
+                    return
+                }
+                continuation.resume(returning: (data ?? Data(), response))
+            }
+            task.resume()
+        }
+    }
+
+    private func legacyUploadFromFile(_ request: URLRequest, fileURL: URL) async throws -> (Data, URLResponse) {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
+            let task = uploadURLSession.uploadTask(with: request, fromFile: fileURL) { data, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let response else {
+                    continuation.resume(throwing: MezonError.invalidResponse)
+                    return
+                }
+                continuation.resume(returning: (data ?? Data(), response))
+            }
+            task.resume()
         }
     }
 
@@ -1656,21 +1751,6 @@ final class MezonHTTPClient {
     private static let httpOnlyApiNames: Set<String> = [
         "SessionRefresh"
     ]
-    private static let socketFailureHttpFallbackApiNames: Set<String> = [
-        "GetAccount",
-        "ListActivity",
-        "SendChannelMessage",
-        "ListClanDescs",
-        "ListChannelDescs",
-        "ListCategoryDescs",
-        "GetListFavoriteChannel",
-        "ListChannelBadgeCount",
-        "ListClanBadgeCount",
-        "ListUserClansByUserId",
-        "ListChannelByUserId",
-        "ListFriends",
-    ]
-    private static let socketWaitNanoseconds: UInt64 = 30_000_000_000
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
 
     private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
@@ -1680,7 +1760,6 @@ final class MezonHTTPClient {
         let prefix = "/mezon.api.Mezon/"
         guard path.hasPrefix(prefix) else { return nil }
         let apiName = String(path.dropFirst(prefix.count))
-        let allowHttpFallbackAfterSocketFailure = Self.socketFailureHttpFallbackApiNames.contains(apiName)
 
         if Self.httpOnlyApiNames.contains(apiName) {
             return nil
@@ -1688,18 +1767,13 @@ final class MezonHTTPClient {
 
         var connected = await MezonSocket.shared.isConnected
         if !connected {
-            let waitNanoseconds = allowHttpFallbackAfterSocketFailure
-                ? Self.socketFallbackGraceWaitNanoseconds
-                : Self.socketWaitNanoseconds
-            connected = await MezonSocket.shared.waitForConnected(timeoutNanoseconds: waitNanoseconds)
+            connected = await MezonSocket.shared.waitForConnected(
+                timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
         }
         guard connected else {
-            if allowHttpFallbackAfterSocketFailure {
-                let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
-                MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
-                return nil
-            }
-            throw MezonError.socketError("WebSocket unavailable for '\(apiName)'")
+            let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
+            MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
+            return nil
         }
 
         let body: Data
@@ -1720,20 +1794,13 @@ final class MezonHTTPClient {
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription)")
-                if allowHttpFallbackAfterSocketFailure {
-                    return nil
-                }
-                throw error
+                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription) → HTTP fallback")
+                return nil
             }
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            if allowHttpFallbackAfterSocketFailure {
-                MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
-                return nil
-            }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) (rethrow, no HTTP fallback)")
-            throw error
+            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
+            return nil
         }
     }
 

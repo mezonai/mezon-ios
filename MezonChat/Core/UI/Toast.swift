@@ -223,19 +223,19 @@ private final class ToastView: UIView {
         let titleLabel = UILabel()
         titleLabel.text = titleText ?? config.defaultTitle
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
-        titleLabel.textColor = type == .notification ? .white : .init(white: 0.15, alpha: 1)
+        titleLabel.textColor = type == .notification ? UIColor.theme.textStrong : .init(white: 0.15, alpha: 1)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let messageLabel = UILabel()
         messageLabel.text = messageText
         messageLabel.font = .systemFont(ofSize: 14.sf)
-        messageLabel.textColor = type == .notification ? .init(white: 0.8, alpha: 1) : .init(white: 0.35, alpha: 1)
+        messageLabel.textColor = type == .notification ? UIColor.theme.text : .init(white: 0.35, alpha: 1)
         messageLabel.numberOfLines = 3
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let closeBtn = UIButton(type: .system)
         closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeBtn.tintColor = .init(white: 0.4, alpha: 1)
+        closeBtn.tintColor = type == .notification ? UIColor.theme.iconSecondary : .init(white: 0.4, alpha: 1)
         closeBtn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
 
@@ -289,7 +289,7 @@ private final class ToastView: UIView {
         case .info:
             return (hex("#3b82f6"), hex("#eff6ff"), hex("#bfdbfe"), "info.circle.fill", "Info")
         case .notification:
-            return (hex("#7c3aed"), hex("#1e1b2e"), hex("#3b335a"), "bell.fill", "Notification")
+            return (UIColor.theme.iconPrimary, UIColor.theme.secondary, UIColor.theme.border, "bell.fill", "Notification")
         }
     }
 

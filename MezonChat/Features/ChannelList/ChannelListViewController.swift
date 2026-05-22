@@ -200,9 +200,15 @@ private func buildChannelCategories(
     collapsedIds: Set<Int64>? = nil
 ) -> [ChannelCategory] {
     let prioritized = prioritizeChannels(channels)
-    let useCategories: [Mezon_Api_CategoryDesc] = categoryDescs.isEmpty
-        ? inferredCategoryDescs(from: channels)
-        : categoryDescs
+    let useCategories: [Mezon_Api_CategoryDesc] = {
+        guard !categoryDescs.isEmpty else { return inferredCategoryDescs(from: channels) }
+        var result = categoryDescs
+        let knownIds = Set(categoryDescs.map(\.categoryID))
+        for inferred in inferredCategoryDescs(from: channels) where !knownIds.contains(inferred.categoryID) {
+            result.append(inferred)
+        }
+        return result
+    }()
 
     var favorFlat: [Mezon_Api_ChannelDescription] = []
     for cat in useCategories {
@@ -391,6 +397,7 @@ final class ChannelListViewController: ViewController {
     var searchTappedSignal: Signal<Void, NoError> { searchTappedPipe.signal() }
 
     private(set) var categories: [ChannelCategory] = []
+    private var showEmptyCategoriesEnabled: Bool = false
     private(set) var selectedChannelId: Int64?
     private(set) var selectedChannel: Mezon_Api_ChannelDescription?
     private(set) var isLoading: Bool = false
@@ -445,7 +452,9 @@ final class ChannelListViewController: ViewController {
                 self.enclosingNavigationController?.pushViewController(vc, animated: true)
             },
             onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) },
-            onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() }
+            onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() },
+            isShowEmptyCategoriesEnabled: { [weak self] in self?.showEmptyCategoriesEnabled ?? false },
+            onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) }
         )
         let initialClan = effectiveClanIdForChannelAppsHydration()
         let initialApps = initialClan != 0 ? channelAppsRawFromCache(clanId: initialClan) : []
@@ -1233,6 +1242,7 @@ final class ChannelListViewController: ViewController {
 
     private func postClanSidebarUnreadDerivedFromCurrentChannels() {
         guard clanId != 0 else { return }
+        guard !allChannels.isEmpty else { return }
         let total = allChannels.reduce(Int32(0)) { $0 + $1.countMessUnread }
         NotificationCenter.default.post(
             name: Notification.Name("MezonClanChannelUnreadDerived"),
@@ -1299,6 +1309,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.set(nil)
         self.clanId = clanId
         self.clanName = clanName
+        self.showEmptyCategoriesEnabled = loadShowEmptyCategoriesPreference(clanId: clanId)
         channelsLoadedPromise.set(false)
         errorMessage = nil
 
@@ -1768,13 +1779,39 @@ final class ChannelListViewController: ViewController {
             }
         }
         return ChannelListState(
-            categories: categories,
+            categories: displayedCategories,
             allChannels: allChannels,
             selectedChannelId: selectedChannelId,
             isLoading: isLoading,
             errorMessage: errorMessage,
             voiceUsersByChannel: voiceMap
         )
+    }
+
+    private var displayedCategories: [ChannelCategory] {
+        guard !showEmptyCategoriesEnabled else { return categories }
+        return categories.filter { cat in
+            if let fav = cat.favoriteFlatChannels { return !fav.isEmpty }
+            return !cat.channels.isEmpty
+        }
+    }
+
+    private func setShowEmptyCategories(_ value: Bool) {
+        guard clanId != 0 else { return }
+        guard value != showEmptyCategoriesEnabled else { return }
+        showEmptyCategoriesEnabled = value
+        context.account.postbox.setPreferenceData(
+            key: PreferencesKeys.showEmptyCategories(clanId: clanId),
+            value: Data([UInt8(value ? 1 : 0)])
+        )
+        needsReloadPipe.putNext(())
+    }
+
+    private func loadShowEmptyCategoriesPreference(clanId: Int64) -> Bool {
+        guard clanId != 0,
+              let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.showEmptyCategories(clanId: clanId)),
+              let first = data.first else { return false }
+        return first != 0
     }
 
     func stateSignal() -> Signal<ChannelListState, NoError> {
@@ -2340,16 +2377,21 @@ final class ChannelListViewController: ViewController {
         authoritative: [Mezon_Api_ChannelDescription]
     ) -> Bool {
         let allowed = Set(authoritative.map(\.channelID))
+        var presentTopLevel = Set<Int64>()
         for cat in cats {
             if let fav = cat.favoriteFlatChannels {
                 for ch in fav where !allowed.contains(ch.channelID) { return false }
             }
-            for ch in cat.channels where !allowed.contains(ch.channelID) { return false }
+            for ch in cat.channels {
+                if !allowed.contains(ch.channelID) { return false }
+                presentTopLevel.insert(ch.channelID)
+            }
             for (_, arr) in cat.orderedThreadChildren {
                 for ch in arr where !allowed.contains(ch.channelID) { return false }
             }
         }
-        return true
+        let requiredTopLevel = Set(authoritative.filter { $0.parentID == 0 }.map(\.channelID))
+        return requiredTopLevel.isSubset(of: presentTopLevel)
     }
 
     private func mergeChannelProtosIntoCategoriesSnapshot(

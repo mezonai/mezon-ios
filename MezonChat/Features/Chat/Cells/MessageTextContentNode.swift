@@ -214,6 +214,15 @@ final class MessageTextContentNode: ASDisplayNode {
         return maxNeed
     }
 
+    private static func maxEmojiAttachmentDisplayHeight(_ attr: NSAttributedString) -> CGFloat {
+        var maxHeight: CGFloat = 0
+        attr.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attr.length)) { value, _, _ in
+            guard let em = value as? EmojiTextAttachment else { return }
+            maxHeight = max(maxHeight, em.bounds.height)
+        }
+        return maxHeight
+    }
+
     private static func usesOnlyEmojiTextAttachmentsForSizing(_ attr: NSAttributedString) -> Bool {
         guard attr.length > 0 else { return false }
         var sawEmojiAttachment = false
@@ -273,14 +282,16 @@ final class MessageTextContentNode: ASDisplayNode {
         layoutManager.ensureLayout(for: textContainer)
         let rect = layoutManager.usedRect(for: textContainer)
         let emojiMinH = minLayoutHeightForEmojiAttachments(attrText)
+        let emojiDisplayH = maxEmojiAttachmentDisplayHeight(attrText)
         let rectH = ceil(rect.height)
         let em = ceil(emojiMinH)
+        let emojiVisualH = ceil(emojiDisplayH)
         let glyphRange = NSRange(location: 0, length: layoutManager.numberOfGlyphs)
         let h: CGFloat
         if usesOnlyEmojiTextAttachmentsForSizing(attrText),
-           em > 0,
+           emojiVisualH > 0,
            isSingleLineFragment(layoutManager, forGlyphRange: glyphRange) {
-            h = em
+            h = emojiVisualH
         } else {
             h = max(rectH, em)
         }

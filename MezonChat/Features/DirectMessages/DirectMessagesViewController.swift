@@ -808,12 +808,14 @@ private struct NewGroupDMFriendGroup {
 
 private let newGroupDMActionColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
 
-private final class NewGroupDMViewController: ViewController, UITableViewDataSource, UITableViewDelegate {
+final class NewGroupDMViewController: ViewController, UITableViewDataSource, UITableViewDelegate {
 
     private static let maximumMembers = 20
 
     private let context: AccountContext
     private let onChannelCreated: (Mezon_Api_ChannelDescription) -> Void
+    private let existingGroupChannel: Mezon_Api_ChannelDescription?
+    private let excludedMemberIds: Set<Int64>
 
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
@@ -841,6 +843,20 @@ private final class NewGroupDMViewController: ViewController, UITableViewDataSou
     init(context: AccountContext, onChannelCreated: @escaping (Mezon_Api_ChannelDescription) -> Void) {
         self.context = context
         self.onChannelCreated = onChannelCreated
+        self.existingGroupChannel = nil
+        self.excludedMemberIds = []
+        super.init(navigationBarPresentationData: nil)
+    }
+
+    init(
+        context: AccountContext,
+        existingGroupChannel: Mezon_Api_ChannelDescription,
+        onMembersAdded: @escaping (Mezon_Api_ChannelDescription) -> Void
+    ) {
+        self.context = context
+        self.onChannelCreated = onMembersAdded
+        self.existingGroupChannel = existingGroupChannel
+        self.excludedMemberIds = Set(existingGroupChannel.userIds)
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -1036,8 +1052,13 @@ private final class NewGroupDMViewController: ViewController, UITableViewDataSou
     }
 
     private func applyLocalizedText() {
-        titleLabel.text = L(L10n.DirectMessage.newGroup)
-        createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
+        if existingGroupChannel != nil {
+            titleLabel.text = L(L10n.ChannelDetail.addMembers)
+            createButton.setTitle(L(L10n.ChannelPermission.bsAdd), for: .normal)
+        } else {
+            titleLabel.text = L(L10n.DirectMessage.newGroup)
+            createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
+        }
         searchTextField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.DirectMessage.searchFriends),
             attributes: [.foregroundColor: UIColor.theme.textDisabled]
@@ -1047,9 +1068,15 @@ private final class NewGroupDMViewController: ViewController, UITableViewDataSou
     }
 
     private func updateMemberCount() {
+        let baseCount: Int
+        if let existing = existingGroupChannel {
+            baseCount = existing.userIds.count + 1
+        } else {
+            baseCount = 1
+        }
         subtitleLabel.text = L(
             L10n.DirectMessage.memberCount,
-            selectedFriendIds.count + 1,
+            baseCount + selectedFriendIds.count,
             Self.maximumMembers
         )
     }
@@ -1073,6 +1100,7 @@ private final class NewGroupDMViewController: ViewController, UITableViewDataSou
     private func syncFriendsFromStore() {
         allFriends = context.engine.friendsData.allFriends()
             .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser && $0.user.id != 0 }
+            .filter { !self.excludedMemberIds.contains($0.user.id) }
             .sorted { lhs, rhs in
                 displayName(for: lhs).localizedCaseInsensitiveCompare(displayName(for: rhs)) == .orderedAscending
             }
@@ -1134,7 +1162,13 @@ private final class NewGroupDMViewController: ViewController, UITableViewDataSou
     }
 
     private func canSelectAdditionalFriend() -> Bool {
-        selectedFriendIds.count + 1 < Self.maximumMembers
+        let baseCount: Int
+        if let existing = existingGroupChannel {
+            baseCount = existing.userIds.count + 1
+        } else {
+            baseCount = 1
+        }
+        return baseCount + selectedFriendIds.count < Self.maximumMembers
     }
 
     private func toggleSelection(for friend: Mezon_Api_Friend) {
@@ -1176,6 +1210,22 @@ private final class NewGroupDMViewController: ViewController, UITableViewDataSou
             }
             guard let token = await self.context.getToken() else {
                 Toast.error(L(L10n.DirectMessage.createFailed))
+                return
+            }
+
+            if let existingGroup = self.existingGroupChannel {
+                do {
+                    try await self.context.account.network.addChannelUsers(
+                        channelId: existingGroup.channelID, userIds: selectedIds, token: token)
+                    var updated = existingGroup
+                    var merged = updated.userIds
+                    for id in selectedIds where !merged.contains(id) { merged.append(id) }
+                    updated.userIds = merged
+                    self.onChannelCreated(updated)
+                    self.navigationController?.popViewController(animated: true)
+                } catch {
+                    Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                }
                 return
             }
 

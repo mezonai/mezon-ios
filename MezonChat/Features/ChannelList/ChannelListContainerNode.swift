@@ -12,6 +12,8 @@ struct ChannelListInteraction {
     let onQRTapped: (() -> Void)?
     let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
     let onClearCurrentChannelSelection: (() -> Void)?
+    let isShowEmptyCategoriesEnabled: (() -> Bool)?
+    let onToggleShowEmptyCategories: ((Bool) -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -1142,6 +1144,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             avatarURL: clanLogoURL,
             memberCount: memberCount,
             isCommunity: isCommunity,
+            initialShowEmptyCategories: interaction.isShowEmptyCategoriesEnabled?() ?? false,
             onAction: { [weak self] action in
                 guard let self else { return }
                 if action == .settings {
@@ -1150,6 +1153,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.interaction.onInviteClan?()
                 } else {
                 }
+            },
+            onToggleShowEmptyCategories: { [weak self] value in
+                self?.interaction.onToggleShowEmptyCategories?(value)
             }
         )
         window.present(actionSheet, on: .root, blockInteraction: false, completion: {})

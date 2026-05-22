@@ -103,6 +103,7 @@ final class MessageActionSheetController: ViewController {
     private let isOwnMessage: Bool
     private let canShowDeleteMessage: Bool
     private let forwardAllAvailable: Bool
+    private let canCreateTopicDiscussion: Bool
     private let onAction: (MessageAction) -> Void
     var onDismiss: (() -> Void)?
     var onEmojiReaction: ((String, String) -> Void)?
@@ -117,12 +118,14 @@ final class MessageActionSheetController: ViewController {
         isOwnMessage: Bool,
         canShowDeleteMessage: Bool,
         forwardAllAvailable: Bool = false,
+        canCreateTopicDiscussion: Bool = true,
         onAction: @escaping (MessageAction) -> Void
     ) {
         self.display = display
         self.isOwnMessage = isOwnMessage
         self.canShowDeleteMessage = canShowDeleteMessage
         self.forwardAllAvailable = forwardAllAvailable
+        self.canCreateTopicDiscussion = canCreateTopicDiscussion
         self.onAction = onAction
 
         super.init(navigationBarPresentationData: nil)
@@ -138,7 +141,8 @@ final class MessageActionSheetController: ViewController {
             display: display,
             isOwnMessage: isOwnMessage,
             canShowDeleteMessage: canShowDeleteMessage,
-            forwardAllAvailable: forwardAllAvailable
+            forwardAllAvailable: forwardAllAvailable,
+            canCreateTopicDiscussion: canCreateTopicDiscussion
         )
         let quickReactions = Self.includeQuickReactions(for: display)
         self.displayNode = MessageActionSheetNode(
@@ -211,7 +215,8 @@ final class MessageActionSheetController: ViewController {
         display: ChatMessageDisplay,
         isOwnMessage: Bool,
         canShowDeleteMessage: Bool,
-        forwardAllAvailable: Bool
+        forwardAllAvailable: Bool,
+        canCreateTopicDiscussion: Bool
     ) -> [MessageAction] {
         if display.isFailed {
             return [.resend, .deleteMessage]
@@ -243,7 +248,9 @@ final class MessageActionSheetController: ViewController {
         }
 
         actions.append(.markUnread)
-        actions.append(.topicDiscussion)
+        if canCreateTopicDiscussion {
+            actions.append(.topicDiscussion)
+        }
         if Self.canShowPinAction(display: display) {
             if display.message.isPinned {
                 actions.append(.unpinMessage)

@@ -43,7 +43,10 @@ class ShareViewController: UIViewController {
                 handleImages(attachment: attachment, index: index)
             } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeMovie as String) {
                 handleVideos(attachment: attachment, index: index)
-            } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeFileURL as String) {
+            } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeFileURL as String)
+                || attachment.hasItemConformingToTypeIdentifier("public.file-url")
+                || attachment.hasItemConformingToTypeIdentifier("public.pdf")
+                || attachment.hasItemConformingToTypeIdentifier("com.adobe.pdf") {
                 handleFiles(attachment: attachment, index: index)
             } else if attachment.hasItemConformingToTypeIdentifier(kUTTypeURL as String) {
                 handleUrl(attachment: attachment, index: index)
@@ -139,28 +142,70 @@ class ShareViewController: UIViewController {
     }
 
     private func handleFiles(attachment: NSItemProvider, index: Int) {
-        attachment.loadItem(forTypeIdentifier: kUTTypeFileURL as String, options: nil) { [weak self] data, error in
-            guard let self = self, error == nil, let url = data as? URL else {
+        let typeId = fileTypeIdentifier(for: attachment)
+        attachment.loadItem(forTypeIdentifier: typeId, options: nil) { [weak self] data, error in
+            guard let self = self, error == nil else {
                 self?.itemProcessed()
                 return
             }
 
-            let newName = self.getFileName(from: url)
-            guard let newPath = self.sharedContainerURL()?.appendingPathComponent(newName) else {
+            if let url = data as? URL {
+                self.ingestFileURL(url)
                 self.itemProcessed()
                 return
             }
 
-            if self.copyFile(at: url, to: newPath) {
-                self.sharedMedia.append(SharedMediaFile(
-                    path: newPath.absoluteString,
-                    thumbnail: nil,
-                    duration: nil,
-                    type: .file
-                ))
+            if let fileData = data as? Data {
+                let ext = typeId.contains("pdf") ? "pdf" : "bin"
+                let newName = UUID().uuidString + ".\(ext)"
+                guard let newPath = self.sharedContainerURL()?.appendingPathComponent(newName) else {
+                    self.itemProcessed()
+                    return
+                }
+                do {
+                    try fileData.write(to: newPath)
+                    self.sharedMedia.append(SharedMediaFile(
+                        path: newPath.absoluteString,
+                        thumbnail: nil,
+                        duration: nil,
+                        type: .file
+                    ))
+                } catch {
+                }
+                self.itemProcessed()
+                return
             }
 
             self.itemProcessed()
+        }
+    }
+
+    private func fileTypeIdentifier(for attachment: NSItemProvider) -> String {
+        if attachment.hasItemConformingToTypeIdentifier(kUTTypeFileURL as String) {
+            return kUTTypeFileURL as String
+        }
+        if attachment.hasItemConformingToTypeIdentifier("public.file-url") {
+            return "public.file-url"
+        }
+        if attachment.hasItemConformingToTypeIdentifier("public.pdf") {
+            return "public.pdf"
+        }
+        if attachment.hasItemConformingToTypeIdentifier("com.adobe.pdf") {
+            return "com.adobe.pdf"
+        }
+        return kUTTypeFileURL as String
+    }
+
+    private func ingestFileURL(_ url: URL) {
+        let newName = getFileName(from: url)
+        guard let newPath = sharedContainerURL()?.appendingPathComponent(newName) else { return }
+        if copyFile(at: url, to: newPath) {
+            sharedMedia.append(SharedMediaFile(
+                path: newPath.absoluteString,
+                thumbnail: nil,
+                duration: nil,
+                type: .file
+            ))
         }
     }
 
@@ -273,6 +318,12 @@ class ShareViewController: UIViewController {
     }
 
     private func copyFile(at srcURL: URL, to dstURL: URL) -> Bool {
+        let accessed = srcURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessed {
+                srcURL.stopAccessingSecurityScopedResource()
+            }
+        }
         do {
             if FileManager.default.fileExists(atPath: dstURL.path) {
                 try FileManager.default.removeItem(at: dstURL)

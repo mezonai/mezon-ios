@@ -184,6 +184,13 @@ enum MezonEnvironment {
         }
     }
 
+    var ogpURL: URL {
+        switch self {
+        case .dev:  return URL(string: Secrets.devOgpURL)!
+        case .prod: return URL(string: Secrets.prodOgpURL)!
+        }
+    }
+
     var webRTCIceServerURL: String {
         switch self {
         case .dev: return Secrets.devWebRTCIceServerURL

@@ -351,10 +351,9 @@ final class ReactionPillNode: ASDisplayNode {
         )
         addSubnode(countNode)
 
-        if MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100) != nil
-            || MezonConfig.emojiImageURL(emojiId: reaction.emojiId) != nil
-        {
-            emojiFallbackNode.isHidden = true
+        if Self.canLoadEmojiImage(emojiId: reaction.emojiId) {
+            emojiImageNode.isHidden = true
+            emojiFallbackNode.isHidden = false
             loadEmojiImage()
         } else {
             emojiImageNode.isHidden = true
@@ -417,9 +416,7 @@ final class ReactionPillNode: ASDisplayNode {
             ]
         )
 
-        let hasLoadURL =
-            MezonConfig.emojiResourceURL(emojiId: reaction.emojiId, imgproxyFitSide: 100) != nil
-            || MezonConfig.emojiImageURL(emojiId: reaction.emojiId) != nil
+        let hasLoadURL = Self.canLoadEmojiImage(emojiId: reaction.emojiId)
 
         if hasLoadURL {
             if priorEmojiId != reaction.emojiId {
@@ -430,8 +427,8 @@ final class ReactionPillNode: ASDisplayNode {
                 if emojiImageNode.isNodeLoaded {
                     (emojiImageNode.view as? AnimatedEmojiImageView)?.reset()
                 }
-                emojiFallbackNode.isHidden = true
-                emojiImageNode.isHidden = false
+                emojiFallbackNode.isHidden = false
+                emojiImageNode.isHidden = true
                 loadEmojiImage()
             }
         } else {
@@ -452,6 +449,11 @@ final class ReactionPillNode: ASDisplayNode {
     private func loadEmojiImage() {
         imageTask?.cancel()
         let currentId = emojiId
+        guard Self.canLoadEmojiImage(emojiId: currentId) else {
+            emojiImageNode.isHidden = true
+            emojiFallbackNode.isHidden = false
+            return
+        }
         let cacheKey = "reactionEmoji.\(currentId).100"
         imageTask = ReactionEmojiImageLoader.loadDataBestEffort(
             emojiId: currentId, imgproxyFitSide: 100
@@ -474,6 +476,16 @@ final class ReactionPillNode: ASDisplayNode {
                 self.emojiFallbackNode.isHidden = false
             }
         }
+    }
+
+    private static func canLoadEmojiImage(emojiId: String) -> Bool {
+        let trimmed = emojiId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }) else {
+            return false
+        }
+        return MezonConfig.emojiResourceURL(emojiId: trimmed, imgproxyFitSide: 100) != nil
+            || MezonConfig.emojiImageURL(emojiId: trimmed) != nil
     }
 
     override func layout() {

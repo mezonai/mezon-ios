@@ -83,14 +83,22 @@ struct ParsedEmbed: Equatable {
     let actionRows: [ParsedEmbedActionRow]
 }
 
+struct ParsedOgpPreview: Equatable {
+    let title: String
+    let description: String
+    let imageURL: String
+    let url: String
+}
+
 struct ParsedContent {
     let text: String
     let tokens: [ContentToken]
     let embeds: [ParsedEmbed]
+    let ogpPreviews: [ParsedOgpPreview]
 
-    static let empty = ParsedContent(text: "", tokens: [], embeds: [])
+    static let empty = ParsedContent(text: "", tokens: [], embeds: [], ogpPreviews: [])
 
-    var isPlainText: Bool { tokens.isEmpty }
+    var isPlainText: Bool { tokens.isEmpty && embeds.isEmpty && ogpPreviews.isEmpty }
 
     var isOnlyEmoji: Bool {
         guard !tokens.isEmpty else { return false }
@@ -146,7 +154,7 @@ enum MessageContentParser {
                 tokens.append(ContentToken(start: match.range.location, end: NSMaxRange(match.range), kind: .codeBlock))
             }
         }
-        return ParsedContent(text: text, tokens: tokens, embeds: [])
+        return ParsedContent(text: text, tokens: tokens, embeds: [], ogpPreviews: [])
     }
 
     static func parse(data: Data, mentionsData: Data = Data()) -> ParsedContent {
@@ -156,14 +164,20 @@ enum MessageContentParser {
             return .empty
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ParsedContent(text: str, tokens: [], embeds: [])
+            return ParsedContent(text: str, tokens: [], embeds: [], ogpPreviews: [])
         }
         let text = json["t"] as? String ?? json["text"] as? String ?? ""
         let embeds = parseEmbeds(json["embed"], topLevelComponents: json["components"])
+        let markdownItems = json["mk"] as? [[String: Any]] ?? []
+        let ogpPreviews = parseOgpPreviews(markdownItems, text: text)
         if let embed = json["embed"] {
         }
-        if text.isEmpty && embeds.isEmpty { return ParsedContent(text: "", tokens: [], embeds: []) }
-        guard !text.isEmpty else { return ParsedContent(text: "", tokens: [], embeds: embeds) }
+        if text.isEmpty && embeds.isEmpty && ogpPreviews.isEmpty {
+            return ParsedContent(text: "", tokens: [], embeds: [], ogpPreviews: [])
+        }
+        guard !text.isEmpty else {
+            return ParsedContent(text: "", tokens: [], embeds: embeds, ogpPreviews: ogpPreviews)
+        }
 
         var tokens: [ContentToken] = []
 
@@ -188,16 +202,14 @@ enum MessageContentParser {
             tokens.append(contentsOf: parseHashtags(hg))
         }
 
-        if let mk = json["mk"] as? [[String: Any]] {
-            tokens.append(contentsOf: parseMarkdowns(mk, text: text))
-        }
+        tokens.append(contentsOf: parseMarkdowns(markdownItems, text: text))
 
         tokens.sort { $0.start < $1.start }
 
         let maxLen = text.utf16.count
         tokens = tokens.filter { $0.start >= 0 && $0.end <= maxLen && $0.start < $0.end }
 
-        return ParsedContent(text: text, tokens: tokens, embeds: embeds)
+        return ParsedContent(text: text, tokens: tokens, embeds: embeds, ogpPreviews: ogpPreviews)
     }
 
     private static func parseEmojis(_ items: [[String: Any]]) -> [ContentToken] {
@@ -286,10 +298,11 @@ enum MessageContentParser {
 
     private static func parseMarkdowns(_ items: [[String: Any]], text: String) -> [ContentToken] {
         items.compactMap { item in
+            let type = item["type"] as? String ?? ""
+            if type == "lk_ogp" { return nil }
             guard let s = intValue(item["s"]),
                   let e = intValue(item["e"]),
                   s >= 0, e <= text.utf16.count, s < e else { return nil }
-            let type = item["type"] as? String ?? ""
             let slice = text.mezon_utf16Substring(from: s, to: e)
             let mkChannelId = normalizedMkId(item["channelId"]) ?? normalizedMkId(item["channelid"])
             let mkClanId = normalizedMkId(item["clanId"]) ?? ""
@@ -313,7 +326,7 @@ enum MessageContentParser {
                         kind: .mezonChannelLink(isVoiceLinkMarkdown: true, channelId: pair.channelId, clanId: pair.clanId))
                 }
                 return ContentToken(start: s, end: e, kind: .link)
-            case "lk", "lk_ogp":
+            case "lk":
                 if isMezonChatChannelPageURL(slice),
                    let pair = resolveMezonChannelIds(slice: slice, mkChannelId: mkChannelId, mkClanId: mkClanId) {
                     return ContentToken(
@@ -325,6 +338,50 @@ enum MessageContentParser {
                 return ContentToken(start: s, end: e, kind: .bold)
             }
         }
+    }
+
+    private static func parseOgpPreviews(_ items: [[String: Any]], text: String) -> [ParsedOgpPreview] {
+        items.compactMap { item in
+            guard (item["type"] as? String) == "lk_ogp" else { return nil }
+            let title = stringValue(item["title"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let description = stringValue(item["description"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let image = stringValue(item["image"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !title.isEmpty, !description.isEmpty, !image.isEmpty else { return nil }
+
+            let url = stringValue(item["url"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? ogpURLFromText(text, index: intValue(item["index"]))
+            guard let url, !url.isEmpty, !isGoogleMapLink(url) else { return nil }
+            return ParsedOgpPreview(title: title, description: description, imageURL: image, url: url)
+        }
+    }
+
+    private static func ogpURLFromText(_ text: String, index: Int?) -> String? {
+        guard let index, index >= 0 else { return nil }
+        let ns = text as NSString
+        guard index < ns.length else { return nil }
+        var end = index
+        let stop: Set<unichar> = [0x20, 0x0A, 0x0D, 0x09]
+        while end < ns.length, !stop.contains(ns.character(at: end)) {
+            end += 1
+        }
+        var cleanEnd = end
+        let trailing: Set<unichar> = [0x2C, 0x2E, 0x21, 0x3F, 0x3B, 0x3A]
+        while cleanEnd > index, trailing.contains(ns.character(at: cleanEnd - 1)) {
+            cleanEnd -= 1
+        }
+        guard cleanEnd > index else { return nil }
+        return ns.substring(with: NSRange(location: index, length: cleanEnd - index))
+    }
+
+    private static func isGoogleMapLink(_ link: String) -> Bool {
+        let lower = link.lowercased()
+        guard let components = URLComponents(string: lower), let host = components.host else {
+            return false
+        }
+        if host == "maps.app.goo.gl" { return true }
+        if host == "goo.gl", components.path.hasPrefix("/maps") { return true }
+        if host.hasSuffix("google.com"), components.path.hasPrefix("/maps") { return true }
+        return lower.contains("google.com/maps")
     }
 
     private static func isMezonChatChannelPageURL(_ slice: String) -> Bool {
