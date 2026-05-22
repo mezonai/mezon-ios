@@ -212,7 +212,7 @@ private final class ClanPickerCell: UITableViewCell {
         applyCellTheme()
         boundClanId = clan.clanID
         nameLabel.text = clan.clanName
-        let initial = clan.clanName.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
+        let initial = clan.clanName.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? ""
         initialLabel.text = initial
         checkView.isHidden = !selected
         avatarView.image = nil

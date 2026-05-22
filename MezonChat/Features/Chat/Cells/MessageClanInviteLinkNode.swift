@@ -146,7 +146,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
         let t = UIColor.theme
         let clanName = (info.clan_name?.isEmpty == false) ? (info.clan_name ?? "") : "Clan"
         let initialSource = clanName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initial = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
+        let initial = initialSource.isEmpty ? "" : String(initialSource.prefix(1)).uppercased()
         avatarPlaceholderNode.attributedText = NSAttributedString(
             string: initial,
             attributes: [

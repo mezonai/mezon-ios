@@ -693,7 +693,10 @@ final class SearchViewController: ViewController {
     }
 
     private func effectiveClanId(for channel: Mezon_Api_ChannelDescription) -> Int64 {
-        channel.clanID != 0 ? channel.clanID : clanId
+        if channel.type == MezonConstants.ChannelType.dm.rawValue || channel.type == MezonConstants.ChannelType.group.rawValue {
+            return 0
+        }
+        return channel.clanID != 0 ? channel.clanID : clanId
     }
 
     private func encodeChannelIdPreference(_ id: Int64) -> Data {
@@ -1535,7 +1538,7 @@ final class MemberSearchCellNode: ASCellNode {
         }
 
         let initialSource = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialChar = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
+        let initialChar = initialSource.isEmpty ? "" : String(initialSource.prefix(1)).uppercased()
         let side = Self.avatarSize
         let para = NSMutableParagraphStyle()
         para.alignment = .center

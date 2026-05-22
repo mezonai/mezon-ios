@@ -219,8 +219,7 @@ struct ChatMessageDisplay: Identifiable {
     }
 
     var isAnonymousSender: Bool {
-        senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            .caseInsensitiveCompare("Anonymous") == .orderedSame
+        message.senderId == "\(MezonConstants.anonymousUserId)"
     }
 
     var isSystemMessage: Bool {
@@ -4007,6 +4006,38 @@ final class ChatViewController: ViewController {
         } else if let allUsers = context.engine.clanData.getAllUserClans(),
                   let found = allUsers.users.first(where: { $0.id == userIdInt }) {
             user = found
+        }
+
+        let profile = context.account.postbox.read { $0.getProfile(userId: userId) }
+
+        if user.avatarURL.isEmpty, let av = profile?.avatarUrl, !av.isEmpty {
+            user.avatarURL = av
+        }
+        if user.username.isEmpty, let un = profile?.username, !un.isEmpty {
+            user.username = un
+        }
+        if user.displayName.isEmpty, let dn = profile?.displayName, !dn.isEmpty {
+            user.displayName = dn
+        }
+
+        if user.username.isEmpty || user.displayName.isEmpty {
+            let channelMembers = context.account.postbox.read { tx in
+                tx.getChannelMeta(channelId: channel.channelID)?.members ?? []
+            }
+            if let member = channelMembers.first(where: { $0.userId == userIdInt }) {
+                if user.username.isEmpty, !member.username.isEmpty {
+                    user.username = member.username
+                }
+                if user.displayName.isEmpty {
+                    let memberName = !member.clanNick.isEmpty ? member.clanNick : member.displayName
+                    if !memberName.isEmpty {
+                        user.displayName = memberName
+                    }
+                }
+                if user.avatarURL.isEmpty, !member.clanAvatar.isEmpty {
+                    user.avatarURL = member.clanAvatar
+                }
+            }
         }
 
         view.endEditing(true)
