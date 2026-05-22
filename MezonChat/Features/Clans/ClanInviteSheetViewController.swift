@@ -294,7 +294,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         groupIconNode.tintColor = .white
         groupIconNode.contentMode = .scaleAspectFit
 
-        let initial = name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? "?"
+        let initial = name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? ""
 
         switch avatarMode {
         case .image:

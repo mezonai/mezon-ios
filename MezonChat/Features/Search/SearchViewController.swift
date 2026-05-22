@@ -1538,7 +1538,7 @@ final class MemberSearchCellNode: ASCellNode {
         }
 
         let initialSource = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialChar = initialSource.isEmpty ? "?" : String(initialSource.prefix(1)).uppercased()
+        let initialChar = initialSource.isEmpty ? "" : String(initialSource.prefix(1)).uppercased()
         let side = Self.avatarSize
         let para = NSMutableParagraphStyle()
         para.alignment = .center

@@ -79,7 +79,7 @@ final class WelcomeCellNode: ASDisplayNode {
                 username: dmPeerUsername,
                 priorityName: priorityName,
                 avatarURL: dmAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                placeholderLetter: letter.isEmpty ? "?" : letter
+                placeholderLetter: letter.isEmpty ? "" : letter
             )
             showsUsernameRow = !dmPeerUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         } else {

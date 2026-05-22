@@ -193,11 +193,8 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     private static func profileAvatarInitials(displayName: String?, username: String?) -> String {
-        let d = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let u = username?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let base = !d.isEmpty ? d : u
-        if base.isEmpty { return "?" }
-        return base.first.map { String($0).uppercased() } ?? "?"
+        return u.first.map { String($0).uppercased() } ?? ""
     }
 
     private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {
@@ -756,7 +753,7 @@ final class ProfileContainerNode: ASDisplayNode {
                     } else if !u.displayName.isEmpty {
                         name = u.displayName
                     } else {
-                        name = "?"
+                        name = ""
                     }
                     return (avatarURL: url, displayName: name, username: u.username)
                 }

@@ -56,7 +56,7 @@ final class TextAvatarView: UIView {
         stopSkeletonShimmer()
         currentUsername = username
         let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initial = trimmed.first.map { String($0).uppercased() } ?? "?"
+        let initial = trimmed.first.map { String($0).uppercased() } ?? ""
         let resolvedFontSize = fontSize ?? (currentSize * 0.4)
 
         backgroundColor = UIColor.avatarColor(for: username)
@@ -136,7 +136,7 @@ final class TextAvatarNode: ASDisplayNode {
         stopSkeletonShimmer()
         currentUsername = username
         let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initial = trimmed.first.map { String($0).uppercased() } ?? "?"
+        let initial = trimmed.first.map { String($0).uppercased() } ?? ""
         let resolvedFontSize = fontSize ?? (avatarSize * 0.4)
 
         backgroundColor = UIColor.avatarColor(for: username)

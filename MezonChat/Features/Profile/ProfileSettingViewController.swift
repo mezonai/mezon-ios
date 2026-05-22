@@ -990,7 +990,7 @@ final class ProfileSettingViewController: BaseViewController {
 
     private func avatarInitialText() -> String {
         let trimmed = userName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.first.map { String($0).uppercased() } ?? "?"
+        return trimmed.first.map { String($0).uppercased() } ?? ""
     }
 
     private func showAvatarPlaceholder() {
