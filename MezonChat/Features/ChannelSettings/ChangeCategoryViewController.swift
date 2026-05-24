@@ -241,7 +241,7 @@ final class ChangeCategoryViewController: BaseViewController {
         }
 
         let container = UIView()
-        container.backgroundColor = .mezonBorder
+        container.backgroundColor = UIColor.theme.secondary
         container.layer.cornerRadius = 12
         container.clipsToBounds = true
 
@@ -262,9 +262,9 @@ final class ChangeCategoryViewController: BaseViewController {
             innerStack.addArrangedSubview(row)
             if idx < categories.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.tertiary
+                sep.backgroundColor = UIColor.theme.border
                 innerStack.addArrangedSubview(sep)
-                sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+                sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
         }
 
