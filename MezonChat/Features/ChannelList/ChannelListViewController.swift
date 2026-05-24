@@ -483,6 +483,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: Notification.Name("MezonChannelDeletedLocally"), object: nil)
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
@@ -492,6 +493,12 @@ final class ChannelListViewController: ViewController {
             applyChannelCachePayload(channels: p.channels, meta: p.meta)
             needsReloadPipe.putNext(())
         }
+    }
+
+    @objc private func handleChannelDeletedLocally(_ notification: Notification) {
+        guard let gid = notification.userInfo?["clanId"] as? Int64, gid == self.clanId else { return }
+        guard let cid = notification.userInfo?["channelId"] as? Int64 else { return }
+        removeChannelLocally(channelId: cid)
     }
 
     private func effectiveClanIdForChannelAppsHydration() -> Int64 {
@@ -996,24 +1003,28 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    private func removeChannelLocally(channelId: Int64) {
+        allChannels.removeAll { $0.channelID == channelId }
+        
+        let built = buildChannelCategories(
+            allChannels,
+            categoryDescs: channelListCategoryDescs,
+            favoriteChannelIds: channelListFavoriteIds,
+            collapsedIds: loadCollapsedCategoryIds()
+        )
+        let cats = applyBuiltCategoriesPreservingCollapse(built)
+        categories = cats
+        categoriesPipe.putNext(cats)
+        persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+        needsReloadPipe.putNext(())
+    }
+
     private func handleDeleteChannel(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
-                allChannels.removeAll { $0.channelID == channel.channelID }
-                
-                let built = buildChannelCategories(
-                    allChannels,
-                    categoryDescs: channelListCategoryDescs,
-                    favoriteChannelIds: channelListFavoriteIds,
-                    collapsedIds: loadCollapsedCategoryIds()
-                )
-                let cats = applyBuiltCategoriesPreservingCollapse(built)
-                categories = cats
-                categoriesPipe.putNext(cats)
-                persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
-                needsReloadPipe.putNext(())
+                removeChannelLocally(channelId: channel.channelID)
             } catch {
                 Toast.error(error.localizedDescription)
             }
