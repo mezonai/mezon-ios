@@ -936,7 +936,7 @@ final class MezonHTTPClient {
             avatarValue.value = channelAvatar
             req.channelAvatar = avatarValue
         }
-        if let topic = topic {
+        if let topic = topic, !topic.isEmpty {
             req.topic = topic
         }
         if let categoryId = categoryId {

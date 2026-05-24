@@ -6,6 +6,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let onClose: () -> Void
     private let onSave: (String, String) -> Void
     private let onPermissionsTap: (() -> Void)?
+    private let onChangeCategoryTap: (() -> Void)?
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -14,18 +15,22 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let topicView = UITextView()
     private var saveBtn: UIButton!
     private let initialName: String
+    private let initialTopic: String
 
     init(
         channelName: String,
         channelTopic: String,
         onClose: @escaping () -> Void,
         onSave: @escaping (String, String) -> Void,
-        onPermissionsTap: (() -> Void)? = nil
+        onPermissionsTap: (() -> Void)? = nil,
+        onChangeCategoryTap: (() -> Void)? = nil
     ) {
         self.initialName = channelName
+        self.initialTopic = channelTopic
         self.onClose = onClose
         self.onSave = onSave
         self.onPermissionsTap = onPermissionsTap
+        self.onChangeCategoryTap = onChangeCategoryTap
         super.init()
         backgroundColor = UIColor.theme.primary
 
@@ -118,7 +123,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
 
         let group1 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: nil),
+            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: { [weak self] in
+                self?.onChangeCategoryTap?()
+            }),
             .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
                 self?.onPermissionsTap?()
             }),
@@ -174,6 +181,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             tv.font = .systemFont(ofSize: 16.sf)
             tv.heightAnchor.constraint(equalToConstant: 150.sh).isActive = true
             tv.isScrollEnabled = false
+            tv.delegate = self
         }
         v.addArrangedSubview(input)
 
@@ -185,7 +193,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     @objc private func handleNameChange() {
-        let isChanged = nameField.text != initialName && !(nameField.text?.isEmpty ?? true)
+        let nameChanged = nameField.text != initialName && !(nameField.text?.isEmpty ?? true)
+        let topicChanged = topicView.text != initialTopic
+        let isChanged = nameChanged || topicChanged
         saveBtn.isEnabled = isChanged
         saveBtn.tintColor = isChanged ? .mezonLink : UIColor.theme.textDisabled
     }
@@ -292,4 +302,10 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 private final class ActionRowButton: UIButton {
     var tapHandler: (() -> Void)?
     @objc func handleTap() { tapHandler?() }
+}
+
+extension ChannelSettingsContainerNode: UITextViewDelegate {
+    func textViewDidChange(_ textView: UITextView) {
+        handleNameChange()
+    }
 }

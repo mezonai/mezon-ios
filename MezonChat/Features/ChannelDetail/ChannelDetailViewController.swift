@@ -88,7 +88,8 @@ final class ChannelDetailViewController: ViewController {
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
-        guard let cid = Self.notificationInt64(notification.userInfo?["channelId"]), cid == channel.channelID else {
+        let notifChannelId = Self.notificationInt64(notification.userInfo?["channelId"])
+        guard let cid = notifChannelId, cid == channel.channelID else {
             return
         }
         refreshChannelFromStores()
@@ -163,6 +164,7 @@ final class ChannelDetailViewController: ViewController {
             clanId: clanId,
             channelId: channel.channelID,
             categoryId: channel.categoryID,
+            categoryName: channel.categoryName,
             channelType: t,
             channelPrivate: channel.channelPrivate == 1,
             channelName: channel.channelLabel,

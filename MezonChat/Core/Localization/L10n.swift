@@ -674,7 +674,10 @@ enum L10n {
     }
 
     enum ChannelSetting {
-        static let changeCategory       = "channel.setting.changeCategory"
+        static let changeCategory               = "channel.setting.changeCategory"
+        static let changeCategoryMoveFrom       = "channel.setting.changeCategory.moveFrom"
+        static let changeCategoryConfirmContent = "channel.setting.changeCategory.confirmContent"
+        static let changeCategoryEmpty          = "channel.setting.changeCategory.empty"
         static let permissions          = "channel.setting.permissions"
         static let quickAction          = "channel.setting.quickAction"
         static let banList              = "channel.setting.banList"
@@ -1457,6 +1460,9 @@ extension L10n {
         "notifSettings.nothing":        "Nothing",
 
         "channel.setting.changeCategory":       "Change Category",
+        "channel.setting.changeCategory.moveFrom": "Move from %@ to",
+        "channel.setting.changeCategory.confirmContent": "Are you sure you want to move %channel% to %category%?",
+        "channel.setting.changeCategory.empty": "No other categories to move to",
         "channel.setting.permissions":          "Channel Permissions",
         "channel.setting.quickAction":          "Quick Action",
         "channel.setting.banList":              "Ban List",
@@ -2323,6 +2329,9 @@ extension L10n {
         "notifSettings.nothing":        "Không có gì",
 
         "channel.setting.changeCategory":       "Thay đổi danh mục",
+        "channel.setting.changeCategory.moveFrom": "Chuyển từ %@ tới",
+        "channel.setting.changeCategory.confirmContent": "Bạn có chắc muốn chuyển %channel% sang %category% không?",
+        "channel.setting.changeCategory.empty": "Không có danh mục nào khác để chuyển đến",
         "channel.setting.permissions":          "Quyền hạn kênh",
         "channel.setting.quickAction":          "Hành động nhanh",
         "channel.setting.banList":              "Danh sách chặn",

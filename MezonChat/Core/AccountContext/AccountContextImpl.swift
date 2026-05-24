@@ -1068,6 +1068,53 @@ final class AccountContextImpl: AccountContext {
                 subscribeSocketRoomsForMergedChannel(desc)
             }
 
+        case .channelUpdated(let ev):
+            guard ev.clanID != 0, ev.channelID != 0 else { break }
+            let clanId = ev.clanID
+            let channelId = ev.channelID
+            let newName = ev.channelLabel.isEmpty ? nil : ev.channelLabel
+            let newTopic = ev.topic.isEmpty ? nil : ev.topic   
+            let newCategoryId: Int64? = ev.categoryID != 0 ? ev.categoryID : nil
+            var newCategoryName: String? = nil
+            if let catId = newCategoryId,
+               let blob = account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+               !blob.isEmpty {
+                let arr = ChannelPreferenceListCodec.decode(blob)
+                if let existing = arr.first(where: { $0.channelID == channelId }), existing.categoryID == catId {
+                    newCategoryName = existing.categoryName.isEmpty ? nil : existing.categoryName
+                }
+            }
+            
+            account.postbox.write { tx in
+                tx.updateChannelDescription(
+                    clanId: clanId,
+                    channelId: channelId,
+                    name: newName,
+                    topic: newTopic,   
+                    categoryId: newCategoryId,
+                    categoryName: newCategoryName
+                )
+            }
+            
+            if let blob = account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+               !blob.isEmpty {
+                var arr = ChannelPreferenceListCodec.decode(blob)
+                if let idx = arr.firstIndex(where: { $0.channelID == channelId }) {
+                    if let newName { arr[idx].channelLabel = newName }
+                    if let newTopic { arr[idx].topic = newTopic }  
+                    if let catId = newCategoryId { arr[idx].categoryID = catId }
+                    if let data = ChannelPreferenceListCodec.encode(arr) {
+                        account.postbox.setPreferenceDataSync(
+                            key: PreferencesKeys.channelList(clanId: clanId), value: data)
+                    }
+                }
+            }
+            NotificationCenter.default.post(
+                name: .mezonChannelDescriptionDidUpdate,
+                object: nil,
+                userInfo: ["clanId": clanId, "channelId": channelId]
+            )
+
         case .notiUserChannel(let m):
             let record = NotificationSettingRecord(from: m)
             account.postbox.write { tx in

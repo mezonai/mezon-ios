@@ -6,7 +6,8 @@ final class ChannelSettingsViewController: BaseViewController {
     private let context: AccountContext
     private let clanId: Int64
     private let channelId: Int64
-    private let categoryId: Int64
+    private var categoryId: Int64
+    private var categoryName: String
     private let channelType: Int32
     private let channelPrivate: Bool
     private let initialName: String
@@ -19,6 +20,7 @@ final class ChannelSettingsViewController: BaseViewController {
         clanId: Int64,
         channelId: Int64,
         categoryId: Int64,
+        categoryName: String = "",
         channelType: Int32 = 1,
         channelPrivate: Bool = false,
         channelName: String,
@@ -28,6 +30,7 @@ final class ChannelSettingsViewController: BaseViewController {
         self.clanId = clanId
         self.channelId = channelId
         self.categoryId = categoryId
+        self.categoryName = categoryName
         self.channelType = channelType
         self.channelPrivate = channelPrivate
         self.initialName = channelName
@@ -49,6 +52,9 @@ final class ChannelSettingsViewController: BaseViewController {
             },
             onPermissionsTap: { [weak self] in
                 self?.openChannelPermissions()
+            },
+            onChangeCategoryTap: { [weak self] in
+                self?.openChangeCategory()
             }
         )
     }
@@ -64,9 +70,30 @@ final class ChannelSettingsViewController: BaseViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    private func openChangeCategory() {
+        let vc = ChangeCategoryViewController(
+            context: context,
+            clanId: clanId,
+            channelId: channelId,
+            currentCategoryId: categoryId,
+            currentCategoryName: categoryName,
+            channelLabel: initialName,
+            channelTopic: initialTopic
+        )
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         settingsNode.applyTheme()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if let ch = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) {
+            categoryId = ch.categoryID
+            categoryName = ch.categoryName
+        }
     }
 
     private func saveSettings(name: String, topic: String) {
@@ -76,8 +103,8 @@ final class ChannelSettingsViewController: BaseViewController {
                 try await self.context.engine.channels.updateChannelDescription(
                     clanId: self.clanId,
                     channelId: self.channelId,
-                    name: name == self.initialName ? nil : name,
-                    topic: topic == self.initialTopic ? nil : topic,
+                    name: name,  
+                    topic: topic, 
                     categoryId: self.categoryId,
                     token: token
                 )
@@ -86,8 +113,11 @@ final class ChannelSettingsViewController: BaseViewController {
                     self.navigationController?.popViewController(animated: true)
                 }
             } catch {
-
+                await MainActor.run {
+                    Toast.error(error.localizedDescription)
+                }
             }
         }
     }
 }
+
