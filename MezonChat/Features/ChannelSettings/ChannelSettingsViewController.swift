@@ -44,6 +44,7 @@ final class ChannelSettingsViewController: BaseViewController {
         displayNode = ChannelSettingsContainerNode(
             channelName: initialName,
             channelTopic: initialTopic,
+            isThread: channelType == MezonConstants.ChannelType.thread.rawValue,
             onClose: { [weak self] in
                 self?.navigationController?.popViewController(animated: true)
             },

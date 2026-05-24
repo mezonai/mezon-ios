@@ -16,10 +16,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private var saveBtn: UIButton!
     private let initialName: String
     private let initialTopic: String
+    private let isThread: Bool
+    private let errorLabel = UILabel()
 
     init(
         channelName: String,
         channelTopic: String,
+        isThread: Bool,
         onClose: @escaping () -> Void,
         onSave: @escaping (String, String) -> Void,
         onPermissionsTap: (() -> Void)? = nil,
@@ -27,6 +30,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     ) {
         self.initialName = channelName
         self.initialTopic = channelTopic
+        self.isThread = isThread
         self.onClose = onClose
         self.onSave = onSave
         self.onPermissionsTap = onPermissionsTap
@@ -86,6 +90,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         saveBtn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .medium)
         saveBtn.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
         saveBtn.isEnabled = false
+        saveBtn.alpha = 0.5
         saveBtn.tintColor = t.textDisabled
         header.addSubview(saveBtn)
         saveBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -187,17 +192,37 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if input === nameField {
             nameField.addTarget(self, action: #selector(handleNameChange), for: .editingChanged)
+            
+            errorLabel.textColor = .mezonError
+            errorLabel.font = .systemFont(ofSize: 12.sf)
+            errorLabel.numberOfLines = 0
+            errorLabel.isHidden = true
+            errorLabel.text = isThread ? L(L10n.ChannelSetting.threadNameValidate) : L(L10n.ChannelSetting.channelNameValidate)
+            v.addArrangedSubview(errorLabel)
         }
 
         return v
     }
 
     @objc private func handleNameChange() {
-        let nameChanged = nameField.text != initialName && !(nameField.text?.isEmpty ?? true)
+        let currentText = nameField.text ?? ""
+        let pattern = isThread ? "^[\\w\\-]{1,65}$" : "^[\\w\\-]{1,64}$"
+        let isValid = currentText.range(of: pattern, options: .regularExpression) != nil
+
+        if !isValid {
+            errorLabel.isHidden = false
+        } else {
+            errorLabel.isHidden = true
+        }
+
+        let nameChanged = currentText != initialName
         let topicChanged = topicView.text != initialTopic
         let isChanged = nameChanged || topicChanged
-        saveBtn.isEnabled = isChanged
-        saveBtn.tintColor = isChanged ? .mezonLink : UIColor.theme.textDisabled
+
+        let canSave = isChanged && isValid
+        saveBtn.isEnabled = canSave
+        saveBtn.alpha = canSave ? 1.0 : 0.5
+        saveBtn.tintColor = canSave ? .mezonLink : UIColor.theme.textDisabled
     }
 
     private func createGroup(actions: [SettingAction]) -> UIView {
