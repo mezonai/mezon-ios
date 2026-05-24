@@ -94,7 +94,7 @@ final class ChannelSettingsViewController: BaseViewController {
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channelId, clanId: clanId, token: token)
                 NotificationCenter.default.post(
-                    name: Notification.Name("MezonChannelDeletedLocally"),
+                    name: .mezonChannelDeletedLocally,
                     object: nil,
                     userInfo: ["clanId": clanId, "channelId": channelId]
                 )

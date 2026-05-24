@@ -49,4 +49,5 @@ extension Notification.Name {
     static let mezonVoIPTokenDidUpdate = Notification.Name("mezon.voip.tokenUpdated")
     static let mezonVoIPMinimalCallChromeActivated = Notification.Name("mezon.voip.minimalCallChromeActivated")
     static let mezonNotificationSettingDidUpdate = Notification.Name("mezon.notification.settingDidUpdate")
+    static let mezonChannelDeletedLocally = Notification.Name("MezonChannelDeletedLocally")
 }

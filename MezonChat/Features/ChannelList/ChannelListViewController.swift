@@ -483,7 +483,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: Notification.Name("MezonChannelDeletedLocally"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
