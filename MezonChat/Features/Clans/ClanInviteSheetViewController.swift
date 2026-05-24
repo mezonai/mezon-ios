@@ -241,7 +241,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
 
     private let avatarBgNode = ASDisplayNode()
     private let avatarNode = ASNetworkImageNode()
-    private let initialNode = ASTextNode()
+    private let textAvatarNode: TextAvatarNode
     private let groupIconNode = ASImageNode()
     private let nameNode = ASTextNode()
     private let inviteButtonNode = ASButtonNode()
@@ -271,6 +271,8 @@ private final class ClanInviteFriendCellNode: ASCellNode {
             avatarMode = .initial
         }
 
+        self.textAvatarNode = TextAvatarNode(username: name, size: 40.swh)
+
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
@@ -278,7 +280,6 @@ private final class ClanInviteFriendCellNode: ASCellNode {
 
         avatarBgNode.isLayerBacked = true
         avatarNode.isLayerBacked = true
-        initialNode.isLayerBacked = true
         groupIconNode.isLayerBacked = true
         nameNode.isLayerBacked = true
 
@@ -294,8 +295,6 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         groupIconNode.tintColor = .white
         groupIconNode.contentMode = .scaleAspectFit
 
-        let initial = name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() } ?? ""
-
         switch avatarMode {
         case .image:
             let px = Int(avatarSize * UIScreen.main.scale)
@@ -305,17 +304,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         case .group:
             avatarBgNode.backgroundColor = UIColor(red: 0.96, green: 0.55, blue: 0.16, alpha: 1)
         case .initial:
-            avatarBgNode.backgroundColor = UIColor.theme.border
-            let para = NSMutableParagraphStyle()
-            para.alignment = .center
-            initialNode.attributedText = NSAttributedString(
-                string: initial,
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
-                    .foregroundColor: UIColor.theme.textDisabled,
-                    .paragraphStyle: para,
-                ]
-            )
+            break
         }
 
         nameNode.maximumNumberOfLines = 1
@@ -390,18 +379,18 @@ private final class ClanInviteFriendCellNode: ASCellNode {
 
         avatarBgNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
 
-        let avatarOverlay: ASLayoutElement
+        let avatarComposite: ASLayoutElement
         switch avatarMode {
         case .image:
             avatarNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
-            avatarOverlay = avatarNode
+            avatarComposite = ASOverlayLayoutSpec(child: avatarBgNode, overlay: avatarNode)
         case .group:
             groupIconNode.style.preferredSize = CGSize(width: 20.swh, height: 20.swh)
-            avatarOverlay = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: groupIconNode)
+            let overlay = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: groupIconNode)
+            avatarComposite = ASOverlayLayoutSpec(child: avatarBgNode, overlay: overlay)
         case .initial:
-            avatarOverlay = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: initialNode)
+            avatarComposite = textAvatarNode
         }
-        let avatarComposite = ASOverlayLayoutSpec(child: avatarBgNode, overlay: avatarOverlay)
         avatarComposite.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
 
         nameNode.style.flexShrink = 1

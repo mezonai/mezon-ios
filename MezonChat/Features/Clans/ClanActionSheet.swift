@@ -406,32 +406,22 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
 
         let avatarSize: CGFloat = 64.swh
-        let avatarContainer = UIView()
-        avatarContainer.frame = CGRect(x: padH, y: y, width: avatarSize, height: avatarSize)
-        avatarContainer.backgroundColor = colorFor(name: clanName)
-        avatarContainer.layer.cornerRadius = 12.swh
-        avatarContainer.clipsToBounds = true
-        scrollView.addSubview(avatarContainer)
-
-        let initialsLabel = UILabel()
-        initialsLabel.text = initials(for: clanName)
-        initialsLabel.font = .systemFont(ofSize: 24.sf, weight: .bold)
-        initialsLabel.textColor = .white
-        initialsLabel.textAlignment = .center
-        initialsLabel.frame = avatarContainer.bounds
-        avatarContainer.addSubview(initialsLabel)
+        let textAvatarView = TextAvatarView(username: clanName, size: avatarSize, fontSize: 24.sf)
+        textAvatarView.frame = CGRect(x: padH, y: y, width: avatarSize, height: avatarSize)
+        textAvatarView.layer.cornerRadius = 12.swh
+        scrollView.addSubview(textAvatarView)
 
         let avatarImageView = UIImageView()
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
-        avatarImageView.frame = avatarContainer.bounds
-        avatarContainer.addSubview(avatarImageView)
+        avatarImageView.frame = textAvatarView.bounds
+        textAvatarView.addSubview(avatarImageView)
 
         if !avatarURL.isEmpty {
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) { [weak avatarImageView, weak initialsLabel] image in
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) { [weak avatarImageView, weak textAvatarView] image in
                 if let image = image {
                     avatarImageView?.image = image
-                    initialsLabel?.isHidden = true
+                    textAvatarView?.showImageMode()
                 }
             }
         }
@@ -741,23 +731,6 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         return v
     }
 
-    private func initials(for name: String) -> String {
-        let words = name.split(separator: " ").prefix(2)
-        return words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-    }
-
-    private func colorFor(name: String) -> UIColor {
-        let colors: [UIColor] = [
-            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
-            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
-            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
-            UIColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),
-            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
-            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
-        ]
-        let hash = abs(name.hashValue)
-        return colors[hash % colors.count]
-    }
 }
 
 private final class ClanActionButton: UIButton {
