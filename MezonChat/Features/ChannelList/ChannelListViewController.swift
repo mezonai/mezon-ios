@@ -1050,6 +1050,7 @@ final class ChannelListViewController: ViewController {
             clanId: channel.clanID,
             channelId: channel.channelID,
             categoryId: channel.categoryID,
+            categoryName: channel.categoryName,
             channelType: channel.type,
             channelPrivate: channel.channelPrivate == 1,
             channelName: channel.channelLabel,
