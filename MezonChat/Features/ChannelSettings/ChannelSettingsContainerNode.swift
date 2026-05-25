@@ -206,8 +206,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     @objc private func handleNameChange() {
         let currentText = nameField.text ?? ""
-        let pattern = isThread ? "^[\\w\\-]{1,65}$" : "^[\\w\\-]{1,64}$"
-        let isValid = currentText.range(of: pattern, options: .regularExpression) != nil
+        let pattern = isThread 
+            ? "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,65}$" 
+            : "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
+        var isValid = currentText.range(of: pattern, options: .regularExpression) != nil
+        if currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            isValid = false
+        }
 
         if !isValid {
             errorLabel.isHidden = false
@@ -311,7 +316,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     @objc private func handleClose() { onClose() }
-    @objc private func handleSave() { onSave(nameField.text ?? "", topicView.text ?? "") }
+    @objc private func handleSave() { 
+        let trimmedName = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTopic = (topicView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        onSave(trimmedName, trimmedTopic) 
+    }
 
     func applyTheme() {
         backgroundColor = UIColor.theme.primary

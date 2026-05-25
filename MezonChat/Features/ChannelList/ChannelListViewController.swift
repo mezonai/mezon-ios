@@ -23,6 +23,7 @@ struct ChannelListState: Equatable {
             && lhs.voiceUsersByChannel == rhs.voiceUsersByChannel
             && zip(lhs.categories, rhs.categories).allSatisfy({
                 $0.id == $1.id && $0.isCollapsed == $1.isCollapsed
+                    && $0.name == $1.name
                     && $0.channels.count == $1.channels.count
                     && ($0.favoriteFlatChannels?.count ?? 0) == ($1.favoriteFlatChannels?.count ?? 0)
             })
@@ -32,6 +33,8 @@ struct ChannelListState: Equatable {
             && $0.countMessUnread == $1.countMessUnread
             && $0.lastSentMessage.timestampSeconds == $1.lastSentMessage.timestampSeconds
             && $0.lastSeenMessage.timestampSeconds == $1.lastSeenMessage.timestampSeconds
+            && $0.channelLabel == $1.channelLabel
+            && $0.topic == $1.topic
         }
     }
 }
