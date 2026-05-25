@@ -191,7 +191,8 @@ final class ChannelDetailViewController: ViewController {
             channelId: channel.channelID,
             clanId: channel.clanID,
             context: self.context,
-            isThread: isThread
+            isThread: isThread,
+            isGroupDirectMessage: isGroupDirectMessage
         ) { [weak self] duration in
             self?.handleMuteChannel(muteTimeSeconds: duration.seconds)
         }
@@ -519,9 +520,10 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
     }
 }
 
-private final class GroupDMCustomizeViewController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+private final class GroupDMCustomizeViewController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UITextFieldDelegate {
 
     private static let maxAvatarBytes = 10 * 1024 * 1024
+    private static let maxGroupNameLength = 64
 
     private let context: AccountContext
     private let originalChannel: Mezon_Api_ChannelDescription
@@ -532,6 +534,9 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     private var selectedImageData: Data?
     private var avatarLoadTask: URLSessionDataTask?
     private var isSaving = false
+    private var trimmedGroupName: String {
+        (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private let titleLabel = UILabel()
     private let avatarButton = UIButton(type: .system)
@@ -539,6 +544,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     private let avatarPlaceholderImageView = UIImageView()
     private let removeAvatarButton = UIButton(type: .system)
     private let nameLabel = UILabel()
+    private let nameCounterLabel = UILabel()
     private let nameField = UITextField()
     private let cancelButton = UIButton(type: .system)
     private let saveButton = UIButton(type: .system)
@@ -617,6 +623,13 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         nameLabel.textColor = UIColor.theme.text
         nameLabel.font = .systemFont(ofSize: 13.sf, weight: .semibold)
 
+        nameCounterLabel.translatesAutoresizingMaskIntoConstraints = false
+        nameCounterLabel.textColor = UIColor.theme.textDisabled
+        nameCounterLabel.font = .systemFont(ofSize: 12.sf, weight: .medium)
+        nameCounterLabel.textAlignment = .right
+        nameCounterLabel.setContentHuggingPriority(.required, for: .horizontal)
+        nameCounterLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         nameField.translatesAutoresizingMaskIntoConstraints = false
         nameField.text = originalChannel.channelLabel
         nameField.placeholder = L(L10n.ChannelDetail.groupName)
@@ -630,6 +643,8 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         nameField.rightViewMode = .always
         nameField.clearButtonMode = .whileEditing
         nameField.returnKeyType = .done
+        nameField.delegate = self
+        nameField.addTarget(self, action: #selector(nameFieldEditingChanged), for: .editingChanged)
         nameField.addTarget(self, action: #selector(nameFieldDidReturn), for: .editingDidEndOnExit)
 
         cancelButton.translatesAutoresizingMaskIntoConstraints = false
@@ -643,6 +658,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.setTitle(L(L10n.Common.save), for: .normal)
         saveButton.setTitleColor(.white, for: .normal)
+        saveButton.setTitleColor(.white.withAlphaComponent(0.65), for: .disabled)
         saveButton.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         saveButton.backgroundColor = UIColor.theme.bgViolet
         saveButton.layer.cornerRadius = 10.sf
@@ -664,10 +680,16 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         buttonStack.spacing = 12.sw
         buttonStack.distribution = .fillEqually
 
+        let nameHeaderStack = UIStackView(arrangedSubviews: [nameLabel, nameCounterLabel])
+        nameHeaderStack.translatesAutoresizingMaskIntoConstraints = false
+        nameHeaderStack.axis = .horizontal
+        nameHeaderStack.alignment = .center
+        nameHeaderStack.spacing = 8.sw
+
         let contentStack = UIStackView(arrangedSubviews: [
             titleLabel,
             avatarStack,
-            nameLabel,
+            nameHeaderStack,
             nameField,
             buttonStack
         ])
@@ -675,7 +697,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         contentStack.axis = .vertical
         contentStack.spacing = 14.sh
         contentStack.setCustomSpacing(18.sh, after: titleLabel)
-        contentStack.setCustomSpacing(8.sh, after: nameLabel)
+        contentStack.setCustomSpacing(8.sh, after: nameHeaderStack)
 
         view.addSubview(contentStack)
         saveButton.addSubview(activityIndicator)
@@ -716,6 +738,8 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
             activityIndicator.centerXAnchor.constraint(equalTo: saveButton.centerXAnchor),
             activityIndicator.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
         ])
+
+        updateSaveButtonState()
     }
 
     private func updateAvatarPreview() {
@@ -731,12 +755,12 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         }
 
         let trimmed = avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        removeAvatarButton.isHidden = trimmed.isEmpty
+        removeAvatarButton.isHidden = trimmed.isEmpty || trimmed.contains("avatar-group.png")
         guard !trimmed.isEmpty, !trimmed.contains("avatar-group.png") else {
             avatarImageView.image = nil
             avatarImageView.isHidden = true
             avatarPlaceholderImageView.isHidden = false
-            avatarButton.backgroundColor = UIColor.theme.bgViolet
+            avatarButton.backgroundColor = .groupDMDefaultAvatar
             return
         }
 
@@ -751,7 +775,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         avatarImageView.image = nil
         avatarImageView.isHidden = true
         avatarPlaceholderImageView.isHidden = false
-        avatarButton.backgroundColor = UIColor.theme.bgViolet
+        avatarButton.backgroundColor = .groupDMDefaultAvatar
         avatarLoadTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self, let image else { return }
             self.avatarImageView.image = image
@@ -780,15 +804,48 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         view.endEditing(true)
     }
 
+    @objc private func nameFieldEditingChanged() {
+        updateSaveButtonState()
+    }
+
+    func textField(
+        _ textField: UITextField,
+        shouldChangeCharactersIn range: NSRange,
+        replacementString string: String
+    ) -> Bool {
+        guard textField === nameField else { return true }
+        let current = textField.text ?? ""
+        guard let stringRange = Range(range, in: current) else { return false }
+        let proposed = current.replacingCharacters(in: stringRange, with: string)
+        if proposed.count <= Self.maxGroupNameLength || proposed.count < current.count {
+            return true
+        }
+
+        let keptPrefixCount = current.distance(from: current.startIndex, to: stringRange.lowerBound)
+        let keptSuffixCount = current.distance(from: stringRange.upperBound, to: current.endIndex)
+        let remaining = Self.maxGroupNameLength - keptPrefixCount - keptSuffixCount
+        guard remaining > 0 else { return false }
+
+        let allowed = String(string.prefix(remaining))
+        textField.text = current.replacingCharacters(in: stringRange, with: allowed)
+        nameFieldEditingChanged()
+        return false
+    }
+
     @objc private func cancelTapped() {
         dismiss(animated: true)
     }
 
     @objc private func saveTapped() {
         guard !isSaving else { return }
-        let name = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedGroupName
         guard !name.isEmpty else {
+            updateSaveButtonState()
             Toast.error(L(L10n.ChannelDetail.groupNameRequired))
+            return
+        }
+        guard name.count <= Self.maxGroupNameLength else {
+            updateSaveButtonState()
             return
         }
 
@@ -844,11 +901,29 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         avatarButton.isEnabled = !saving
         removeAvatarButton.isEnabled = !saving
         saveButton.setTitle(saving ? nil : L(L10n.Common.save), for: .normal)
+        updateSaveButtonState()
         if saving {
             activityIndicator.startAnimating()
         } else {
             activityIndicator.stopAnimating()
         }
+    }
+
+    private func updateSaveButtonState() {
+        updateNameCounter()
+        let enabled = !trimmedGroupName.isEmpty && trimmedGroupName.count <= Self.maxGroupNameLength && !isSaving
+        saveButton.isEnabled = enabled
+        saveButton.backgroundColor = (enabled || isSaving)
+            ? UIColor.theme.bgViolet
+            : UIColor.theme.textDisabled.withAlphaComponent(0.45)
+    }
+
+    private func updateNameCounter() {
+        let count = nameField.text?.count ?? 0
+        nameCounterLabel.text = "\(count)/\(Self.maxGroupNameLength)"
+        nameCounterLabel.textColor = count > Self.maxGroupNameLength
+            ? UIColor.systemRed
+            : UIColor.theme.textDisabled
     }
 
     private func uploadSelectedAvatarIfNeeded(token: String) async throws -> String {

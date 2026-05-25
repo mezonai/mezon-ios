@@ -31,7 +31,6 @@ final class WelcomeCellNode: ASDisplayNode {
     private static let dmAvatarSize: CGFloat = 64
     private static let groupDmSize: CGFloat = 50
     private static let groupDmIconInner: CGFloat = 22
-    private static let groupDmPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
 
     private var cachedTitleSize: CGSize = .zero
     private var cachedUsernameSize: CGSize = .zero
@@ -201,7 +200,7 @@ final class WelcomeCellNode: ASDisplayNode {
         case let .dmGroup(label, groupAvatarURL):
             groupDmOuterNode.cornerRadius = Self.groupDmSize / 2
             groupDmOuterNode.clipsToBounds = true
-            groupDmOuterNode.backgroundColor = Self.groupDmPlaceholderOrange
+            groupDmOuterNode.backgroundColor = .groupDMDefaultAvatar
             addSubnode(groupDmOuterNode)
 
             groupDmOuterNode.addSubnode(groupDmImageNode)

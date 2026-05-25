@@ -592,9 +592,33 @@ final class ChatContainerNode: ASDisplayNode {
         return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
+    private static func welcomeFingerprint(_ state: ChatState) -> String {
+        [
+            state.channelLabel,
+            "\(state.channelType)",
+            state.isPrivate ? "1" : "0",
+            state.isAgeRestricted ? "1" : "0",
+            state.isDM ? "1" : "0",
+            state.dmPeerUsername,
+            state.dmPeerDisplayName,
+            state.dmAvatarURL,
+            state.dmGroupAvatarURL,
+        ].joined(separator: "|")
+    }
+
     private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
         let newItems = buildItems(from: new)
         var updateItems: [ListViewUpdateItem] = []
+
+        if Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new),
+           let welcomeIndex = newItems.firstIndex(where: { $0 is ChatWelcomeItem }) {
+            updateItems.append(ListViewUpdateItem(
+                index: welcomeIndex,
+                previousIndex: welcomeIndex,
+                item: newItems[welcomeIndex],
+                directionHint: nil
+            ))
+        }
 
         var oldLookup: [String: (reactions: [ParsedReaction], sendingState: SendingState, fingerprint: String)] = [:]
         for msg in old.messages {

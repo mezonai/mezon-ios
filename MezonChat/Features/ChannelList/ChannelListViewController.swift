@@ -1309,6 +1309,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.set(nil)
         self.clanId = clanId
         self.clanName = clanName
+        emptyChannelRetryCountByClanId[clanId] = 0
         self.showEmptyCategoriesEnabled = loadShowEmptyCategoriesPreference(clanId: clanId)
         channelsLoadedPromise.set(false)
         errorMessage = nil
@@ -1378,6 +1379,8 @@ final class ChannelListViewController: ViewController {
     private var inflightChannelFetchClanId: Int64 = 0
     private var lastChannelFetchAtByClanId: [Int64: Date] = [:]
     private let channelFetchCooldown: TimeInterval = 5.0
+    private var emptyChannelRetryCountByClanId: [Int64: Int] = [:]
+    private let maxEmptyChannelFetchRetries = 4
 
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
@@ -1439,7 +1442,69 @@ final class ChannelListViewController: ViewController {
                         Task { @MainActor [weak self] in
                             await self?.applyChannelBadgeCounts(clanId: clanId)
                         }
+                        if !categoryDescs.isEmpty {
+                            self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                        }
                         self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        return
+                    }
+                    if channels.isEmpty, let recoveredChannels = self.recoveryChannelsForEmptyFetch(clanId: clanId) {
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            guard self.isCurrentSessionAlive else {
+                                self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                                return
+                            }
+                            guard self.clanId == clanId else {
+                                self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                                return
+                            }
+                            let resolvedCategoryDescs = categoryDescs.isEmpty ? self.channelListCategoryDescs : categoryDescs
+                            let resolvedFavoriteIds = favoriteIds.isEmpty ? self.channelListFavoriteIds : favoriteIds
+                            let merged = await self.fetchMergedChannelsWithBadgeCounts(base: recoveredChannels, clanId: clanId)
+                            self.channelListCategoryDescs = resolvedCategoryDescs
+                            self.channelListFavoriteIds = resolvedFavoriteIds
+                            self.allChannels = merged
+                            let storedCollapsed = self.loadCollapsedCategoryIds()
+                            let built = buildChannelCategories(
+                                merged,
+                                categoryDescs: resolvedCategoryDescs,
+                                favoriteChannelIds: resolvedFavoriteIds,
+                                collapsedIds: storedCollapsed
+                            )
+                            let cats = self.applyBuiltCategoriesPreservingCollapse(built)
+                            self.categories = cats
+                            self.channelsLoadedPromise.set(true)
+                            self.syncSelectedChannelFromStoredPreferences()
+                            self.categoriesPipe.putNext(cats)
+                            self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
+                            self.persistFullChannelListCache(
+                                clanId: clanId,
+                                channels: merged,
+                                categoryDescs: resolvedCategoryDescs,
+                                favoriteIds: resolvedFavoriteIds,
+                                categories: cats
+                            )
+                            self.channelListNode.endRefreshing()
+                            self.isLoadingPipe.putNext(false)
+                            self.needsReloadPipe.putNext(())
+                            self.postClanSidebarUnreadDerivedFromCurrentChannels()
+                            self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                            self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        }
+                        return
+                    }
+                    if channels.isEmpty {
+                        self.channelsLoadedPromise.set(!self.allChannels.isEmpty)
+                        self.channelListNode.endRefreshing()
+                        self.isLoadingPipe.putNext(false)
+                        self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
+                        self.needsReloadPipe.putNext(())
+                        self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                        self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        if self.allChannels.isEmpty {
+                            self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
+                        }
                         return
                     }
                     Task { @MainActor [weak self] in
@@ -1456,6 +1521,7 @@ final class ChannelListViewController: ViewController {
                         self.channelListCategoryDescs = categoryDescs
                         self.channelListFavoriteIds = favoriteIds
                         self.allChannels = merged
+                        self.emptyChannelRetryCountByClanId[clanId] = 0
                         let storedCollapsed = self.loadCollapsedCategoryIds()
                         let built = buildChannelCategories(
                             merged,
@@ -1501,6 +1567,23 @@ final class ChannelListViewController: ViewController {
     private func clearInflightChannelFetchIfMatches(clanId: Int64) {
         if inflightChannelFetchClanId == clanId {
             inflightChannelFetchClanId = 0
+        }
+    }
+
+    private func scheduleEmptyChannelRetryIfNeeded(clanId: Int64) {
+        guard clanId != 0, clanId == self.clanId, self.allChannels.isEmpty,
+              NetworkMonitor.shared.isConnected else { return }
+        let attempt = emptyChannelRetryCountByClanId[clanId, default: 0]
+        guard attempt < maxEmptyChannelFetchRetries else { return }
+        emptyChannelRetryCountByClanId[clanId] = attempt + 1
+        let delayNanos = UInt64(700_000_000) * UInt64(attempt + 1)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard let self else { return }
+            guard self.clanId == clanId, self.allChannels.isEmpty,
+                  self.isCurrentSessionAlive, NetworkMonitor.shared.isConnected else { return }
+            self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+            self.fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
         }
     }
 
@@ -1742,10 +1825,22 @@ final class ChannelListViewController: ViewController {
     }
 
     func updateChannels(_ channels: [Mezon_Api_ChannelDescription]) {
-        allChannels = channels
+        let resolvedChannels: [Mezon_Api_ChannelDescription]
+        if channels.isEmpty {
+            if let recoveredChannels = recoveryChannelsForEmptyFetch(clanId: clanId) {
+                resolvedChannels = recoveredChannels
+                lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+            } else {
+                if !channelListCategoryDescs.isEmpty { return }
+                resolvedChannels = channels
+            }
+        } else {
+            resolvedChannels = channels
+        }
+        allChannels = resolvedChannels
         let storedCollapsed = loadCollapsedCategoryIds()
         let built = buildChannelCategories(
-            channels,
+            resolvedChannels,
             categoryDescs: channelListCategoryDescs,
             favoriteChannelIds: channelListFavoriteIds,
             collapsedIds: storedCollapsed
@@ -2074,6 +2169,21 @@ final class ChannelListViewController: ViewController {
             return false
         }
         return true
+    }
+
+    private func recoveryChannelsForEmptyFetch(clanId: Int64) -> [Mezon_Api_ChannelDescription]? {
+        guard clanId != 0 else { return nil }
+        if clanId == self.clanId, !allChannels.isEmpty {
+            return allChannels
+        }
+        if let cached = readChannelCachePayloadIfAvailable(clanId: clanId)?.channels, !cached.isEmpty {
+            return cached
+        }
+        if let allChannelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc {
+            let filtered = allChannelsByUser.filter { $0.clanID == clanId }
+            if !filtered.isEmpty { return filtered }
+        }
+        return nil
     }
 
     private func readChannelCachePayloadIfAvailable(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? {

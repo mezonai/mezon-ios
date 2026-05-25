@@ -70,6 +70,10 @@ final class MemberListNode: ASDisplayNode {
         super.init()
         self.automaticallyManagesSubnodes = true
 
+        if effectiveType == group, channelDescription.creatorID != 0 {
+            self.ownerId = String(channelDescription.creatorID)
+        }
+
         tableNode.dataSource = self
         tableNode.delegate = self
         tableNode.backgroundColor = .clear
@@ -519,10 +523,20 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
 
         guard let host = tableNode.view.findHostingViewController() else { return }
 
+        let groupAction: MemberProfileGroupAction? = {
+            guard isCurrentGroupCreator, !isCurrentUser else { return nil }
+            let label = !user.displayName.isEmpty ? user.displayName : user.username
+            let removedId = user.id
+            return MemberProfileGroupAction(confirmUserLabel: label, onRemove: { [weak self] in
+                try await self?.removeMemberFromGroup(userId: removedId)
+            })
+        }()
+
         let sheet = MemberProfileSheetController(
             user: user,
             context: context,
             isCurrentUser: isCurrentUser,
+            groupAction: groupAction,
             onSendMessage: { [weak self, weak host] dmChannel in
                 guard let self, let host else { return }
                 self.context.currentClanId = 0
@@ -535,15 +549,102 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         sheet.animateIn()
     }
 
+    private var isCurrentGroupCreator: Bool {
+        guard channelType == MezonConstants.ChannelType.group.rawValue,
+              channelDescription.creatorID != 0,
+              let myId = context.currentUser.flatMap({ Int64($0.id) }) else { return false }
+        return myId == channelDescription.creatorID
+    }
+
+    private func removeMemberFromGroup(userId: Int64) async throws {
+        guard let token = await context.getToken() else {
+            throw NSError(
+                domain: "MezonRemoveMember", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: L(L10n.ChannelDetail.removeFromGroupFailed)])
+        }
+        try await context.account.network.removeChannelUsers(
+            channelId: channelId, userIds: [userId], token: token)
+        context.account.postbox.write { [channelId] tx in
+            let current = tx.getChannelMeta(channelId: channelId)?.members ?? []
+            let updated = current.filter { $0.userId != userId }
+            tx.updateChannelMembers(updated, channelId: channelId)
+        }
+        Toast.success(L(L10n.ChannelDetail.memberRemoved))
+    }
+
     private func handleHeaderActionTapped(tableNode: ASTableNode) {
         guard let host = tableNode.view.findHostingViewController() else { return }
         guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
+        let memberSnapshot = currentGroupMemberSnapshot()
         let vc = NewGroupDMViewController(
             context: context,
             existingGroupChannel: channelDescription,
-            onMembersAdded: { _ in }
+            existingMemberIds: memberSnapshot.ids,
+            existingMemberCount: memberSnapshot.count,
+            onMembersAdded: { [weak self] updated in
+                let expectedCount: Int? = updated.memberCount > 0 ? Int(updated.memberCount) : nil
+                self?.refreshGroupMembersAfterAdd(expectedMemberCount: expectedCount)
+            }
         )
         host.navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func refreshGroupMembersAfterAdd(expectedMemberCount: Int?) {
+        guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
+        let channelId = self.channelId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            for attempt in 0..<3 {
+                if attempt > 0 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                do {
+                    let response = try await self.context.account.network.listChannelUsersUC(
+                        channelId: channelId,
+                        limit: 500,
+                        token: token
+                    )
+                    guard !response.userIds.isEmpty else { continue }
+                    self.applyGroupMemberList(response)
+                    if let expectedMemberCount {
+                        if Set(response.userIds).count >= expectedMemberCount { return }
+                    } else {
+                        return
+                    }
+                } catch {
+                }
+            }
+        }
+    }
+
+    private func currentGroupMemberSnapshot() -> (ids: Set<Int64>, count: Int) {
+        var ids = Set<Int64>()
+        if case .channel(let members) = onlineMembers {
+            ids.formUnion(members.map(\.userId))
+        }
+        if case .channel(let members) = offlineMembers {
+            ids.formUnion(members.map(\.userId))
+        }
+        if !ids.isEmpty {
+            return (ids, ids.count)
+        }
+
+        let cachedIds = context.account.postbox.read { tx in
+            Set(tx.getChannelMeta(channelId: self.channelId)?.members.map(\.userId) ?? [])
+        }
+        if !cachedIds.isEmpty {
+            return (cachedIds, cachedIds.count)
+        }
+
+        ids = Set(channelDescription.userIds)
+        if channelDescription.memberCount > 0 {
+            return (ids, Int(channelDescription.memberCount))
+        }
+        if let currentUserId = context.currentUser.flatMap({ Int64($0.id) }) {
+            ids.insert(currentUserId)
+        }
+        return (ids, max(ids.count, 1))
     }
 
     private static func apiUser(from member: ChannelMemberRecord) -> Mezon_Api_User {
