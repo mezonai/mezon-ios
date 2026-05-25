@@ -11,6 +11,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let stackView = UIStackView()
 
     private let nameField = UITextField()
+    private let nameErrorLabel = UILabel()
     private let topicView = UITextView()
     private var saveBtn: UIButton!
     private let initialName: String
@@ -179,15 +180,34 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if input === nameField {
             nameField.addTarget(self, action: #selector(handleNameChange), for: .editingChanged)
+            
+            nameErrorLabel.text = L(L10n.ChannelSetting.channelNameError)
+            nameErrorLabel.font = .systemFont(ofSize: 12.sf)
+            nameErrorLabel.textColor = .mezonError
+            nameErrorLabel.numberOfLines = 0
+            nameErrorLabel.isHidden = true
+            v.addArrangedSubview(nameErrorLabel)
         }
 
         return v
     }
 
+    private func isValidChannelName(_ name: String) -> Bool {
+        if name.isEmpty { return false }
+        if name.count > 64 { return false }
+        let regex = "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
+        return name.range(of: regex, options: .regularExpression) != nil
+    }
+
     @objc private func handleNameChange() {
-        let isChanged = nameField.text != initialName && !(nameField.text?.isEmpty ?? true)
-        saveBtn.isEnabled = isChanged
-        saveBtn.tintColor = isChanged ? .mezonLink : UIColor.theme.textDisabled
+        let text = nameField.text ?? ""
+        let isValid = isValidChannelName(text)
+        let isPristine = text.isEmpty
+        let isChanged = text != initialName && !isPristine
+        
+        saveBtn.isEnabled = isChanged && isValid
+        saveBtn.tintColor = (isChanged && isValid) ? .mezonLink : UIColor.theme.textDisabled
+        nameErrorLabel.isHidden = isValid || isPristine
     }
 
     private func createGroup(actions: [SettingAction]) -> UIView {

@@ -35,10 +35,22 @@ final class CreateChannelViewController: BaseViewController {
     }
 
     private func createChannel(name: String, type: Int32, isPrivate: Bool) {
+        createNode.setLoading(true)
         Task {
             do {
+                if let channels = self.context.engine.clanData.getAllChannelsByUser()?.channeldesc {
+                    if channels.contains(where: { $0.clanID == self.clanId && $0.channelLabel.lowercased() == name.lowercased() }) {
+                        await MainActor.run {
+                            self.createNode.setLoading(false)
+                            Toast.error(L(L10n.ChannelSetting.channelNameDuplicate))
+                        }
+                        return
+                    }
+                }
+                
                 guard let token = await self.context.getToken() else {
                     await MainActor.run {
+                        self.createNode.setLoading(false)
                         Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                     }
                     return
@@ -62,12 +74,23 @@ final class CreateChannelViewController: BaseViewController {
                 
                 await self.context.engine.clanData.applyLocallyCreatedChannel(newChannel)
                 
-                
                 await MainActor.run {
-                    self.navigationController?.popViewController(animated: true)
+                    self.createNode.setLoading(false)
+                    
+                    if type == MezonConstants.ChannelType.channel.rawValue {
+                        let userInfo: [AnyHashable: Any] = [
+                            "channelId": String(newChannel.channelID),
+                            "clanId": String(self.clanId),
+                            "isDM": false
+                        ]
+                        NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: userInfo)
+                    } else {
+                        self.navigationController?.popViewController(animated: true)
+                    }
                 }
             } catch {
                 await MainActor.run {
+                    self.createNode.setLoading(false)
                     Toast.error(error.localizedDescription)
                 }
             }

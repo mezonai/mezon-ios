@@ -12,6 +12,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
     private let nameField = UITextField()
     private let nameErrorLabel = UILabel()
     private var createBtn: UIButton!
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
     
     private let textTypeBtn = RadioButtonView()
     private let voiceTypeBtn = RadioButtonView()
@@ -84,6 +85,14 @@ final class CreateChannelContainerNode: ASDisplayNode {
         NSLayoutConstraint.activate([
             createBtn.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16.sw),
             createBtn.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+        ])
+
+        header.addSubview(activityIndicator)
+        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        activityIndicator.hidesWhenStopped = true
+        NSLayoutConstraint.activate([
+            activityIndicator.centerXAnchor.constraint(equalTo: createBtn.centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: createBtn.centerYAnchor),
         ])
 
         scrollView.showsVerticalScrollIndicator = false
@@ -337,7 +346,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
     private func isValidChannelName(_ name: String) -> Bool {
         if name.isEmpty { return false }
         if name.count > 64 { return false }
-        let regex = "^(?![_\\-\\s])[a-zA-Z0-9\\p{L}\\p{N}_\\-\\s]{1,64}$"
+        let regex = "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
         return name.range(of: regex, options: .regularExpression) != nil
     }
 
@@ -362,6 +371,21 @@ final class CreateChannelContainerNode: ASDisplayNode {
 
     func applyTheme() {
         backgroundColor = UIColor.theme.primary
+        activityIndicator.color = UIColor.theme.textStrong
+    }
+
+    func setLoading(_ isLoading: Bool) {
+        if isLoading {
+            createBtn.setTitle("", for: .normal)
+            activityIndicator.startAnimating()
+            createBtn.isEnabled = false
+            view.isUserInteractionEnabled = false
+        } else {
+            createBtn.setTitle(L(L10n.DirectMessage.create), for: .normal)
+            activityIndicator.stopAnimating()
+            view.isUserInteractionEnabled = true
+            handleNameChange()
+        }
     }
 }
 
@@ -386,7 +410,7 @@ private class RadioButtonView: UIView {
     }
     
     func setSelected(_ isSelected: Bool) {
-        let accentColor = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
+        let accentColor = UIColor.mezonLink
         if isSelected {
             layer.borderColor = accentColor.cgColor
             backgroundColor = accentColor

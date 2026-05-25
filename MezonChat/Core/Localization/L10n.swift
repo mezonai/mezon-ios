@@ -684,6 +684,7 @@ enum L10n {
         static let channelName          = "channel.setting.channelName"
         static let channelNamePlaceholder = "channel.setting.channelNamePlaceholder"
         static let channelNameError     = "channel.setting.channelNameError"
+        static let channelNameDuplicate = "channel.setting.channelNameDuplicate"
         static let channelType          = "channel.setting.channelType"
         static let textChannel          = "channel.setting.textChannel"
         static let textChannelDesc      = "channel.setting.textChannelDesc"
@@ -1479,6 +1480,7 @@ extension L10n {
         "channel.setting.channelName":          "Channel Name",
         "channel.setting.channelNamePlaceholder": "Enter the channel's name",
         "channel.setting.channelNameError":       "Please enter a channel name (max 64 characters, only words, numbers, _ or -).",
+        "channel.setting.channelNameDuplicate":   "The channel name already exists.",
         "channel.setting.channelType":          "Channel Type",
         "channel.setting.textChannel":          "Text",
         "channel.setting.textChannelDesc":      "Send messages, images, GIFs, emojis, opinions, and puns",
@@ -2358,6 +2360,7 @@ extension L10n {
         "channel.setting.channelName":          "Tên kênh",
         "channel.setting.channelNamePlaceholder": "Nhập tên kênh",
         "channel.setting.channelNameError":       "Vui lòng nhập tên kênh (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "channel.setting.channelNameDuplicate":   "Tên kênh đã tồn tại.",
         "channel.setting.channelType":          "Loại kênh",
         "channel.setting.textChannel":          "Văn bản",
         "channel.setting.textChannelDesc":      "Gửi tin nhắn, hình ảnh, GIF, biểu tượng cảm xúc, ý kiến và những câu chơi chữ",
