@@ -1016,6 +1016,7 @@ final class ChannelListViewController: ViewController {
         categories = cats
         categoriesPipe.putNext(cats)
         persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+        reconcileSelectionWithLoadedChannels()
         needsReloadPipe.putNext(())
     }
 

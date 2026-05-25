@@ -1062,6 +1062,13 @@ final class AccountContextImpl: AccountContext {
                 ]
             )
 
+        case .channelDeleted(let ev):
+            NotificationCenter.default.post(
+                name: .mezonChannelDeletedLocally,
+                object: nil,
+                userInfo: ["clanId": ev.clanID, "channelId": ev.channelID]
+            )
+
         case .userChannelAdded(let ev):
             guard let myId = currentUserNumericId() else { break }
             if let desc = engine.clanData.applyUserChannelAddedFromSocket(ev, currentUserNumericId: myId) {
