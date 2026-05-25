@@ -1001,9 +1001,9 @@ final class PeerWebRTCCallSession: NSObject {
         }()
         cfg.mode = audioMode.rawValue
         if localSpeakerEnabled {
-            cfg.categoryOptions = [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+            cfg.categoryOptions = [.defaultToSpeaker, .allowBluetoothHFP, .allowBluetoothA2DP]
         } else {
-            cfg.categoryOptions = [.allowBluetooth, .allowBluetoothA2DP]
+            cfg.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
         }
         let wasActive = rtc.isActive
         // For outgoing calls we need to activate the session ourselves.
