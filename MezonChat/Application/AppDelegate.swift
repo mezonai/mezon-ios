@@ -349,36 +349,130 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return s.isEmpty ? nil : s
     }
 
-    private static func pushPayloadString(_ userInfo: [AnyHashable: Any], keys: [String]) -> String? {
-        let dataDict = userInfo["data"] as? [String: Any]
-        for key in keys {
-            if let v = stringFromPushValue(userInfo[key]) { return v }
-            if let dataDict, let v = stringFromPushValue(dataDict[key]) { return v }
+    private static func payloadDictionary(_ value: Any?) -> [AnyHashable: Any]? {
+        if let dict = value as? [AnyHashable: Any] {
+            return dict
+        }
+        if let dict = value as? [String: Any] {
+            var result: [AnyHashable: Any] = [:]
+            dict.forEach { result[$0.key] = $0.value }
+            return result
+        }
+        if let raw = value as? String,
+           let data = raw.data(using: .utf8),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            var result: [AnyHashable: Any] = [:]
+            dict.forEach { result[$0.key] = $0.value }
+            return result
         }
         return nil
     }
 
-    private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
-        let channelId = pushPayloadString(userInfo, keys: [
-            "channel", "channel_id", "channelId", "channelID",
-            "message_channel_id", "messageChannelId", "target_channel_id", "targetChannelId",
-        ])
+    private static func pushPayloadDictionaries(_ userInfo: [AnyHashable: Any]) -> [[AnyHashable: Any]] {
+        var dictionaries: [[AnyHashable: Any]] = [userInfo]
+        for key in ["data", "payload", "notification"] {
+            if let nested = payloadDictionary(userInfo[key]) {
+                dictionaries.append(nested)
+            }
+        }
+        return dictionaries
+    }
 
+    private static func pushPayloadString(_ userInfo: [AnyHashable: Any], keys: [String]) -> String? {
+        let dictionaries = pushPayloadDictionaries(userInfo)
+        for key in keys {
+            for dict in dictionaries {
+                if let v = stringFromPushValue(dict[key]) { return v }
+            }
+        }
+        return nil
+    }
+
+    private static func pushPayloadInt64(_ userInfo: [AnyHashable: Any], keys: [String]) -> Int64? {
+        guard let raw = pushPayloadString(userInfo, keys: keys)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return Int64(raw)
+    }
+
+    private static func pushPayloadBool(_ userInfo: [AnyHashable: Any], keys: [String]) -> Bool? {
+        guard let raw = pushPayloadString(userInfo, keys: keys)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              !raw.isEmpty else { return nil }
+        if ["1", "true", "yes", "y", "dm", "direct"].contains(raw) { return true }
+        if ["0", "false", "no", "n"].contains(raw) { return false }
+        return nil
+    }
+
+    private static func parseFCMLink(_ link: String) -> (channelId: String?, clanId: String?, isDM: Bool) {
+        let lowered = link.lowercased()
+        var channelId: String?
         var clanId: String?
-        var isDM = false
+        var isDM = lowered.contains("direct") || lowered.contains("/dm")
 
-        if let link = pushPayloadString(userInfo, keys: ["link"]) {
-            isDM = link.lowercased().contains("direct")
-            if let url = URL(string: link) {
-                let parts = url.pathComponents
-                if let i = parts.firstIndex(of: "clans"), i + 1 < parts.count {
-                    clanId = parts[i + 1]
+        if let url = URL(string: link) {
+            let parts = url.pathComponents.filter { $0 != "/" }
+            if let i = parts.firstIndex(of: "clans"), i + 1 < parts.count {
+                clanId = parts[i + 1]
+            }
+            for segment in ["channels", "channel", "direct", "dm", "c"] {
+                if let i = parts.firstIndex(of: segment), i + 1 < parts.count, channelId == nil {
+                    channelId = parts[i + 1]
+                    if segment == "direct" || segment == "dm" {
+                        isDM = true
+                    }
+                }
+            }
+            if let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems {
+                for item in queryItems {
+                    let name = item.name.lowercased()
+                    guard let value = item.value, Int64(value) != nil else { continue }
+                    if channelId == nil, name.contains("channel") || name == "cid" || name == "c" {
+                        channelId = value
+                    }
+                    if clanId == nil, name.contains("clan") || name.contains("guild") {
+                        clanId = value
+                    }
+                    if name == "direct" || name == "dm" || name == "isdm" || name == "is_dm" {
+                        isDM = value == "1" || value.lowercased() == "true"
+                    }
                 }
             }
         }
 
-        if clanId == nil {
-            clanId = pushPayloadString(userInfo, keys: ["clan_id", "clanId", "clan", "guild_id", "guildId"])
+        if let clanId, Int64(clanId) == 0 {
+            isDM = true
+        }
+        return (channelId, clanId, isDM)
+    }
+
+    private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
+        var channelId = pushPayloadString(userInfo, keys: [
+            "channel", "channel_id", "channelId", "channelID",
+            "message_channel_id", "messageChannelId", "target_channel_id", "targetChannelId",
+        ])
+
+        var clanId = pushPayloadString(userInfo, keys: ["clan_id", "clanId", "clanID", "clan", "guild_id", "guildId"])
+        var isDM = pushPayloadBool(userInfo, keys: ["is_dm", "isDM", "is_direct", "isDirect", "direct", "dm"]) ?? false
+
+        if let link = pushPayloadString(userInfo, keys: ["link"]) {
+            let routed = parseFCMLink(link)
+            if channelId == nil { channelId = routed.channelId }
+            if clanId == nil { clanId = routed.clanId }
+            isDM = isDM || routed.isDM
+        }
+
+        let channelType = pushPayloadInt64(userInfo, keys: ["channel_type", "channelType", "channelTypeRaw", "type"])
+        let streamMode = pushPayloadInt64(userInfo, keys: ["mode", "stream_mode", "streamMode"])
+        let clanIdValue = clanId.flatMap { Int64($0) }
+        if channelType == Int64(MezonConstants.ChannelType.dm.rawValue)
+            || streamMode == Int64(MezonConstants.ChannelStreamMode.dm.rawValue) {
+            isDM = true
+        }
+        if channelType == Int64(MezonConstants.ChannelType.group.rawValue),
+           clanIdValue == nil || clanIdValue == 0 {
+            isDM = true
         }
 
         if let c = clanId, let v = Int64(c), v == 0 {

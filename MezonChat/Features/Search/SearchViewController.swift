@@ -2007,7 +2007,6 @@ final class SearchFilterTooltipView: UIView {
 
 final class DMGroupSearchCellNode: ASCellNode {
 
-    private static let groupPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
     private static let avatarSize: CGFloat = 40.sf
     private static let margin: CGFloat = 12.sf
     private static let padding: CGFloat = 16.sf
@@ -2053,7 +2052,7 @@ final class DMGroupSearchCellNode: ASCellNode {
             }
             groupIconNode.isHidden = true
         } else {
-            avatarBackplate.backgroundColor = Self.groupPlaceholderOrange
+            avatarBackplate.backgroundColor = .groupDMDefaultAvatar
             groupIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
             groupIconNode.tintColor = .white
             groupIconNode.contentMode = .scaleAspectFit

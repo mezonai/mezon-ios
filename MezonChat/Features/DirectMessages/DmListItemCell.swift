@@ -5,8 +5,6 @@ final class DmListItemCell: UITableViewCell {
 
     static let reuseId = "DmListItemCell"
 
-    private static let groupDmListPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
-
     private let textAvatar = TextAvatarView(username: "", size: 40.swh, fontSize: 16.sf)
 
     private let avatarImageView: UIImageView = {
@@ -181,7 +179,7 @@ final class DmListItemCell: UITableViewCell {
                 imageTask = nil
                 avatarImageView.image = nil
                 textAvatar.showImageMode()
-                textAvatar.backgroundColor = Self.groupDmListPlaceholderOrange
+                textAvatar.backgroundColor = .groupDMDefaultAvatar
                 groupIconView.tintColor = .white
                 groupIconView.isHidden = false
             }
@@ -335,7 +333,7 @@ final class DmListItemCell: UITableViewCell {
             return (Self.previewWhenNoMessageBody(), time)
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
-        return (body.count >= 20 ? body + "..." : body, time)
+        return (body.count >= 32 ? body + "..." : body, time)
     }
 
     private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]

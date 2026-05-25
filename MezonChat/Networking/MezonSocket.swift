@@ -45,6 +45,7 @@ enum SocketEvent {
     case userProfileUpdated(Mezon_Realtime_UserProfileUpdatedEvent)
     case removeFriend(Mezon_Realtime_RemoveFriend)
     case blockFriend(Mezon_Realtime_BlockFriend)
+    case unBlockFriend(Mezon_Realtime_UnblockFriend)
     case addFriend(Mezon_Realtime_AddFriend)
     case tokenSent(Mezon_Api_TokenSentEvent)
     case giveCoffee(Mezon_Api_GiveCoffeeEvent)
@@ -660,6 +661,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.removeFriend(m))
         case .blockFriend(let m):
             eventPipe.putNext(.blockFriend(m))
+        case .unBlockFriend(let m):
+            eventPipe.putNext(.unBlockFriend(m))
         case .addFriend(let m):
             eventPipe.putNext(.addFriend(m))
         case .tokenSentEvent(let m):

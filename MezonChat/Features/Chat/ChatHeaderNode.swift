@@ -68,7 +68,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
     func configure(
         title: String, subtitle: String? = nil, channelType: Int32, isPrivate: Bool,
-        isAgeRestricted: Bool, isDM: Bool = false
+        isAgeRestricted: Bool, isDM: Bool = false, isBlocked: Bool = false
     ) {
         let t = UIColor.theme
 
@@ -117,7 +117,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
         if isDmOrGroup {
             channelIconNode.isHidden = true
-            callButtonNode.isHidden = !isDM 
+            callButtonNode.isHidden = !isDM || isBlocked
             videoCallButtonNode.isHidden = true
         } else {
             channelIconNode.isHidden = false

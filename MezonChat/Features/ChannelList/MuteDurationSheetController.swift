@@ -39,6 +39,7 @@ final class MuteDurationViewController: ViewController {
     private let clanId: Int64
     private let context: AccountContext
     private let isThread: Bool
+    private let isGroupDirectMessage: Bool
     private let onSelect: (MuteDuration) -> Void
 
     private let scrollView = UIScrollView()
@@ -50,6 +51,7 @@ final class MuteDurationViewController: ViewController {
         clanId: Int64,
         context: AccountContext,
         isThread: Bool,
+        isGroupDirectMessage: Bool = false,
         onSelect: @escaping (MuteDuration) -> Void
     ) {
         self.channelName = channelName
@@ -57,6 +59,7 @@ final class MuteDurationViewController: ViewController {
         self.clanId = clanId
         self.context = context
         self.isThread = isThread
+        self.isGroupDirectMessage = isGroupDirectMessage
         self.onSelect = onSelect
         super.init(navigationBarPresentationData: nil)
     }
@@ -105,12 +108,12 @@ final class MuteDurationViewController: ViewController {
         headerBar.addSubview(backBtn)
 
         let titleLbl = UILabel()
-        titleLbl.text = isThread ? L(L10n.MuteDuration.titleThread) : L(L10n.MuteDuration.title)
+        titleLbl.text = muteTitle
         titleLbl.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLbl.textColor = .mezonTextStrong
 
         let subtitleLbl = UILabel()
-        subtitleLbl.text = "#\(channelName)"
+        subtitleLbl.text = isGroupDirectMessage ? channelName : "#\(channelName)"
         subtitleLbl.font = .systemFont(ofSize: 13, weight: .regular)
         subtitleLbl.textColor = .mezonTextMuted
         subtitleLbl.lineBreakMode = .byTruncatingTail
@@ -179,39 +182,48 @@ final class MuteDurationViewController: ViewController {
             }
         }
 
-        let gap = UIView()
-        gap.backgroundColor = bg
-        gap.translatesAutoresizingMaskIntoConstraints = false
-        gap.heightAnchor.constraint(equalToConstant: 16).isActive = true
-        contentStack.addArrangedSubview(gap)
+        if !isGroupDirectMessage {
+            let gap = UIView()
+            gap.backgroundColor = bg
+            gap.translatesAutoresizingMaskIntoConstraints = false
+            gap.heightAnchor.constraint(equalToConstant: 16).isActive = true
+            contentStack.addArrangedSubview(gap)
 
-        let settingsRow = makeSettingsRow(
-            title: L(L10n.MuteDuration.notificationSettings),
-            bgColor: cellBg
-        ) { [weak self] in
-            self?.presentNotificationSettings()
+            let settingsRow = makeSettingsRow(
+                title: L(L10n.MuteDuration.notificationSettings),
+                bgColor: cellBg
+            ) { [weak self] in
+                self?.presentNotificationSettings()
+            }
+            contentStack.addArrangedSubview(settingsRow)
+
+            let descWrapper = UIView()
+            descWrapper.backgroundColor = bg
+            descWrapper.translatesAutoresizingMaskIntoConstraints = false
+
+            let descLabel = UILabel()
+            descLabel.text = L(L10n.MuteDuration.description)
+            descLabel.font = .systemFont(ofSize: 13, weight: .regular)
+            descLabel.textColor = .mezonTextMuted
+            descLabel.numberOfLines = 0
+            descLabel.translatesAutoresizingMaskIntoConstraints = false
+            descWrapper.addSubview(descLabel)
+
+            NSLayoutConstraint.activate([
+                descLabel.topAnchor.constraint(equalTo: descWrapper.topAnchor, constant: 12),
+                descLabel.leadingAnchor.constraint(equalTo: descWrapper.leadingAnchor, constant: 16),
+                descLabel.trailingAnchor.constraint(equalTo: descWrapper.trailingAnchor, constant: -16),
+                descLabel.bottomAnchor.constraint(equalTo: descWrapper.bottomAnchor, constant: -12),
+            ])
+            contentStack.addArrangedSubview(descWrapper)
         }
-        contentStack.addArrangedSubview(settingsRow)
+    }
 
-        let descWrapper = UIView()
-        descWrapper.backgroundColor = bg
-        descWrapper.translatesAutoresizingMaskIntoConstraints = false
-
-        let descLabel = UILabel()
-        descLabel.text = L(L10n.MuteDuration.description)
-        descLabel.font = .systemFont(ofSize: 13, weight: .regular)
-        descLabel.textColor = .mezonTextMuted
-        descLabel.numberOfLines = 0
-        descLabel.translatesAutoresizingMaskIntoConstraints = false
-        descWrapper.addSubview(descLabel)
-
-        NSLayoutConstraint.activate([
-            descLabel.topAnchor.constraint(equalTo: descWrapper.topAnchor, constant: 12),
-            descLabel.leadingAnchor.constraint(equalTo: descWrapper.leadingAnchor, constant: 16),
-            descLabel.trailingAnchor.constraint(equalTo: descWrapper.trailingAnchor, constant: -16),
-            descLabel.bottomAnchor.constraint(equalTo: descWrapper.bottomAnchor, constant: -12),
-        ])
-        contentStack.addArrangedSubview(descWrapper)
+    private var muteTitle: String {
+        if isGroupDirectMessage {
+            return L(L10n.MuteDuration.titleConversation)
+        }
+        return isThread ? L(L10n.MuteDuration.titleThread) : L(L10n.MuteDuration.title)
     }
 
     private func makeOptionRow(title: String, bgColor: UIColor, action: @escaping () -> Void) -> UIView {
