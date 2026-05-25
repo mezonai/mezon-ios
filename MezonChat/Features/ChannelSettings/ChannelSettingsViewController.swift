@@ -90,8 +90,13 @@ final class ChannelSettingsViewController: BaseViewController {
     }
 
     private func handleDeleteChannel() {
+        settingsNode.setDeleteButtonEnabled(false)
         Task { @MainActor in
-            guard let token = await context.getToken() else { return }
+            guard let token = await context.getToken() else {
+                settingsNode.setDeleteButtonEnabled(true)
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channelId, clanId: clanId, token: token)
                 NotificationCenter.default.post(
@@ -101,6 +106,7 @@ final class ChannelSettingsViewController: BaseViewController {
                 )
                 self.navigateBackAfterDelete()
             } catch {
+                settingsNode.setDeleteButtonEnabled(true)
                 Toast.error(error.localizedDescription)
             }
         }
@@ -115,10 +121,10 @@ final class ChannelSettingsViewController: BaseViewController {
         if let idx = stack.firstIndex(where: { $0 === self }) {
             stack.remove(at: idx)
         }
-        if let idx = stack.lastIndex(where: { String(describing: type(of: $0)).contains("ChannelDetailViewController") }) {
+        if let idx = stack.lastIndex(where: { $0 is ChannelDetailViewController }) {
             stack.remove(at: idx)
         }
-        if let idx = stack.lastIndex(where: { String(describing: type(of: $0)).contains("ChatViewController") }) {
+        if let idx = stack.lastIndex(where: { $0 is ChatViewController }) {
             stack.remove(at: idx)
         }
         if stack.isEmpty {

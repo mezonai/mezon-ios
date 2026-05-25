@@ -18,6 +18,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let nameField = UITextField()
     private let topicView = UITextView()
     private var saveBtn: UIButton!
+    private var deleteBtn: UIView?
     private let initialName: String
 
     init(
@@ -172,13 +173,20 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if showDeleteButton {
             let delTitle = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
-            let deleteBtn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
+            let btn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
                 self?.onDeleteTap?()
             })
-            deleteBtn.backgroundColor = UIColor.theme.secondary
-            deleteBtn.layer.cornerRadius = 12
-            stackView.addArrangedSubview(deleteBtn)
+            btn.backgroundColor = UIColor.theme.secondary
+            btn.layer.cornerRadius = 12
+            stackView.addArrangedSubview(btn)
+            deleteBtn = btn
         }
+    }
+    
+    func setDeleteButtonEnabled(_ enabled: Bool) {
+        guard let btn = deleteBtn as? UIButton else { return }
+        btn.isEnabled = enabled
+        btn.alpha = enabled ? 1.0 : 0.5
     }
 
     private func createInputSection(title: String, input: UIView, isTextArea: Bool = false) -> UIView {

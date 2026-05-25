@@ -1025,7 +1025,11 @@ final class ChannelListViewController: ViewController {
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
-                removeChannelLocally(channelId: channel.channelID)
+                NotificationCenter.default.post(
+                    name: .mezonChannelDeletedLocally,
+                    object: nil,
+                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID]
+                )
             } catch {
                 Toast.error(error.localizedDescription)
             }
@@ -1037,19 +1041,11 @@ final class ChannelListViewController: ViewController {
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
-                allChannels.removeAll { $0.channelID == channel.channelID }
-                
-                let built = buildChannelCategories(
-                    allChannels,
-                    categoryDescs: channelListCategoryDescs,
-                    favoriteChannelIds: channelListFavoriteIds,
-                    collapsedIds: loadCollapsedCategoryIds()
+                NotificationCenter.default.post(
+                    name: .mezonChannelDeletedLocally,
+                    object: nil,
+                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID]
                 )
-                let cats = applyBuiltCategoriesPreservingCollapse(built)
-                categories = cats
-                categoriesPipe.putNext(cats)
-                persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
-                needsReloadPipe.putNext(())
             } catch {
                 Toast.error(error.localizedDescription)
             }
