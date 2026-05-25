@@ -869,7 +869,19 @@ final class SendMessageInputViewController: UIViewController {
                                                name: .mezonChannelOverriddenPermissionsDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSendPermissionContextChanged),
                                                name: .mezonRolesDidChange, object: nil)
+        disposables.add(
+            (context.engine.friendsData.friendsUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] _ in
+                    self?.refreshSendPermissionAvailability()
+                })
+        )
         refreshSendPermissionAvailability()
+        if channelStreamMode == MezonConstants.ChannelStreamMode.dm.rawValue {
+            Task { [weak self] in
+                guard let self, let token = await self.context.getToken() else { return }
+                await self.context.engine.friendsData.refreshFromNetwork(token: token)
+            }
+        }
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
@@ -925,6 +937,12 @@ final class SendMessageInputViewController: UIViewController {
             || m == MezonConstants.ChannelStreamMode.group.rawValue
     }
 
+    private var isDirectMessageWithBlockedPeer: Bool {
+        guard channelStreamMode == MezonConstants.ChannelStreamMode.dm.rawValue else { return false }
+        guard let peerId = channel.userIds.first, peerId != 0 else { return false }
+        return context.engine.friendsData.blockedUserIds().contains(peerId)
+    }
+
     private func refreshSendPermissionAvailability() {
         let exempt = isChannelStreamExemptFromSendPermissionGate
         let chId = channel.channelID
@@ -932,7 +950,9 @@ final class SendMessageInputViewController: UIViewController {
             context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: chId)
         }
         let blocked: Bool
-        if exempt || clanId == 0 || chId == 0 {
+        if isDirectMessageWithBlockedPeer {
+            blocked = true
+        } else if exempt || clanId == 0 || chId == 0 {
             blocked = false
         } else if !context.rolePermissions.hasResolvedChannelOverriddenPermissionsSnapshot(channelId: chId) {
             blocked = false

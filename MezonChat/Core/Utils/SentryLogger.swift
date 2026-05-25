@@ -20,12 +20,12 @@ enum SentryLogger {
         }
     }
 
-    static func setUser(id: String?, username: String?) {
-        guard let id else {
+    static func setUser(username: String?) {
+        guard let username, !username.isEmpty else {
             SentrySDK.setUser(nil)
             return
         }
-        let user = Sentry.User(userId: id)
+        let user = Sentry.User(userId: username)
         user.username = username
         SentrySDK.setUser(user)
     }

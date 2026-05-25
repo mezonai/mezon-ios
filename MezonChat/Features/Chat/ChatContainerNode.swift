@@ -241,7 +241,8 @@ final class ChatContainerNode: ASDisplayNode {
             channelType: state.channelType,
             isPrivate: state.isPrivate,
             isAgeRestricted: state.isAgeRestricted,
-            isDM: isDM
+            isDM: isDM,
+            isBlocked: state.isPeerBlocked
         )
     }
 

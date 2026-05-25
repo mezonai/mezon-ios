@@ -545,7 +545,7 @@ final class EmojiTextView: UIView {
         let scale = UIScreen.main.scale
         let pixelSide = max(displayPxSide * scale, CGFloat(imgproxyFitSide))
         let cacheKey = "emoji.\(emojiId).\(imgproxyFitSide)"
-        ReactionEmojiImageLoader.loadDataBestEffort(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) { [weak self, weak view] data in
+        ReactionEmojiImageLoader.loadAnimatedDataBestEffort(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide) { [weak self, weak view] data in
             guard let view, view.superview != nil else { return }
             view.setData(data, displayPixelMaxSide: pixelSide, cacheKey: cacheKey)
             self?.setNeedsLayout()
