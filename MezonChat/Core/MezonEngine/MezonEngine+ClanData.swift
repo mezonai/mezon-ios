@@ -700,7 +700,8 @@ extension MezonEngine {
 
                 guard let count = readUInt32() else { return [] }
                 var result: [Mezon_Api_Friend] = []
-                result.reserveCapacity(Int(count))
+                let maxPossibleEntries = (rawPtr.count - offset) / 4
+                result.reserveCapacity(min(Int(count), maxPossibleEntries))
                 for _ in 0..<count {
                     guard let len = readUInt32() else { break }
                     let intLen = Int(len)

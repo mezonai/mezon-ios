@@ -655,6 +655,7 @@ enum L10n {
     enum MuteDuration {
         static let title              = "muteDuration.title"
         static let titleThread        = "muteDuration.titleThread"
+        static let titleConversation  = "muteDuration.titleConversation"
         static let for15Minutes       = "muteDuration.for15Minutes"
         static let for1Hour           = "muteDuration.for1Hour"
         static let for3Hours          = "muteDuration.for3Hours"
@@ -855,6 +856,12 @@ enum L10n {
         static let groupDeleted = "channelDetail.groupDeleted"
         static let updateGroupFailed = "channelDetail.updateGroupFailed"
         static let leaveGroupFailed = "channelDetail.leaveGroupFailed"
+        static let removeFromGroup = "channelDetail.removeFromGroup"
+        static let removeFromGroupConfirmTitle = "channelDetail.removeFromGroupConfirmTitle"
+        static let removeFromGroupConfirmBody = "channelDetail.removeFromGroupConfirmBody"
+        static let removeFromGroupConfirmAction = "channelDetail.removeFromGroupConfirmAction"
+        static let removeFromGroupFailed = "channelDetail.removeFromGroupFailed"
+        static let memberRemoved = "channelDetail.memberRemoved"
     }
 
     enum FriendRequest {
@@ -1441,6 +1448,7 @@ extension L10n {
         "emojiPicker.title":                   "Emojis",
         "muteDuration.title":              "Mute this channel",
         "muteDuration.titleThread":        "Mute this thread",
+        "muteDuration.titleConversation":  "Mute this conversation",
         "muteDuration.for15Minutes":       "For 15 minutes",
         "muteDuration.for1Hour":           "For 1 hour",
         "muteDuration.for3Hours":          "For 3 hours",
@@ -1803,6 +1811,12 @@ extension L10n {
         "channelDetail.groupDeleted": "Group deleted",
         "channelDetail.updateGroupFailed": "Could not update group.",
         "channelDetail.leaveGroupFailed": "Could not leave group.",
+        "channelDetail.removeFromGroup": "Remove From Group",
+        "channelDetail.removeFromGroupConfirmTitle": "Remove from group?",
+        "channelDetail.removeFromGroupConfirmBody": "%@ will be removed from this group.",
+        "channelDetail.removeFromGroupConfirmAction": "Remove",
+        "channelDetail.removeFromGroupFailed": "Could not remove member.",
+        "channelDetail.memberRemoved": "Member removed",
 
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
 
@@ -2307,6 +2321,7 @@ extension L10n {
         "emojiPicker.title":                   "Cảm xúc",
         "muteDuration.title":              "Tắt thông báo kênh này",
         "muteDuration.titleThread":        "Tắt thông báo chủ đề này",
+        "muteDuration.titleConversation":  "Tắt thông báo cuộc trò chuyện này",
         "muteDuration.for15Minutes":       "Trong 15 phút",
         "muteDuration.for1Hour":           "Trong 1 giờ",
         "muteDuration.for3Hours":          "Trong 3 giờ",
@@ -2670,6 +2685,12 @@ extension L10n {
         "channelDetail.groupDeleted": "Đã xóa nhóm",
         "channelDetail.updateGroupFailed": "Không thể cập nhật nhóm.",
         "channelDetail.leaveGroupFailed": "Không thể rời nhóm.",
+        "channelDetail.removeFromGroup": "Xóa khỏi nhóm",
+        "channelDetail.removeFromGroupConfirmTitle": "Xóa khỏi nhóm?",
+        "channelDetail.removeFromGroupConfirmBody": "%@ sẽ bị xóa khỏi nhóm này.",
+        "channelDetail.removeFromGroupConfirmAction": "Xóa",
+        "channelDetail.removeFromGroupFailed": "Không thể xóa thành viên.",
+        "channelDetail.memberRemoved": "Đã xóa thành viên",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
 
