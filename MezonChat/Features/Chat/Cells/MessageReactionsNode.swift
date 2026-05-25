@@ -455,7 +455,7 @@ final class ReactionPillNode: ASDisplayNode {
             return
         }
         let cacheKey = "reactionEmoji.\(currentId).100"
-        imageTask = ReactionEmojiImageLoader.loadDataBestEffort(
+        imageTask = ReactionEmojiImageLoader.loadAnimatedDataBestEffort(
             emojiId: currentId, imgproxyFitSide: 100
         ) { [weak self] data in
             guard let self, self.emojiId == currentId else { return }

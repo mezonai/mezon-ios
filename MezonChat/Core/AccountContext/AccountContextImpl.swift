@@ -49,6 +49,7 @@ final class AccountContextImpl: AccountContext {
 
     func applyCurrentUser(_ user: User) {
         currentUser = user
+        SentryLogger.setUser(username: user.username)
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
     }
 
@@ -300,6 +301,7 @@ final class AccountContextImpl: AccountContext {
         account.network.resetProtoBaseURLToDefault()
         session = nil
         currentUser = nil
+        SentryLogger.setUser(username: nil)
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
         currentClanId = 0
         currentChannel = nil

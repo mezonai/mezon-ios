@@ -277,6 +277,7 @@ struct ChatState {
     var isPrivate: Bool
     var isAgeRestricted: Bool
     var isDM: Bool
+    var isPeerBlocked: Bool
     var dmPeerUsername: String
     var dmPeerDisplayName: String
     var dmAvatarURL: String
@@ -294,7 +295,7 @@ struct ChatState {
 
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
-        isDM: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
+        isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -2145,6 +2146,12 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private var isDirectMessagePeerBlocked: Bool {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return false }
+        guard let peerId = channel.userIds.first, peerId != 0 else { return false }
+        return context.engine.friendsData.blockedUserIds().contains(peerId)
+    }
+
     var currentState: ChatState {
         let labelFromMeta = parentChannelMeta?.label
         let resolvedParentName =
@@ -2157,6 +2164,7 @@ final class ChatViewController: ViewController {
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
             isDM: clanId == 0,
+            isPeerBlocked: isDirectMessagePeerBlocked,
             dmPeerUsername: channel.usernames.first ?? "",
             dmPeerDisplayName: channel.displayNames.first ?? "",
             dmAvatarURL: channel.avatars.first ?? "",
@@ -2229,6 +2237,7 @@ final class ChatViewController: ViewController {
             var lastParentName = self.currentState.parentName
             var lastIsPrivate = self.currentState.isPrivate
             var lastIsAgeRestricted = self.currentState.isAgeRestricted
+            var lastIsPeerBlocked = self.currentState.isPeerBlocked
             var lastChannelLabel = self.currentState.channelLabel
             var lastChannelType = self.currentState.channelType
             var lastDmPeerUsername = self.currentState.dmPeerUsername
@@ -2239,7 +2248,8 @@ final class ChatViewController: ViewController {
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
                 let d2 = self.metadataOnlyPipe.signal().start(next: { subscriber.putNext(()) })
-                return ActionDisposable { d1.dispose(); d2.dispose() }
+                let d3 = self.context.engine.friendsData.friendsUpdated.signal().start(next: { subscriber.putNext(()) })
+                return ActionDisposable { d1.dispose(); d2.dispose(); d3.dispose() }
                 }
             return (merged
                 |> map { [weak self] _ in self?.currentState ?? .empty }
@@ -2264,6 +2274,7 @@ final class ChatViewController: ViewController {
                         || newState.parentName != lastParentName
                         || newState.isPrivate != lastIsPrivate
                         || newState.isAgeRestricted != lastIsAgeRestricted
+                        || newState.isPeerBlocked != lastIsPeerBlocked
                         || newState.channelLabel != lastChannelLabel
                         || newState.channelType != lastChannelType
                         || newState.dmPeerUsername != lastDmPeerUsername
@@ -2286,6 +2297,7 @@ final class ChatViewController: ViewController {
                     lastParentName = newState.parentName
                     lastIsPrivate = newState.isPrivate
                     lastIsAgeRestricted = newState.isAgeRestricted
+                    lastIsPeerBlocked = newState.isPeerBlocked
                     lastChannelLabel = newState.channelLabel
                     lastChannelType = newState.channelType
                     lastDmPeerUsername = newState.dmPeerUsername

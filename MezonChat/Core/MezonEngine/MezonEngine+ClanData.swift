@@ -547,12 +547,28 @@ extension MezonEngine {
                 |> deliverOnMainQueue).start(next: { [weak self] event in
                     guard let self else { return }
                     switch event {
-                    case .addFriend, .removeFriend, .blockFriend:
+                    case .blockFriend(let m):
+                        self.applyLocalBlockState(userId: m.userID, blocked: true)
+                        self.scheduleRefreshFromSocket()
+                    case .unBlockFriend(let m):
+                        self.applyLocalBlockState(userId: m.userID, blocked: false)
+                        self.scheduleRefreshFromSocket()
+                    case .addFriend, .removeFriend:
                         self.scheduleRefreshFromSocket()
                     default:
                         break
                     }
                 })
+        }
+
+        private func applyLocalBlockState(userId: Int64, blocked: Bool) {
+            guard userId != 0 else { return }
+            var list = allFriends()
+            guard let idx = list.firstIndex(where: { $0.user.id == userId }) else { return }
+            let newState = blocked ? EStateFriend.block.rawValue : EStateFriend.friend.rawValue
+            guard list[idx].state != newState else { return }
+            list[idx].state = newState
+            persistFriends(list)
         }
 
         func allFriends() -> [Mezon_Api_Friend] {
@@ -605,25 +621,14 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            async let friendList = (try? net.listFriends(token: token, state: EStateFriend.friend.rawValue))?.friends
-            async let otherPendingList = (try? net.listFriends(token: token, state: EStateFriend.otherPending.rawValue))?.friends
-            async let myPendingList = (try? net.listFriends(token: token, state: EStateFriend.myPending.rawValue))?.friends
-            async let blockList = (try? net.listFriends(token: token, state: EStateFriend.block.rawValue))?.friends
-
-            let lists = [await friendList, await otherPendingList, await myPendingList, await blockList].compactMap { $0 }
+            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: -1))?.friends else { return }
             let cached = allFriends()
 
-            guard !lists.isEmpty else { return }
-
-            if lists.count == 4, isAllListsIdentical(lists), !cached.isEmpty {
-                return
-            }
+            guard !fetched.isEmpty || cached.isEmpty else { return }
 
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
-            for list in lists {
-                for friend in list {
-                    dedupByUserId[friend.user.id] = friend
-                }
+            for friend in fetched {
+                dedupByUserId[friend.user.id] = friend
             }
 
             guard !dedupByUserId.isEmpty || cached.isEmpty else { return }
@@ -637,14 +642,6 @@ extension MezonEngine {
                 return lName.localizedCaseInsensitiveCompare(rName) == .orderedAscending
             }
             persistFriends(Array(merged))
-        }
-
-        private func isAllListsIdentical(_ lists: [[Mezon_Api_Friend]]) -> Bool {
-            guard let first = lists.first, !first.isEmpty else { return false }
-            let firstSignature = first.map { "\($0.user.id):\($0.state)" }.sorted()
-            return lists.dropFirst().allSatisfy {
-                $0.map { "\($0.user.id):\($0.state)" }.sorted() == firstSignature
-            }
         }
 
         func removePendingRequest(userId: Int64) {
