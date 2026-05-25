@@ -48,6 +48,7 @@ final class ChannelSettingsViewController: BaseViewController {
         let isPublicChannel = !channelPrivate
         let showPermissions = !(isPublicChannel || isThread)
         let showChangeCategory = !isThread
+        let canManageChannel = context.rolePermissions.canManageChannel(clanId: clanId)
 
         displayNode = ChannelSettingsContainerNode(
             channelName: initialName,
@@ -64,7 +65,7 @@ final class ChannelSettingsViewController: BaseViewController {
             onDeleteTap: { [weak self] in
                 self?.presentDeleteChannelConfirm()
             },
-            showDeleteButton: !isGeneralChannel,
+            showDeleteButton: !isGeneralChannel && canManageChannel,
             showPermissionsButton: showPermissions,
             showChangeCategoryButton: showChangeCategory,
             isThread: isThread
