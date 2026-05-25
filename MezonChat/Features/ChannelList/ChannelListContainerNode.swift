@@ -14,6 +14,7 @@ struct ChannelListInteraction {
     let onClearCurrentChannelSelection: (() -> Void)?
     let isShowEmptyCategoriesEnabled: (() -> Bool)?
     let onToggleShowEmptyCategories: ((Bool) -> Void)?
+    let onLongPressCategory: ((ChannelCategory) -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -1435,6 +1436,7 @@ extension ChannelListContainerNode: ASTableDataSource {
         let header = cachedHeaders[section] ?? CategorySectionHeaderView()
         header.configure(category: cat)
         header.onTap = { [weak self] in self?.interaction.onToggleCollapse(cat.id) }
+        header.onLongPress = { [weak self] in self?.interaction.onLongPressCategory?(cat) }
         cachedHeaders[section] = header
         return header
     }
@@ -1643,6 +1645,7 @@ private final class ChannelListSkeletonCellNode: ASCellNode {
 private final class CategorySectionHeaderView: UIView {
 
     var onTap: (() -> Void)?
+    var onLongPress: (() -> Void)?
 
     private let arrowIcon: UIImageView = {
         let iv = UIImageView()
@@ -1673,6 +1676,7 @@ private final class CategorySectionHeaderView: UIView {
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
         ])
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:))))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -1698,6 +1702,12 @@ private final class CategorySectionHeaderView: UIView {
     }
 
     @objc private func handleTap() { onTap?() }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began {
+            onLongPress?()
+        }
+    }
 }
 
 final class ChannelListHeaderView: UIView {
