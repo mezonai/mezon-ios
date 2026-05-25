@@ -50,7 +50,7 @@ extension MezonEngine {
                     topic: topic,
                     channelAvatar: channelAvatar,
                     categoryId: categoryId,
-                    categoryName: result.categoryName
+                    categoryName: categoryId == 0 ? "" : result.categoryName
                 )
             }
             
@@ -61,7 +61,7 @@ extension MezonEngine {
                     if let topic { arr[idx].topic = topic }
                     if let categoryId {
                         arr[idx].categoryID = categoryId
-                        arr[idx].categoryName = result.categoryName
+                        arr[idx].categoryName = categoryId == 0 ? "" : result.categoryName
                     }
                     if let data = ChannelPreferenceListCodec.encode(arr) {
                         self.postbox.setPreferenceDataSync(
@@ -77,7 +77,7 @@ extension MezonEngine {
                     if let topic { list.channeldesc[idx].topic = topic }
                     if let categoryId {
                         list.channeldesc[idx].categoryID = categoryId
-                        list.channeldesc[idx].categoryName = result.categoryName
+                        list.channeldesc[idx].categoryName = categoryId == 0 ? "" : result.categoryName
                     }
                     if let data = try? list.serializedData() {
                         self.postbox.setPreferenceDataSync(

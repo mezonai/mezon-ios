@@ -125,7 +125,7 @@ final class ChangeCategoryViewController: BaseViewController {
         let postbox = context.account.postbox
         let key = PreferencesKeys.channelListMeta(clanId: clanId)
         if let data = postbox.getPreferenceData(key: key) {
-            if let meta = decodeCategoryDescsFromMeta(data) {
+            if let meta = ChannelListMetaCodec.decode(data)?.categoryDescs, !meta.isEmpty {
                 categories = meta.filter { $0.categoryID != currentCategoryId }
                 activityIndicator.stopAnimating()
                 buildCategoryRows()
@@ -201,35 +201,7 @@ final class ChangeCategoryViewController: BaseViewController {
         emptyStateLabel = label
     }
 
-    private func decodeCategoryDescsFromMeta(_ data: Data) -> [Mezon_Api_CategoryDesc]? {
-        guard data.count >= 4 else { return nil }
-        var offset = 0
-        let version = data.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
-        guard version == 1 else { return nil }
-        offset = 4
 
-        guard offset + 4 <= data.count else { return nil }
-        let favCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
-        offset += 4
-        offset += favCount * 8 
-        guard offset <= data.count else { return nil }
-
-        guard offset + 4 <= data.count else { return nil }
-        let catCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
-        offset += 4
-        var cats: [Mezon_Api_CategoryDesc] = []
-        for _ in 0..<catCount {
-            guard offset + 4 <= data.count else { break }
-            let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
-            offset += 4
-            guard offset + len <= data.count else { break }
-            if let m = try? Mezon_Api_CategoryDesc(serializedBytes: data.subdata(in: offset..<(offset + len))) {
-                cats.append(m)
-            }
-            offset += len
-        }
-        return cats.isEmpty ? nil : cats
-    }
 
     private func buildCategoryRows() {
         let viewsToRemove = stackView.arrangedSubviews.filter { $0 !== headerLabel && $0 !== activityIndicator }

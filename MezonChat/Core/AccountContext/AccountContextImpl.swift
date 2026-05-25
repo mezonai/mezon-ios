@@ -1080,8 +1080,8 @@ final class AccountContextImpl: AccountContext {
                let blob = account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
                !blob.isEmpty {
                 let arr = ChannelPreferenceListCodec.decode(blob)
-                if let existing = arr.first(where: { $0.channelID == channelId }), existing.categoryID == catId {
-                    newCategoryName = existing.categoryName.isEmpty ? nil : existing.categoryName
+                if let existing = arr.first(where: { $0.categoryID == catId && !$0.categoryName.isEmpty }) {
+                    newCategoryName = existing.categoryName
                 }
             }
             
@@ -1102,7 +1102,14 @@ final class AccountContextImpl: AccountContext {
                 if let idx = arr.firstIndex(where: { $0.channelID == channelId }) {
                     if let newName { arr[idx].channelLabel = newName }
                     if let newTopic { arr[idx].topic = newTopic }  
-                    if let catId = newCategoryId { arr[idx].categoryID = catId }
+                    if let catId = newCategoryId { 
+                        arr[idx].categoryID = catId 
+                        if let catName = newCategoryName {
+                            arr[idx].categoryName = catName
+                        } else if catId == 0 {
+                            arr[idx].categoryName = ""
+                        }
+                    }
                     if let data = ChannelPreferenceListCodec.encode(arr) {
                         account.postbox.setPreferenceDataSync(
                             key: PreferencesKeys.channelList(clanId: clanId), value: data)
