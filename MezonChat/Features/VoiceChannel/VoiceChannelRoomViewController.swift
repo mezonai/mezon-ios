@@ -3822,6 +3822,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 user: apiUser,
                 context: self.context,
                 isCurrentUser: false,
+                clanId: self.channel.clanID,
                 voiceChannelActions: voiceActions,
                 onSendMessage: { [weak self] dmChannel in
                     guard let self else { return }

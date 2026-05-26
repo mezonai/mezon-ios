@@ -128,6 +128,12 @@ final class RolesRepository {
             addUserIds: addUserIds, activePermissionIds: activePermissionIds,
             removeUserIds: removeUserIds, removePermissionIds: removePermissionIds
         )
+        mutateStoredClanMemberRoleIds(
+            roleId: roleId,
+            clanId: clanId,
+            addUserIds: addUserIds,
+            removeUserIds: removeUserIds
+        )
     }
 
     func fetchRoleMembers(roleId: Int64, clanId: Int64) async {
@@ -142,12 +148,22 @@ final class RolesRepository {
     private func applyFetchedRoleUsers(
         roleId: Int64, clanId: Int64, users: [Mezon_Api_RoleUserList.RoleUser]
     ) {
+        let previousUserIds =
+            role(roleId: roleId, clanId: clanId)?.roleUserList.roleUsers.map(\.id) ?? []
         mutateStoredRoles(clanId: clanId) { container in
             guard let idx = container.roles.roles.firstIndex(where: { $0.id == roleId }) else { return }
             var role = container.roles.roles[idx]
             role.roleUserList.roleUsers = users
             container.roles.roles[idx] = role
         }
+        let newUserIds = Set(users.map(\.id))
+        let oldUserIds = Set(previousUserIds)
+        mutateStoredClanMemberRoleIds(
+            roleId: roleId,
+            clanId: clanId,
+            addUserIds: Array(newUserIds.subtracting(oldUserIds)),
+            removeUserIds: Array(oldUserIds.subtracting(newUserIds))
+        )
     }
 
     func deleteRole(roleId: Int64, clanId: Int64) async throws {
@@ -233,6 +249,65 @@ final class RolesRepository {
         }
         context.rolePermissions.invalidateRolesCache()
         context.engine.clanData.clanRolesUpdated.putNext(clanId)
+    }
+
+    private func mutateStoredClanMemberRoleIds(
+        roleId: Int64,
+        clanId: Int64,
+        addUserIds: [Int64],
+        removeUserIds: [Int64]
+    ) {
+        guard !addUserIds.isEmpty || !removeUserIds.isEmpty else { return }
+        let addSet = Set(addUserIds)
+        let removeSet = Set(removeUserIds)
+        var updatedMembers: [ClanMemberRecord] = []
+
+        context.engine.account.postbox.writeSync { tx in
+            let members = tx.getClanMembers(clanId: clanId)
+            guard !members.isEmpty else { return }
+            var changed = false
+            updatedMembers = members.map { member in
+                var roleIds = member.roleIds
+                if removeSet.contains(member.userId) {
+                    let filtered = roleIds.filter { $0 != roleId }
+                    if filtered != roleIds {
+                        roleIds = filtered
+                        changed = true
+                    }
+                }
+                if addSet.contains(member.userId), !roleIds.contains(roleId) {
+                    roleIds.append(roleId)
+                    changed = true
+                }
+                guard roleIds != member.roleIds else { return member }
+                return ClanMemberRecord(
+                    userId: member.userId,
+                    roleIds: roleIds,
+                    clanNick: member.clanNick,
+                    clanAvatar: member.clanAvatar,
+                    userAvatarURL: member.userAvatarURL,
+                    clanId: member.clanId,
+                    isOnline: member.isOnline,
+                    displayName: member.displayName,
+                    username: member.username
+                )
+            }
+            if changed {
+                tx.updateClanMembers(updatedMembers, clanId: clanId)
+            } else {
+                updatedMembers = []
+            }
+        }
+
+        guard !updatedMembers.isEmpty else { return }
+        var list = Mezon_Api_ClanUserList()
+        list.clanID = clanId
+        list.clanUsers = updatedMembers.map { $0.toClanUserListClanUser() }
+        if let data = try? list.serializedData() {
+            context.engine.account.postbox.setPreferenceDataSync(
+                key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
+        }
+        context.engine.clanData.clanUsersUpdated.putNext(clanId)
     }
 
     // MARK: - Permission gates

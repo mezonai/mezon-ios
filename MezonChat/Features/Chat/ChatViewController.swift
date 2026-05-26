@@ -1573,6 +1573,17 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
+
+            let immediateToken: String? = {
+                if let t = self.context.session?.token, !t.isEmpty { return t }
+                if let t = SessionStore.load()?.token, !t.isEmpty { return t }
+                return nil
+            }()
+            if let immediateToken {
+                self.hasCompletedInitialFetch = true
+                self.fetchMessages(token: immediateToken)
+            }
+
             var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
             if token == nil {
                 await self.context.waitForSessionReady()
@@ -1582,8 +1593,10 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
-            self.hasCompletedInitialFetch = true
-            self.fetchMessages(token: token)
+            if !self.hasCompletedInitialFetch {
+                self.hasCompletedInitialFetch = true
+                self.fetchMessages(token: token)
+            }
             await self.waitForSocketConnected()
             self.joinChat()
             self.refreshPinnedMessagesFromServer()
@@ -4253,12 +4266,16 @@ final class ChatViewController: ViewController {
             user: user,
             context: context,
             isCurrentUser: isCurrentUser,
+            clanId: clanId,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
                 let chatVC = ChatViewController(
                     clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
+            },
+            onStartCall: { [weak self] dmChannel in
+                self?.startDirectMessageCall(channel: dmChannel, user: user)
             }
         )
         presentInGlobalOverlay(sheet)
@@ -4317,12 +4334,16 @@ final class ChatViewController: ViewController {
             user: user,
             context: context,
             isCurrentUser: isCurrentUser,
+            clanId: clanId,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
                 let chatVC = ChatViewController(
                     clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
+            },
+            onStartCall: { [weak self] dmChannel in
+                self?.startDirectMessageCall(channel: dmChannel, user: user)
             }
         )
         presentInGlobalOverlay(sheet)
@@ -4386,6 +4407,31 @@ final class ChatViewController: ViewController {
             let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
             self.navigationController?.pushViewController(chatVC, animated: true)
         }
+    }
+
+    private func startDirectMessageCall(channel: Mezon_Api_ChannelDescription, user: Mezon_Api_User) {
+        guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
+            Toast.error("Cannot call yourself")
+            return
+        }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
+        let displayName = user.displayName.isEmpty ? (channel.channelLabel.isEmpty ? user.username : channel.channelLabel) : user.displayName
+        let avatarURL = user.avatarURL.isEmpty ? channel.avatars.first : user.avatarURL
+        let callVC = PeerCallViewController(
+            context: context,
+            remoteUserName: displayName,
+            remoteAvatarURL: avatarURL,
+            remoteUserId: user.id,
+            channelId: channel.channelID,
+            isVideo: false
+        )
+        pushPeerCallScreen(callVC)
     }
 
     private func startShareContactCall(_ data: ShareContactData) {
