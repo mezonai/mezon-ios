@@ -277,6 +277,7 @@ struct ChatState {
     var isPrivate: Bool
     var isAgeRestricted: Bool
     var isDM: Bool
+    var isPeerBlocked: Bool
     var dmPeerUsername: String
     var dmPeerDisplayName: String
     var dmAvatarURL: String
@@ -294,7 +295,7 @@ struct ChatState {
 
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
-        isDM: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
+        isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -1421,6 +1422,10 @@ final class ChatViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
     private var hasCompletedInitialFetch = false
+    private static let initialEmptyMessageRetryDelaysNanoseconds: [UInt64] = [
+        600_000_000,
+        1_200_000_000
+    ]
 
     func start() {
         if topicId == 0 {
@@ -1798,7 +1803,7 @@ final class ChatViewController: ViewController {
             setIsLoadingMessageContext(true)
         }
         setErrorMessage(nil)
-        let preferHTTPFirst = nextFetchPrefersHTTPFirst
+        let preferHTTPFirst = true
         nextFetchPrefersHTTPFirst = false
 
         Task { @MainActor in
@@ -1812,9 +1817,43 @@ final class ChatViewController: ViewController {
             if let token { resolvedToken = token } else { resolvedToken = await self.context.getTokenPreferringCachedSkipSessionReadyWait() }
             guard let token = resolvedToken else { return }
             do {
-                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token, preferHTTPFirst: preferHTTPFirst)
-                if response.messages.isEmpty {
-                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 30, topicId: self.topicId, token: token, preferHTTPFirst: preferHTTPFirst)
+                func loadInitialMessages() async throws -> Mezon_Api_ChannelMessageList {
+                    var response = try await self.context.account.network.listChannelMessages(
+                        clanId: clanId,
+                        channelId: channel.channelID,
+                        messageId: 0,
+                        direction: 2,
+                        limit: 30,
+                        topicId: self.topicId,
+                        token: token,
+                        preferHTTPFirst: preferHTTPFirst
+                    )
+                    if response.messages.isEmpty {
+                        response = try await self.context.account.network.listChannelMessages(
+                            clanId: clanId,
+                            channelId: channel.channelID,
+                            messageId: 0,
+                            direction: 3,
+                            limit: 30,
+                            topicId: self.topicId,
+                            token: token,
+                            preferHTTPFirst: preferHTTPFirst
+                        )
+                    }
+                    return response
+                }
+
+                var response = try await loadInitialMessages()
+                if response.messages.isEmpty && !hadCachedMessages && !hadCachedInPostbox {
+                    for delay in Self.initialEmptyMessageRetryDelaysNanoseconds {
+                        guard response.messages.isEmpty,
+                              NetworkMonitor.shared.isConnected,
+                              !Task.isCancelled else {
+                            break
+                        }
+                        try await Task.sleep(nanoseconds: delay)
+                        response = try await loadInitialMessages()
+                    }
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }
@@ -2107,6 +2146,12 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private var isDirectMessagePeerBlocked: Bool {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return false }
+        guard let peerId = channel.userIds.first, peerId != 0 else { return false }
+        return context.engine.friendsData.blockedUserIds().contains(peerId)
+    }
+
     var currentState: ChatState {
         let labelFromMeta = parentChannelMeta?.label
         let resolvedParentName =
@@ -2119,6 +2164,7 @@ final class ChatViewController: ViewController {
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
             isDM: clanId == 0,
+            isPeerBlocked: isDirectMessagePeerBlocked,
             dmPeerUsername: channel.usernames.first ?? "",
             dmPeerDisplayName: channel.displayNames.first ?? "",
             dmAvatarURL: channel.avatars.first ?? "",
@@ -2191,13 +2237,19 @@ final class ChatViewController: ViewController {
             var lastParentName = self.currentState.parentName
             var lastIsPrivate = self.currentState.isPrivate
             var lastIsAgeRestricted = self.currentState.isAgeRestricted
+            var lastIsPeerBlocked = self.currentState.isPeerBlocked
             var lastChannelLabel = self.currentState.channelLabel
             var lastChannelType = self.currentState.channelType
+            var lastDmPeerUsername = self.currentState.dmPeerUsername
+            var lastDmPeerDisplayName = self.currentState.dmPeerDisplayName
+            var lastDmAvatarURL = self.currentState.dmAvatarURL
+            var lastDmGroupAvatarURL = self.currentState.dmGroupAvatarURL
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
                 let d2 = self.metadataOnlyPipe.signal().start(next: { subscriber.putNext(()) })
-                return ActionDisposable { d1.dispose(); d2.dispose() }
+                let d3 = self.context.engine.friendsData.friendsUpdated.signal().start(next: { subscriber.putNext(()) })
+                return ActionDisposable { d1.dispose(); d2.dispose(); d3.dispose() }
                 }
             return (merged
                 |> map { [weak self] _ in self?.currentState ?? .empty }
@@ -2222,8 +2274,13 @@ final class ChatViewController: ViewController {
                         || newState.parentName != lastParentName
                         || newState.isPrivate != lastIsPrivate
                         || newState.isAgeRestricted != lastIsAgeRestricted
+                        || newState.isPeerBlocked != lastIsPeerBlocked
                         || newState.channelLabel != lastChannelLabel
                         || newState.channelType != lastChannelType
+                        || newState.dmPeerUsername != lastDmPeerUsername
+                        || newState.dmPeerDisplayName != lastDmPeerDisplayName
+                        || newState.dmAvatarURL != lastDmAvatarURL
+                        || newState.dmGroupAvatarURL != lastDmGroupAvatarURL
                     guard changed else { return }
                     lastIds = newIds
                     lastSendingStates = newSendingStates
@@ -2240,8 +2297,13 @@ final class ChatViewController: ViewController {
                     lastParentName = newState.parentName
                     lastIsPrivate = newState.isPrivate
                     lastIsAgeRestricted = newState.isAgeRestricted
+                    lastIsPeerBlocked = newState.isPeerBlocked
                     lastChannelLabel = newState.channelLabel
                     lastChannelType = newState.channelType
+                    lastDmPeerUsername = newState.dmPeerUsername
+                    lastDmPeerDisplayName = newState.dmPeerDisplayName
+                    lastDmAvatarURL = newState.dmAvatarURL
+                    lastDmGroupAvatarURL = newState.dmGroupAvatarURL
                     subscriber.putNext(newState)
                 })
         }

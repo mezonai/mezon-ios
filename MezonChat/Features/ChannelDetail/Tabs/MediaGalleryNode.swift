@@ -11,6 +11,9 @@ final class MediaGalleryNode: ASDisplayNode {
     private var attachments: [Mezon_Api_ChannelAttachment] = []
     private var didLoadMedia = false
     private var mediaFetchCompleted = false
+    private var isLoadingMore = false
+    private var hasMoreMedia = true
+    private let mediaPageLimit: Int32 = 50
 
     private let collectionNode: ASCollectionNode
     private let loadingHostNode: ASDisplayNode
@@ -68,20 +71,12 @@ final class MediaGalleryNode: ASDisplayNode {
             guard let self else { return }
             do {
                 let token = await context.getToken() ?? ""
-                let targetClanId =
-                    (channelType == MezonConstants.ChannelType.dm.rawValue
-                        || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
-
-
-                let res = try await context.account.network.listChannelAttachments(
-                    clanId: targetClanId,
-                    channelId: channelId,
-                    fileType: "image",
-                    limit: 50,
-                    token: token
-                )
+                let res = try await self.requestAttachments(before: 0, token: token)
                 let raw = res.attachments
-                let visual = raw.filter { Self.isVisualAttachment($0) }
+                self.hasMoreMedia = raw.count >= Int(self.mediaPageLimit)
+                let visual = raw
+                    .filter { Self.isVisualAttachment($0) }
+                    .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
                 self.attachments = visual
 
                 await self.collectionNode.reloadData()
@@ -92,6 +87,64 @@ final class MediaGalleryNode: ASDisplayNode {
                 self.setNeedsLayout()
             }
         }
+    }
+
+    private func requestAttachments(before: UInt32, token: String) async throws
+        -> Mezon_Api_ChannelAttachmentList
+    {
+        let targetClanId =
+            (channelType == MezonConstants.ChannelType.dm.rawValue
+                || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+        return try await context.account.network.listChannelAttachments(
+            clanId: targetClanId,
+            channelId: channelId,
+            fileType: "image",
+            limit: mediaPageLimit,
+            before: before,
+            token: token
+        )
+    }
+
+    private func loadMoreMediaIfNeeded() {
+        guard mediaFetchCompleted, hasMoreMedia, !isLoadingMore,
+            let oldest = attachments.last, oldest.createTimeSeconds > 0
+        else { return }
+        isLoadingMore = true
+        let before = oldest.createTimeSeconds
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isLoadingMore = false }
+            do {
+                let token = await self.context.getToken() ?? ""
+                let res = try await self.requestAttachments(before: before, token: token)
+                let raw = res.attachments
+                self.hasMoreMedia = raw.count >= Int(self.mediaPageLimit)
+                let existingKeys = Set(self.attachments.map { Self.dedupKey($0) })
+                let newItems = raw
+                    .filter { Self.isVisualAttachment($0) }
+                    .filter { !existingKeys.contains(Self.dedupKey($0)) }
+                    .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
+                guard !newItems.isEmpty else {
+                    self.hasMoreMedia = false
+                    return
+                }
+                let startIndex = self.attachments.count
+                self.attachments.append(contentsOf: newItems)
+                let indexPaths = (startIndex..<self.attachments.count).map {
+                    IndexPath(item: $0, section: 0)
+                }
+                self.collectionNode.performBatch(
+                    animated: false,
+                    updates: { self.collectionNode.insertItems(at: indexPaths) },
+                    completion: nil
+                )
+            } catch {
+            }
+        }
+    }
+
+    private static func dedupKey(_ att: Mezon_Api_ChannelAttachment) -> String {
+        att.id != 0 ? "id:\(att.id)" : "url:\(att.url)"
     }
 
     private static func isVisualAttachment(_ att: Mezon_Api_ChannelAttachment) -> Bool {
@@ -245,6 +298,16 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
         -> Int
     {
         attachments.count
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let offset = scrollView.contentOffset.y
+        let contentHeight = scrollView.contentSize.height
+        let frameHeight = scrollView.frame.height
+        guard contentHeight > frameHeight else { return }
+        if offset > contentHeight - frameHeight * 1.5 {
+            loadMoreMediaIfNeeded()
+        }
     }
 
     func collectionNode(_ collectionNode: ASCollectionNode, nodeBlockForItemAt indexPath: IndexPath)

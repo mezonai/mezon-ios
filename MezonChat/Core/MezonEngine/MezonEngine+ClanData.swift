@@ -34,6 +34,68 @@ enum ChannelPreferenceListCodec {
     }
 }
 
+struct ChannelListCachedMeta {
+    var categoryDescs: [Mezon_Api_CategoryDesc]
+    var favoriteIds: Set<Int64>
+}
+
+enum ChannelListMetaCodec {
+    static func encode(categoryDescs: [Mezon_Api_CategoryDesc], favoriteIds: Set<Int64>) -> Data {
+        var d = Data()
+        var version: UInt32 = 1
+        d.append(contentsOf: withUnsafeBytes(of: &version) { Array($0) })
+        let favSorted = favoriteIds.sorted()
+        var favCount = UInt32(favSorted.count)
+        d.append(contentsOf: withUnsafeBytes(of: &favCount) { Array($0) })
+        for id in favSorted {
+            var le = id.littleEndian
+            d.append(contentsOf: withUnsafeBytes(of: &le) { Array($0) })
+        }
+        var catCount = UInt32(categoryDescs.count)
+        d.append(contentsOf: withUnsafeBytes(of: &catCount) { Array($0) })
+        for c in categoryDescs {
+            guard let sd = try? c.serializedData() else { continue }
+            var len = UInt32(sd.count)
+            d.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+            d.append(sd)
+        }
+        return d
+    }
+
+    static func decode(_ data: Data) -> ChannelListCachedMeta? {
+        guard data.count >= 4 else { return nil }
+        var offset = 0
+        let version = data.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        guard version == 1 else { return nil }
+        offset = 4
+        guard offset + 4 <= data.count else { return nil }
+        let favCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        offset += 4
+        var favs = Set<Int64>()
+        for _ in 0..<favCount {
+            guard offset + 8 <= data.count else { return nil }
+            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            favs.insert(id)
+            offset += 8
+        }
+        guard offset + 4 <= data.count else { return ChannelListCachedMeta(categoryDescs: [], favoriteIds: favs) }
+        let catCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        offset += 4
+        var cats: [Mezon_Api_CategoryDesc] = []
+        for _ in 0..<catCount {
+            guard offset + 4 <= data.count else { break }
+            let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            offset += 4
+            guard offset + len <= data.count else { break }
+            if let m = try? Mezon_Api_CategoryDesc(serializedBytes: data.subdata(in: offset..<(offset + len))) {
+                cats.append(m)
+            }
+            offset += len
+        }
+        return ChannelListCachedMeta(categoryDescs: cats, favoriteIds: favs)
+    }
+}
+
 enum EStateFriend: Int32 {
     case friend = 0
     case otherPending = 1
@@ -551,12 +613,28 @@ extension MezonEngine {
                 |> deliverOnMainQueue).start(next: { [weak self] event in
                     guard let self else { return }
                     switch event {
-                    case .addFriend, .removeFriend, .blockFriend:
+                    case .blockFriend(let m):
+                        self.applyLocalBlockState(userId: m.userID, blocked: true)
+                        self.scheduleRefreshFromSocket()
+                    case .unBlockFriend(let m):
+                        self.applyLocalBlockState(userId: m.userID, blocked: false)
+                        self.scheduleRefreshFromSocket()
+                    case .addFriend, .removeFriend:
                         self.scheduleRefreshFromSocket()
                     default:
                         break
                     }
                 })
+        }
+
+        private func applyLocalBlockState(userId: Int64, blocked: Bool) {
+            guard userId != 0 else { return }
+            var list = allFriends()
+            guard let idx = list.firstIndex(where: { $0.user.id == userId }) else { return }
+            let newState = blocked ? EStateFriend.block.rawValue : EStateFriend.friend.rawValue
+            guard list[idx].state != newState else { return }
+            list[idx].state = newState
+            persistFriends(list)
         }
 
         func allFriends() -> [Mezon_Api_Friend] {
@@ -609,25 +687,14 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            async let friendList = (try? net.listFriends(token: token, state: EStateFriend.friend.rawValue))?.friends
-            async let otherPendingList = (try? net.listFriends(token: token, state: EStateFriend.otherPending.rawValue))?.friends
-            async let myPendingList = (try? net.listFriends(token: token, state: EStateFriend.myPending.rawValue))?.friends
-            async let blockList = (try? net.listFriends(token: token, state: EStateFriend.block.rawValue))?.friends
-
-            let lists = [await friendList, await otherPendingList, await myPendingList, await blockList].compactMap { $0 }
+            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: -1))?.friends else { return }
             let cached = allFriends()
 
-            guard !lists.isEmpty else { return }
-
-            if lists.count == 4, isAllListsIdentical(lists), !cached.isEmpty {
-                return
-            }
+            guard !fetched.isEmpty || cached.isEmpty else { return }
 
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
-            for list in lists {
-                for friend in list {
-                    dedupByUserId[friend.user.id] = friend
-                }
+            for friend in fetched {
+                dedupByUserId[friend.user.id] = friend
             }
 
             guard !dedupByUserId.isEmpty || cached.isEmpty else { return }
@@ -641,14 +708,6 @@ extension MezonEngine {
                 return lName.localizedCaseInsensitiveCompare(rName) == .orderedAscending
             }
             persistFriends(Array(merged))
-        }
-
-        private func isAllListsIdentical(_ lists: [[Mezon_Api_Friend]]) -> Bool {
-            guard let first = lists.first, !first.isEmpty else { return false }
-            let firstSignature = first.map { "\($0.user.id):\($0.state)" }.sorted()
-            return lists.dropFirst().allSatisfy {
-                $0.map { "\($0.user.id):\($0.state)" }.sorted() == firstSignature
-            }
         }
 
         func removePendingRequest(userId: Int64) {
@@ -704,7 +763,8 @@ extension MezonEngine {
 
                 guard let count = readUInt32() else { return [] }
                 var result: [Mezon_Api_Friend] = []
-                result.reserveCapacity(Int(count))
+                let maxPossibleEntries = (rawPtr.count - offset) / 4
+                result.reserveCapacity(min(Int(count), maxPossibleEntries))
                 for _ in 0..<count {
                     guard let len = readUInt32() else { break }
                     let intLen = Int(len)

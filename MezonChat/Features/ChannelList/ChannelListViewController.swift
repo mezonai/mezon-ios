@@ -23,6 +23,7 @@ struct ChannelListState: Equatable {
             && lhs.voiceUsersByChannel == rhs.voiceUsersByChannel
             && zip(lhs.categories, rhs.categories).allSatisfy({
                 $0.id == $1.id && $0.isCollapsed == $1.isCollapsed
+                    && $0.name == $1.name
                     && $0.channels.count == $1.channels.count
                     && ($0.favoriteFlatChannels?.count ?? 0) == ($1.favoriteFlatChannels?.count ?? 0)
             })
@@ -32,6 +33,8 @@ struct ChannelListState: Equatable {
             && $0.countMessUnread == $1.countMessUnread
             && $0.lastSentMessage.timestampSeconds == $1.lastSentMessage.timestampSeconds
             && $0.lastSeenMessage.timestampSeconds == $1.lastSeenMessage.timestampSeconds
+            && $0.channelLabel == $1.channelLabel
+            && $0.topic == $1.topic
         }
     }
 }
@@ -1074,6 +1077,7 @@ final class ChannelListViewController: ViewController {
             clanId: channel.clanID,
             channelId: channel.channelID,
             categoryId: channel.categoryID,
+            categoryName: channel.categoryName,
             channelType: channel.type,
             channelPrivate: channel.channelPrivate == 1,
             channelName: channel.channelLabel,
@@ -1333,6 +1337,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.set(nil)
         self.clanId = clanId
         self.clanName = clanName
+        emptyChannelRetryCountByClanId[clanId] = 0
         self.showEmptyCategoriesEnabled = loadShowEmptyCategoriesPreference(clanId: clanId)
         channelsLoadedPromise.set(false)
         errorMessage = nil
@@ -1402,6 +1407,8 @@ final class ChannelListViewController: ViewController {
     private var inflightChannelFetchClanId: Int64 = 0
     private var lastChannelFetchAtByClanId: [Int64: Date] = [:]
     private let channelFetchCooldown: TimeInterval = 5.0
+    private var emptyChannelRetryCountByClanId: [Int64: Int] = [:]
+    private let maxEmptyChannelFetchRetries = 4
 
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
@@ -1463,7 +1470,69 @@ final class ChannelListViewController: ViewController {
                         Task { @MainActor [weak self] in
                             await self?.applyChannelBadgeCounts(clanId: clanId)
                         }
+                        if !categoryDescs.isEmpty {
+                            self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                        }
                         self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        return
+                    }
+                    if channels.isEmpty, let recoveredChannels = self.recoveryChannelsForEmptyFetch(clanId: clanId) {
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            guard self.isCurrentSessionAlive else {
+                                self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                                return
+                            }
+                            guard self.clanId == clanId else {
+                                self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                                return
+                            }
+                            let resolvedCategoryDescs = categoryDescs.isEmpty ? self.channelListCategoryDescs : categoryDescs
+                            let resolvedFavoriteIds = favoriteIds.isEmpty ? self.channelListFavoriteIds : favoriteIds
+                            let merged = await self.fetchMergedChannelsWithBadgeCounts(base: recoveredChannels, clanId: clanId)
+                            self.channelListCategoryDescs = resolvedCategoryDescs
+                            self.channelListFavoriteIds = resolvedFavoriteIds
+                            self.allChannels = merged
+                            let storedCollapsed = self.loadCollapsedCategoryIds()
+                            let built = buildChannelCategories(
+                                merged,
+                                categoryDescs: resolvedCategoryDescs,
+                                favoriteChannelIds: resolvedFavoriteIds,
+                                collapsedIds: storedCollapsed
+                            )
+                            let cats = self.applyBuiltCategoriesPreservingCollapse(built)
+                            self.categories = cats
+                            self.channelsLoadedPromise.set(true)
+                            self.syncSelectedChannelFromStoredPreferences()
+                            self.categoriesPipe.putNext(cats)
+                            self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
+                            self.persistFullChannelListCache(
+                                clanId: clanId,
+                                channels: merged,
+                                categoryDescs: resolvedCategoryDescs,
+                                favoriteIds: resolvedFavoriteIds,
+                                categories: cats
+                            )
+                            self.channelListNode.endRefreshing()
+                            self.isLoadingPipe.putNext(false)
+                            self.needsReloadPipe.putNext(())
+                            self.postClanSidebarUnreadDerivedFromCurrentChannels()
+                            self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                            self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        }
+                        return
+                    }
+                    if channels.isEmpty {
+                        self.channelsLoadedPromise.set(!self.allChannels.isEmpty)
+                        self.channelListNode.endRefreshing()
+                        self.isLoadingPipe.putNext(false)
+                        self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
+                        self.needsReloadPipe.putNext(())
+                        self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                        self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        if self.allChannels.isEmpty {
+                            self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
+                        }
                         return
                     }
                     Task { @MainActor [weak self] in
@@ -1480,6 +1549,7 @@ final class ChannelListViewController: ViewController {
                         self.channelListCategoryDescs = categoryDescs
                         self.channelListFavoriteIds = favoriteIds
                         self.allChannels = merged
+                        self.emptyChannelRetryCountByClanId[clanId] = 0
                         let storedCollapsed = self.loadCollapsedCategoryIds()
                         let built = buildChannelCategories(
                             merged,
@@ -1525,6 +1595,23 @@ final class ChannelListViewController: ViewController {
     private func clearInflightChannelFetchIfMatches(clanId: Int64) {
         if inflightChannelFetchClanId == clanId {
             inflightChannelFetchClanId = 0
+        }
+    }
+
+    private func scheduleEmptyChannelRetryIfNeeded(clanId: Int64) {
+        guard clanId != 0, clanId == self.clanId, self.allChannels.isEmpty,
+              NetworkMonitor.shared.isConnected else { return }
+        let attempt = emptyChannelRetryCountByClanId[clanId, default: 0]
+        guard attempt < maxEmptyChannelFetchRetries else { return }
+        emptyChannelRetryCountByClanId[clanId] = attempt + 1
+        let delayNanos = UInt64(700_000_000) * UInt64(attempt + 1)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard let self else { return }
+            guard self.clanId == clanId, self.allChannels.isEmpty,
+                  self.isCurrentSessionAlive, NetworkMonitor.shared.isConnected else { return }
+            self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+            self.fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
         }
     }
 
@@ -1766,10 +1853,22 @@ final class ChannelListViewController: ViewController {
     }
 
     func updateChannels(_ channels: [Mezon_Api_ChannelDescription]) {
-        allChannels = channels
+        let resolvedChannels: [Mezon_Api_ChannelDescription]
+        if channels.isEmpty {
+            if let recoveredChannels = recoveryChannelsForEmptyFetch(clanId: clanId) {
+                resolvedChannels = recoveredChannels
+                lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+            } else {
+                if !channelListCategoryDescs.isEmpty { return }
+                resolvedChannels = channels
+            }
+        } else {
+            resolvedChannels = channels
+        }
+        allChannels = resolvedChannels
         let storedCollapsed = loadCollapsedCategoryIds()
         let built = buildChannelCategories(
-            channels,
+            resolvedChannels,
             categoryDescs: channelListCategoryDescs,
             favoriteChannelIds: channelListFavoriteIds,
             collapsedIds: storedCollapsed
@@ -2100,6 +2199,21 @@ final class ChannelListViewController: ViewController {
         return true
     }
 
+    private func recoveryChannelsForEmptyFetch(clanId: Int64) -> [Mezon_Api_ChannelDescription]? {
+        guard clanId != 0 else { return nil }
+        if clanId == self.clanId, !allChannels.isEmpty {
+            return allChannels
+        }
+        if let cached = readChannelCachePayloadIfAvailable(clanId: clanId)?.channels, !cached.isEmpty {
+            return cached
+        }
+        if let allChannelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc {
+            let filtered = allChannelsByUser.filter { $0.clanID == clanId }
+            if !filtered.isEmpty { return filtered }
+        }
+        return nil
+    }
+
     private func readChannelCachePayloadIfAvailable(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? {
         if let strict = readValidatedChannelCache(clanId: clanId) { return strict }
         return readChannelCacheLenient(clanId: clanId)
@@ -2127,7 +2241,7 @@ final class ChannelListViewController: ViewController {
     ) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?) {
         let metaFromBlob: ChannelListCachedMeta?
         if let metaData = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelListMeta(clanId: clanId)),
-           let m = decodeChannelListMeta(metaData) {
+           let m = ChannelListMetaCodec.decode(metaData) {
             metaFromBlob = m
         } else {
             metaFromBlob = nil
@@ -2168,65 +2282,7 @@ final class ChannelListViewController: ViewController {
         postClanSidebarUnreadDerivedFromCurrentChannels()
     }
 
-    private struct ChannelListCachedMeta {
-        var categoryDescs: [Mezon_Api_CategoryDesc]
-        var favoriteIds: Set<Int64>
-    }
 
-    private func encodeChannelListMeta(categoryDescs: [Mezon_Api_CategoryDesc], favoriteIds: Set<Int64>) -> Data {
-        var d = Data()
-        var version: UInt32 = 1
-        d.append(contentsOf: withUnsafeBytes(of: &version) { Array($0) })
-        let favSorted = favoriteIds.sorted()
-        var favCount = UInt32(favSorted.count)
-        d.append(contentsOf: withUnsafeBytes(of: &favCount) { Array($0) })
-        for id in favSorted {
-            var le = id.littleEndian
-            d.append(contentsOf: withUnsafeBytes(of: &le) { Array($0) })
-        }
-        var catCount = UInt32(categoryDescs.count)
-        d.append(contentsOf: withUnsafeBytes(of: &catCount) { Array($0) })
-        for c in categoryDescs {
-            guard let sd = try? c.serializedData() else { continue }
-            var len = UInt32(sd.count)
-            d.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
-            d.append(sd)
-        }
-        return d
-    }
-
-    private func decodeChannelListMeta(_ data: Data) -> ChannelListCachedMeta? {
-        guard data.count >= 4 else { return nil }
-        var offset = 0
-        let version = data.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
-        guard version == 1 else { return nil }
-        offset = 4
-        guard offset + 4 <= data.count else { return nil }
-        let favCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
-        offset += 4
-        var favs = Set<Int64>()
-        for _ in 0..<favCount {
-            guard offset + 8 <= data.count else { return nil }
-            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
-            favs.insert(id)
-            offset += 8
-        }
-        guard offset + 4 <= data.count else { return ChannelListCachedMeta(categoryDescs: [], favoriteIds: favs) }
-        let catCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
-        offset += 4
-        var cats: [Mezon_Api_CategoryDesc] = []
-        for _ in 0..<catCount {
-            guard offset + 4 <= data.count else { break }
-            let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
-            offset += 4
-            guard offset + len <= data.count else { break }
-            if let m = try? Mezon_Api_CategoryDesc(serializedBytes: data.subdata(in: offset..<(offset + len))) {
-                cats.append(m)
-            }
-            offset += len
-        }
-        return ChannelListCachedMeta(categoryDescs: cats, favoriteIds: favs)
-    }
 
     private func persistFullChannelListCache(
         clanId: Int64,
@@ -2243,7 +2299,7 @@ final class ChannelListViewController: ViewController {
         )
         context.account.postbox.setPreferenceDataSync(
             key: PreferencesKeys.channelListMeta(clanId: clanId),
-            value: encodeChannelListMeta(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
+            value: ChannelListMetaCodec.encode(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
         )
         persistFavoriteChannelIds(favoriteIds, clanId: clanId)
         context.account.postbox.setPreferenceDataSync(

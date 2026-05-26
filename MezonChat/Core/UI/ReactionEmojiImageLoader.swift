@@ -111,6 +111,28 @@ enum ReactionEmojiImageLoader {
     }
 
     @discardableResult
+    static func loadAnimatedDataBestEffort(
+        emojiId: String, imgproxyFitSide: Int, completion: @escaping (Data?) -> Void
+    ) -> URLSessionDataTask? {
+        guard let direct = MezonConfig.emojiImageURL(emojiId: emojiId) else {
+            return loadDataBestEffort(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide, completion: completion)
+        }
+        return loadData(from: direct) { data in
+            if data != nil {
+                completion(data)
+                return
+            }
+            guard let proxied = MezonConfig.emojiResourceURL(emojiId: emojiId, imgproxyFitSide: imgproxyFitSide),
+                proxied.absoluteString != direct.absoluteString
+            else {
+                completion(nil)
+                return
+            }
+            _ = loadData(from: proxied, completion: completion)
+        }
+    }
+
+    @discardableResult
     private static func loadData(from url: URL, completion: @escaping (Data?) -> Void) -> URLSessionDataTask? {
         let key = url.absoluteString
         if let cached = EmojiDataCache.shared.data(forKey: key) {

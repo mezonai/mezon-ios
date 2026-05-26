@@ -15,8 +15,9 @@ final class ImageCache {
 
     private let memoryCache: NSCache<NSString, UIImage> = {
         let c = NSCache<NSString, UIImage>()
-        c.countLimit = 200
-        c.totalCostLimit = 400 * 1024 * 1024
+        c.countLimit = 150
+        let physical = ProcessInfo.processInfo.physicalMemory
+        c.totalCostLimit = Int(min(physical / 10, 120 * 1024 * 1024))
         return c
     }()
 
@@ -38,6 +39,30 @@ final class ImageCache {
 
     private var inflightCallbacks: [String: [(UIImage?) -> Void]] = [:]
     private let inflightLock = NSLock()
+
+    init() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemoryWarning),
+            name: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil
+        )
+    }
+
+    @objc private func handleMemoryWarning() {
+        memoryCache.removeAllObjects()
+    }
+
+    private func memoryCost(of image: UIImage) -> Int {
+        let frameCount = max(image.images?.count ?? 1, 1)
+        if let cg = image.cgImage {
+            return cg.bytesPerRow * cg.height * frameCount
+        }
+        let scale = image.scale
+        let pixels = Int(image.size.width * scale) * Int(image.size.height * scale)
+        return pixels * 4 * frameCount
+    }
+
     func memoryImage(forKey key: String) -> UIImage? {
         return memoryCache.object(forKey: key as NSString)
     }
@@ -53,7 +78,7 @@ final class ImageCache {
         guard let data = try? Data(contentsOf: fileURL),
               let image = UIImage.decompressedImage(from: data) else { return nil }
 
-        memoryCache.setObject(image, forKey: nsKey, cost: data.count)
+        memoryCache.setObject(image, forKey: nsKey, cost: memoryCost(of: image))
         return image
     }
 
@@ -66,7 +91,7 @@ final class ImageCache {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
-            self.memoryCache.setObject(image, forKey: key as NSString, cost: data.count)
+            self.memoryCache.setObject(image, forKey: key as NSString, cost: self.memoryCost(of: image))
             DispatchQueue.main.async { completion(image) }
         }
     }
@@ -78,8 +103,7 @@ final class ImageCache {
 
     func setImage(_ image: UIImage, data: Data?, forKey key: String) {
         let nsKey = key as NSString
-        let cost = data?.count ?? 0
-        memoryCache.setObject(image, forKey: nsKey, cost: cost)
+        memoryCache.setObject(image, forKey: nsKey, cost: memoryCost(of: image))
 
         if let data {
             let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)

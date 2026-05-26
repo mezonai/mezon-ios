@@ -218,12 +218,20 @@ final class PostboxTransaction {
         channelId: Int64,
         name: String?,
         topic: String?,
-        channelAvatar: String? = nil
+        channelAvatar: String? = nil,
+        categoryId: Int64? = nil,
+        categoryName: String? = nil
     ) {
         let channels = channelTable.getChannels(clanId: clanId)
         if let index = channels.firstIndex(where: { $0.id == channelId }) {
             let existing = channels[index]
-            let updated = existing.updating(label: name, topic: topic, channelAvatar: channelAvatar)
+            let updated = existing.updating(
+                label: name,
+                topic: topic,
+                channelAvatar: channelAvatar,
+                categoryId: categoryId,
+                categoryName: categoryName
+            )
             channelTable.updateSingleChannelRecord(updated)
             updatedChannelClanIds.insert(clanId)
         }

@@ -295,6 +295,7 @@
 		89B03906CB574F31B9373594 /* ASDisplayNode+Measure.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB1FA8C4CC47E61BB3AC4BA0 /* ASDisplayNode+Measure.swift */; };
 		89C3BA35519978D6578CCAF1 /* NavigationModalContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69EA61D2CC6424EB7A3E864F /* NavigationModalContainer.swift */; };
 		8A88A5C20E31B31350216295 /* ChannelSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A84D0510D594D745D508FB5 /* ChannelSettingsViewController.swift */; };
+		DD2B3C4D5E6F7890A1234567 /* ChangeCategoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1A2B3C4D5E6F7890123456 /* ChangeCategoryViewController.swift */; };
 		8ABAA99F11CC149CBABDE75C /* ThreadPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = D66C3D58A9E438C84EE96F22 /* ThreadPool.swift */; };
 		8AE0B42B96ED910CB4BCAA14 /* VoiceChannelRoomViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581A104A74BD46A8A45EDDD3 /* VoiceChannelRoomViewController.swift */; };
 		8B255D20EA971D28AE8C2C0A /* FriendListContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C8D041816A7A67889F798 /* FriendListContainerNode.swift */; };
@@ -812,6 +813,7 @@
 		69AAD0B6B4DA9576764856EA /* GlobalPortalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalPortalView.swift; sourceTree = "<group>"; };
 		69EA61D2CC6424EB7A3E864F /* NavigationModalContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationModalContainer.swift; sourceTree = "<group>"; };
 		6A84D0510D594D745D508FB5 /* ChannelSettingsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelSettingsViewController.swift; sourceTree = "<group>"; };
+		CC1A2B3C4D5E6F7890123456 /* ChangeCategoryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeCategoryViewController.swift; sourceTree = "<group>"; };
 		6B3F43951505846E5A8692F4 /* SDisposableSet.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SDisposableSet.m; sourceTree = "<group>"; };
 		6C44C6AB27450CFE50259EDF /* SessionRefreshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRefreshManager.swift; sourceTree = "<group>"; };
 		6D95471951D1959C71920151 /* ClanJoinCreateSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanJoinCreateSheetViewController.swift; sourceTree = "<group>"; };
@@ -1797,6 +1799,7 @@
 			children = (
 				723A3601949B959F1F8CA29D /* ChannelSettingsContainerNode.swift */,
 				6A84D0510D594D745D508FB5 /* ChannelSettingsViewController.swift */,
+				CC1A2B3C4D5E6F7890123456 /* ChangeCategoryViewController.swift */,
 				DE781345804FE6966B3B00DD /* Permissions */,
 			);
 			path = ChannelSettings;
@@ -2811,6 +2814,7 @@
 				77EA03E635E272563F70FF59 /* ChannelRecord.swift in Sources */,
 				099ACD37F9AFFB0E11547385 /* ChannelSettingsContainerNode.swift in Sources */,
 				8A88A5C20E31B31350216295 /* ChannelSettingsViewController.swift in Sources */,
+				DD2B3C4D5E6F7890A1234567 /* ChangeCategoryViewController.swift in Sources */,
 				764EA61AB986AD49D8AE512F /* ChannelTable.swift in Sources */,
 				79C432770BF58B2AC9EFEB8E /* ChannelsData.swift in Sources */,
 				7166A005763F4C911F5F1B0C /* ChatAudioPlaybackCoordinator.swift in Sources */,

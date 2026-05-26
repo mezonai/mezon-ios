@@ -45,6 +45,7 @@ extension UIColor {
 
     static var mezonUnreadBadge:         UIColor { UIColor(hex: 0xC61E1B) }
     static var mezonMention:             UIColor { theme.textWarning.withAlphaComponent(0.3) }
+    static var groupDMDefaultAvatar:     UIColor { UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1) }
 
     static var loginGradientColors:      [UIColor] { theme.loginGradientColors }
     static var loginInputBg:             UIColor { theme.loginInputBg }

@@ -6,27 +6,35 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let onClose: () -> Void
     private let onSave: (String, String) -> Void
     private let onPermissionsTap: (() -> Void)?
+    private let onChangeCategoryTap: (() -> Void)?
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
 
     private let nameField = UITextField()
-    private let nameErrorLabel = UILabel()
     private let topicView = UITextView()
     private var saveBtn: UIButton!
     private let initialName: String
+    private let initialTopic: String
+    private let isThread: Bool
+    private let errorLabel = UILabel()
 
     init(
         channelName: String,
         channelTopic: String,
+        isThread: Bool,
         onClose: @escaping () -> Void,
         onSave: @escaping (String, String) -> Void,
-        onPermissionsTap: (() -> Void)? = nil
+        onPermissionsTap: (() -> Void)? = nil,
+        onChangeCategoryTap: (() -> Void)? = nil
     ) {
         self.initialName = channelName
+        self.initialTopic = channelTopic
+        self.isThread = isThread
         self.onClose = onClose
         self.onSave = onSave
         self.onPermissionsTap = onPermissionsTap
+        self.onChangeCategoryTap = onChangeCategoryTap
         super.init()
         backgroundColor = UIColor.theme.primary
 
@@ -82,6 +90,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         saveBtn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .medium)
         saveBtn.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
         saveBtn.isEnabled = false
+        saveBtn.alpha = 0.5
         saveBtn.tintColor = t.textDisabled
         header.addSubview(saveBtn)
         saveBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -119,7 +128,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
 
         let group1 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: nil),
+            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: { [weak self] in
+                self?.onChangeCategoryTap?()
+            }),
             .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
                 self?.onPermissionsTap?()
             }),
@@ -175,39 +186,48 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             tv.font = .systemFont(ofSize: 16.sf)
             tv.heightAnchor.constraint(equalToConstant: 150.sh).isActive = true
             tv.isScrollEnabled = false
+            tv.delegate = self
         }
         v.addArrangedSubview(input)
 
         if input === nameField {
             nameField.addTarget(self, action: #selector(handleNameChange), for: .editingChanged)
             
-            nameErrorLabel.text = L(L10n.ChannelSetting.channelNameError)
-            nameErrorLabel.font = .systemFont(ofSize: 12.sf)
-            nameErrorLabel.textColor = .mezonError
-            nameErrorLabel.numberOfLines = 0
-            nameErrorLabel.isHidden = true
-            v.addArrangedSubview(nameErrorLabel)
+            errorLabel.textColor = .mezonError
+            errorLabel.font = .systemFont(ofSize: 12.sf)
+            errorLabel.numberOfLines = 0
+            errorLabel.isHidden = true
+            errorLabel.text = isThread ? L(L10n.ChannelSetting.threadNameValidate) : L(L10n.ChannelSetting.channelNameValidate)
+            v.addArrangedSubview(errorLabel)
         }
 
         return v
     }
 
-    private func isValidChannelName(_ name: String) -> Bool {
-        if name.isEmpty { return false }
-        if name.count > 64 { return false }
-        let regex = "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
-        return name.range(of: regex, options: .regularExpression) != nil
-    }
-
     @objc private func handleNameChange() {
-        let text = nameField.text ?? ""
-        let isValid = isValidChannelName(text)
-        let isPristine = text.isEmpty
-        let isChanged = text != initialName && !isPristine
-        
-        saveBtn.isEnabled = isChanged && isValid
-        saveBtn.tintColor = (isChanged && isValid) ? .mezonLink : UIColor.theme.textDisabled
-        nameErrorLabel.isHidden = isValid || isPristine
+        let currentText = nameField.text ?? ""
+        let pattern = isThread 
+            ? "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,65}$" 
+            : "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
+        var isValid = currentText.range(of: pattern, options: .regularExpression) != nil
+        if currentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            isValid = false
+        }
+
+        if !isValid {
+            errorLabel.isHidden = false
+        } else {
+            errorLabel.isHidden = true
+        }
+
+        let nameChanged = currentText != initialName
+        let topicChanged = topicView.text != initialTopic
+        let isChanged = nameChanged || topicChanged
+
+        let canSave = isChanged && isValid
+        saveBtn.isEnabled = canSave
+        saveBtn.alpha = canSave ? 1.0 : 0.5
+        saveBtn.tintColor = canSave ? .mezonLink : UIColor.theme.textDisabled
     }
 
     private func createGroup(actions: [SettingAction]) -> UIView {
@@ -296,7 +316,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     @objc private func handleClose() { onClose() }
-    @objc private func handleSave() { onSave(nameField.text ?? "", topicView.text ?? "") }
+    @objc private func handleSave() { 
+        let trimmedName = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTopic = (topicView.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        onSave(trimmedName, trimmedTopic) 
+    }
 
     func applyTheme() {
         backgroundColor = UIColor.theme.primary
@@ -312,4 +336,10 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 private final class ActionRowButton: UIButton {
     var tapHandler: (() -> Void)?
     @objc func handleTap() { tapHandler?() }
+}
+
+extension ChannelSettingsContainerNode: UITextViewDelegate {
+    func textViewDidChange(_ textView: UITextView) {
+        handleNameChange()
+    }
 }
