@@ -22,7 +22,6 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private var deleteBtn: UIView?
     private let initialName: String
     private let initialTopic: String
-    private let isThread: Bool
     private let errorLabel = UILabel()
 
     init(
