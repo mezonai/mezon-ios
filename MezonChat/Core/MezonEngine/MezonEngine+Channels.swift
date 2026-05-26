@@ -48,9 +48,49 @@ extension MezonEngine {
                     channelId: channelId,
                     name: name,
                     topic: topic,
-                    channelAvatar: channelAvatar
+                    channelAvatar: channelAvatar,
+                    categoryId: categoryId,
+                    categoryName: categoryId == 0 ? "" : result.categoryName
                 )
             }
+            
+            if let blob = self.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)), !blob.isEmpty {
+                var arr = ChannelPreferenceListCodec.decode(blob)
+                if let idx = arr.firstIndex(where: { $0.channelID == channelId }) {
+                    if let name { arr[idx].channelLabel = name }
+                    if let topic { arr[idx].topic = topic }
+                    if let categoryId {
+                        arr[idx].categoryID = categoryId
+                        arr[idx].categoryName = categoryId == 0 ? "" : result.categoryName
+                    }
+                    if let data = ChannelPreferenceListCodec.encode(arr) {
+                        self.postbox.setPreferenceDataSync(
+                            key: PreferencesKeys.channelList(clanId: clanId), value: data)
+                    }
+                }
+            }
+            
+            if let blob = self.postbox.getPreferenceData(key: PreferencesKeys.allChannelsByUser), !blob.isEmpty,
+               var list = try? Mezon_Api_ChannelDescList(serializedBytes: blob) {
+                if let idx = list.channeldesc.firstIndex(where: { $0.channelID == channelId }) {
+                    if let name { list.channeldesc[idx].channelLabel = name }
+                    if let topic { list.channeldesc[idx].topic = topic }
+                    if let categoryId {
+                        list.channeldesc[idx].categoryID = categoryId
+                        list.channeldesc[idx].categoryName = categoryId == 0 ? "" : result.categoryName
+                    }
+                    if let data = try? list.serializedData() {
+                        self.postbox.setPreferenceDataSync(
+                            key: PreferencesKeys.allChannelsByUser, value: data)
+                    }
+                }
+            }
+
+            NotificationCenter.default.post(
+                name: .mezonChannelDescriptionDidUpdate,
+                object: nil,
+                userInfo: ["clanId": clanId, "channelId": channelId]
+            )
         }
     }
 }

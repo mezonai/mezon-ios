@@ -675,12 +675,17 @@ enum L10n {
     }
 
     enum ChannelSetting {
-        static let changeCategory       = "channel.setting.changeCategory"
+        static let changeCategory               = "channel.setting.changeCategory"
+        static let changeCategoryMoveFrom       = "channel.setting.changeCategory.moveFrom"
+        static let changeCategoryConfirmContent = "channel.setting.changeCategory.confirmContent"
+        static let changeCategoryEmpty          = "channel.setting.changeCategory.empty"
         static let permissions          = "channel.setting.permissions"
         static let quickAction          = "channel.setting.quickAction"
         static let banList              = "channel.setting.banList"
         static let webhook              = "channel.setting.webhook"
         static let privacyFooter        = "channel.setting.privacyFooter"
+        static let channelNameValidate  = "channel.setting.channelNameValidate"
+        static let threadNameValidate   = "channel.setting.threadNameValidate"
     }
 
     enum ChannelPermission {
@@ -1457,7 +1462,6 @@ extension L10n {
         "muteDuration.untilTurnedOff":     "Until I turn it back on",
         "muteDuration.notificationSettings": "Notification Settings",
         "muteDuration.description":        "You are receiving notifications from all messages in this clan, but you can change settings here",
-
         "notifSettings.title":          "Notification Settings",
         "notifSettings.useDefault":     "Use default settings",
         "notifSettings.allMessages":    "All messages",
@@ -1465,7 +1469,12 @@ extension L10n {
         "notifSettings.nothing":        "Nothing",
 
         "channel.setting.changeCategory":       "Change Category",
+        "channel.setting.changeCategory.moveFrom": "Move from %@ to",
+        "channel.setting.changeCategory.confirmContent": "Are you sure you want to move %channel% to %category%?",
+        "channel.setting.changeCategory.empty": "No other categories to move to",
         "channel.setting.permissions":          "Channel Permissions",
+        "channel.setting.channelNameValidate":  "Please enter a channel name (max 64 characters, only words, numbers, _ or -).",
+        "channel.setting.threadNameValidate":   "Please enter a valid thread name (max 65 characters, only words, numbers, _ or -).",
         "channel.setting.quickAction":          "Quick Action",
         "channel.setting.banList":              "Ban List",
         "channel.setting.webhook":              "Webhook",
@@ -2338,7 +2347,12 @@ extension L10n {
         "notifSettings.nothing":        "Không có gì",
 
         "channel.setting.changeCategory":       "Thay đổi danh mục",
+        "channel.setting.changeCategory.moveFrom": "Chuyển từ %@ tới",
+        "channel.setting.changeCategory.confirmContent": "Bạn có chắc muốn chuyển %channel% sang %category% không?",
+        "channel.setting.changeCategory.empty": "Không có danh mục nào khác để chuyển đến",
         "channel.setting.permissions":          "Quyền hạn kênh",
+        "channel.setting.channelNameValidate":  "Vui lòng nhập tên kênh (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "channel.setting.threadNameValidate":   "Vui lòng nhập tên chủ đề hợp lệ (tối đa 65 ký tự, chỉ chữ, số, _ hoặc -).",
         "channel.setting.quickAction":          "Hành động nhanh",
         "channel.setting.banList":              "Danh sách chặn",
         "channel.setting.webhook":              "Webhook",

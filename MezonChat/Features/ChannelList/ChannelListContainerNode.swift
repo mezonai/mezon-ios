@@ -413,6 +413,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     ) -> Bool {
         guard o.channelID == n.channelID else { return false }
         if o.channelLabel != n.channelLabel { return false }
+        if o.topic != n.topic { return false }
+        if o.categoryID != n.categoryID { return false }
         if o.type != n.type { return false }
         if o.channelPrivate != n.channelPrivate { return false }
         if o.ageRestricted != n.ageRestricted { return false }
@@ -429,6 +431,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     ) -> Bool {
         guard o.channelID == n.channelID else { return false }
         if o.channelLabel != n.channelLabel { return false }
+        if o.topic != n.topic { return false }
+        if o.categoryID != n.categoryID { return false }
         if o.countMessUnread != n.countMessUnread { return false }
         if Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n) { return false }
         return (o.channelID == prevSelected) != (n.channelID == newSelected)
@@ -576,6 +580,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard o.channelID == n.channelID else { return true }
         if (o.channelID == prevSelected) != (n.channelID == newSelected) { return true }
         if o.channelLabel != n.channelLabel { return true }
+        if o.topic != n.topic { return true }
+        if o.categoryID != n.categoryID { return true }
         if o.type != n.type { return true }
         if o.channelPrivate != n.channelPrivate { return true }
         if o.ageRestricted != n.ageRestricted { return true }
@@ -592,6 +598,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard o.channelID == n.channelID else { return true }
         if (o.channelID == prevSelected) != (n.channelID == newSelected) { return true }
         if o.channelLabel != n.channelLabel { return true }
+        if o.topic != n.topic { return true }
+        if o.categoryID != n.categoryID { return true }
         if o.countMessUnread != n.countMessUnread { return true }
         return Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n)
     }

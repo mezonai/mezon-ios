@@ -34,6 +34,68 @@ enum ChannelPreferenceListCodec {
     }
 }
 
+struct ChannelListCachedMeta {
+    var categoryDescs: [Mezon_Api_CategoryDesc]
+    var favoriteIds: Set<Int64>
+}
+
+enum ChannelListMetaCodec {
+    static func encode(categoryDescs: [Mezon_Api_CategoryDesc], favoriteIds: Set<Int64>) -> Data {
+        var d = Data()
+        var version: UInt32 = 1
+        d.append(contentsOf: withUnsafeBytes(of: &version) { Array($0) })
+        let favSorted = favoriteIds.sorted()
+        var favCount = UInt32(favSorted.count)
+        d.append(contentsOf: withUnsafeBytes(of: &favCount) { Array($0) })
+        for id in favSorted {
+            var le = id.littleEndian
+            d.append(contentsOf: withUnsafeBytes(of: &le) { Array($0) })
+        }
+        var catCount = UInt32(categoryDescs.count)
+        d.append(contentsOf: withUnsafeBytes(of: &catCount) { Array($0) })
+        for c in categoryDescs {
+            guard let sd = try? c.serializedData() else { continue }
+            var len = UInt32(sd.count)
+            d.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+            d.append(sd)
+        }
+        return d
+    }
+
+    static func decode(_ data: Data) -> ChannelListCachedMeta? {
+        guard data.count >= 4 else { return nil }
+        var offset = 0
+        let version = data.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        guard version == 1 else { return nil }
+        offset = 4
+        guard offset + 4 <= data.count else { return nil }
+        let favCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        offset += 4
+        var favs = Set<Int64>()
+        for _ in 0..<favCount {
+            guard offset + 8 <= data.count else { return nil }
+            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            favs.insert(id)
+            offset += 8
+        }
+        guard offset + 4 <= data.count else { return ChannelListCachedMeta(categoryDescs: [], favoriteIds: favs) }
+        let catCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        offset += 4
+        var cats: [Mezon_Api_CategoryDesc] = []
+        for _ in 0..<catCount {
+            guard offset + 4 <= data.count else { break }
+            let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            offset += 4
+            guard offset + len <= data.count else { break }
+            if let m = try? Mezon_Api_CategoryDesc(serializedBytes: data.subdata(in: offset..<(offset + len))) {
+                cats.append(m)
+            }
+            offset += len
+        }
+        return ChannelListCachedMeta(categoryDescs: cats, favoriteIds: favs)
+    }
+}
+
 enum EStateFriend: Int32 {
     case friend = 0
     case otherPending = 1
