@@ -38,8 +38,8 @@ final class SetupMembersViewController: BaseViewController {
     private let bottomBar = UIStackView()
     private let finishButton = UIButton(type: .custom)
     private let skipButton = UIButton(type: .system)
+    private var tableBottomConstraint: NSLayoutConstraint?
     private var bottomBarBottomConstraint: NSLayoutConstraint?
-    private let tableBottomInsetWithBar: CGFloat = 130.sh
 
     private var roleId: Int64 {
         switch mode {
@@ -272,11 +272,13 @@ final class SetupMembersViewController: BaseViewController {
         tableView.register(MemberRowCell.self, forCellReuseIdentifier: MemberRowCell.reuseId)
         view.addSubview(tableView)
 
+        let bottomConstraint = tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        tableBottomConstraint = bottomConstraint
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: addMemberButton.bottomAnchor, constant: 8.sh),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            bottomConstraint
         ])
     }
 
@@ -313,8 +315,12 @@ final class SetupMembersViewController: BaseViewController {
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
             bottomC,
         ])
-        tableView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: tableBottomInsetWithBar, right: 0)
-        tableView.verticalScrollIndicatorInsets.bottom = tableBottomInsetWithBar
+        tableBottomConstraint?.isActive = false
+        let bottomConstraint = tableView.bottomAnchor.constraint(equalTo: bottomBar.topAnchor, constant: -8.sh)
+        tableBottomConstraint = bottomConstraint
+        bottomConstraint.isActive = true
+        tableView.contentInset = .zero
+        tableView.verticalScrollIndicatorInsets.bottom = 0
     }
 
     @objc private func handleKeyboardFrameChange(_ notification: Notification) {
@@ -325,9 +331,8 @@ final class SetupMembersViewController: BaseViewController {
         let converted = view.convert(frame, from: nil)
         let overlap = max(0, view.bounds.maxY - converted.minY)
         bottomBarBottomConstraint.constant = -12.sh - overlap
-        let insetBottom = tableBottomInsetWithBar + overlap
-        tableView.contentInset.bottom = insetBottom
-        tableView.verticalScrollIndicatorInsets.bottom = insetBottom
+        tableView.contentInset.bottom = 0
+        tableView.verticalScrollIndicatorInsets.bottom = 0
         let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
         let curveValue = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 0
         UIView.animate(

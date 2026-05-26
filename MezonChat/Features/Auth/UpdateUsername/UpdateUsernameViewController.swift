@@ -63,17 +63,6 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         return l
     }()
 
-    private lazy var errorLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 13.sf)
-        l.textColor = .systemRed
-        l.textAlignment = .center
-        l.numberOfLines = 0
-        l.isHidden = true
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
     private lazy var actionButton: GradientButton = {
         let btn = GradientButton(type: .custom)
         btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
@@ -172,7 +161,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         altStack.spacing = 8.sh
         altStack.alignment = .center
 
-        let contentStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, nameField, previewLabel, errorLabel, actionButton, altStack])
+        let contentStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, nameField, previewLabel, actionButton, altStack])
         contentStack.axis = .vertical
         contentStack.spacing = 12.sh
         contentStack.setCustomSpacing(18.sh, after: titleLabel)
@@ -250,7 +239,6 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     }
 
     @objc private func nameChanged() {
-        errorLabel.isHidden = true
         updatePreview()
         updateActionButtonEnabled()
     }
@@ -305,13 +293,11 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         updateActionButtonEnabled()
         loadingIndicator.startAnimating()
         actionButton.isUserInteractionEnabled = false
-        errorLabel.isHidden = true
         do {
             let authSession = context.session ?? pendingSession
             let proto = try await context.account.network.updateUsername(username: sanitized, token: authSession.token)
             guard !proto.token.isEmpty else {
-                errorLabel.text = L(L10n.UpdateUsername.errorDuplicate)
-                errorLabel.isHidden = false
+                Toast.error(L(L10n.UpdateUsername.errorDuplicate))
                 finishLoading()
                 return
             }
@@ -329,8 +315,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
                 nav.filterController(self, animated: true)
             }
         } catch {
-            errorLabel.text = L(L10n.UpdateUsername.errorDuplicate)
-            errorLabel.isHidden = false
+            Toast.error(Self.toastMessage(for: error))
         }
         finishLoading()
     }
@@ -343,13 +328,25 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     }
 
     private static func sanitizeUsername(_ raw: String) -> String {
-        let folded = raw.folding(options: .diacriticInsensitive, locale: .current)
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let folded = trimmed.folding(options: .diacriticInsensitive, locale: .current)
         var out = ""
         out.reserveCapacity(folded.count)
         for scalar in folded.unicodeScalars where CharacterSet.alphanumerics.contains(scalar) {
             out.unicodeScalars.append(scalar)
         }
         return out
+    }
+
+    private static func toastMessage(for error: Error) -> String {
+        if case let MezonError.httpError(_, message) = error {
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return message.isEmpty ? L(L10n.UpdateUsername.errorDuplicate) : message
     }
 }
 

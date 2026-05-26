@@ -26,16 +26,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private var state: DirectMessagesState = .empty
     private let interaction: DirectMessagesInteraction
     private let disposables = DisposableSet()
-    private let context: AccountContext
     private var needsReloadOnLayout = false
 
     private let refreshControl = UIRefreshControl()
     private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
 
-    init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction, context: AccountContext) {
+    init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction) {
         tableView = UITableView(frame: .zero, style: .plain)
         self.interaction = interaction
-        self.context = context
         super.init()
         let t0 = UIColor.theme
         backgroundColor = t0.secondary
@@ -43,28 +41,42 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
+                let previousState = self.state
+                let directMessagesChanged = previousState.directMessages != newState.directMessages
+                let activityRowsChanged = previousState.messageActivityRows != newState.messageActivityRows
+                let avatarURLCacheChanged = previousState.resolvedAvatarURLByChannelId != newState.resolvedAvatarURLByChannelId
+                let activityHeaderVisibilityChanged = previousState.messageActivityRows.isEmpty != newState.messageActivityRows.isEmpty
+                let incomingCountChanged = previousState.incomingFriendRequestCount != newState.incomingFriendRequestCount
                 self.state = newState
 
-                self.activityStrip.setItems(newState.messageActivityRows)
-                if self.validLayout != nil {
-                    self.applyLayout(transition: .immediate)
+                if activityRowsChanged {
+                    self.activityStrip.setItems(newState.messageActivityRows)
                 }
 
+                let previousBadgeHidden = self.badgeLabel.isHidden
                 if newState.incomingFriendRequestCount > 0 {
                     self.badgeLabel.text = "\(newState.incomingFriendRequestCount)"
                     self.badgeLabel.isHidden = false
-                    self.view.setNeedsLayout() // ensure it layouts if intrinsic content size changes
                 } else {
                     self.badgeLabel.isHidden = true
                 }
+                let badgeNeedsLayout = incomingCountChanged || previousBadgeHidden != self.badgeLabel.isHidden
+
+                if self.validLayout != nil, activityHeaderVisibilityChanged || badgeNeedsLayout {
+                    self.applyLayout(transition: .immediate)
+                }
                 
-                if self.tableView.frame.width > 0 {
-                    self.tableView.reloadData()
-                    if !self.badgeLabel.isHidden {
-                        self.applyLayout(transition: .immediate)
+                if directMessagesChanged || avatarURLCacheChanged {
+                    self.prefetchAvatarImages(for: Array(newState.directMessages.prefix(16)))
+                    if self.tableView.frame.width > 0 {
+                        if Self.channelIdOrder(previousState.directMessages) == Self.channelIdOrder(newState.directMessages) {
+                            self.reconfigureVisibleCells()
+                        } else {
+                            self.tableView.reloadData()
+                        }
+                    } else {
+                        self.needsReloadOnLayout = true
                     }
-                } else {
-                    self.needsReloadOnLayout = true
                 }
             })
         )
@@ -83,11 +95,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
-        tableView.rowHeight = UITableView.automaticDimension
+        tableView.rowHeight = 62.sh
         tableView.estimatedRowHeight = 62.sh
         tableView.register(DmListItemCell.self, forCellReuseIdentifier: DmListItemCell.reuseId)
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.prefetchDataSource = self
 
         refreshControl.tintColor = .mezonTextPrimary
         refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
@@ -99,7 +112,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         badgeLabel.textAlignment = .center
         badgeLabel.layer.cornerRadius = 10.sh
         badgeLabel.clipsToBounds = true
-        badgeLabel.isHidden = true
+        if state.incomingFriendRequestCount > 0 {
+            badgeLabel.text = "\(state.incomingFriendRequestCount)"
+            badgeLabel.isHidden = false
+        } else {
+            badgeLabel.isHidden = true
+        }
 
         titleLabel.text = L(L10n.Tab.messages)
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
@@ -314,6 +332,40 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     func resetMessageActivityStripScroll(animated: Bool) {
         activityStrip.resetScrollToStart(animated: animated)
     }
+
+    private func prefetchAvatarImages(for channels: [Mezon_Api_ChannelDescription]) {
+        guard !channels.isEmpty else { return }
+        for channel in channels {
+            prefetchAvatarImage(for: channel)
+        }
+    }
+
+    private func prefetchAvatarImage(for channel: Mezon_Api_ChannelDescription) {
+        guard let avatarURL = state.resolvedAvatarURLByChannelId[channel.channelID],
+              !avatarURL.isEmpty else {
+            return
+        }
+        let proxied = ImgproxyURL.avatarProxyURL(from: avatarURL, width: 100, height: 100)
+        guard ImageCache.shared.memoryImage(forKey: proxied) == nil else { return }
+        ImageCache.shared.loadAvatar(urlString: proxied) { _ in }
+    }
+
+    private static func channelIdOrder(_ channels: [Mezon_Api_ChannelDescription]) -> [Int64] {
+        channels.map(\.channelID)
+    }
+
+    private func reconfigureVisibleCells() {
+        guard let visibleIndexPaths = tableView.indexPathsForVisibleRows else { return }
+        for indexPath in visibleIndexPaths {
+            guard indexPath.row >= 0,
+                  indexPath.row < state.directMessages.count,
+                  let cell = tableView.cellForRow(at: indexPath) as? DmListItemCell else {
+                continue
+            }
+            let channel = state.directMessages[indexPath.row]
+            cell.configure(channel: channel, resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID])
+        }
+    }
 }
 
 private extension DirectMessagesContainerNode {
@@ -327,7 +379,7 @@ private extension DirectMessagesContainerNode {
     }
 }
 
-extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegate {
+extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegate, UITableViewDataSourcePrefetching {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         state.directMessages.count
@@ -335,12 +387,21 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
-        cell.configure(channel: state.directMessages[indexPath.row], context: context)
+        let channel = state.directMessages[indexPath.row]
+        cell.configure(channel: channel, resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID])
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         interaction.onSelectDirectMessage(state.directMessages[indexPath.row])
+    }
+
+    func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        let channels = indexPaths.compactMap { indexPath -> Mezon_Api_ChannelDescription? in
+            guard indexPath.row >= 0, indexPath.row < state.directMessages.count else { return nil }
+            return state.directMessages[indexPath.row]
+        }
+        prefetchAvatarImages(for: channels)
     }
 }

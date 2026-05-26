@@ -10,18 +10,21 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private let clanId: Int64
     private let clanName: String
     private let avatarURL: String
+    private var canShowRoles: Bool
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private var validLayout: ContainerViewLayout?
 
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
 
-    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String) {
+    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool) {
         self.context = context
         self.clanId = clanId
         self.clanName = clanName
         self.avatarURL = avatarURL
+        self.canShowRoles = canShowRoles
         super.init()
         backgroundColor = .mezonSecondary
     }
@@ -45,6 +48,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        validLayout = layout
         let size = layout.size
         let safeTop = layout.safeInsets.top
 
@@ -91,17 +95,37 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(userMgmtHeader)
         stackView.setCustomSpacing(10.sh, after: userMgmtHeader)
 
-        let userActions: [SettingAction] = [
+        var userActions: [SettingAction] = [
             .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon"),
-            .init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", navigate: .roles),
-            .init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite"),
         ]
+        if canShowRoles {
+            userActions.append(.init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", navigate: .roles))
+        }
+        userActions.append(.init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite"))
         let userGroup = createGroup(actions: userActions)
         stackView.addArrangedSubview(userGroup)
 
         let footerSpacer = UIView()
         footerSpacer.heightAnchor.constraint(equalToConstant: 40.sh).isActive = true
         stackView.addArrangedSubview(footerSpacer)
+    }
+
+    func updateCanShowRoles(_ canShowRoles: Bool) {
+        guard self.canShowRoles != canShowRoles else { return }
+        self.canShowRoles = canShowRoles
+        guard isNodeLoaded else { return }
+        rebuildContent()
+    }
+
+    private func rebuildContent() {
+        for view in stackView.arrangedSubviews {
+            stackView.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        buildContent()
+        if let validLayout {
+            updateLayout(layout: validLayout, transition: .immediate)
+        }
     }
 
     private func createHeader() -> UIView {

@@ -35,6 +35,8 @@ final class ThreadListViewController: ViewController {
     private static let joinedStatus: Int32 = 1
     private static let activePublicStatus: Int32 = 2
     private static let activePrivateStatus: Int32 = 3
+    private static let threadsPageLimit: Int32 = 50
+    private static let threadsMaxPages: Int32 = 40
 
     init(
         context: AccountContext,
@@ -324,7 +326,7 @@ final class ThreadListViewController: ViewController {
                 label: searchText,
                 token: token
             )
-            searchResults = Self.filterPrivateThreads(list.channeldesc)
+            searchResults = Self.sortedByLastActivity(Self.filterPrivateThreads(list.channeldesc))
             rebuildSections()
             tableView.reloadData()
         } catch {
@@ -332,11 +334,26 @@ final class ThreadListViewController: ViewController {
     }
 
     private func applyCachedThreadsIfAny() {
+        var cachedThreads: [Mezon_Api_ChannelDescription] = []
         guard let data = context.account.postbox.getPreferenceData(
             key: PreferencesKeys.threadList(clanId: clanId, parentChannelId: parentChannelId)
-        ) else { return }
+        ) else {
+            cachedThreads = cachedThreadChannelsFromChannelCaches()
+            if !cachedThreads.isEmpty {
+                allThreads = Self.sortedByLastActivity(Self.filterPrivateThreads(cachedThreads))
+                cachedClanMembersList = nil
+            }
+            return
+        }
         if let decoded = Self.decodeThreadListCache(data) {
-            allThreads = Self.filterPrivateThreads(decoded.channels)
+            cachedThreads = decoded.channels
+        }
+        let merged = Self.mergeThreads(
+            cachedThreads,
+            withFallback: cachedThreadChannelsFromChannelCaches()
+        )
+        if !merged.isEmpty {
+            allThreads = Self.filterPrivateThreads(merged)
             cachedClanMembersList = nil
         }
     }
@@ -359,13 +376,30 @@ final class ThreadListViewController: ViewController {
             }
             guard let token = await self.context.getToken() else { return }
             do {
-                let list = try await self.context.account.network.listThreadDescs(
-                    parentChannelId: self.parentChannelId,
-                    clanId: self.clanId,
-                    page: 1,
-                    token: token
+                var accumulated: [Mezon_Api_ChannelDescription] = []
+                var seenChannelIds = Set<Int64>()
+                var page: Int32 = 1
+                while page <= Self.threadsMaxPages {
+                    let list = try await self.context.account.network.listThreadDescs(
+                        parentChannelId: self.parentChannelId,
+                        clanId: self.clanId,
+                        page: page,
+                        limit: Self.threadsPageLimit,
+                        token: token
+                    )
+                    let seenBeforePage = seenChannelIds.count
+                    for ch in list.channeldesc where seenChannelIds.insert(ch.channelID).inserted {
+                        accumulated.append(ch)
+                    }
+                    if list.channeldesc.count < Int(Self.threadsPageLimit) { break }
+                    if seenChannelIds.count == seenBeforePage { break }
+                    page += 1
+                }
+                let merged = Self.mergeThreads(
+                    accumulated,
+                    withFallback: self.cachedThreadChannelsFromChannelCaches()
                 )
-                self.allThreads = Self.filterPrivateThreads(list.channeldesc)
+                self.allThreads = Self.filterPrivateThreads(merged)
                 self.cachedClanMembersList = nil
                 self.persistThreadsCache()
                 self.rebuildSections()
@@ -386,9 +420,10 @@ final class ThreadListViewController: ViewController {
             return
         }
 
-        let joined = Self.getJoinedThreadsRecent(allThreads)
-        let active = Self.getActivePublicThreadsRecent(allThreads)
-        let older = Self.getThreadsOlderThan30Days(allThreads)
+        let grouped = Self.groupThreads(allThreads)
+        let joined = grouped.joined
+        let active = grouped.active
+        let older = grouped.older
 
         var sections: [(String, [Mezon_Api_ChannelDescription])] = []
         if !joined.isEmpty {
@@ -437,41 +472,137 @@ final class ThreadListViewController: ViewController {
         }
     }
 
-    private static func sortedByLastSent(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+    private static func sortedByLastActivity(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
         threads.sorted { a, b in
-            let ta: Int64 = a.hasLastSentMessage ? Int64(a.lastSentMessage.timestampSeconds) : 0
-            let tb: Int64 = b.hasLastSentMessage ? Int64(b.lastSentMessage.timestampSeconds) : 0
+            let ta = Int64(activityTimestamp(a) ?? 0)
+            let tb = Int64(activityTimestamp(b) ?? 0)
+            if ta == tb {
+                return String(a.channelID) < String(b.channelID)
+            }
             return ta > tb
         }
     }
 
-    private static func getActivePublicThreadsRecent(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+    private static func groupThreads(_ threads: [Mezon_Api_ChannelDescription])
+        -> (joined: [Mezon_Api_ChannelDescription], active: [Mezon_Api_ChannelDescription], older: [Mezon_Api_ChannelDescription])
+    {
         let now = Date().timeIntervalSince1970
-        return sortedByLastSent(threads.filter { ch in
-            guard ch.channelPrivate == 0, ch.active == activePublicStatus else { return false }
-            guard ch.hasLastSentMessage else { return false }
-            let ts = TimeInterval(ch.lastSentMessage.timestampSeconds)
-            return now - ts < thirtyDays
-        })
+        var joined: [Mezon_Api_ChannelDescription] = []
+        var active: [Mezon_Api_ChannelDescription] = []
+        var older: [Mezon_Api_ChannelDescription] = []
+
+        for ch in sortedByLastActivity(threads) {
+            if isJoinedThread(ch), isRecentThread(ch, now: now) {
+                joined.append(ch)
+            } else if ch.channelPrivate == 0, ch.active == activePublicStatus, isRecentThread(ch, now: now) {
+                active.append(ch)
+            } else {
+                older.append(ch)
+            }
+        }
+
+        return (joined, active, older)
     }
 
-    private static func getJoinedThreadsRecent(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
-        let now = Date().timeIntervalSince1970
-        return sortedByLastSent(threads.filter { ch in
-            guard ch.active == joinedStatus else { return false }
-            guard ch.hasLastSentMessage else { return false }
-            let ts = TimeInterval(ch.lastSentMessage.timestampSeconds)
-            return now - ts < thirtyDays
-        })
+    private static func isJoinedThread(_ ch: Mezon_Api_ChannelDescription) -> Bool {
+        ch.active == joinedStatus || (ch.channelPrivate != 0 && ch.active == activePrivateStatus)
     }
 
-    private static func getThreadsOlderThan30Days(_ threads: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
-        let now = Date().timeIntervalSince1970
-        return sortedByLastSent(threads.filter { ch in
-            guard ch.hasLastSentMessage else { return false }
-            let ts = TimeInterval(ch.lastSentMessage.timestampSeconds)
-            return now - ts >= thirtyDays
-        })
+    private static func isRecentThread(_ ch: Mezon_Api_ChannelDescription, now: TimeInterval) -> Bool {
+        guard let ts = activityTimestamp(ch) else { return false }
+        return now - TimeInterval(ts) < thirtyDays
+    }
+
+    private static func activityTimestamp(_ ch: Mezon_Api_ChannelDescription) -> UInt32? {
+        if ch.hasLastSentMessage, ch.lastSentMessage.timestampSeconds > 0 {
+            return ch.lastSentMessage.timestampSeconds
+        }
+        if ch.createTimeSeconds > 0 { return ch.createTimeSeconds }
+        if ch.updateTimeSeconds > 0 { return ch.updateTimeSeconds }
+        return nil
+    }
+
+    private static func mergeThreads(
+        _ primary: [Mezon_Api_ChannelDescription],
+        withFallback fallback: [Mezon_Api_ChannelDescription]
+    ) -> [Mezon_Api_ChannelDescription] {
+        var byId: [Int64: Mezon_Api_ChannelDescription] = [:]
+
+        func upsert(_ incoming: Mezon_Api_ChannelDescription) {
+            guard incoming.channelID != 0 else { return }
+            if let existing = byId[incoming.channelID] {
+                byId[incoming.channelID] = mergeThread(existing, with: incoming)
+            } else {
+                byId[incoming.channelID] = incoming
+            }
+        }
+
+        fallback.forEach(upsert)
+        primary.forEach(upsert)
+        return sortedByLastActivity(Array(byId.values))
+    }
+
+    private static func mergeThread(
+        _ existing: Mezon_Api_ChannelDescription,
+        with incoming: Mezon_Api_ChannelDescription
+    ) -> Mezon_Api_ChannelDescription {
+        var result = incoming
+        if result.clanID == 0 { result.clanID = existing.clanID }
+        if result.parentID == 0 { result.parentID = existing.parentID }
+        if result.categoryID == 0 { result.categoryID = existing.categoryID }
+        if result.type == 0 { result.type = existing.type }
+        if result.channelLabel.isEmpty { result.channelLabel = existing.channelLabel }
+        if result.active == 0 { result.active = existing.active }
+        if result.channelPrivate == 0,
+           existing.channelPrivate != 0,
+           result.active == activePrivateStatus {
+            result.channelPrivate = existing.channelPrivate
+        }
+        if result.createTimeSeconds == 0 { result.createTimeSeconds = existing.createTimeSeconds }
+        if result.updateTimeSeconds == 0 { result.updateTimeSeconds = existing.updateTimeSeconds }
+
+        if shouldUseFallbackLastMessage(result, fallback: existing) {
+            result.lastSentMessage = existing.lastSentMessage
+        }
+        if !result.hasLastSeenMessage, existing.hasLastSeenMessage {
+            result.lastSeenMessage = existing.lastSeenMessage
+        }
+        return result
+    }
+
+    private static func shouldUseFallbackLastMessage(
+        _ result: Mezon_Api_ChannelDescription,
+        fallback: Mezon_Api_ChannelDescription
+    ) -> Bool {
+        guard fallback.hasLastSentMessage else { return false }
+        if !result.hasLastSentMessage { return true }
+        return fallback.lastSentMessage.timestampSeconds > result.lastSentMessage.timestampSeconds
+    }
+
+    private func cachedThreadChannelsFromChannelCaches() -> [Mezon_Api_ChannelDescription] {
+        var candidates: [Mezon_Api_ChannelDescription] = []
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) {
+            candidates.append(contentsOf: ChannelPreferenceListCodec.decode(data))
+        }
+        if let allChannelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc {
+            candidates.append(contentsOf: allChannelsByUser)
+        }
+        return Self.mergeThreads(
+            Self.threadChildren(candidates, parentChannelId: parentChannelId, clanId: clanId),
+            withFallback: []
+        )
+    }
+
+    private static func threadChildren(
+        _ channels: [Mezon_Api_ChannelDescription],
+        parentChannelId: Int64,
+        clanId: Int64
+    ) -> [Mezon_Api_ChannelDescription] {
+        channels.filter { ch in
+            ch.parentID == parentChannelId
+                && ch.channelID != 0
+                && (ch.clanID == 0 || ch.clanID == clanId)
+        }
     }
 
     private static func encodeThreadListCache(_ channels: [Mezon_Api_ChannelDescription]) -> Data {

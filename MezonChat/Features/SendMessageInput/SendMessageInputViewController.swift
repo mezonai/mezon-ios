@@ -1900,6 +1900,20 @@ final class SendMessageInputViewController: UIViewController {
         textView.becomeFirstResponder()
     }
 
+    var isTextInputFocused: Bool {
+        textView.isFirstResponder
+    }
+
+    func refocusTextInputAfterNavigation() {
+        guard !composerSendPermissionBlocked, !isVoiceRecordingActive else { return }
+        guard textView.isFirstResponder else { return }
+        textView.resignFirstResponder()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.view.window != nil else { return }
+            self.textView.becomeFirstResponder()
+        }
+    }
+
     private func openPhotoPicker() {
         MediaPickerViewController.present(from: self) { [weak self] results in
             guard let self else { return }

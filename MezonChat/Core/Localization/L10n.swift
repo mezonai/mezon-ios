@@ -450,6 +450,7 @@ enum L10n {
         static let defaultRole            = "clanRoles.defaultRole"
         static let everyone               = "clanRoles.everyone"
         static let rolesCount             = "clanRoles.rolesCount"
+        static let member                 = "clanRoles.member"
         static let members                = "clanRoles.members"
         static let allMembers             = "clanRoles.allMembers"
         static let noRole                 = "clanRoles.noRole"
@@ -492,6 +493,7 @@ enum L10n {
         static let permissionsHeading     = "clanRoles.permissions.heading"
         static let permissionsSearch      = "clanRoles.permissions.search"
         static let permissionsNext        = "clanRoles.permissions.next"
+        static let permissionsNotFound    = "clanRoles.permissions.notFound"
         static let permissionNotAvailable = "clanRoles.permissions.notAvailable"
 
         static let membersTitle           = "clanRoles.members.title"
@@ -1264,11 +1266,12 @@ extension L10n {
 
         "clanRoles.title":                  "Roles",
         "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
-        "clanRoles.defaultRole":            "Default permissions for all members.",
+        "clanRoles.defaultRole":            "Default permissions for all clan members.",
         "clanRoles.everyone":               "@everyone",
         "clanRoles.rolesCount":             "Roles — %d",
+        "clanRoles.member":                 "member",
         "clanRoles.members":                "members",
-        "clanRoles.allMembers":             "All members",
+        "clanRoles.allMembers":             "All clan members",
         "clanRoles.noRole":                 "No role yet. Tap + to create one.",
         "clanRoles.role":                   "Role",
         "clanRoles.save":                   "Save",
@@ -1276,7 +1279,7 @@ extension L10n {
         "clanRoles.failed":                 "Something went wrong. Try again.",
         "clanRoles.skipStep":               "Skip this step",
 
-        "clanRoles.create.title":           "Create New Role",
+        "clanRoles.create.title":           "Create a new role",
         "clanRoles.create.heading":         "Create a new role",
         "clanRoles.create.description":     "Roles represent a set of permissions assigned to a group of clan members.",
         "clanRoles.create.roleName":        "Role name",
@@ -1309,6 +1312,7 @@ extension L10n {
         "clanRoles.permissions.heading":    "Choose what members of this role can do.",
         "clanRoles.permissions.search":     "Search permission",
         "clanRoles.permissions.next":       "Next",
+        "clanRoles.permissions.notFound":   "No permissions found.",
         "clanRoles.permissions.notAvailable": "No description available for this permission.",
 
         "clanRoles.members.title":          "Add Members",
@@ -2137,11 +2141,12 @@ extension L10n {
 
         "clanRoles.title":                  "Vai trò",
         "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",
-        "clanRoles.defaultRole":            "Quyền mặc định cho tất cả thành viên.",
+        "clanRoles.defaultRole":            "Quyền mặc định cho tất cả thành viên trong clan.",
         "clanRoles.everyone":               "@everyone",
         "clanRoles.rolesCount":             "Vai trò — %d",
+        "clanRoles.member":                 "thành viên",
         "clanRoles.members":                "thành viên",
-        "clanRoles.allMembers":             "Tất cả thành viên",
+        "clanRoles.allMembers":             "Tất cả thành viên trong clan",
         "clanRoles.noRole":                 "Chưa có vai trò nào. Nhấn + để tạo mới.",
         "clanRoles.role":                   "Vai trò",
         "clanRoles.save":                   "Lưu",
@@ -2182,6 +2187,7 @@ extension L10n {
         "clanRoles.permissions.heading":    "Chọn các quyền cho thành viên có vai trò này.",
         "clanRoles.permissions.search":     "Tìm quyền",
         "clanRoles.permissions.next":       "Tiếp theo",
+        "clanRoles.permissions.notFound":   "Không tìm thấy quyền nào.",
         "clanRoles.permissions.notAvailable": "Chưa có mô tả cho quyền này.",
 
         "clanRoles.members.title":          "Thêm thành viên",

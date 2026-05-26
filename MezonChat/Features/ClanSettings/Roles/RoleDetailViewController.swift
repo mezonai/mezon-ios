@@ -146,20 +146,26 @@ final class RoleDetailViewController: BaseViewController {
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+        backButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         headerTitleLabel.font = .systemFont(ofSize: 16.sf, weight: .bold)
         headerTitleLabel.textColor = .mezonTextPrimary
         headerTitleLabel.textAlignment = .center
+        headerTitleLabel.numberOfLines = 1
+        headerTitleLabel.lineBreakMode = .byTruncatingTail
+        headerTitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         headerSubtitleLabel.text = L(L10n.ClanRoles.role)
         headerSubtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
         headerSubtitleLabel.textColor = UIColor.theme.textDisabled
         headerSubtitleLabel.textAlignment = .center
+        headerSubtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         saveButton.setTitle(L(L10n.ClanRoles.save), for: .normal)
         saveButton.setTitleColor(UIColor.theme.bgViolet, for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
+        saveButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         [backButton, headerTitleLabel, headerSubtitleLabel, saveButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -176,9 +182,13 @@ final class RoleDetailViewController: BaseViewController {
 
             headerTitleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
             headerTitleLabel.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 6.sh),
+            headerTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8.sw),
+            headerTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: saveButton.leadingAnchor, constant: -8.sw),
 
             headerSubtitleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
             headerSubtitleLabel.topAnchor.constraint(equalTo: headerTitleLabel.bottomAnchor, constant: 2.sh),
+            headerSubtitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8.sw),
+            headerSubtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: saveButton.leadingAnchor, constant: -8.sw),
 
             saveButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16.sw),
             saveButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor)

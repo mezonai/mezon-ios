@@ -11,18 +11,23 @@ final class CreateNewRoleViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
     private let titleLabel = UILabel()
-    private let headingLabel = UILabel()
     private let descriptionLabel = UILabel()
 
     private let inputContainer = UIView()
     private let inputLabel = UILabel()
     private let inputField = UITextField()
 
+    private let colorRow = UIControl()
+    private let colorTitleLabel = UILabel()
+    private let colorValueLabel = UILabel()
+    private let colorIndicator = UIView()
+
     private let createButton = UIButton(type: .system)
-    private let accessoryCreateButton = UIButton(type: .system)
+    private var createButtonBottomConstraint: NSLayoutConstraint?
 
     private let maxNameCharacters = 64
     private var name: String = "" { didSet { refreshCreateButton() } }
+    private var selectedColor: String = ""
     private var isCreating: Bool = false
 
     init(context: AccountContext, clanId: Int64) {
@@ -34,12 +39,23 @@ final class CreateNewRoleViewController: BaseViewController {
 
     required init(coder aDecoder: NSCoder) { fatalError() }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleKeyboardFrameChange(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
+    }
+
     override func setupUI() {
         view.backgroundColor = .mezonSecondary
         navigationController?.setNavigationBarHidden(true, animated: false)
         setupHeader()
         setupCopy()
         setupInput()
+        setupColorRow()
         setupCreateButton()
     }
 
@@ -52,6 +68,7 @@ final class CreateNewRoleViewController: BaseViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         navigationController?.setNavigationBarHidden(false, animated: animated)
+        inputField.resignFirstResponder()
     }
 
     // MARK: - Setup
@@ -93,26 +110,15 @@ final class CreateNewRoleViewController: BaseViewController {
     }
 
     private func setupCopy() {
-        headingLabel.text = L(L10n.ClanRoles.createHeading)
-        headingLabel.font = .systemFont(ofSize: 22.sf, weight: .bold)
-        headingLabel.textColor = .mezonTextPrimary
-
         descriptionLabel.text = L(L10n.ClanRoles.createDescription)
         descriptionLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
         descriptionLabel.textColor = UIColor.theme.textDisabled
         descriptionLabel.numberOfLines = 0
-
-        [headingLabel, descriptionLabel].forEach {
-            $0.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview($0)
-        }
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(descriptionLabel)
 
         NSLayoutConstraint.activate([
-            headingLabel.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 24.sh),
-            headingLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
-            headingLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
-
-            descriptionLabel.topAnchor.constraint(equalTo: headingLabel.bottomAnchor, constant: 10.sh),
+            descriptionLabel.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 10.sh),
             descriptionLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
             descriptionLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw)
         ])
@@ -156,37 +162,58 @@ final class CreateNewRoleViewController: BaseViewController {
             inputField.bottomAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: -12.sh),
             inputField.heightAnchor.constraint(equalToConstant: 24.sh)
         ])
-        setupInputAccessory()
     }
 
-    private func setupInputAccessory() {
-        let container = UIView()
-        container.backgroundColor = .mezonSecondary
+    private func setupColorRow() {
+        colorRow.backgroundColor = UIColor.theme.tertiary
+        colorRow.layer.cornerRadius = 12.swh
+        colorRow.addTarget(self, action: #selector(colorRowTapped), for: .touchUpInside)
+        colorRow.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(colorRow)
 
-        accessoryCreateButton.setTitle(L(L10n.ClanRoles.createButton), for: .normal)
-        accessoryCreateButton.setTitleColor(.white, for: .normal)
-        accessoryCreateButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
-        accessoryCreateButton.backgroundColor = UIColor.theme.bgViolet
-        accessoryCreateButton.layer.cornerRadius = 12.swh
-        accessoryCreateButton.clipsToBounds = true
-        accessoryCreateButton.addTarget(self, action: #selector(createTapped), for: .touchUpInside)
-        accessoryCreateButton.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(accessoryCreateButton)
+        colorTitleLabel.text = L(L10n.ClanRoles.colorRow)
+        colorTitleLabel.font = .systemFont(ofSize: 14.sf, weight: .medium)
+        colorTitleLabel.textColor = .mezonTextPrimary
 
-        let topPad: CGFloat = 8.sh
-        let bottomPad: CGFloat = 8.sh
+        colorValueLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
+        colorValueLabel.textColor = UIColor.theme.textDisabled
+
+        colorIndicator.layer.cornerRadius = 8.swh
+        colorIndicator.layer.borderWidth = 1
+        colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
+
+        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        chevron.tintColor = UIColor.theme.textDisabled
+        chevron.contentMode = .scaleAspectFit
+
+        [colorTitleLabel, colorValueLabel, colorIndicator, chevron].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            colorRow.addSubview($0)
+        }
+
         NSLayoutConstraint.activate([
-            accessoryCreateButton.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16.sw),
-            accessoryCreateButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16.sw),
-            accessoryCreateButton.topAnchor.constraint(equalTo: container.topAnchor, constant: topPad),
-            accessoryCreateButton.heightAnchor.constraint(equalToConstant: 50.sh),
-            accessoryCreateButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -bottomPad),
-        ])
+            colorRow.topAnchor.constraint(equalTo: inputContainer.bottomAnchor, constant: 12.sh),
+            colorRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
+            colorRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
+            colorRow.heightAnchor.constraint(equalToConstant: 56.sh),
 
-        let h = topPad + 50.sh + bottomPad
-        let w = max(view.bounds.width, UIScreen.main.bounds.width)
-        container.frame = CGRect(x: 0, y: 0, width: w, height: h)
-        inputField.inputAccessoryView = container
+            colorTitleLabel.leadingAnchor.constraint(equalTo: colorRow.leadingAnchor, constant: 14.sw),
+            colorTitleLabel.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),
+
+            chevron.trailingAnchor.constraint(equalTo: colorRow.trailingAnchor, constant: -12.sw),
+            chevron.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 10.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 14.swh),
+
+            colorIndicator.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10.sw),
+            colorIndicator.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),
+            colorIndicator.widthAnchor.constraint(equalToConstant: 16.swh),
+            colorIndicator.heightAnchor.constraint(equalToConstant: 16.swh),
+
+            colorValueLabel.trailingAnchor.constraint(equalTo: colorIndicator.leadingAnchor, constant: -8.sw),
+            colorValueLabel.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor)
+        ])
+        refreshColorRow()
     }
 
     private func setupCreateButton() {
@@ -199,32 +226,29 @@ final class CreateNewRoleViewController: BaseViewController {
         createButton.addTarget(self, action: #selector(createTapped), for: .touchUpInside)
         view.addSubview(createButton)
 
+        let bottomConstraint = createButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12.sh)
+        createButtonBottomConstraint = bottomConstraint
         NSLayoutConstraint.activate([
             createButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
             createButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
-            createButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12.sh),
+            bottomConstraint,
             createButton.heightAnchor.constraint(equalToConstant: 50.sh)
         ])
         refreshCreateButton()
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        guard let acc = inputField.inputAccessoryView else { return }
-        let w = view.bounds.width
-        guard w > 0.5, abs(acc.bounds.width - w) > 0.5 else { return }
-        acc.frame.size.width = w
-        acc.layoutIfNeeded()
+    private func refreshColorRow() {
+        let hex = selectedColor.isEmpty ? RolePermissionConstants.defaultRoleColor : selectedColor
+        colorIndicator.backgroundColor = UIColor(hexString: hex) ?? .systemGray
+        colorValueLabel.text = selectedColor.isEmpty ? "" : selectedColor.uppercased()
     }
 
     private func refreshCreateButton() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let enabled = !trimmed.isEmpty && !isCreating
-        for btn in [createButton, accessoryCreateButton] {
-            btn.isEnabled = enabled
-            btn.backgroundColor = enabled ? UIColor.theme.bgViolet : UIColor(white: 0.4, alpha: 1.0)
-            btn.alpha = enabled ? 1.0 : 0.8
-        }
+        createButton.isEnabled = enabled
+        createButton.backgroundColor = enabled ? UIColor.theme.bgViolet : UIColor(white: 0.4, alpha: 1.0)
+        createButton.alpha = enabled ? 1.0 : 0.8
     }
 
     // MARK: - Actions
@@ -242,6 +266,35 @@ final class CreateNewRoleViewController: BaseViewController {
         name = trimmed
     }
 
+    @objc private func colorRowTapped() {
+        inputField.resignFirstResponder()
+        let picker = RoleColorPickerSheetController(initialColor: selectedColor) { [weak self] hex in
+            self?.selectedColor = hex
+            self?.refreshColorRow()
+        }
+        present(picker, animated: true)
+    }
+
+    @objc private func handleKeyboardFrameChange(_ notification: Notification) {
+        guard let info = notification.userInfo,
+            let frame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+        else { return }
+
+        let converted = view.convert(frame, from: nil)
+        let overlap = max(0, view.bounds.maxY - converted.minY)
+        let keyboardOffset = max(0, overlap - view.safeAreaInsets.bottom)
+        createButtonBottomConstraint?.constant = -12.sh - keyboardOffset
+
+        let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+        let curveValue = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 0
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            options: UIView.AnimationOptions(rawValue: curveValue << 16),
+            animations: { self.view.layoutIfNeeded() }
+        )
+    }
+
     @objc private func createTapped() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isCreating else { return }
@@ -255,7 +308,7 @@ final class CreateNewRoleViewController: BaseViewController {
                 let role = try await self.repository.createRole(
                     clanId: self.clanId,
                     title: trimmed,
-                    color: "",
+                    color: self.selectedColor,
                     roleIcon: "",
                     addUserIds: [],
                     activePermissionIds: []

@@ -565,13 +565,17 @@ final class AccountContextImpl: AccountContext {
 
     func prepareForVoIPAnswerConnectivity() async -> Bool {
         let disk = SessionStore.load()
-        guard let baseSession = session ?? disk else { return false }
-        // Warm path: the app is already running with a live session and a
-        // connected signaling socket (e.g. VoIP push arrived while the user
-        // had the app open or backgrounded but not killed). Skip the refresh
-        // round-trip and the redundant socket reconnect — both add latency
-        // before we can deliver the answer SDP.
+        let candidates = [session, disk].compactMap { $0 }
+        guard let baseSession = candidates.first(where: { !$0.isExpired }) ?? candidates.first else {
+            return false
+        }
         if let s = session, !s.isExpired, account.socket.isConnected {
+            markSessionReady()
+            return true
+        }
+        if !baseSession.isExpired {
+            account.network.updateBaseURL(from: baseSession)
+            applySession(baseSession, user: currentUser, connectSocket: true, fetchAccount: false)
             markSessionReady()
             return true
         }
@@ -616,7 +620,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func joinDirectMessageClanOnSocketConnected() {
-        account.socket.joinClanChat(clanId: 0)
+        joinDirectMessageSocketRoomOnSocketConnected()
 
         let cachedClanId: Int64
         if currentClanId != 0 {
@@ -630,6 +634,10 @@ final class AccountContextImpl: AccountContext {
             account.socket.joinClanChat(clanId: cachedClanId)
             currentClanId = cachedClanId
         }
+    }
+
+    private func joinDirectMessageSocketRoomOnSocketConnected() {
+        account.socket.joinClanChat(clanId: 0)
     }
 
     private func rejoinCurrentChannel() {
@@ -810,7 +818,9 @@ final class AccountContextImpl: AccountContext {
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
-            if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
+                joinDirectMessageSocketRoomOnSocketConnected()
+            } else {
                 joinDirectMessageClanOnSocketConnected()
                 rejoinCurrentChannel()
             }
