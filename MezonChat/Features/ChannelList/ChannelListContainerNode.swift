@@ -1797,7 +1797,7 @@ final class ChannelListHeaderView: UIView {
 
     private let qrButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(named: "Channel/QR")?.withRenderingMode(.alwaysOriginal), for: .normal)
+        btn.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
         btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
@@ -1977,6 +1977,15 @@ final class ChannelListHeaderView: UIView {
         searchBar.backgroundColor = t.tertiary
         searchIcon.tintColor = t.textDisabled
         searchLabel.textColor = t.textDisabled
+        let currentTheme = ThemeManager.shared.current
+        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        if effectiveTheme == .light || effectiveTheme == .sunrise {
+            qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysOriginal), for: .normal)
+        } else {
+            qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            qrButton.tintColor = t.textStrong
+        }
+        
         qrButton.backgroundColor = t.tertiary
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         eventButton.backgroundColor = t.tertiary

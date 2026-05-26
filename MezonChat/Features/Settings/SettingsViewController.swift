@@ -127,7 +127,7 @@ final class SettingsViewController: BaseViewController {
             (L(L10n.Settings.accountSettings), [
                 SettingsRow(icon: "Setting/AccountIcon", title: L(L10n.Settings.account), action: .navigate),
                 SettingsRow(icon: "Setting/FriendRequestIcon", title: L(L10n.Settings.friendRequests), action: .navigate),
-                SettingsRow(icon: "Setting/QRIcon", title: L(L10n.Settings.qrScan), action: .navigate),
+                SettingsRow(icon: "Profile/ScanQR", title: L(L10n.Settings.qrScan), action: .navigate),
                 SettingsRow(icon: "Setting/DeviceIcon", title: L(L10n.Settings.devices), action: .navigate),
             ]),
             (L(L10n.Settings.appSettings), [
@@ -329,7 +329,18 @@ final class SettingsViewController: BaseViewController {
         iconView.clipsToBounds = true
         iconView.translatesAutoresizingMaskIntoConstraints = false
         if let img = UIImage(named: row.icon, in: .main, compatibleWith: nil) {
-            iconView.image = img.withRenderingMode(.alwaysOriginal)
+            if row.icon == "Profile/ScanQR" {
+                let currentTheme = ThemeManager.shared.current
+                let effectiveTheme = currentTheme == .system ? (UIScreen.main.traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+                if effectiveTheme == .light || effectiveTheme == .sunrise {
+                    iconView.image = img.withRenderingMode(.alwaysOriginal)
+                } else {
+                    iconView.image = img.withRenderingMode(.alwaysTemplate)
+                    iconView.tintColor = .mezonTextStrong
+                }
+            } else {
+                iconView.image = img.withRenderingMode(.alwaysOriginal)
+            }
         }
         container.addSubview(iconView)
 
