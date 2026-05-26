@@ -41,6 +41,18 @@ final class ChannelSettingsViewController: BaseViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
+        let isGeneralChannel: Bool = context.account.postbox.read { tx in
+            guard let data = tx.getClan(id: self.clanId)?.data, !data.isEmpty,
+                  let desc = try? Mezon_Api_ClanDesc(serializedBytes: data) else { return false }
+            return self.channelId == desc.welcomeChannelID
+        }
+
+        let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
+        let isPublicChannel = !channelPrivate
+        let showPermissions = !(isPublicChannel || isThread)
+        let showChangeCategory = !isThread
+        let canManageChannel = context.rolePermissions.canManageChannel(clanId: clanId)
+
         displayNode = ChannelSettingsContainerNode(
             channelName: initialName,
             channelTopic: initialTopic,
@@ -54,10 +66,78 @@ final class ChannelSettingsViewController: BaseViewController {
             onPermissionsTap: { [weak self] in
                 self?.openChannelPermissions()
             },
+            onDeleteTap: { [weak self] in
+                self?.presentDeleteChannelConfirm()
+            },
             onChangeCategoryTap: { [weak self] in
                 self?.openChangeCategory()
-            }
+            },
+            showDeleteButton: !isGeneralChannel && canManageChannel,
+            showPermissionsButton: showPermissions,
+            showChangeCategoryButton: showChangeCategory
         )
+    }
+
+    private func presentDeleteChannelConfirm() {
+        let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
+        let title = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
+        let message = isThread ? L(L10n.Channel.deleteThreadConfirm) : L(L10n.Channel.deleteConfirm)
+
+        let alert = UIAlertController(
+            title: title,
+            message: message,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: title, style: .destructive, handler: { [weak self] _ in
+            self?.handleDeleteChannel()
+        }))
+        self.present(alert, animated: true)
+    }
+
+    private func handleDeleteChannel() {
+        settingsNode.setDeleteButtonEnabled(false)
+        Task { @MainActor in
+            guard let token = await context.getToken() else {
+                settingsNode.setDeleteButtonEnabled(true)
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channelId, clanId: clanId, token: token)
+                NotificationCenter.default.post(
+                    name: .mezonChannelDeletedLocally,
+                    object: nil,
+                    userInfo: ["clanId": clanId, "channelId": channelId]
+                )
+                self.navigateBackAfterDelete()
+            } catch {
+                settingsNode.setDeleteButtonEnabled(true)
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func navigateBackAfterDelete() {
+        guard let nav = self.navigationController as? NavigationController else {
+            self.navigationController?.popToRootViewController(animated: true)
+            return
+        }
+        var stack = nav.viewControllers
+        if let idx = stack.firstIndex(where: { $0 === self }) {
+            stack.remove(at: idx)
+        }
+        if let idx = stack.lastIndex(where: { $0 is ChannelDetailViewController }) {
+            stack.remove(at: idx)
+        }
+        if let idx = stack.lastIndex(where: { $0 is ChatViewController }) {
+            stack.remove(at: idx)
+        }
+        if stack.isEmpty {
+            nav.popToRoot(animated: true)
+        } else {
+            nav.setViewControllers(stack, animated: true)
+        }
     }
 
     private func openChannelPermissions() {
