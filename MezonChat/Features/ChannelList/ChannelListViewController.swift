@@ -457,7 +457,8 @@ final class ChannelListViewController: ViewController {
             onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) },
             onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() },
             isShowEmptyCategoriesEnabled: { [weak self] in self?.showEmptyCategoriesEnabled ?? false },
-            onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) }
+            onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) },
+            onLongPressCategory: { [weak self] category in self?.presentCategoryActionSheet(category) }
         )
         let initialClan = effectiveClanIdForChannelAppsHydration()
         let initialApps = initialClan != 0 ? channelAppsRawFromCache(clanId: initialClan) : []
@@ -730,6 +731,29 @@ final class ChannelListViewController: ViewController {
             }
         }
         present(vc, animated: true)
+    }
+
+    private func presentCategoryActionSheet(_ category: ChannelCategory) {
+        if category.id == ChannelCategory.favoritesCategoryId { return }
+        if !self.context.rolePermissions.canManageChannel(clanId: self.clanId) { return }
+        
+        let vc = CategoryActionSheetController(
+            categoryId: category.id,
+            categoryName: category.name,
+            clanName: clanName,
+            clanAvatarURL: clanLogoURL,
+            onAction: { [weak self] (action: CategoryAction) in
+                guard let self else { return }
+                switch action {
+                case .createChannel:
+                    let createVc = CreateChannelViewController(context: self.context, clanId: self.clanId, categoryId: category.id)
+                    self.enclosingNavigationController?.pushViewController(createVc, animated: true)
+                }
+            }
+        )
+        if let window = self.view.window as? WindowHost {
+            window.present(vc, on: .root, blockInteraction: false, completion: {})
+        }
     }
 
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {

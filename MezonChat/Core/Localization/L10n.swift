@@ -686,6 +686,20 @@ enum L10n {
         static let banList              = "channel.setting.banList"
         static let webhook              = "channel.setting.webhook"
         static let privacyFooter        = "channel.setting.privacyFooter"
+        static let createChannel        = "channel.setting.createChannel"
+        static let channelName          = "channel.setting.channelName"
+        static let channelNamePlaceholder = "channel.setting.channelNamePlaceholder"
+        static let channelNameError     = "channel.setting.channelNameError"
+        static let channelNameDuplicate = "channel.setting.channelNameDuplicate"
+        static let channelType          = "channel.setting.channelType"
+        static let textChannel          = "channel.setting.textChannel"
+        static let textChannelDesc      = "channel.setting.textChannelDesc"
+        static let voiceChannel         = "channel.setting.voiceChannel"
+        static let voiceChannelDesc     = "channel.setting.voiceChannelDesc"
+        static let streamChannel        = "channel.setting.streamChannel"
+        static let streamChannelDesc    = "channel.setting.streamChannelDesc"
+        static let privateChannel       = "channel.setting.privateChannel"
+        static let privateChannelDesc   = "channel.setting.privateChannelDesc"
         static let channelNameValidate  = "channel.setting.channelNameValidate"
         static let threadNameValidate   = "channel.setting.threadNameValidate"
     }
@@ -1483,6 +1497,20 @@ extension L10n {
         "channel.setting.banList":              "Ban List",
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Change privacy settings and customize how members can interact with this channel.",
+        "channel.setting.createChannel":        "Create Channel",
+        "channel.setting.channelName":          "Channel Name",
+        "channel.setting.channelNamePlaceholder": "Enter the channel's name",
+        "channel.setting.channelNameError":       "Please enter a channel name (max 64 characters, only words, numbers, _ or -).",
+        "channel.setting.channelNameDuplicate":   "The channel name already exists.",
+        "channel.setting.channelType":          "Channel Type",
+        "channel.setting.textChannel":          "Text",
+        "channel.setting.textChannelDesc":      "Send messages, images, GIFs, emojis, opinions, and puns",
+        "channel.setting.voiceChannel":         "Voice",
+        "channel.setting.voiceChannelDesc":     "Hang out together with voice, video, and screen share",
+        "channel.setting.streamChannel":        "Stream",
+        "channel.setting.streamChannelDesc":    "Sharing hobby activities",
+        "channel.setting.privateChannel":       "Private Channel",
+        "channel.setting.privateChannelDesc":   "Only selected members and roles will be able to view this channel.",
 
         "channelPermission.title":              "Channel Permissions",
         "channelPermission.basicView":          "Basic View",
@@ -2363,6 +2391,20 @@ extension L10n {
         "channel.setting.banList":              "Danh sách chặn",
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Thay đổi cài đặt quyền riêng tư và tùy chỉnh cách các thành viên có thể tương tác với kênh này.",
+        "channel.setting.createChannel":        "Tạo kênh",
+        "channel.setting.channelName":          "Tên kênh",
+        "channel.setting.channelNamePlaceholder": "Nhập tên kênh",
+        "channel.setting.channelNameError":       "Vui lòng nhập tên kênh (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "channel.setting.channelNameDuplicate":   "Tên kênh đã tồn tại.",
+        "channel.setting.channelType":          "Loại kênh",
+        "channel.setting.textChannel":          "Văn bản",
+        "channel.setting.textChannelDesc":      "Gửi tin nhắn, hình ảnh, GIF, biểu tượng cảm xúc, ý kiến và những câu chơi chữ",
+        "channel.setting.voiceChannel":         "Thoại",
+        "channel.setting.voiceChannelDesc":     "Trò chuyện cùng nhau bằng thoại, video và chia sẻ màn hình",
+        "channel.setting.streamChannel":        "Phát trực tiếp",
+        "channel.setting.streamChannelDesc":    "Phát sóng các hoạt động sở thích",
+        "channel.setting.privateChannel":       "Kênh riêng tư",
+        "channel.setting.privateChannelDesc":   "Chỉ những thành viên và vai trò được chọn mới có thể xem kênh này.",
 
         "channelPermission.title":              "Quyền hạn kênh",
         "channelPermission.basicView":          "Cơ bản",

@@ -449,6 +449,11 @@ extension MezonEngine {
                 ch.active = 1
             }
 
+            applyLocallyCreatedChannel(ch)
+            return ch
+        }
+        
+        func applyLocallyCreatedChannel(_ ch: Mezon_Api_ChannelDescription) {
             upsertAllChannelsByUserCache(ch)
             if ch.clanID != 0 {
                 mergeIntoClanChannelListPreferenceIfPresent(clanId: ch.clanID, channel: ch)
@@ -459,7 +464,6 @@ extension MezonEngine {
                 object: nil,
                 userInfo: ["clanId": ch.clanID, "channelId": ch.channelID]
             )
-            return ch
         }
 
         private func upsertAllChannelsByUserCache(_ ch: Mezon_Api_ChannelDescription) {
