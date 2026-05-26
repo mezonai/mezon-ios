@@ -628,7 +628,9 @@ enum L10n {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
         static let settings       = "channel.settings"
+        static let threadSettings = "channel.threadSettings"
         static let name           = "channel.name"
+        static let threadName     = "channel.threadName"
         static let topic          = "channel.topic"
         static let delete         = "channel.delete"
         static let deleteConfirm  = "channel.deleteConfirm"
@@ -1445,7 +1447,9 @@ extension L10n {
         "chat.system.pinMessageAnchor": "a message",
         "chat.system.allThreadsAnchor": "all threads",
         "channel.settings": "Channel Settings",
+        "channel.threadSettings": "Thread Settings",
         "channel.name":   "Channel Name",
+        "channel.threadName": "Thread Name",
         "channel.topic":  "Channel Topic",
         "channel.delete": "Delete Channel",
         "channel.deleteConfirm": "Are you sure you want to delete this channel?",
@@ -2338,7 +2342,9 @@ extension L10n {
         "chat.system.pinMessageAnchor": "một tin nhắn",
         "chat.system.allThreadsAnchor": "tất cả chủ đề",
         "channel.settings": "Cài đặt kênh",
+        "channel.threadSettings": "Cài đặt chủ đề",
         "channel.name":   "Tên kênh",
+        "channel.threadName": "Tên chủ đề",
         "channel.topic":  "Chủ đề kênh",
         "channel.delete": "Xóa kênh",
         "channel.deleteConfirm": "Bạn có chắc chắn muốn xóa kênh này không?",

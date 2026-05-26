@@ -5,8 +5,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private let onClose: () -> Void
     private let onSave: (String, String) -> Void
-    private let onPermissionsTap: (() -> Void)?
+    private let onDeleteTap: (() -> Void)?
     private let onChangeCategoryTap: (() -> Void)?
+    private let onPermissionsTap: (() -> Void)?
+    private let showDeleteButton: Bool
+    private let showPermissionsButton: Bool
+    private let showChangeCategoryButton: Bool
+    private let isThread: Bool
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -14,9 +19,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let nameField = UITextField()
     private let topicView = UITextView()
     private var saveBtn: UIButton!
+    private var deleteBtn: UIView?
     private let initialName: String
     private let initialTopic: String
-    private let isThread: Bool
     private let errorLabel = UILabel()
 
     init(
@@ -26,7 +31,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         onClose: @escaping () -> Void,
         onSave: @escaping (String, String) -> Void,
         onPermissionsTap: (() -> Void)? = nil,
-        onChangeCategoryTap: (() -> Void)? = nil
+        onDeleteTap: (() -> Void)? = nil,
+        onChangeCategoryTap: (() -> Void)? = nil,
+        showDeleteButton: Bool = true,
+        showPermissionsButton: Bool = true,
+        showChangeCategoryButton: Bool = true
     ) {
         self.initialName = channelName
         self.initialTopic = channelTopic
@@ -34,7 +43,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.onClose = onClose
         self.onSave = onSave
         self.onPermissionsTap = onPermissionsTap
+        self.onDeleteTap = onDeleteTap
         self.onChangeCategoryTap = onChangeCategoryTap
+        self.showDeleteButton = showDeleteButton
+        self.showPermissionsButton = showPermissionsButton
+        self.showChangeCategoryButton = showChangeCategoryButton
         super.init()
         backgroundColor = UIColor.theme.primary
 
@@ -75,7 +88,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         let titleLabel = UILabel()
-        titleLabel.text = L(L10n.Channel.settings)
+        titleLabel.text = isThread ? L(L10n.Channel.threadSettings) : L(L10n.Channel.settings)
         titleLabel.font = .systemFont(ofSize: 17.sf, weight: .bold)
         titleLabel.textColor = t.textStrong
         header.addSubview(titleLabel)
@@ -123,20 +136,34 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
 
-        stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.name), input: nameField))
-        stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.topic), input: topicView, isTextArea: true))
+        let nameTitle = isThread ? L(L10n.Channel.threadName) : L(L10n.Channel.name)
+        stackView.addArrangedSubview(createInputSection(title: nameTitle, input: nameField))
+        
+        if !isThread {
+            stackView.addArrangedSubview(createInputSection(title: L(L10n.Channel.topic), input: topicView, isTextArea: true))
+        }
 
 
-        let group1 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: { [weak self] in
+        var group1Actions: [SettingAction] = []
+        
+        if showChangeCategoryButton {
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: { [weak self] in
                 self?.onChangeCategoryTap?()
-            }),
-            .init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
+            }))
+        }
+        
+        if showPermissionsButton {
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
                 self?.onPermissionsTap?()
-            }),
+            }))
+        }
+        
+        group1Actions.append(contentsOf: [
             .init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: nil),
             .init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil),
         ])
+        
+        let group1 = createGroup(actions: group1Actions)
         stackView.addArrangedSubview(group1)
 
         let footerLabel = UILabel()
@@ -153,10 +180,22 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(group2)
 
 
-        let deleteBtn = createActionRow(title: L(L10n.Channel.delete), icon: "ChannelSetting/DeleteIcon", isDestructive: true)
-        deleteBtn.backgroundColor = UIColor.theme.secondary
-        deleteBtn.layer.cornerRadius = 12
-        stackView.addArrangedSubview(deleteBtn)
+        if showDeleteButton {
+            let delTitle = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
+            let btn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
+                self?.onDeleteTap?()
+            })
+            btn.backgroundColor = UIColor.theme.secondary
+            btn.layer.cornerRadius = 12
+            stackView.addArrangedSubview(btn)
+            deleteBtn = btn
+        }
+    }
+    
+    func setDeleteButtonEnabled(_ enabled: Bool) {
+        guard let btn = deleteBtn as? UIButton else { return }
+        btn.isEnabled = enabled
+        btn.alpha = enabled ? 1.0 : 0.5
     }
 
     private func createInputSection(title: String, input: UIView, isTextArea: Bool = false) -> UIView {
