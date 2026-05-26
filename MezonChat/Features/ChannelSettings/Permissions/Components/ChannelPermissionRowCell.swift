@@ -22,6 +22,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
     private let checkboxView = UIImageView()
     private let chevron = UIImageView()
     private var imageTask: URLSessionDataTask?
+    private var configuredAvatarURL: String?
 
     var onRemoveTapped: (() -> Void)?
 
@@ -144,13 +145,17 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarInitials.isHidden = false
 
         imageTask?.cancel()
+        imageTask = nil
+        configuredAvatarURL = nil
         avatarView.image = nil
         avatarView.backgroundColor = UIColor.theme.tertiary
         if let urlString = avatarURL, !urlString.isEmpty {
             let resolved = ImgproxyURL.create(from: urlString, width: 100, height: 100)
+            configuredAvatarURL = resolved
             imageTask = ImageCache.shared.loadImage(urlString: resolved) { [weak self] image in
                 guard let self else { return }
                 DispatchQueue.main.async {
+                    guard self.configuredAvatarURL == resolved else { return }
                     if let image {
                         self.avatarView.image = image
                         self.avatarInitials.isHidden = true
@@ -170,6 +175,9 @@ final class ChannelPermissionRowCell: UITableViewCell {
         nameLabel.text = title
         subLabel.text = L(L10n.ChannelPermission.role)
         subLabel.isHidden = false
+        imageTask?.cancel()
+        imageTask = nil
+        configuredAvatarURL = nil
         avatarInitials.isHidden = true
         ownerIcon.isHidden = true
 
@@ -178,6 +186,10 @@ final class ChannelPermissionRowCell: UITableViewCell {
         roleIconView.isHidden = false
         roleIconView.tintColor = color
 
+        applyTrailing(trailing)
+    }
+
+    func setTrailing(_ trailing: Trailing) {
         applyTrailing(trailing)
     }
 
@@ -213,9 +225,20 @@ final class ChannelPermissionRowCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
+        imageTask = nil
+        configuredAvatarURL = nil
         avatarView.image = nil
+        avatarView.isHidden = false
+        avatarView.backgroundColor = UIColor.theme.tertiary
         avatarInitials.isHidden = false
+        roleIconView.isHidden = true
         ownerIcon.isHidden = true
+        trailingButton.isHidden = true
+        trailingButton.isEnabled = true
+        trailingButton.setImage(nil, for: .normal)
+        checkboxView.isHidden = true
+        checkboxView.image = nil
+        chevron.isHidden = true
         onRemoveTapped = nil
     }
 }

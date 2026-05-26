@@ -7,10 +7,11 @@ struct DirectMessagesState {
     var errorMessage: String?
     var incomingFriendRequestCount: Int
     var messageActivityRows: [DmMessageActivityItem]
+    var resolvedAvatarURLByChannelId: [Int64: String]
 
     static let empty = DirectMessagesState(
         directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil,
-        incomingFriendRequestCount: 0, messageActivityRows: [])
+        incomingFriendRequestCount: 0, messageActivityRows: [], resolvedAvatarURLByChannelId: [:])
 }
 
 final class DirectMessagesViewController: ViewController {
@@ -29,6 +30,7 @@ final class DirectMessagesViewController: ViewController {
     private(set) var errorMessage: String?
     private(set) var incomingFriendRequestCount: Int = 0
     private var userActivities: [Mezon_Api_UserActivity] = []
+    private var didRefreshForCurrentAppearance = false
 
     private var directMessagesNode: DirectMessagesContainerNode { displayNode as! DirectMessagesContainerNode }
 
@@ -69,12 +71,13 @@ final class DirectMessagesViewController: ViewController {
                 self?.openDirectMessageFromActivity(item)
             }
         )
-        displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction, context: context)
+        displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if let layout = lastLayout {
+        didRefreshForCurrentAppearance = false
+        if !animated, let layout = lastLayout {
             directMessagesNode.updateLayout(
                 size: layout.size,
                 safeTop: resolvedSafeTop(for: layout),
@@ -82,9 +85,23 @@ final class DirectMessagesViewController: ViewController {
                 transition: .immediate
             )
         }
+        if !animated {
+            refreshDirectMessagesForAppearance()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
         if isNodeLoaded {
             directMessagesNode.resetMessageActivityStripScroll(animated: false)
         }
+        if !didRefreshForCurrentAppearance {
+            refreshDirectMessagesForAppearance()
+        }
+    }
+
+    private func refreshDirectMessagesForAppearance() {
+        didRefreshForCurrentAppearance = true
         fetchDirectMessages()
         syncIncomingFriendRequestCount()
     }
@@ -360,14 +377,32 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
+        guard directMessages != v else { return }
         directMessages = v
         directMessagesPipe.putNext(v)
         needsReloadPipe.putNext(())
     }
 
-    private func setIsEmpty(_ v: Bool) { isEmpty = v; isEmptyPipe.putNext(v); needsReloadPipe.putNext(()) }
-    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
-    private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setIsEmpty(_ v: Bool) {
+        guard isEmpty != v else { return }
+        isEmpty = v
+        isEmptyPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
+
+    private func setIsLoading(_ v: Bool) {
+        guard isLoading != v else { return }
+        isLoading = v
+        isLoadingPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
+
+    private func setErrorMessage(_ v: String?) {
+        guard errorMessage != v else { return }
+        errorMessage = v
+        errorMessagePipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
 
     private func setIncomingFriendRequestCount(_ v: Int) {
         let changed = incomingFriendRequestCount != v
@@ -645,6 +680,88 @@ final class DirectMessagesViewController: ViewController {
         return rows
     }
 
+    private static func buildResolvedAvatarURLCache(
+        directMessages: [Mezon_Api_ChannelDescription],
+        friends: [Mezon_Api_Friend],
+        postboxAvatarURL: (Int64) -> String?
+    ) -> [Int64: String] {
+        let friendAvatarPairs = friends.compactMap { friend -> (Int64, String)? in
+            guard friend.hasUser, friend.user.id != 0 else { return nil }
+            guard let avatarURL = normalizedURLString(friend.user.avatarURL) else { return nil }
+            return (friend.user.id, avatarURL)
+        }
+        let friendAvatarByUserId = Dictionary(friendAvatarPairs, uniquingKeysWith: { first, _ in first })
+
+        var resolved: [Int64: String] = [:]
+        resolved.reserveCapacity(directMessages.count)
+
+        for channel in directMessages {
+            if let urlString = primaryAvatarURLString(for: channel) {
+                resolved[channel.channelID] = urlString
+                continue
+            }
+
+            guard channel.type != MezonConstants.ChannelType.group.rawValue else { continue }
+            let userId = channel.userIds.first ?? 0
+            guard userId != 0 else { continue }
+
+            if let friendAvatarURL = friendAvatarByUserId[userId] {
+                resolved[channel.channelID] = friendAvatarURL
+                continue
+            }
+
+            if let postboxAvatarURL = normalizedURLString(postboxAvatarURL(userId) ?? "") {
+                resolved[channel.channelID] = postboxAvatarURL
+            }
+        }
+
+        return resolved
+    }
+
+    private static func primaryAvatarURLString(for channel: Mezon_Api_ChannelDescription) -> String? {
+        if channel.type == MezonConstants.ChannelType.group.rawValue {
+            guard !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png") else {
+                return nil
+            }
+            return normalizedURLString(channel.channelAvatar)
+        }
+        return normalizedURLString(channel.avatars.first ?? "")
+    }
+
+    private static func normalizedURLString(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if URL(string: trimmed) != nil {
+            return trimmed
+        }
+        if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           URL(string: encoded) != nil {
+            return encoded
+        }
+        return nil
+    }
+
+    private static func avatarLookupUserIds(
+        directMessages: [Mezon_Api_ChannelDescription],
+        friends: [Mezon_Api_Friend]
+    ) -> [Int64] {
+        var ids = Set<Int64>()
+        for friend in friends where friend.hasUser && friend.user.id != 0
+            && friend.user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            ids.insert(friend.user.id)
+        }
+        for channel in directMessages where channel.type != MezonConstants.ChannelType.group.rawValue {
+            let hasChannelAvatar = !(channel.avatars.first ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+            guard !hasChannelAvatar else { continue }
+            for userId in channel.userIds where userId != 0 {
+                ids.insert(userId)
+            }
+        }
+        return Array(ids)
+    }
+
     private func applyDmListFromCache() {
         let cached = context.account.postbox.getCachedDMChannelList()
         guard !cached.isEmpty else { return }
@@ -675,7 +792,9 @@ final class DirectMessagesViewController: ViewController {
     func fetchDirectMessages() {
         if fetchDirectMessagesTask != nil { return }
         if let last = lastFetchDirectMessagesAt, Date().timeIntervalSince(last) < fetchDirectMessagesCooldown {
-            applyDmListFromCache()
+            if directMessages.isEmpty {
+                applyDmListFromCache()
+            }
             return
         }
         applyDmListFromCache()
@@ -770,14 +889,32 @@ final class DirectMessagesViewController: ViewController {
     }
 
     var currentState: DirectMessagesState {
+        let friends = context.engine.friendsData.allFriends()
+        let avatarLookupIds = Self.avatarLookupUserIds(directMessages: directMessages, friends: friends)
+        let postboxAvatarURLByUserId: [Int64: String]
+        if avatarLookupIds.isEmpty {
+            postboxAvatarURLByUserId = [:]
+        } else {
+            postboxAvatarURLByUserId = context.account.postbox.read { tx -> [Int64: String] in
+                var result: [Int64: String] = [:]
+                result.reserveCapacity(avatarLookupIds.count)
+                for userId in avatarLookupIds {
+                    if let avatarURL = tx.getProfile(userId: "\(userId)")?.avatarUrl {
+                        result[userId] = avatarURL
+                    }
+                }
+                return result
+            }
+        }
+        let postboxAvatarURL: (Int64) -> String? = { userId in
+            postboxAvatarURLByUserId[userId]
+        }
         let rows = Self.buildMessageActivityRows(
             activities: userActivities,
-            friends: context.engine.friendsData.allFriends(),
+            friends: friends,
             directMessages: directMessages,
             myUserId: Int64(context.currentUser?.id ?? "") ?? 0,
-            postboxAvatarURL: { uid in
-                context.account.postbox.read { $0.getProfile(userId: "\(uid)") }?.avatarUrl
-            }
+            postboxAvatarURL: postboxAvatarURL
         )
         return DirectMessagesState(
             directMessages: directMessages,
@@ -785,7 +922,12 @@ final class DirectMessagesViewController: ViewController {
             isLoading: isLoading,
             errorMessage: errorMessage,
             incomingFriendRequestCount: incomingFriendRequestCount,
-            messageActivityRows: rows
+            messageActivityRows: rows,
+            resolvedAvatarURLByChannelId: Self.buildResolvedAvatarURLCache(
+                directMessages: directMessages,
+                friends: friends,
+                postboxAvatarURL: postboxAvatarURL
+            )
         )
     }
 
@@ -815,7 +957,8 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     private let context: AccountContext
     private let onChannelCreated: (Mezon_Api_ChannelDescription) -> Void
     private let existingGroupChannel: Mezon_Api_ChannelDescription?
-    private let excludedMemberIds: Set<Int64>
+    private var excludedMemberIds: Set<Int64>
+    private var existingMemberCountOverride: Int?
 
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
@@ -838,6 +981,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     private var searchText = ""
     private var isCreating = false
     private var refreshTask: Task<Void, Never>?
+    private var existingMembersRefreshTask: Task<Void, Never>?
     private var friendsUpdatedDisposable: Disposable?
 
     init(context: AccountContext, onChannelCreated: @escaping (Mezon_Api_ChannelDescription) -> Void) {
@@ -845,18 +989,37 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         self.onChannelCreated = onChannelCreated
         self.existingGroupChannel = nil
         self.excludedMemberIds = []
+        self.existingMemberCountOverride = nil
         super.init(navigationBarPresentationData: nil)
     }
 
     init(
         context: AccountContext,
         existingGroupChannel: Mezon_Api_ChannelDescription,
+        existingMemberIds: Set<Int64>? = nil,
+        existingMemberCount: Int? = nil,
         onMembersAdded: @escaping (Mezon_Api_ChannelDescription) -> Void
     ) {
         self.context = context
         self.onChannelCreated = onMembersAdded
         self.existingGroupChannel = existingGroupChannel
-        self.excludedMemberIds = Set(existingGroupChannel.userIds)
+        var excludedIds = Set(existingGroupChannel.userIds)
+        if let existingMemberIds, !existingMemberIds.isEmpty {
+            excludedIds.formUnion(existingMemberIds)
+        }
+        if let currentUserId = context.currentUser.flatMap({ Int64($0.id) }) {
+            excludedIds.insert(currentUserId)
+        }
+        self.excludedMemberIds = excludedIds
+        if let existingMemberCount {
+            self.existingMemberCountOverride = existingMemberCount
+        } else if let existingMemberIds, !existingMemberIds.isEmpty {
+            self.existingMemberCountOverride = existingMemberIds.count
+        } else if existingGroupChannel.memberCount > 0 {
+            self.existingMemberCountOverride = Int(existingGroupChannel.memberCount)
+        } else {
+            self.existingMemberCountOverride = nil
+        }
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -865,6 +1028,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     deinit {
         NotificationCenter.default.removeObserver(self)
         refreshTask?.cancel()
+        existingMembersRefreshTask?.cancel()
         friendsUpdatedDisposable?.dispose()
     }
 
@@ -875,6 +1039,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         setupLayout()
         applyTheme()
         syncFriendsFromStore()
+        refreshExistingGroupMembersIfNeeded()
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChanged), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleLanguageChanged), name: LanguageManager.didChangeNotification, object: nil)
@@ -1068,12 +1233,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     }
 
     private func updateMemberCount() {
-        let baseCount: Int
-        if let existing = existingGroupChannel {
-            baseCount = existing.userIds.count + 1
-        } else {
-            baseCount = 1
-        }
+        let baseCount = baseMemberCount()
         subtitleLabel.text = L(
             L10n.DirectMessage.memberCount,
             baseCount + selectedFriendIds.count,
@@ -1113,6 +1273,43 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
             guard let self else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             await self.context.engine.friendsData.refreshFromNetwork(token: token)
+        }
+    }
+
+    private func refreshExistingGroupMembersIfNeeded() {
+        guard let existingGroup = existingGroupChannel else { return }
+        existingMembersRefreshTask?.cancel()
+        existingMembersRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            do {
+                let response = try await self.context.account.network.listChannelUsersUC(
+                    channelId: existingGroup.channelID,
+                    limit: 500,
+                    token: token
+                )
+                var ids = Set(response.userIds)
+                guard !ids.isEmpty else { return }
+                if let currentUserId = self.context.currentUser.flatMap({ Int64($0.id) }) {
+                    ids.insert(currentUserId)
+                }
+                self.excludedMemberIds.formUnion(ids)
+                self.existingMemberCountOverride = ids.count
+                self.selectedFriendIds.subtract(self.excludedMemberIds)
+                self.trimSelectionToMemberLimit()
+                let labels = existingGroup.dmMemberLabelsForChannelList()
+                self.context.account.postbox.write { tx in
+                    tx.applyAllUsersAddChannelResponse(
+                        response,
+                        channelId: existingGroup.channelID,
+                        dmMemberLabelByUserId: labels
+                    )
+                }
+                self.syncFriendsFromStore()
+                self.updateMemberCount()
+                self.updateCreateButtonState()
+            } catch {
+            }
         }
     }
 
@@ -1161,14 +1358,31 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         return username.isEmpty ? L(L10n.Common.detail) : username
     }
 
-    private func canSelectAdditionalFriend() -> Bool {
-        let baseCount: Int
+    private func baseMemberCount() -> Int {
         if let existing = existingGroupChannel {
-            baseCount = existing.userIds.count + 1
-        } else {
-            baseCount = 1
+            if let existingMemberCountOverride {
+                return existingMemberCountOverride
+            }
+            if existing.memberCount > 0 {
+                return Int(existing.memberCount)
+            }
+            var ids = Set(existing.userIds)
+            if let currentUserId = context.currentUser.flatMap({ Int64($0.id) }) {
+                ids.insert(currentUserId)
+            }
+            return max(ids.count, 1)
         }
-        return baseCount + selectedFriendIds.count < Self.maximumMembers
+        return 1
+    }
+
+    private func canSelectAdditionalFriend() -> Bool {
+        baseMemberCount() + selectedFriendIds.count < Self.maximumMembers
+    }
+
+    private func trimSelectionToMemberLimit() {
+        let remainingSlots = max(0, Self.maximumMembers - baseMemberCount())
+        guard selectedFriendIds.count > remainingSlots else { return }
+        selectedFriendIds = Set(selectedFriendIds.sorted().prefix(remainingSlots))
     }
 
     private func toggleSelection(for friend: Mezon_Api_Friend) {
@@ -1199,6 +1413,10 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     @objc private func createTapped() {
         guard !selectedFriendIds.isEmpty, !isCreating else { return }
         let selectedIds = Array(selectedFriendIds)
+        guard baseMemberCount() + selectedIds.count <= Self.maximumMembers else {
+            Toast.info(L(L10n.DirectMessage.memberLimitReached))
+            return
+        }
         isCreating = true
         updateCreateButtonState()
 
@@ -1221,6 +1439,19 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
                     var merged = updated.userIds
                     for id in selectedIds where !merged.contains(id) { merged.append(id) }
                     updated.userIds = merged
+                    updated.memberCount = Int32(min(Self.maximumMembers, self.baseMemberCount() + selectedIds.count))
+                    if let members = try? await self.context.account.network.listChannelUsersUC(
+                        channelId: existingGroup.channelID, limit: 500, token: token
+                    ) {
+                        let labels = updated.dmMemberLabelsForChannelList()
+                        self.context.account.postbox.write { tx in
+                            tx.applyAllUsersAddChannelResponse(
+                                members,
+                                channelId: existingGroup.channelID,
+                                dmMemberLabelByUserId: labels
+                            )
+                        }
+                    }
                     self.onChannelCreated(updated)
                     self.navigationController?.popViewController(animated: true)
                 } catch {

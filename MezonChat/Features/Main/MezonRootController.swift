@@ -389,7 +389,7 @@ final class MezonRootController: NavigationController {
         }()
 
         let dmChatVC = ChatViewController(clanId: 0, channel: resolvedChannel, context: context)
-        dmChatVC.markNextFetchPrefersHTTPFirst()
+        dmChatVC.prepareForNotificationNavigation()
         pushViewController(dmChatVC, animated: false)
 
         Task { @MainActor [weak self] in
@@ -422,8 +422,29 @@ final class MezonRootController: NavigationController {
         return fallbackClanId
     }
 
+    private func isKnownDirectMessageChannel(channelId: Int64) -> Bool {
+        if let found = directMessagesController?.directMessages.first(where: { $0.channelID == channelId }) {
+            return found.type == MezonConstants.ChannelType.dm.rawValue
+                || found.type == MezonConstants.ChannelType.group.rawValue
+                || found.clanID == 0
+        }
+        if let cached = context.account.postbox.getDMChannelDescription(channelId: channelId) {
+            return cached.type == MezonConstants.ChannelType.dm.rawValue
+                || cached.type == MezonConstants.ChannelType.group.rawValue
+                || cached.clanID == 0
+        }
+        return false
+    }
+
     private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
+        let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
+
+        if notificationClanId == 0 || (notificationClanId == nil && isKnownDirectMessageChannel(channelId: channelIdInt)) {
+            navigateToDM(channelIdStr: channelIdStr)
+            return
+        }
+
         if bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
 
         rootTabController?.selectedIndex = 0
@@ -431,8 +452,6 @@ final class MezonRootController: NavigationController {
         popToTabBarController()
 
         guard let homeVC = homeController else { return }
-
-        let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
 
         if let (cachedClanId, cachedChannel) = context.account.postbox.getChannelDescription(channelId: channelIdInt) {
             let resolvedClanId = resolvedClanIdForOpenChat(
@@ -449,7 +468,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
@@ -472,7 +491,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: resolvedClanId, channel: ch, context: context, parentName: parentName
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
@@ -493,8 +512,13 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: resolvedClanId, channel: ch, context: context, parentName: parentName
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
+            return
+        }
+
+        if notificationClanId == nil {
+            navigateToDM(channelIdStr: channelIdStr)
             return
         }
 
@@ -516,7 +540,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: notificationClanId, channel: minimal, context: context
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
 
             let loaded = homeVC.channelListVC.channelsLoadedSignal
@@ -550,7 +574,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: targetClanId, channel: minimal, context: self.context
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: targetClanId, selectChannelId: channelIdInt)
         }
@@ -589,8 +613,7 @@ final class MezonRootController: NavigationController {
             do {
                 let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
-                let hadCache = (self.context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))?.isEmpty == false)
-                if channels.isEmpty && hadCache {
+                if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId,
                        let selectChannelId {
                         homeVC.channelListVC.selectWithoutNavigation(channelId: selectChannelId)

@@ -23,6 +23,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
     private let headerTrailingSpacerNode = ASDisplayNode()
     private let titleNode = ASTextNode2()
     private let channelIconNode = ASImageNode()
+    private let groupAvatarNode = ASNetworkImageNode()
 
     private let actionButtonsNode: ChannelDetailActionButtonsNode
 
@@ -175,6 +176,10 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         titleNode.truncationMode = .byTruncatingTail
         titleNode.style.flexShrink = 1
 
+        groupAvatarNode.cornerRadius = 14.sf
+        groupAvatarNode.clipsToBounds = true
+        groupAvatarNode.contentMode = .scaleAspectFill
+
         headerTrailingSpacerNode.style.preferredSize = CGSize(width: 52.sf, height: 44.sf)
         headerTrailingSpacerNode.isUserInteractionEnabled = false
         headerTrailingSpacerNode.backgroundColor = .clear
@@ -194,6 +199,14 @@ final class ChannelDetailContainerNode: ASDisplayNode {
             channelIconNode.isHidden = false
         }
 
+        if let avatarURL = resolvedGroupDMAvatarURL() {
+            groupAvatarNode.url = avatarURL
+            groupAvatarNode.isHidden = false
+        } else {
+            groupAvatarNode.url = nil
+            groupAvatarNode.isHidden = true
+        }
+
         titleNode.attributedText = NSAttributedString(
             string: title,
             attributes: [
@@ -201,6 +214,25 @@ final class ChannelDetailContainerNode: ASDisplayNode {
                 .foregroundColor: UIColor.theme.textStrong,
             ]
         )
+    }
+
+    private func resolvedGroupDMAvatarURL() -> URL? {
+        guard isGroupDirectMessage else { return nil }
+        let raw = channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty, !raw.contains("avatar-group.png") else { return nil }
+
+        let absolute: String
+        if let url = URL(string: raw), url.scheme != nil {
+            absolute = raw
+        } else if raw.hasPrefix("//") {
+            absolute = "https:\(raw)"
+        } else {
+            let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            absolute = raw.hasPrefix("/") ? "\(base)\(raw)" : "\(base)/\(raw)"
+        }
+
+        let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 180, height: 180)
+        return URL(string: proxied)
     }
 
     func applyUpdatedChannel(_ updated: Mezon_Api_ChannelDescription) {
@@ -293,15 +325,20 @@ final class ChannelDetailContainerNode: ASDisplayNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         channelIconNode.style.preferredSize = CGSize(width: 16.sf, height: 16.sf)
+        let showsGroupAvatar = resolvedGroupDMAvatarURL() != nil
+        groupAvatarNode.style.preferredSize = CGSize(width: 28.sf, height: 28.sf)
+        let headerContentChildren: [ASLayoutElement] = showsGroupAvatar
+            ? [groupAvatarNode, titleNode]
+            : [channelIconNode, titleNode]
         let headerContent = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 8.sw,
             justifyContent: .start,
             alignItems: .center,
-            children: [channelIconNode, titleNode]
+            children: headerContentChildren
         )
         let headerHorizontalControlsWidth = 44.sf + 52.sf
-        let headerTitlePadding: CGFloat = 20.sw
+        let headerTitlePadding: CGFloat = 20.sw + (showsGroupAvatar ? 36.sf : 0)
         let maxHeaderContentWidth = max(
             0,
             constrainedSize.max.width - 32.sw - headerHorizontalControlsWidth - headerTitlePadding
@@ -359,12 +396,16 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         )
         tabsHeader.style.alignSelf = .stretch
 
+        var headerChildren: [ASLayoutElement] = [topBar]
+        headerChildren.append(actionButtonsNode)
+        headerChildren.append(tabsHeader)
+
         let headerSection = ASStackLayoutSpec(
             direction: .vertical,
             spacing: 0,
             justifyContent: .start,
             alignItems: .stretch,
-            children: [topBar, actionButtonsNode, tabsHeader]
+            children: headerChildren
         )
         headerSection.style.alignSelf = .stretch
 

@@ -50,13 +50,15 @@ final class ClanRolesViewController: BaseViewController {
         label.font = .systemFont(ofSize: 13.sf, weight: .regular)
         label.textColor = UIColor.theme.textDisabled
         label.numberOfLines = 0
+        label.textAlignment = .center
         v.addSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 10.sw),
-            label.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -10.sw),
-            label.topAnchor.constraint(equalTo: v.topAnchor, constant: 12.sh),
-            label.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8.sh)
+            label.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16.sw),
+            label.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16.sw),
+            label.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            label.topAnchor.constraint(greaterThanOrEqualTo: v.topAnchor, constant: 8.sh),
+            label.bottomAnchor.constraint(lessThanOrEqualTo: v.bottomAnchor, constant: -8.sh)
         ])
         return v
     }()
@@ -259,8 +261,8 @@ extension ClanRolesViewController: UITableViewDataSource, UITableViewDelegate {
             label.translatesAutoresizingMaskIntoConstraints = false
             wrap.addSubview(label)
             NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 10.sw),
-                label.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -10.sw),
+                label.leadingAnchor.constraint(equalTo: wrap.leadingAnchor, constant: 16.sw),
+                label.trailingAnchor.constraint(equalTo: wrap.trailingAnchor, constant: -16.sw),
                 label.topAnchor.constraint(equalTo: wrap.topAnchor, constant: 10.sh),
                 label.bottomAnchor.constraint(equalTo: wrap.bottomAnchor, constant: -6.sh)
             ])
@@ -333,6 +335,8 @@ extension ClanRolesViewController: UITableViewDataSource, UITableViewDelegate {
 private final class ClanRoleCell: UITableViewCell {
 
     static let reuseId = "ClanRoleCell"
+    private static let horizontalInset: CGFloat = 16
+    private static let iconSize: CGFloat = 28
 
     private let iconView = UIImageView()
     private let roleIconView = UIImageView()
@@ -374,19 +378,24 @@ private final class ClanRoleCell: UITableViewCell {
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
         subtitleLabel.textColor = UIColor.theme.textDisabled
         subtitleLabel.numberOfLines = 1
+        subtitleLabel.lineBreakMode = .byTruncatingTail
 
         lockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
         lockIcon.tintColor = UIColor.theme.textDisabled
         lockIcon.contentMode = .scaleAspectFit
         lockIcon.isHidden = true
+        lockIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
+        chevron.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         [iconView, roleIconView, colorIndicator, titleLabel, subtitleLabel, lockIcon, chevron].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -394,15 +403,15 @@ private final class ClanRoleCell: UITableViewCell {
         }
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6.sw),
+            iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.horizontalInset),
             iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 28.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 28.swh),
+            iconView.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            iconView.heightAnchor.constraint(equalToConstant: Self.iconSize),
 
             roleIconView.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
             roleIconView.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            roleIconView.widthAnchor.constraint(equalToConstant: 28.swh),
-            roleIconView.heightAnchor.constraint(equalToConstant: 28.swh),
+            roleIconView.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            roleIconView.heightAnchor.constraint(equalToConstant: Self.iconSize),
 
             colorIndicator.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
             colorIndicator.bottomAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 2.sh),
@@ -415,13 +424,14 @@ private final class ClanRoleCell: UITableViewCell {
             lockIcon.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             lockIcon.widthAnchor.constraint(equalToConstant: 14.swh),
             lockIcon.heightAnchor.constraint(equalToConstant: 14.swh),
+            lockIcon.trailingAnchor.constraint(lessThanOrEqualTo: chevron.leadingAnchor, constant: -6.sw),
 
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh),
             subtitleLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10.sh),
             subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevron.leadingAnchor, constant: -6.sw),
 
-            chevron.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6.sw),
+            chevron.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -Self.horizontalInset),
             chevron.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 10.swh),
             chevron.heightAnchor.constraint(equalToConstant: 14.swh)
@@ -429,11 +439,11 @@ private final class ClanRoleCell: UITableViewCell {
         titleLeadingToIcon = titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 10.sw)
         titleLeadingToContent = titleLabel.leadingAnchor.constraint(
             equalTo: contentView.leadingAnchor,
-            constant: 6.sw + 28.swh + 10.sw)
+            constant: Self.horizontalInset + Self.iconSize + 10.sw)
         titleLeadingToContent.isActive = false
         titleLeadingToIcon.isActive = true
         titleTrailingMaxEmpty = titleLabel.trailingAnchor.constraint(
-            lessThanOrEqualTo: contentView.trailingAnchor, constant: -14.sw)
+            lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.horizontalInset)
         titleTrailingMaxEmpty.isActive = false
     }
 
@@ -474,10 +484,15 @@ private final class ClanRoleCell: UITableViewCell {
         titleLabel.text = role.title
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
-        subtitleLabel.text = "\(memberCount) \(L(L10n.ClanRoles.members))"
+        subtitleLabel.text = Self.memberCountText(memberCount)
         lockIcon.isHidden = !isLocked
         chevron.isHidden = false
         isUserInteractionEnabled = true
+    }
+
+    private static func memberCountText(_ count: Int) -> String {
+        let key = count <= 1 ? L10n.ClanRoles.member : L10n.ClanRoles.members
+        return "\(count) \(L(key))"
     }
 
     func configureEmpty(text: String) {

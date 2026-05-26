@@ -89,6 +89,87 @@ final class MezonHTTPClient {
         protoBaseURL = MezonConfig.protoBaseURL
     }
 
+    private static let transientRetryDelaysNanoseconds: [UInt64] = [
+        350_000_000,
+        1_000_000_000
+    ]
+
+    private func retryingTransientRequest<Response>(
+        operationName: String,
+        operation: () async throws -> Response
+    ) async throws -> Response {
+        var attempt = 1
+        while true {
+            do {
+                return try await operation()
+            } catch {
+                if error is CancellationError || Task.isCancelled {
+                    throw error
+                }
+                guard attempt <= Self.transientRetryDelaysNanoseconds.count,
+                      Self.isRetriableTransientError(error) else {
+                    throw error
+                }
+
+                let delay = Self.transientRetryDelaysNanoseconds[attempt - 1]
+                MezonRPCLog.response("\(operationName) transient fail attempt=\(attempt) retryDelayMs=\(delay / 1_000_000) error=\(error.localizedDescription)")
+                attempt += 1
+                try await Task.sleep(nanoseconds: delay)
+            }
+        }
+    }
+
+    private static func isRetriableTransientError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return false
+        }
+
+        if let mezonError = error as? MezonError {
+            switch mezonError {
+            case .invalidResponse, .socketError:
+                return true
+            case .httpError(let statusCode, _):
+                return statusCode == 0
+                    || statusCode == 408
+                    || statusCode == 425
+                    || statusCode == 429
+                    || (500...599).contains(statusCode)
+            }
+        }
+
+        if let urlError = error as? URLError {
+            return isRetriableURLErrorCode(urlError.code)
+        }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return isRetriableURLErrorCode(URLError.Code(rawValue: nsError.code))
+        }
+
+        return false
+    }
+
+    private static func isRetriableURLErrorCode(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .secureConnectionFailed,
+             .cannotLoadFromNetwork,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed,
+             .badServerResponse,
+             .cannotParseResponse:
+            return true
+        default:
+            return false
+        }
+    }
+
     func updateUsername(username: String, token: String) async throws -> Mezon_Api_Session {
         var req = Mezon_Api_UpdateUsernameRequest()
         req.username = username
@@ -490,10 +571,11 @@ final class MezonHTTPClient {
         parentChannelId: Int64,
         clanId: Int64,
         page: Int32,
+        limit: Int32 = 100,
         token: String
     ) async throws -> Mezon_Api_ChannelDescList {
         var req = Mezon_Api_ListThreadRequest()
-        req.limit = 100
+        req.limit = limit
         req.state = 0
         req.clanID = clanId
         req.channelID = parentChannelId
@@ -897,21 +979,25 @@ final class MezonHTTPClient {
         limit: Int32 = 50,
         topicId: Int64 = 0,
         token: String,
-        preferHTTPFirst: Bool = false
+        preferHTTPFirst: Bool = true
     ) async throws -> Mezon_Api_ChannelMessageList {
-        var req = Mezon_Api_ListChannelMessagesRequest()
-        req.clanID = clanId
-        req.channelID = channelId
-        req.messageID = messageId
-        req.direction = direction
-        req.limit = limit
-        req.topicID = topicId
-        return try await postProto(
-            path: "/mezon.api.Mezon/ListChannelMessages",
-            message: req,
-            auth: .bearer(token),
-            preferHTTPFirst: preferHTTPFirst
-        )
+        try await retryingTransientRequest(
+            operationName: "ListChannelMessages clanId=\(clanId) channelId=\(channelId) messageId=\(messageId) direction=\(direction)"
+        ) {
+            var req = Mezon_Api_ListChannelMessagesRequest()
+            req.clanID = clanId
+            req.channelID = channelId
+            req.messageID = messageId
+            req.direction = direction
+            req.limit = limit
+            req.topicID = topicId
+            return try await self.postProto(
+                path: "/mezon.api.Mezon/ListChannelMessages",
+                message: req,
+                auth: .bearer(token),
+                preferHTTPFirst: preferHTTPFirst
+            )
+        }
     }
 
     func updateChannelDesc(
@@ -936,7 +1022,7 @@ final class MezonHTTPClient {
             avatarValue.value = channelAvatar
             req.channelAvatar = avatarValue
         }
-        if let topic = topic {
+        if let topic = topic, !topic.isEmpty {
             req.topic = topic
         }
         if let categoryId = categoryId {

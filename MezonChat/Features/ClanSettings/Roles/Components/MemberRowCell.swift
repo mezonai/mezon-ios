@@ -4,6 +4,7 @@ import UIKit
 final class MemberRowCell: UITableViewCell {
 
     static let reuseId = "MemberRowCell"
+    static let rowHeight: CGFloat = 56
 
     enum Accessory {
         case none
@@ -18,12 +19,14 @@ final class MemberRowCell: UITableViewCell {
     private let accessoryButton = UIButton(type: .system)
     private let checkboxView = UIImageView()
     private var imageTask: URLSessionDataTask?
+    private var configuredAvatarURL: String?
 
     var onAccessoryTapped: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
         backgroundColor = .clear
+        selectionStyle = .none
         let bg = UIView()
         bg.backgroundColor = UIColor.theme.tertiary.withAlphaComponent(0.6)
         selectedBackgroundView = bg
@@ -62,34 +65,37 @@ final class MemberRowCell: UITableViewCell {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
+        let minHeight = contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: Self.rowHeight)
+        minHeight.priority = .required
 
         NSLayoutConstraint.activate([
+            minHeight,
             avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14.sw),
             avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: 36.swh),
-            avatarView.heightAnchor.constraint(equalToConstant: 36.swh),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
 
             avatarInitials.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             avatarInitials.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
 
             nameLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12.sw),
-            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10.sh),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: accessoryButton.leadingAnchor, constant: -8.sw),
+            nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -54.sw),
 
             subLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            subLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2.sh),
-            subLabel.trailingAnchor.constraint(lessThanOrEqualTo: accessoryButton.leadingAnchor, constant: -8.sw),
-            subLabel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10.sh),
+            subLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
+            subLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -54.sw),
+            subLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
 
             accessoryButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12.sw),
             accessoryButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            accessoryButton.widthAnchor.constraint(equalToConstant: 28.swh),
-            accessoryButton.heightAnchor.constraint(equalToConstant: 28.swh),
+            accessoryButton.widthAnchor.constraint(equalToConstant: 28),
+            accessoryButton.heightAnchor.constraint(equalToConstant: 28),
 
             checkboxView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16.sw),
             checkboxView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            checkboxView.widthAnchor.constraint(equalToConstant: 22.swh),
-            checkboxView.heightAnchor.constraint(equalToConstant: 22.swh)
+            checkboxView.widthAnchor.constraint(equalToConstant: 22),
+            checkboxView.heightAnchor.constraint(equalToConstant: 22)
         ])
     }
 
@@ -109,9 +115,11 @@ final class MemberRowCell: UITableViewCell {
         avatarInitials.isHidden = false
         if let urlString = avatarURL, !urlString.isEmpty {
             let resolved = ImgproxyURL.create(from: urlString, width: 100, height: 100)
+            configuredAvatarURL = resolved
             imageTask = ImageCache.shared.loadImage(urlString: resolved) { [weak self] image in
                 guard let self else { return }
                 DispatchQueue.main.async {
+                    guard self.configuredAvatarURL == resolved else { return }
                     if let image {
                         self.avatarView.image = image
                         self.avatarInitials.isHidden = true
@@ -120,6 +128,14 @@ final class MemberRowCell: UITableViewCell {
             }
         }
 
+        applyAccessory(accessory)
+    }
+
+    func setAccessory(_ accessory: Accessory) {
+        applyAccessory(accessory)
+    }
+
+    private func applyAccessory(_ accessory: Accessory) {
         switch accessory {
         case .none:
             accessoryButton.isHidden = true
@@ -147,8 +163,14 @@ final class MemberRowCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         imageTask?.cancel()
+        imageTask = nil
+        configuredAvatarURL = nil
         avatarView.image = nil
         avatarInitials.isHidden = false
+        accessoryButton.isHidden = true
+        accessoryButton.setImage(nil, for: .normal)
+        checkboxView.isHidden = true
+        checkboxView.image = nil
         onAccessoryTapped = nil
     }
 }

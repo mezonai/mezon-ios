@@ -5,8 +5,6 @@ final class DmListItemCell: UITableViewCell {
 
     static let reuseId = "DmListItemCell"
 
-    private static let groupDmListPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
-
     private let textAvatar = TextAvatarView(username: "", size: 40.swh, fontSize: 16.sf)
 
     private let avatarImageView: UIImageView = {
@@ -62,11 +60,39 @@ final class DmListItemCell: UITableViewCell {
         return l
     }()
 
-    private var imageTask: URLSessionDataTask?
     private var avatarLoadGeneration: UInt = 0
     private var nameTopConstraint: NSLayoutConstraint?
     private var nameCenterYConstraint: NSLayoutConstraint?
     private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
+    private var configuredAvatarURLString: String?
+    private var isAvatarLoadInFlight = false
+    private var hasPreviewLayout: Bool?
+
+    private static let unreadNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
+    private static let readNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
+
+    private struct PreviewCacheKey: Hashable {
+        let channelId: Int64
+        let hasLastSentMessage: Bool
+        let messageId: Int64
+        let timestampSeconds: UInt32
+        let senderId: Int64
+        let content: String
+        let lastSeenTimestampSeconds: UInt32
+        let updateTimeSeconds: UInt32
+        let createTimeSeconds: UInt32
+        let relativeMinuteBucket: UInt32
+    }
+
+    private static var previewCache: [PreviewCacheKey: (String, String)] = [:]
+    private static var previewCacheOrder: [PreviewCacheKey] = []
+    private static let previewCacheLimit = 400
+    private static let urlDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    private static let relativeDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d/M/yy"
+        return formatter
+    }()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -78,8 +104,9 @@ final class DmListItemCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarLoadGeneration += 1
-        imageTask?.cancel()
-        imageTask = nil
+        isAvatarLoadInFlight = false
+        configuredAvatarURLString = nil
+        hasPreviewLayout = nil
         avatarImageView.image = nil
         textAvatar.showImageMode()
         groupIconView.isHidden = true
@@ -156,7 +183,7 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, context: AccountContext? = nil) {
+    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil) {
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -165,25 +192,20 @@ final class DmListItemCell: UITableViewCell {
 
         nameLabel.text = displayName
         nameLabel.textColor = isUnread ? .mezonTextStrong : UIColor.theme.textDisabled
-        nameLabel.font = .systemFont(ofSize: 14.sf, weight: isUnread ? .semibold : .medium)
+        nameLabel.font = isUnread ? Self.unreadNameFont : Self.readNameFont
 
         onlineIndicator.layer.borderColor = UIColor.theme.primary.cgColor
 
         if isGroup {
             onlineIndicator.isHidden = true
-            if !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
-               let url = URL(string: channel.channelAvatar) {
-                groupIconView.isHidden = true
+            if let urlString = resolvedAvatarURL, let url = URL(string: urlString) {
                 loadImage(url: url, fallbackUsername: nil)
             } else {
                 avatarLoadGeneration += 1
-                imageTask?.cancel()
-                imageTask = nil
+                isAvatarLoadInFlight = false
+                configuredAvatarURLString = nil
                 avatarImageView.image = nil
-                textAvatar.showImageMode()
-                textAvatar.backgroundColor = Self.groupDmListPlaceholderOrange
-                groupIconView.tintColor = .white
-                groupIconView.isHidden = false
+                showGroupAvatarPlaceholder()
             }
         } else {
             groupIconView.isHidden = true
@@ -191,14 +213,13 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.isHidden = !isOnline
 
             let username = channel.usernames.first ?? ""
-            let resolvedURLString = Self.resolveDmAvatarURL(channel: channel, context: context)
 
-            if let urlString = resolvedURLString, let url = URL(string: urlString) {
+            if let urlString = resolvedAvatarURL, let url = URL(string: urlString) {
                 loadImage(url: url, fallbackUsername: username)
             } else {
                 avatarLoadGeneration += 1
-                imageTask?.cancel()
-                imageTask = nil
+                isAvatarLoadInFlight = false
+                configuredAvatarURLString = nil
                 avatarImageView.image = nil
                 textAvatar.configure(username: username, fontSize: 16.sf)
             }
@@ -208,69 +229,55 @@ final class DmListItemCell: UITableViewCell {
         let hasPreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         lastMessageLabel.text = hasPreview ? preview : ""
         lastMessageLabel.isHidden = !hasPreview
-        if hasPreview {
-            nameCenterYConstraint?.isActive = false
-            lastMessageZeroHeightConstraint?.isActive = false
-            nameTopConstraint?.isActive = true
-        } else {
-            nameTopConstraint?.isActive = false
-            lastMessageZeroHeightConstraint?.isActive = true
-            nameCenterYConstraint?.isActive = true
+        if hasPreviewLayout != hasPreview {
+            hasPreviewLayout = hasPreview
+            nameTopConstraint?.isActive = hasPreview
+            lastMessageZeroHeightConstraint?.isActive = !hasPreview
+            nameCenterYConstraint?.isActive = !hasPreview
         }
         lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
     }
 
-    private static func resolveDmAvatarURL(
-        channel: Mezon_Api_ChannelDescription,
-        context: AccountContext?
-    ) -> String? {
-        if let server = channel.avatars.first {
-            let trimmed = server.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                if URL(string: trimmed) != nil {
-                    return trimmed
-                }
-                if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-                   URL(string: encoded) != nil {
-                    return encoded
-                }
-            }
-        }
-        let userId = channel.userIds.first ?? 0
-        guard userId != 0, let context else { return nil }
-        if let cached = context.account.postbox.read({ $0.getProfile(userId: "\(userId)") }),
-           let pbAvatar = cached.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !pbAvatar.isEmpty,
-           URL(string: pbAvatar) != nil {
-            return pbAvatar
-        }
-        if let friendAvatar = context.engine.friendsData.allFriends().first(where: { $0.user.id == userId })?.user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines),
-           !friendAvatar.isEmpty,
-           URL(string: friendAvatar) != nil {
-            return friendAvatar
-        }
-        return nil
+    private func showGroupAvatarPlaceholder() {
+        textAvatar.showImageMode()
+        textAvatar.backgroundColor = .groupDMDefaultAvatar
+        groupIconView.tintColor = .white
+        groupIconView.isHidden = false
     }
 
     private func loadImage(url: URL, fallbackUsername: String?) {
-        imageTask?.cancel()
-        imageTask = nil
+        let source = url.absoluteString
+        if configuredAvatarURLString == source && (isAvatarLoadInFlight || avatarImageView.image != nil) {
+            return
+        }
+        configuredAvatarURLString = source
         avatarLoadGeneration += 1
         let gen = avatarLoadGeneration
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
-        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+        if let cached = ImageCache.shared.memoryImage(forKey: proxied) {
             guard gen == avatarLoadGeneration else { return }
+            isAvatarLoadInFlight = false
+            groupIconView.isHidden = true
             avatarImageView.image = cached
             textAvatar.showImageMode()
             return
         }
+
         avatarImageView.image = nil
-        textAvatar.showSkeleton()
-        imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+        isAvatarLoadInFlight = true
+        if let fallbackUsername {
+            textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+        } else {
+            showGroupAvatarPlaceholder()
+        }
+
+        ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
+            self.isAvatarLoadInFlight = false
             if let image {
+                self.groupIconView.isHidden = true
                 self.avatarImageView.image = image
                 self.textAvatar.showImageMode()
             } else if let fallbackUsername {
@@ -278,7 +285,7 @@ final class DmListItemCell: UITableViewCell {
                 self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
             } else {
                 self.avatarImageView.image = nil
-                self.textAvatar.showImageMode()
+                self.showGroupAvatarPlaceholder()
             }
         }
     }
@@ -292,6 +299,42 @@ final class DmListItemCell: UITableViewCell {
     }
 
     private func lastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
+        let msg = channel.lastSentMessage
+        let key = PreviewCacheKey(
+            channelId: channel.channelID,
+            hasLastSentMessage: channel.hasLastSentMessage,
+            messageId: msg.id,
+            timestampSeconds: msg.timestampSeconds,
+            senderId: msg.senderID,
+            content: msg.content,
+            lastSeenTimestampSeconds: channel.lastSeenMessage.timestampSeconds,
+            updateTimeSeconds: channel.updateTimeSeconds,
+            createTimeSeconds: channel.createTimeSeconds,
+            relativeMinuteBucket: UInt32(Date().timeIntervalSince1970 / 60)
+        )
+        if let cached = Self.previewCache[key] {
+            return cached
+        }
+        let value = computeLastMessagePreview(channel: channel)
+        Self.storePreviewCache(value, for: key)
+        return value
+    }
+
+    private static func storePreviewCache(_ value: (String, String), for key: PreviewCacheKey) {
+        guard previewCache[key] == nil else { return }
+        previewCache[key] = value
+        previewCacheOrder.append(key)
+        if previewCacheOrder.count > previewCacheLimit {
+            let overflow = previewCacheOrder.count - previewCacheLimit
+            let removed = previewCacheOrder.prefix(overflow)
+            for key in removed {
+                previewCache.removeValue(forKey: key)
+            }
+            previewCacheOrder.removeFirst(overflow)
+        }
+    }
+
+    private func computeLastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
         let msg = channel.lastSentMessage
         let hasHeaderPayload =
             channel.hasLastSentMessage
@@ -335,7 +378,7 @@ final class DmListItemCell: UITableViewCell {
             return (Self.previewWhenNoMessageBody(), time)
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
-        return (body.count >= 20 ? body + "..." : body, time)
+        return (body.count >= 32 ? body + "..." : body, time)
     }
 
     private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]
@@ -546,7 +589,7 @@ final class DmListItemCell: UITableViewCell {
 
     private static func textContainsURL(_ text: String) -> Bool {
         guard !text.isEmpty else { return false }
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return false }
+        guard let detector = urlDetector else { return false }
         let range = NSRange(text.startIndex..., in: text)
         return detector.firstMatch(in: text, options: [], range: range) != nil
     }
@@ -569,8 +612,6 @@ final class DmListItemCell: UITableViewCell {
         if diff < 3600 { return "\(Int(diff / 60))m" }
         if diff < 86400 { return "\(Int(diff / 3600))h" }
         if diff < 604800 { return "\(Int(diff / 86400))d" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d/M/yy"
-        return formatter.string(from: date)
+        return Self.relativeDateFormatter.string(from: date)
     }
 }

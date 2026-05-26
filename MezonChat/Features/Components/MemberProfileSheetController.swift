@@ -9,6 +9,11 @@ struct MemberProfileVoiceChannelActions {
     let onKick: () async throws -> Void
 }
 
+struct MemberProfileGroupAction {
+    let confirmUserLabel: String
+    let onRemove: () async throws -> Void
+}
+
 private final class VoiceActionClosureButton: UIButton {
     var onTap: (() -> Void)?
     init() {
@@ -208,6 +213,7 @@ final class MemberProfileSheetController: ViewController {
     private let context: AccountContext
     private let isCurrentUser: Bool
     private let voiceChannelActions: MemberProfileVoiceChannelActions?
+    private let groupAction: MemberProfileGroupAction?
     private let onDismiss: (() -> Void)?
     private let onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)?
 
@@ -218,6 +224,7 @@ final class MemberProfileSheetController: ViewController {
         context: AccountContext,
         isCurrentUser: Bool = false,
         voiceChannelActions: MemberProfileVoiceChannelActions? = nil,
+        groupAction: MemberProfileGroupAction? = nil,
         onDismiss: (() -> Void)? = nil,
         onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)? = nil
     ) {
@@ -225,6 +232,7 @@ final class MemberProfileSheetController: ViewController {
         self.context = context
         self.isCurrentUser = isCurrentUser
         self.voiceChannelActions = voiceChannelActions
+        self.groupAction = groupAction
         self.onDismiss = onDismiss
         self.onSendMessage = onSendMessage
         super.init(navigationBarPresentationData: nil)
@@ -239,6 +247,7 @@ final class MemberProfileSheetController: ViewController {
             user: user,
             isCurrentUser: isCurrentUser,
             voiceChannelActions: voiceChannelActions,
+            showRemoveFromGroup: groupAction != nil && !isCurrentUser,
             onSendMessageTapped: { [weak self] in
                 self?.handleSendMessage()
             },
@@ -250,6 +259,9 @@ final class MemberProfileSheetController: ViewController {
             },
             onVoiceKickTap: { [weak self] in
                 self?.presentVoiceKickConfirm()
+            },
+            onRemoveFromGroupTap: { [weak self] in
+                self?.presentRemoveFromGroupConfirm()
             }
         )
         displayNodeDidLoad()
@@ -303,6 +315,32 @@ final class MemberProfileSheetController: ViewController {
             }
         }
         present(vc, animated: true)
+    }
+
+    private func presentRemoveFromGroupConfirm() {
+        guard let action = groupAction else { return }
+        let alert = UIAlertController(
+            title: L(L10n.ChannelDetail.removeFromGroupConfirmTitle),
+            message: L(L10n.ChannelDetail.removeFromGroupConfirmBody, action.confirmUserLabel),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(
+            title: L(L10n.Common.cancel),
+            style: .cancel))
+        alert.addAction(UIAlertAction(
+            title: L(L10n.ChannelDetail.removeFromGroupConfirmAction),
+            style: .destructive,
+            handler: { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    do {
+                        try await action.onRemove()
+                        self.animateDismiss()
+                    } catch {
+                        Toast.error(L(L10n.ChannelDetail.removeFromGroupFailed))
+                    }
+                }
+            }))
+        present(alert, animated: true)
     }
 
     private func presentVoiceMeetError(_ error: Error) {
@@ -380,6 +418,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
     private let messageBtn = ProfileActionButton(icon: "bubble.left.fill", title: "Message")
     private let callBtn = ProfileActionButton(icon: "phone.fill", title: "Call")
     private let addFriendBtn = ProfileActionButton(icon: "person.badge.plus", title: "Add Friend", isGreen: true)
+    private let removeFromGroupButton = ASButtonNode()
 
     private let memberCardNode = ASDisplayNode()
     private let memberSinceTitleNode = ASTextNode2()
@@ -389,8 +428,10 @@ private final class MemberProfileSheetNode: ASDisplayNode {
     private let onDimTapped: () -> Void
     private let onVoiceMuteTap: () -> Void
     private let onVoiceKickTap: () -> Void
+    private let onRemoveFromGroupTap: () -> Void
     private let isCurrentUser: Bool
     private let voiceChannelActions: MemberProfileVoiceChannelActions?
+    private let showRemoveFromGroup: Bool
 
     private var containerHeight: CGFloat = 0
     private var validLayout: ContainerViewLayout?
@@ -409,18 +450,22 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         user: Mezon_Api_User,
         isCurrentUser: Bool,
         voiceChannelActions: MemberProfileVoiceChannelActions?,
+        showRemoveFromGroup: Bool,
         onSendMessageTapped: @escaping () -> Void,
         onDimTapped: @escaping () -> Void,
         onVoiceMuteTap: @escaping () -> Void,
-        onVoiceKickTap: @escaping () -> Void
+        onVoiceKickTap: @escaping () -> Void,
+        onRemoveFromGroupTap: @escaping () -> Void
     ) {
         self.user = user
         self.isCurrentUser = isCurrentUser
         self.voiceChannelActions = voiceChannelActions
+        self.showRemoveFromGroup = showRemoveFromGroup
         self.onSendMessageTapped = onSendMessageTapped
         self.onDimTapped = onDimTapped
         self.onVoiceMuteTap = onVoiceMuteTap
         self.onVoiceKickTap = onVoiceKickTap
+        self.onRemoveFromGroupTap = onRemoveFromGroupTap
         super.init()
 
         let t = UIColor.theme
@@ -533,6 +578,18 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         actionRow.addSubnode(messageBtn)
         actionRow.addSubnode(callBtn)
         actionRow.addSubnode(addFriendBtn)
+        if showRemoveFromGroup {
+            let danger = UIColor(red: 0.92, green: 0.25, blue: 0.25, alpha: 1)
+            removeFromGroupButton.setTitle(
+                L(L10n.ChannelDetail.removeFromGroup),
+                with: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
+                with: danger,
+                for: .normal)
+            removeFromGroupButton.backgroundColor = t.tertiary
+            removeFromGroupButton.cornerRadius = 10.sf
+            removeFromGroupButton.clipsToBounds = true
+            infoCardNode.addSubnode(removeFromGroupButton)
+        }
         containerNode.addSubnode(memberCardNode)
         memberCardNode.addSubnode(memberSinceTitleNode)
         memberCardNode.addSubnode(memberSinceDateNode)
@@ -569,6 +626,10 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         messageBtn.onTapped = { [weak self] in self?.messageTapped() }
         callBtn.onTapped = { [weak self] in self?.callTapped() }
         addFriendBtn.onTapped = { [weak self] in self?.addFriendTapped() }
+        if showRemoveFromGroup {
+            removeFromGroupButton.addTarget(
+                self, action: #selector(removeFromGroupTapped), forControlEvents: .touchUpInside)
+        }
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.cancelsTouchesInView = false
@@ -649,6 +710,7 @@ private final class MemberProfileSheetNode: ASDisplayNode {
     }
 
     @objc private func dimTapped() { onDimTapped() }
+    @objc private func removeFromGroupTapped() { onRemoveFromGroupTap() }
     private func messageTapped() { onSendMessageTapped() }
     private func callTapped() {  }
     private func addFriendTapped() {  }
@@ -771,7 +833,16 @@ private final class MemberProfileSheetNode: ASDisplayNode {
         infoY += 12
         actionRow.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: btnH)
         messageBtn.frame = CGRect(x: 0, y: 0, width: btnW, height: btnH)
-        infoY += btnH + infoBottomPad
+        infoY += btnH
+
+        if showRemoveFromGroup {
+            infoY += 12.sh
+            let removeH: CGFloat = 48.sh
+            removeFromGroupButton.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: removeH)
+            infoY += removeH
+        }
+
+        infoY += infoBottomPad
 
         let infoCardH = infoY
         infoCardNode.frame = CGRect(x: pad, y: infoCardBaseTop, width: cardW, height: infoCardH)

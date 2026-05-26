@@ -118,8 +118,9 @@ private final class DmMessageActivityCell: UICollectionViewCell {
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private var imageTask: URLSessionDataTask?
     private var avatarLoadGeneration: UInt = 0
+    private var configuredAvatarURLString: String?
+    private var isAvatarLoadInFlight = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -186,8 +187,8 @@ private final class DmMessageActivityCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarLoadGeneration += 1
-        imageTask?.cancel()
-        imageTask = nil
+        isAvatarLoadInFlight = false
+        configuredAvatarURLString = nil
         avatarImageView.image = nil
         textAvatar.showImageMode()
     }
@@ -216,29 +217,35 @@ private final class DmMessageActivityCell: UICollectionViewCell {
             loadAvatar(url: url, fallbackUsername: item.username)
         } else {
             avatarLoadGeneration += 1
-            imageTask?.cancel()
-            imageTask = nil
+            isAvatarLoadInFlight = false
+            configuredAvatarURLString = nil
             avatarImageView.image = nil
             textAvatar.configure(username: item.username, fontSize: 14.sf)
         }
     }
 
     private func loadAvatar(url: URL, fallbackUsername: String) {
-        imageTask?.cancel()
-        imageTask = nil
+        let source = url.absoluteString
+        if configuredAvatarURLString == source && (isAvatarLoadInFlight || avatarImageView.image != nil) {
+            return
+        }
+        configuredAvatarURLString = source
         avatarLoadGeneration += 1
         let gen = avatarLoadGeneration
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
-        if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
+        if let cached = ImageCache.shared.memoryImage(forKey: proxied) {
             guard gen == avatarLoadGeneration else { return }
+            isAvatarLoadInFlight = false
             avatarImageView.image = cached
             textAvatar.showImageMode()
             return
         }
         avatarImageView.image = nil
-        textAvatar.showSkeleton()
-        imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
+        isAvatarLoadInFlight = true
+        textAvatar.configure(username: fallbackUsername, fontSize: 14.sf)
+        ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
             guard let self, gen == self.avatarLoadGeneration else { return }
+            self.isAvatarLoadInFlight = false
             if let image {
                 self.avatarImageView.image = image
                 self.textAvatar.showImageMode()

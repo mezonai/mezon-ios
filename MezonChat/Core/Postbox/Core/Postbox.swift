@@ -453,6 +453,10 @@ final class Postbox {
         if sql.type != 0 && merged.type == 0 {
             merged.type = sql.type
         }
+        if sql.categoryID != 0 && merged.categoryID == 0 {
+            merged.categoryID = sql.categoryID
+            merged.categoryName = sql.categoryName
+        }
         return merged
     }
 

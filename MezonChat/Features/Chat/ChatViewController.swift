@@ -277,6 +277,7 @@ struct ChatState {
     var isPrivate: Bool
     var isAgeRestricted: Bool
     var isDM: Bool
+    var isPeerBlocked: Bool
     var dmPeerUsername: String
     var dmPeerDisplayName: String
     var dmAvatarURL: String
@@ -294,7 +295,7 @@ struct ChatState {
 
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
-        isDM: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
+        isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -418,6 +419,8 @@ final class ChatViewController: ViewController {
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
     private var suppressScrollToBottomForNextKeyboardInset = false
+    private var shouldReconcileKeyboardAfterNotificationNavigation = false
+    private var notificationKeyboardReconcileWorkItem: DispatchWorkItem?
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
@@ -1014,8 +1017,15 @@ final class ChatViewController: ViewController {
         let bottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
         let layoutInputH = layout.inputHeight ?? 0
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
+        let shouldIgnoreNotificationKeyboardInset =
+            shouldReconcileKeyboardAfterNotificationNavigation
+            && layoutInputH > bottomInset + 1
+            && !isKeyboardVisible
+            && trackedKeyboardHeight <= 0.5
         let rawInputH: CGFloat
-        if layoutInputH > 1 {
+        if shouldIgnoreNotificationKeyboardInset {
+            rawInputH = 0
+        } else if layoutInputH > 1 {
             rawInputH = layoutInputH
         } else if (isKeyboardVisible || composerHasKeyboardFocus), trackedKeyboardHeight > 0.5 {
             rawInputH = trackedKeyboardHeight
@@ -1152,10 +1162,73 @@ final class ChatViewController: ViewController {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
         }
+        reconcileKeyboardAfterNotificationNavigationIfNeeded()
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .immediate)
         }
         presentLicenseAgreementIfNeeded()
+    }
+
+    private func collapseNotificationNavigationComposerOverlays() {
+        guard isViewLoaded else { return }
+        sendInputViewController.hideEmojiPickerIfNeeded()
+        sendInputViewController.hideAdvancePanelIfNeeded()
+        if emojiPicker.panelHeightForChatLayout > 0 {
+            emojiPicker.setVisible(false, collapsedHeight: 0)
+        }
+        if advancePanelCollapsedHeight > 0 {
+            handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        }
+    }
+
+    private func reconcileKeyboardAfterNotificationNavigationIfNeeded() {
+        guard shouldReconcileKeyboardAfterNotificationNavigation, isViewLoaded else { return }
+        collapseNotificationNavigationComposerOverlays()
+
+        let wasTextInputFocused = sendInputViewController.isTextInputFocused
+        if !isKeyboardVisible && trackedKeyboardHeight <= 0.5 {
+            currentKeyboardOffset = 0
+            suppressScrollToBottomForNextKeyboardInset = false
+            if !wasTextInputFocused {
+                view.endEditing(true)
+            }
+            if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
+                containerLayoutUpdated(layout.withUpdatedInputHeight(nil), transition: .immediate)
+            }
+        }
+
+        scheduleNotificationKeyboardReconcileRetry(wasTextInputFocused: wasTextInputFocused, attempt: 0)
+    }
+
+    private func scheduleNotificationKeyboardReconcileRetry(wasTextInputFocused: Bool, attempt: Int) {
+        notificationKeyboardReconcileWorkItem?.cancel()
+        let delay: TimeInterval = attempt == 0 ? 0.08 : 0.25
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finishNotificationKeyboardReconcile(wasTextInputFocused: wasTextInputFocused, attempt: attempt)
+        }
+        notificationKeyboardReconcileWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func finishNotificationKeyboardReconcile(wasTextInputFocused: Bool, attempt: Int) {
+        guard shouldReconcileKeyboardAfterNotificationNavigation, isViewLoaded else { return }
+        if !isKeyboardVisible && trackedKeyboardHeight <= 0.5 {
+            currentKeyboardOffset = 0
+            suppressScrollToBottomForNextKeyboardInset = false
+            if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
+                containerLayoutUpdated(layout.withUpdatedInputHeight(nil), transition: .immediate)
+            }
+            if wasTextInputFocused {
+                if UIApplication.shared.applicationState == .active {
+                    sendInputViewController.refocusTextInputAfterNavigation()
+                } else if attempt < 3 {
+                    scheduleNotificationKeyboardReconcileRetry(wasTextInputFocused: wasTextInputFocused, attempt: attempt + 1)
+                    return
+                }
+            }
+        }
+        shouldReconcileKeyboardAfterNotificationNavigation = false
+        notificationKeyboardReconcileWorkItem = nil
     }
 
     private func presentLicenseAgreementIfNeeded() {
@@ -1334,6 +1407,7 @@ final class ChatViewController: ViewController {
     deinit {
         typingPruneTimer?.invalidate()
         sendingFeedbackRefreshWorkItem?.cancel()
+        notificationKeyboardReconcileWorkItem?.cancel()
         stateDisposables.dispose()
         NotificationCenter.default.removeObserver(self)
     }
@@ -1421,6 +1495,10 @@ final class ChatViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
     private var hasCompletedInitialFetch = false
+    private static let initialEmptyMessageRetryDelaysNanoseconds: [UInt64] = [
+        600_000_000,
+        1_200_000_000
+    ]
 
     func start() {
         if topicId == 0 {
@@ -1687,6 +1765,7 @@ final class ChatViewController: ViewController {
     }
 
     func handleBroughtForwardFromNotificationDeepLink() {
+        prepareForNotificationNavigation()
         hasMarkedAsRead = false
         if !messages.isEmpty {
             markChannelAsRead()
@@ -1694,12 +1773,18 @@ final class ChatViewController: ViewController {
         if context.account.socket.isConnected {
             joinChat()
         }
-        markNextFetchPrefersHTTPFirst()
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.fetchMessages(token: token)
         }
+    }
+
+    func prepareForNotificationNavigation() {
+        shouldReconcileKeyboardAfterNotificationNavigation = true
+        collapseNotificationNavigationComposerOverlays()
+        markNextFetchPrefersHTTPFirst()
+        reconcileKeyboardAfterNotificationNavigationIfNeeded()
     }
 
     func markNextFetchPrefersHTTPFirst() {
@@ -1798,7 +1883,7 @@ final class ChatViewController: ViewController {
             setIsLoadingMessageContext(true)
         }
         setErrorMessage(nil)
-        let preferHTTPFirst = nextFetchPrefersHTTPFirst
+        let preferHTTPFirst = true
         nextFetchPrefersHTTPFirst = false
 
         Task { @MainActor in
@@ -1812,9 +1897,43 @@ final class ChatViewController: ViewController {
             if let token { resolvedToken = token } else { resolvedToken = await self.context.getTokenPreferringCachedSkipSessionReadyWait() }
             guard let token = resolvedToken else { return }
             do {
-                var response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token, preferHTTPFirst: preferHTTPFirst)
-                if response.messages.isEmpty {
-                    response = try await self.context.account.network.listChannelMessages(clanId: clanId, channelId: channel.channelID, messageId: 0, direction: 3, limit: 30, topicId: self.topicId, token: token, preferHTTPFirst: preferHTTPFirst)
+                func loadInitialMessages() async throws -> Mezon_Api_ChannelMessageList {
+                    var response = try await self.context.account.network.listChannelMessages(
+                        clanId: clanId,
+                        channelId: channel.channelID,
+                        messageId: 0,
+                        direction: 2,
+                        limit: 30,
+                        topicId: self.topicId,
+                        token: token,
+                        preferHTTPFirst: preferHTTPFirst
+                    )
+                    if response.messages.isEmpty {
+                        response = try await self.context.account.network.listChannelMessages(
+                            clanId: clanId,
+                            channelId: channel.channelID,
+                            messageId: 0,
+                            direction: 3,
+                            limit: 30,
+                            topicId: self.topicId,
+                            token: token,
+                            preferHTTPFirst: preferHTTPFirst
+                        )
+                    }
+                    return response
+                }
+
+                var response = try await loadInitialMessages()
+                if response.messages.isEmpty && !hadCachedMessages && !hadCachedInPostbox {
+                    for delay in Self.initialEmptyMessageRetryDelaysNanoseconds {
+                        guard response.messages.isEmpty,
+                              NetworkMonitor.shared.isConnected,
+                              !Task.isCancelled else {
+                            break
+                        }
+                        try await Task.sleep(nanoseconds: delay)
+                        response = try await loadInitialMessages()
+                    }
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
                 let records = response.messages.map { self.messageRecord(from: $0) }
@@ -2107,6 +2226,12 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private var isDirectMessagePeerBlocked: Bool {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return false }
+        guard let peerId = channel.userIds.first, peerId != 0 else { return false }
+        return context.engine.friendsData.blockedUserIds().contains(peerId)
+    }
+
     var currentState: ChatState {
         let labelFromMeta = parentChannelMeta?.label
         let resolvedParentName =
@@ -2119,6 +2244,7 @@ final class ChatViewController: ViewController {
             isPrivate: channel.channelPrivate != 0,
             isAgeRestricted: channel.ageRestricted != 0,
             isDM: clanId == 0,
+            isPeerBlocked: isDirectMessagePeerBlocked,
             dmPeerUsername: channel.usernames.first ?? "",
             dmPeerDisplayName: channel.displayNames.first ?? "",
             dmAvatarURL: channel.avatars.first ?? "",
@@ -2191,13 +2317,19 @@ final class ChatViewController: ViewController {
             var lastParentName = self.currentState.parentName
             var lastIsPrivate = self.currentState.isPrivate
             var lastIsAgeRestricted = self.currentState.isAgeRestricted
+            var lastIsPeerBlocked = self.currentState.isPeerBlocked
             var lastChannelLabel = self.currentState.channelLabel
             var lastChannelType = self.currentState.channelType
+            var lastDmPeerUsername = self.currentState.dmPeerUsername
+            var lastDmPeerDisplayName = self.currentState.dmPeerDisplayName
+            var lastDmAvatarURL = self.currentState.dmAvatarURL
+            var lastDmGroupAvatarURL = self.currentState.dmGroupAvatarURL
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
                 let d2 = self.metadataOnlyPipe.signal().start(next: { subscriber.putNext(()) })
-                return ActionDisposable { d1.dispose(); d2.dispose() }
+                let d3 = self.context.engine.friendsData.friendsUpdated.signal().start(next: { subscriber.putNext(()) })
+                return ActionDisposable { d1.dispose(); d2.dispose(); d3.dispose() }
                 }
             return (merged
                 |> map { [weak self] _ in self?.currentState ?? .empty }
@@ -2222,8 +2354,13 @@ final class ChatViewController: ViewController {
                         || newState.parentName != lastParentName
                         || newState.isPrivate != lastIsPrivate
                         || newState.isAgeRestricted != lastIsAgeRestricted
+                        || newState.isPeerBlocked != lastIsPeerBlocked
                         || newState.channelLabel != lastChannelLabel
                         || newState.channelType != lastChannelType
+                        || newState.dmPeerUsername != lastDmPeerUsername
+                        || newState.dmPeerDisplayName != lastDmPeerDisplayName
+                        || newState.dmAvatarURL != lastDmAvatarURL
+                        || newState.dmGroupAvatarURL != lastDmGroupAvatarURL
                     guard changed else { return }
                     lastIds = newIds
                     lastSendingStates = newSendingStates
@@ -2240,8 +2377,13 @@ final class ChatViewController: ViewController {
                     lastParentName = newState.parentName
                     lastIsPrivate = newState.isPrivate
                     lastIsAgeRestricted = newState.isAgeRestricted
+                    lastIsPeerBlocked = newState.isPeerBlocked
                     lastChannelLabel = newState.channelLabel
                     lastChannelType = newState.channelType
+                    lastDmPeerUsername = newState.dmPeerUsername
+                    lastDmPeerDisplayName = newState.dmPeerDisplayName
+                    lastDmAvatarURL = newState.dmAvatarURL
+                    lastDmGroupAvatarURL = newState.dmGroupAvatarURL
                     subscriber.putNext(newState)
                 })
         }

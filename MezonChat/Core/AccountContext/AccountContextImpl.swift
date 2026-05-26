@@ -49,6 +49,7 @@ final class AccountContextImpl: AccountContext {
 
     func applyCurrentUser(_ user: User) {
         currentUser = user
+        SentryLogger.setUser(username: user.username)
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
     }
 
@@ -300,6 +301,7 @@ final class AccountContextImpl: AccountContext {
         account.network.resetProtoBaseURLToDefault()
         session = nil
         currentUser = nil
+        SentryLogger.setUser(username: nil)
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
         currentClanId = 0
         currentChannel = nil
@@ -563,13 +565,17 @@ final class AccountContextImpl: AccountContext {
 
     func prepareForVoIPAnswerConnectivity() async -> Bool {
         let disk = SessionStore.load()
-        guard let baseSession = session ?? disk else { return false }
-        // Warm path: the app is already running with a live session and a
-        // connected signaling socket (e.g. VoIP push arrived while the user
-        // had the app open or backgrounded but not killed). Skip the refresh
-        // round-trip and the redundant socket reconnect — both add latency
-        // before we can deliver the answer SDP.
+        let candidates = [session, disk].compactMap { $0 }
+        guard let baseSession = candidates.first(where: { !$0.isExpired }) ?? candidates.first else {
+            return false
+        }
         if let s = session, !s.isExpired, account.socket.isConnected {
+            markSessionReady()
+            return true
+        }
+        if !baseSession.isExpired {
+            account.network.updateBaseURL(from: baseSession)
+            applySession(baseSession, user: currentUser, connectSocket: true, fetchAccount: false)
             markSessionReady()
             return true
         }
@@ -614,7 +620,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func joinDirectMessageClanOnSocketConnected() {
-        account.socket.joinClanChat(clanId: 0)
+        joinDirectMessageSocketRoomOnSocketConnected()
 
         let cachedClanId: Int64
         if currentClanId != 0 {
@@ -628,6 +634,10 @@ final class AccountContextImpl: AccountContext {
             account.socket.joinClanChat(clanId: cachedClanId)
             currentClanId = cachedClanId
         }
+    }
+
+    private func joinDirectMessageSocketRoomOnSocketConnected() {
+        account.socket.joinClanChat(clanId: 0)
     }
 
     private func rejoinCurrentChannel() {
@@ -808,7 +818,9 @@ final class AccountContextImpl: AccountContext {
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
-            if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
+                joinDirectMessageSocketRoomOnSocketConnected()
+            } else {
                 joinDirectMessageClanOnSocketConnected()
                 rejoinCurrentChannel()
             }
@@ -1074,6 +1086,60 @@ final class AccountContextImpl: AccountContext {
             if let desc = engine.clanData.applyUserChannelAddedFromSocket(ev, currentUserNumericId: myId) {
                 subscribeSocketRoomsForMergedChannel(desc)
             }
+
+        case .channelUpdated(let ev):
+            guard ev.clanID != 0, ev.channelID != 0 else { break }
+            let clanId = ev.clanID
+            let channelId = ev.channelID
+            let newName = ev.channelLabel.isEmpty ? nil : ev.channelLabel
+            let newTopic = ev.topic.isEmpty ? nil : ev.topic   
+            let newCategoryId: Int64? = ev.categoryID != 0 ? ev.categoryID : nil
+            var newCategoryName: String? = nil
+            if let catId = newCategoryId,
+               let blob = account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+               !blob.isEmpty {
+                let arr = ChannelPreferenceListCodec.decode(blob)
+                if let existing = arr.first(where: { $0.categoryID == catId && !$0.categoryName.isEmpty }) {
+                    newCategoryName = existing.categoryName
+                }
+            }
+            
+            account.postbox.write { tx in
+                tx.updateChannelDescription(
+                    clanId: clanId,
+                    channelId: channelId,
+                    name: newName,
+                    topic: newTopic,   
+                    categoryId: newCategoryId,
+                    categoryName: newCategoryName
+                )
+            }
+            
+            if let blob = account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+               !blob.isEmpty {
+                var arr = ChannelPreferenceListCodec.decode(blob)
+                if let idx = arr.firstIndex(where: { $0.channelID == channelId }) {
+                    if let newName { arr[idx].channelLabel = newName }
+                    if let newTopic { arr[idx].topic = newTopic }  
+                    if let catId = newCategoryId { 
+                        arr[idx].categoryID = catId 
+                        if let catName = newCategoryName {
+                            arr[idx].categoryName = catName
+                        } else if catId == 0 {
+                            arr[idx].categoryName = ""
+                        }
+                    }
+                    if let data = ChannelPreferenceListCodec.encode(arr) {
+                        account.postbox.setPreferenceDataSync(
+                            key: PreferencesKeys.channelList(clanId: clanId), value: data)
+                    }
+                }
+            }
+            NotificationCenter.default.post(
+                name: .mezonChannelDescriptionDidUpdate,
+                object: nil,
+                userInfo: ["clanId": clanId, "channelId": channelId]
+            )
 
         case .notiUserChannel(let m):
             let record = NotificationSettingRecord(from: m)

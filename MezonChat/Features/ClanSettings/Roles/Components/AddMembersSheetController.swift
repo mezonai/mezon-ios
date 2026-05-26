@@ -153,8 +153,8 @@ final class AddMembersSheetController: UIViewController {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.separatorStyle = .none
-        tableView.estimatedRowHeight = 64.sh
-        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = MemberRowCell.rowHeight
+        tableView.rowHeight = MemberRowCell.rowHeight
         tableView.register(MemberRowCell.self, forCellReuseIdentifier: MemberRowCell.reuseId)
         view.addSubview(tableView)
 
@@ -230,7 +230,9 @@ extension AddMembersSheetController: UITableViewDataSource, UITableViewDelegate 
         } else {
             selectedIds.insert(member.userId)
         }
-        tableView.reloadRows(at: [indexPath], with: .none)
+        if let cell = tableView.cellForRow(at: indexPath) as? MemberRowCell {
+            cell.setAccessory(.checkbox(checked: selectedIds.contains(member.userId)))
+        }
         refreshDone()
     }
 }

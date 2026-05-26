@@ -29,7 +29,8 @@ final class ClanSettingsViewController: BaseViewController {
             context: context,
             clanId: clanId,
             clanName: clanName,
-            avatarURL: avatarURL
+            avatarURL: avatarURL,
+            canShowRoles: canShowRolesSection()
         )
         node.onClose = { [weak self] in
             if let nav = self?.navigationController {
@@ -40,6 +41,7 @@ final class ClanSettingsViewController: BaseViewController {
         }
         node.onSelectRoles = { [weak self] in
             guard let self else { return }
+            guard self.canShowRolesSection() else { return }
             let vc = ClanRolesViewController(context: self.context, clanId: self.clanId)
             self.navigationController?.pushViewController(vc, animated: true)
         }
@@ -48,11 +50,27 @@ final class ClanSettingsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+    }
 
+    override func setupBindings() {
+        disposables.add((context.engine.clanData.clanPermissionsUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == self.clanId else { return }
+                self.settingsNode.updateCanShowRoles(self.canShowRolesSection())
+            }))
+        disposables.add((context.engine.clanData.clanRolesUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == self.clanId else { return }
+                self.settingsNode.updateCanShowRoles(self.canShowRolesSection())
+            }))
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
         settingsNode.updateLayout(layout: layout, transition: transition)
+    }
+
+    private func canShowRolesSection() -> Bool {
+        context.rolePermissions.canManageRoles(clanId: clanId)
     }
 }

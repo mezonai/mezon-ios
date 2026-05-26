@@ -47,6 +47,8 @@ struct ChannelRecord: PostboxCoding, Equatable {
             var updated = proto
             updated.channelLabel = self.label
             updated.topic = self.topic
+            updated.categoryID = self.categoryId
+            updated.categoryName = self.categoryName
             return updated
         }
         var proto = Mezon_Api_ChannelDescription()
@@ -61,9 +63,11 @@ struct ChannelRecord: PostboxCoding, Equatable {
         return proto
     }
 
-    func updating(label: String? = nil, topic: String? = nil, channelAvatar: String? = nil) -> ChannelRecord {
+    func updating(label: String? = nil, topic: String? = nil, channelAvatar: String? = nil, categoryId: Int64? = nil, categoryName: String? = nil) -> ChannelRecord {
         let newLabel = label ?? self.label
         let newTopic = topic ?? self.topic
+        let newCategoryId = categoryId ?? self.categoryId
+        let newCategoryName = categoryName ?? self.categoryName
 
         var updatedProtoData = self.protoData
         if let data = self.protoData,
@@ -74,6 +78,12 @@ struct ChannelRecord: PostboxCoding, Equatable {
             if let channelAvatar {
                 proto.channelAvatar = channelAvatar
             }
+            if let categoryId {
+                proto.categoryID = categoryId
+            }
+            if let categoryName {
+                proto.categoryName = categoryName
+            }
             updatedProtoData = try? proto.serializedData()
         }
 
@@ -82,8 +92,8 @@ struct ChannelRecord: PostboxCoding, Equatable {
             clanId: self.clanId,
             label: newLabel,
             type: self.type,
-            categoryId: self.categoryId,
-            categoryName: self.categoryName,
+            categoryId: newCategoryId,
+            categoryName: newCategoryName,
             parentId: self.parentId,
             topic: newTopic,
             position: self.position,

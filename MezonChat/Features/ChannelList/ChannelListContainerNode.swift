@@ -14,6 +14,7 @@ struct ChannelListInteraction {
     let onClearCurrentChannelSelection: (() -> Void)?
     let isShowEmptyCategoriesEnabled: (() -> Bool)?
     let onToggleShowEmptyCategories: ((Bool) -> Void)?
+    let onLongPressCategory: ((ChannelCategory) -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -413,6 +414,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     ) -> Bool {
         guard o.channelID == n.channelID else { return false }
         if o.channelLabel != n.channelLabel { return false }
+        if o.topic != n.topic { return false }
+        if o.categoryID != n.categoryID { return false }
         if o.type != n.type { return false }
         if o.channelPrivate != n.channelPrivate { return false }
         if o.ageRestricted != n.ageRestricted { return false }
@@ -429,6 +432,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     ) -> Bool {
         guard o.channelID == n.channelID else { return false }
         if o.channelLabel != n.channelLabel { return false }
+        if o.topic != n.topic { return false }
+        if o.categoryID != n.categoryID { return false }
         if o.countMessUnread != n.countMessUnread { return false }
         if Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n) { return false }
         return (o.channelID == prevSelected) != (n.channelID == newSelected)
@@ -576,6 +581,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard o.channelID == n.channelID else { return true }
         if (o.channelID == prevSelected) != (n.channelID == newSelected) { return true }
         if o.channelLabel != n.channelLabel { return true }
+        if o.topic != n.topic { return true }
+        if o.categoryID != n.categoryID { return true }
         if o.type != n.type { return true }
         if o.channelPrivate != n.channelPrivate { return true }
         if o.ageRestricted != n.ageRestricted { return true }
@@ -592,6 +599,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard o.channelID == n.channelID else { return true }
         if (o.channelID == prevSelected) != (n.channelID == newSelected) { return true }
         if o.channelLabel != n.channelLabel { return true }
+        if o.topic != n.topic { return true }
+        if o.categoryID != n.categoryID { return true }
         if o.countMessUnread != n.countMessUnread { return true }
         return Self.appearsUnreadInChannelList(o) != Self.appearsUnreadInChannelList(n)
     }
@@ -1435,6 +1444,7 @@ extension ChannelListContainerNode: ASTableDataSource {
         let header = cachedHeaders[section] ?? CategorySectionHeaderView()
         header.configure(category: cat)
         header.onTap = { [weak self] in self?.interaction.onToggleCollapse(cat.id) }
+        header.onLongPress = { [weak self] in self?.interaction.onLongPressCategory?(cat) }
         cachedHeaders[section] = header
         return header
     }
@@ -1643,6 +1653,7 @@ private final class ChannelListSkeletonCellNode: ASCellNode {
 private final class CategorySectionHeaderView: UIView {
 
     var onTap: (() -> Void)?
+    var onLongPress: (() -> Void)?
 
     private let arrowIcon: UIImageView = {
         let iv = UIImageView()
@@ -1673,6 +1684,7 @@ private final class CategorySectionHeaderView: UIView {
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
         ])
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
+        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:))))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -1698,6 +1710,12 @@ private final class CategorySectionHeaderView: UIView {
     }
 
     @objc private func handleTap() { onTap?() }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        if gesture.state == .began {
+            onLongPress?()
+        }
+    }
 }
 
 final class ChannelListHeaderView: UIView {
@@ -1779,7 +1797,7 @@ final class ChannelListHeaderView: UIView {
 
     private let qrButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(named: "Channel/QR")?.withRenderingMode(.alwaysOriginal), for: .normal)
+        btn.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
         btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
@@ -1959,6 +1977,15 @@ final class ChannelListHeaderView: UIView {
         searchBar.backgroundColor = t.tertiary
         searchIcon.tintColor = t.textDisabled
         searchLabel.textColor = t.textDisabled
+        let currentTheme = ThemeManager.shared.current
+        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        if effectiveTheme == .light || effectiveTheme == .sunrise {
+            qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysOriginal), for: .normal)
+        } else {
+            qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            qrButton.tintColor = t.textStrong
+        }
+        
         qrButton.backgroundColor = t.tertiary
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         eventButton.backgroundColor = t.tertiary

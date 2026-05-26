@@ -450,6 +450,7 @@ enum L10n {
         static let defaultRole            = "clanRoles.defaultRole"
         static let everyone               = "clanRoles.everyone"
         static let rolesCount             = "clanRoles.rolesCount"
+        static let member                 = "clanRoles.member"
         static let members                = "clanRoles.members"
         static let allMembers             = "clanRoles.allMembers"
         static let noRole                 = "clanRoles.noRole"
@@ -492,6 +493,7 @@ enum L10n {
         static let permissionsHeading     = "clanRoles.permissions.heading"
         static let permissionsSearch      = "clanRoles.permissions.search"
         static let permissionsNext        = "clanRoles.permissions.next"
+        static let permissionsNotFound    = "clanRoles.permissions.notFound"
         static let permissionNotAvailable = "clanRoles.permissions.notAvailable"
 
         static let membersTitle           = "clanRoles.members.title"
@@ -657,6 +659,7 @@ enum L10n {
     enum MuteDuration {
         static let title              = "muteDuration.title"
         static let titleThread        = "muteDuration.titleThread"
+        static let titleConversation  = "muteDuration.titleConversation"
         static let for15Minutes       = "muteDuration.for15Minutes"
         static let for1Hour           = "muteDuration.for1Hour"
         static let for3Hours          = "muteDuration.for3Hours"
@@ -676,12 +679,31 @@ enum L10n {
     }
 
     enum ChannelSetting {
-        static let changeCategory       = "channel.setting.changeCategory"
+        static let changeCategory               = "channel.setting.changeCategory"
+        static let changeCategoryMoveFrom       = "channel.setting.changeCategory.moveFrom"
+        static let changeCategoryConfirmContent = "channel.setting.changeCategory.confirmContent"
+        static let changeCategoryEmpty          = "channel.setting.changeCategory.empty"
         static let permissions          = "channel.setting.permissions"
         static let quickAction          = "channel.setting.quickAction"
         static let banList              = "channel.setting.banList"
         static let webhook              = "channel.setting.webhook"
         static let privacyFooter        = "channel.setting.privacyFooter"
+        static let createChannel        = "channel.setting.createChannel"
+        static let channelName          = "channel.setting.channelName"
+        static let channelNamePlaceholder = "channel.setting.channelNamePlaceholder"
+        static let channelNameError     = "channel.setting.channelNameError"
+        static let channelNameDuplicate = "channel.setting.channelNameDuplicate"
+        static let channelType          = "channel.setting.channelType"
+        static let textChannel          = "channel.setting.textChannel"
+        static let textChannelDesc      = "channel.setting.textChannelDesc"
+        static let voiceChannel         = "channel.setting.voiceChannel"
+        static let voiceChannelDesc     = "channel.setting.voiceChannelDesc"
+        static let streamChannel        = "channel.setting.streamChannel"
+        static let streamChannelDesc    = "channel.setting.streamChannelDesc"
+        static let privateChannel       = "channel.setting.privateChannel"
+        static let privateChannelDesc   = "channel.setting.privateChannelDesc"
+        static let channelNameValidate  = "channel.setting.channelNameValidate"
+        static let threadNameValidate   = "channel.setting.threadNameValidate"
     }
 
     enum ChannelPermission {
@@ -857,6 +879,12 @@ enum L10n {
         static let groupDeleted = "channelDetail.groupDeleted"
         static let updateGroupFailed = "channelDetail.updateGroupFailed"
         static let leaveGroupFailed = "channelDetail.leaveGroupFailed"
+        static let removeFromGroup = "channelDetail.removeFromGroup"
+        static let removeFromGroupConfirmTitle = "channelDetail.removeFromGroupConfirmTitle"
+        static let removeFromGroupConfirmBody = "channelDetail.removeFromGroupConfirmBody"
+        static let removeFromGroupConfirmAction = "channelDetail.removeFromGroupConfirmAction"
+        static let removeFromGroupFailed = "channelDetail.removeFromGroupFailed"
+        static let memberRemoved = "channelDetail.memberRemoved"
     }
 
     enum FriendRequest {
@@ -1259,11 +1287,12 @@ extension L10n {
 
         "clanRoles.title":                  "Roles",
         "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
-        "clanRoles.defaultRole":            "Default permissions for all members.",
+        "clanRoles.defaultRole":            "Default permissions for all clan members.",
         "clanRoles.everyone":               "@everyone",
         "clanRoles.rolesCount":             "Roles — %d",
+        "clanRoles.member":                 "member",
         "clanRoles.members":                "members",
-        "clanRoles.allMembers":             "All members",
+        "clanRoles.allMembers":             "All clan members",
         "clanRoles.noRole":                 "No role yet. Tap + to create one.",
         "clanRoles.role":                   "Role",
         "clanRoles.save":                   "Save",
@@ -1271,7 +1300,7 @@ extension L10n {
         "clanRoles.failed":                 "Something went wrong. Try again.",
         "clanRoles.skipStep":               "Skip this step",
 
-        "clanRoles.create.title":           "Create New Role",
+        "clanRoles.create.title":           "Create a new role",
         "clanRoles.create.heading":         "Create a new role",
         "clanRoles.create.description":     "Roles represent a set of permissions assigned to a group of clan members.",
         "clanRoles.create.roleName":        "Role name",
@@ -1304,6 +1333,7 @@ extension L10n {
         "clanRoles.permissions.heading":    "Choose what members of this role can do.",
         "clanRoles.permissions.search":     "Search permission",
         "clanRoles.permissions.next":       "Next",
+        "clanRoles.permissions.notFound":   "No permissions found.",
         "clanRoles.permissions.notAvailable": "No description available for this permission.",
 
         "clanRoles.members.title":          "Add Members",
@@ -1445,6 +1475,7 @@ extension L10n {
         "emojiPicker.title":                   "Emojis",
         "muteDuration.title":              "Mute this channel",
         "muteDuration.titleThread":        "Mute this thread",
+        "muteDuration.titleConversation":  "Mute this conversation",
         "muteDuration.for15Minutes":       "For 15 minutes",
         "muteDuration.for1Hour":           "For 1 hour",
         "muteDuration.for3Hours":          "For 3 hours",
@@ -1453,7 +1484,6 @@ extension L10n {
         "muteDuration.untilTurnedOff":     "Until I turn it back on",
         "muteDuration.notificationSettings": "Notification Settings",
         "muteDuration.description":        "You are receiving notifications from all messages in this clan, but you can change settings here",
-
         "notifSettings.title":          "Notification Settings",
         "notifSettings.useDefault":     "Use default settings",
         "notifSettings.allMessages":    "All messages",
@@ -1461,11 +1491,30 @@ extension L10n {
         "notifSettings.nothing":        "Nothing",
 
         "channel.setting.changeCategory":       "Change Category",
+        "channel.setting.changeCategory.moveFrom": "Move from %@ to",
+        "channel.setting.changeCategory.confirmContent": "Are you sure you want to move %channel% to %category%?",
+        "channel.setting.changeCategory.empty": "No other categories to move to",
         "channel.setting.permissions":          "Channel Permissions",
+        "channel.setting.channelNameValidate":  "Please enter a channel name (max 64 characters, only words, numbers, _ or -).",
+        "channel.setting.threadNameValidate":   "Please enter a valid thread name (max 65 characters, only words, numbers, _ or -).",
         "channel.setting.quickAction":          "Quick Action",
         "channel.setting.banList":              "Ban List",
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Change privacy settings and customize how members can interact with this channel.",
+        "channel.setting.createChannel":        "Create Channel",
+        "channel.setting.channelName":          "Channel Name",
+        "channel.setting.channelNamePlaceholder": "Enter the channel's name",
+        "channel.setting.channelNameError":       "Please enter a channel name (max 64 characters, only words, numbers, _ or -).",
+        "channel.setting.channelNameDuplicate":   "The channel name already exists.",
+        "channel.setting.channelType":          "Channel Type",
+        "channel.setting.textChannel":          "Text",
+        "channel.setting.textChannelDesc":      "Send messages, images, GIFs, emojis, opinions, and puns",
+        "channel.setting.voiceChannel":         "Voice",
+        "channel.setting.voiceChannelDesc":     "Hang out together with voice, video, and screen share",
+        "channel.setting.streamChannel":        "Stream",
+        "channel.setting.streamChannelDesc":    "Sharing hobby activities",
+        "channel.setting.privateChannel":       "Private Channel",
+        "channel.setting.privateChannelDesc":   "Only selected members and roles will be able to view this channel.",
 
         "channelPermission.title":              "Channel Permissions",
         "channelPermission.basicView":          "Basic View",
@@ -1807,6 +1856,12 @@ extension L10n {
         "channelDetail.groupDeleted": "Group deleted",
         "channelDetail.updateGroupFailed": "Could not update group.",
         "channelDetail.leaveGroupFailed": "Could not leave group.",
+        "channelDetail.removeFromGroup": "Remove From Group",
+        "channelDetail.removeFromGroupConfirmTitle": "Remove from group?",
+        "channelDetail.removeFromGroupConfirmBody": "%@ will be removed from this group.",
+        "channelDetail.removeFromGroupConfirmAction": "Remove",
+        "channelDetail.removeFromGroupFailed": "Could not remove member.",
+        "channelDetail.memberRemoved": "Member removed",
 
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
 
@@ -2127,11 +2182,12 @@ extension L10n {
 
         "clanRoles.title":                  "Vai trò",
         "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",
-        "clanRoles.defaultRole":            "Quyền mặc định cho tất cả thành viên.",
+        "clanRoles.defaultRole":            "Quyền mặc định cho tất cả thành viên trong clan.",
         "clanRoles.everyone":               "@everyone",
         "clanRoles.rolesCount":             "Vai trò — %d",
+        "clanRoles.member":                 "thành viên",
         "clanRoles.members":                "thành viên",
-        "clanRoles.allMembers":             "Tất cả thành viên",
+        "clanRoles.allMembers":             "Tất cả thành viên trong clan",
         "clanRoles.noRole":                 "Chưa có vai trò nào. Nhấn + để tạo mới.",
         "clanRoles.role":                   "Vai trò",
         "clanRoles.save":                   "Lưu",
@@ -2172,6 +2228,7 @@ extension L10n {
         "clanRoles.permissions.heading":    "Chọn các quyền cho thành viên có vai trò này.",
         "clanRoles.permissions.search":     "Tìm quyền",
         "clanRoles.permissions.next":       "Tiếp theo",
+        "clanRoles.permissions.notFound":   "Không tìm thấy quyền nào.",
         "clanRoles.permissions.notAvailable": "Chưa có mô tả cho quyền này.",
 
         "clanRoles.members.title":          "Thêm thành viên",
@@ -2313,6 +2370,7 @@ extension L10n {
         "emojiPicker.title":                   "Cảm xúc",
         "muteDuration.title":              "Tắt thông báo kênh này",
         "muteDuration.titleThread":        "Tắt thông báo chủ đề này",
+        "muteDuration.titleConversation":  "Tắt thông báo cuộc trò chuyện này",
         "muteDuration.for15Minutes":       "Trong 15 phút",
         "muteDuration.for1Hour":           "Trong 1 giờ",
         "muteDuration.for3Hours":          "Trong 3 giờ",
@@ -2329,11 +2387,30 @@ extension L10n {
         "notifSettings.nothing":        "Không có gì",
 
         "channel.setting.changeCategory":       "Thay đổi danh mục",
+        "channel.setting.changeCategory.moveFrom": "Chuyển từ %@ tới",
+        "channel.setting.changeCategory.confirmContent": "Bạn có chắc muốn chuyển %channel% sang %category% không?",
+        "channel.setting.changeCategory.empty": "Không có danh mục nào khác để chuyển đến",
         "channel.setting.permissions":          "Quyền hạn kênh",
+        "channel.setting.channelNameValidate":  "Vui lòng nhập tên kênh (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "channel.setting.threadNameValidate":   "Vui lòng nhập tên chủ đề hợp lệ (tối đa 65 ký tự, chỉ chữ, số, _ hoặc -).",
         "channel.setting.quickAction":          "Hành động nhanh",
         "channel.setting.banList":              "Danh sách chặn",
         "channel.setting.webhook":              "Webhook",
         "channel.setting.privacyFooter":        "Thay đổi cài đặt quyền riêng tư và tùy chỉnh cách các thành viên có thể tương tác với kênh này.",
+        "channel.setting.createChannel":        "Tạo kênh",
+        "channel.setting.channelName":          "Tên kênh",
+        "channel.setting.channelNamePlaceholder": "Nhập tên kênh",
+        "channel.setting.channelNameError":       "Vui lòng nhập tên kênh (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "channel.setting.channelNameDuplicate":   "Tên kênh đã tồn tại.",
+        "channel.setting.channelType":          "Loại kênh",
+        "channel.setting.textChannel":          "Văn bản",
+        "channel.setting.textChannelDesc":      "Gửi tin nhắn, hình ảnh, GIF, biểu tượng cảm xúc, ý kiến và những câu chơi chữ",
+        "channel.setting.voiceChannel":         "Thoại",
+        "channel.setting.voiceChannelDesc":     "Trò chuyện cùng nhau bằng thoại, video và chia sẻ màn hình",
+        "channel.setting.streamChannel":        "Phát trực tiếp",
+        "channel.setting.streamChannelDesc":    "Phát sóng các hoạt động sở thích",
+        "channel.setting.privateChannel":       "Kênh riêng tư",
+        "channel.setting.privateChannelDesc":   "Chỉ những thành viên và vai trò được chọn mới có thể xem kênh này.",
 
         "channelPermission.title":              "Quyền hạn kênh",
         "channelPermission.basicView":          "Cơ bản",
@@ -2676,6 +2753,12 @@ extension L10n {
         "channelDetail.groupDeleted": "Đã xóa nhóm",
         "channelDetail.updateGroupFailed": "Không thể cập nhật nhóm.",
         "channelDetail.leaveGroupFailed": "Không thể rời nhóm.",
+        "channelDetail.removeFromGroup": "Xóa khỏi nhóm",
+        "channelDetail.removeFromGroupConfirmTitle": "Xóa khỏi nhóm?",
+        "channelDetail.removeFromGroupConfirmBody": "%@ sẽ bị xóa khỏi nhóm này.",
+        "channelDetail.removeFromGroupConfirmAction": "Xóa",
+        "channelDetail.removeFromGroupFailed": "Không thể xóa thành viên.",
+        "channelDetail.memberRemoved": "Đã xóa thành viên",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
 
