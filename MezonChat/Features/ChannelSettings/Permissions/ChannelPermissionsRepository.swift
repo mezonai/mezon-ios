@@ -43,6 +43,10 @@ final class ChannelPermissionsRepository {
         role.slug == "everyone-\(role.clanID)"
     }
 
+    func roleIsInChannel(_ role: Mezon_Api_Role, channelId: Int64) -> Bool {
+        role.channelIds.contains(channelId)
+    }
+
     func clanOwnerId(clanId: Int64) -> String? {
         context.engine.account.postbox.read { tx in
             tx.getClan(id: clanId)?.ownerId
@@ -153,7 +157,7 @@ final class ChannelPermissionsRepository {
     }
 
     func channelRoles(clanId: Int64, channelId: Int64) -> [Mezon_Api_Role] {
-        roles(clanId: clanId).filter { $0.roleChannelActive == 1 && !isEveryone($0) }
+        roles(clanId: clanId).filter { roleIsInChannel($0, channelId: channelId) && !isEveryone($0) }
     }
 
     // MARK: - Mutations
@@ -167,6 +171,7 @@ final class ChannelPermissionsRepository {
             throw NSError(domain: "session", code: -1)
         }
         let uid: Int64 = (context.currentUser?.id).flatMap(Int64.init) ?? 0
+        // UpdateChannelPrivate uses an action flag: 0 makes private, 1 publishes.
         try await context.engine.account.network.changeChannelPrivate(
             clanId: clanId,
             channelId: channelId,
@@ -175,6 +180,9 @@ final class ChannelPermissionsRepository {
             roleIds: [],
             token: token
         )
+        if makePrivate {
+            clearLocalRoleChannels(clanId: clanId, channelId: channelId)
+        }
         context.engine.clanData.updateChannelPrivateLocally(
             clanId: clanId, channelId: channelId, isPrivate: makePrivate
         )
@@ -197,7 +205,7 @@ final class ChannelPermissionsRepository {
             channelId: channelId,
             token: token
         )
-        mutateLocalRoleChannelActive(clanId: clanId, roleId: roleId, active: 0)
+        removeLocalRoleChannel(clanId: clanId, roleId: roleId, channelId: channelId)
     }
 
     func addChannelMembers(channelId: Int64, userIds: [Int64]) async throws {
@@ -217,7 +225,7 @@ final class ChannelPermissionsRepository {
             token: token
         )
         for roleId in roleIds {
-            mutateLocalRoleChannelActive(clanId: clanId, roleId: roleId, active: 1)
+            addLocalRoleChannel(clanId: clanId, roleId: roleId, channelId: channelId)
         }
     }
 
@@ -271,12 +279,41 @@ final class ChannelPermissionsRepository {
 
     // MARK: - Local cache mutation
 
-    private func mutateLocalRoleChannelActive(clanId: Int64, roleId: Int64, active: Int32) {
+    private func addLocalRoleChannel(clanId: Int64, roleId: Int64, channelId: Int64) {
         var container = context.engine.clanData.getClanRoles(clanId: clanId) ?? Mezon_Api_RoleListEventResponse()
         guard let idx = container.roles.roles.firstIndex(where: { $0.id == roleId }) else { return }
         var role = container.roles.roles[idx]
-        role.roleChannelActive = active
+        if !role.channelIds.contains(channelId) {
+            role.channelIds.append(channelId)
+        }
         container.roles.roles[idx] = role
+        persistLocalRoles(container, clanId: clanId)
+    }
+
+    private func removeLocalRoleChannel(clanId: Int64, roleId: Int64, channelId: Int64) {
+        var container = context.engine.clanData.getClanRoles(clanId: clanId) ?? Mezon_Api_RoleListEventResponse()
+        guard let idx = container.roles.roles.firstIndex(where: { $0.id == roleId }) else { return }
+        var role = container.roles.roles[idx]
+        role.channelIds.removeAll { $0 == channelId }
+        container.roles.roles[idx] = role
+        persistLocalRoles(container, clanId: clanId)
+    }
+
+    private func clearLocalRoleChannels(clanId: Int64, channelId: Int64) {
+        var container = context.engine.clanData.getClanRoles(clanId: clanId) ?? Mezon_Api_RoleListEventResponse()
+        var changed = false
+        for idx in container.roles.roles.indices {
+            let before = container.roles.roles[idx].channelIds.count
+            container.roles.roles[idx].channelIds.removeAll { $0 == channelId }
+            if container.roles.roles[idx].channelIds.count != before {
+                changed = true
+            }
+        }
+        guard changed else { return }
+        persistLocalRoles(container, clanId: clanId)
+    }
+
+    private func persistLocalRoles(_ container: Mezon_Api_RoleListEventResponse, clanId: Int64) {
         if let data = try? container.serializedData() {
             context.engine.account.postbox.setPreferenceDataSync(
                 key: PreferencesKeys.clanRoles(clanId: clanId), value: data)

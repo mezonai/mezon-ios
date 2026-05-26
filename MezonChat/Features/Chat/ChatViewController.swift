@@ -419,6 +419,8 @@ final class ChatViewController: ViewController {
     private var isKeyboardVisible = false
     private var trackedKeyboardHeight: CGFloat = 0
     private var suppressScrollToBottomForNextKeyboardInset = false
+    private var shouldReconcileKeyboardAfterNotificationNavigation = false
+    private var notificationKeyboardReconcileWorkItem: DispatchWorkItem?
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var hasMarkedAsRead = false
@@ -1015,8 +1017,15 @@ final class ChatViewController: ViewController {
         let bottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
         let layoutInputH = layout.inputHeight ?? 0
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
+        let shouldIgnoreNotificationKeyboardInset =
+            shouldReconcileKeyboardAfterNotificationNavigation
+            && layoutInputH > bottomInset + 1
+            && !isKeyboardVisible
+            && trackedKeyboardHeight <= 0.5
         let rawInputH: CGFloat
-        if layoutInputH > 1 {
+        if shouldIgnoreNotificationKeyboardInset {
+            rawInputH = 0
+        } else if layoutInputH > 1 {
             rawInputH = layoutInputH
         } else if (isKeyboardVisible || composerHasKeyboardFocus), trackedKeyboardHeight > 0.5 {
             rawInputH = trackedKeyboardHeight
@@ -1153,10 +1162,73 @@ final class ChatViewController: ViewController {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
         }
+        reconcileKeyboardAfterNotificationNavigationIfNeeded()
         if let layout = lastLayout {
             containerLayoutUpdated(layout, transition: .immediate)
         }
         presentLicenseAgreementIfNeeded()
+    }
+
+    private func collapseNotificationNavigationComposerOverlays() {
+        guard isViewLoaded else { return }
+        sendInputViewController.hideEmojiPickerIfNeeded()
+        sendInputViewController.hideAdvancePanelIfNeeded()
+        if emojiPicker.panelHeightForChatLayout > 0 {
+            emojiPicker.setVisible(false, collapsedHeight: 0)
+        }
+        if advancePanelCollapsedHeight > 0 {
+            handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        }
+    }
+
+    private func reconcileKeyboardAfterNotificationNavigationIfNeeded() {
+        guard shouldReconcileKeyboardAfterNotificationNavigation, isViewLoaded else { return }
+        collapseNotificationNavigationComposerOverlays()
+
+        let wasTextInputFocused = sendInputViewController.isTextInputFocused
+        if !isKeyboardVisible && trackedKeyboardHeight <= 0.5 {
+            currentKeyboardOffset = 0
+            suppressScrollToBottomForNextKeyboardInset = false
+            if !wasTextInputFocused {
+                view.endEditing(true)
+            }
+            if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
+                containerLayoutUpdated(layout.withUpdatedInputHeight(nil), transition: .immediate)
+            }
+        }
+
+        scheduleNotificationKeyboardReconcileRetry(wasTextInputFocused: wasTextInputFocused, attempt: 0)
+    }
+
+    private func scheduleNotificationKeyboardReconcileRetry(wasTextInputFocused: Bool, attempt: Int) {
+        notificationKeyboardReconcileWorkItem?.cancel()
+        let delay: TimeInterval = attempt == 0 ? 0.08 : 0.25
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.finishNotificationKeyboardReconcile(wasTextInputFocused: wasTextInputFocused, attempt: attempt)
+        }
+        notificationKeyboardReconcileWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func finishNotificationKeyboardReconcile(wasTextInputFocused: Bool, attempt: Int) {
+        guard shouldReconcileKeyboardAfterNotificationNavigation, isViewLoaded else { return }
+        if !isKeyboardVisible && trackedKeyboardHeight <= 0.5 {
+            currentKeyboardOffset = 0
+            suppressScrollToBottomForNextKeyboardInset = false
+            if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
+                containerLayoutUpdated(layout.withUpdatedInputHeight(nil), transition: .immediate)
+            }
+            if wasTextInputFocused {
+                if UIApplication.shared.applicationState == .active {
+                    sendInputViewController.refocusTextInputAfterNavigation()
+                } else if attempt < 3 {
+                    scheduleNotificationKeyboardReconcileRetry(wasTextInputFocused: wasTextInputFocused, attempt: attempt + 1)
+                    return
+                }
+            }
+        }
+        shouldReconcileKeyboardAfterNotificationNavigation = false
+        notificationKeyboardReconcileWorkItem = nil
     }
 
     private func presentLicenseAgreementIfNeeded() {
@@ -1335,6 +1407,7 @@ final class ChatViewController: ViewController {
     deinit {
         typingPruneTimer?.invalidate()
         sendingFeedbackRefreshWorkItem?.cancel()
+        notificationKeyboardReconcileWorkItem?.cancel()
         stateDisposables.dispose()
         NotificationCenter.default.removeObserver(self)
     }
@@ -1692,6 +1765,7 @@ final class ChatViewController: ViewController {
     }
 
     func handleBroughtForwardFromNotificationDeepLink() {
+        prepareForNotificationNavigation()
         hasMarkedAsRead = false
         if !messages.isEmpty {
             markChannelAsRead()
@@ -1699,12 +1773,18 @@ final class ChatViewController: ViewController {
         if context.account.socket.isConnected {
             joinChat()
         }
-        markNextFetchPrefersHTTPFirst()
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.fetchMessages(token: token)
         }
+    }
+
+    func prepareForNotificationNavigation() {
+        shouldReconcileKeyboardAfterNotificationNavigation = true
+        collapseNotificationNavigationComposerOverlays()
+        markNextFetchPrefersHTTPFirst()
+        reconcileKeyboardAfterNotificationNavigationIfNeeded()
     }
 
     func markNextFetchPrefersHTTPFirst() {

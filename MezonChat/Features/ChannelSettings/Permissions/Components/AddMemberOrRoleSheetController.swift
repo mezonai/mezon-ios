@@ -254,7 +254,9 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             } else {
                 selectedRoleIds.insert(role.id)
             }
-            tableView.reloadRows(at: [indexPath], with: .none)
+            if let cell = tableView.cellForRow(at: indexPath) as? ChannelPermissionRowCell {
+                cell.setTrailing(.checkbox(checked: selectedRoleIds.contains(role.id)))
+            }
             refreshAddButton()
         case .member(let member):
             if selectedMemberIds.contains(member.userId) {
@@ -262,7 +264,9 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             } else {
                 selectedMemberIds.insert(member.userId)
             }
-            tableView.reloadRows(at: [indexPath], with: .none)
+            if let cell = tableView.cellForRow(at: indexPath) as? ChannelPermissionRowCell {
+                cell.setTrailing(.checkbox(checked: selectedMemberIds.contains(member.userId)))
+            }
             refreshAddButton()
         case .sectionHeader:
             break

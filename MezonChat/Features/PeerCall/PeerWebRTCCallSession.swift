@@ -461,7 +461,6 @@ final class PeerWebRTCCallSession: NSObject {
     private func performPreWarmBuild(offerCompressed: String) async throws {
         try ensureCallStillActive()
         Self.ensureSSL()
-        try? configureAudioSession()
         try ensureCallStillActive()
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory

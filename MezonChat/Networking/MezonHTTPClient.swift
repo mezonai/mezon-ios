@@ -571,10 +571,11 @@ final class MezonHTTPClient {
         parentChannelId: Int64,
         clanId: Int64,
         page: Int32,
+        limit: Int32 = 100,
         token: String
     ) async throws -> Mezon_Api_ChannelDescList {
         var req = Mezon_Api_ListThreadRequest()
-        req.limit = 100
+        req.limit = limit
         req.state = 0
         req.clanID = clanId
         req.channelID = parentChannelId

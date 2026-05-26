@@ -20,6 +20,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     private var channelMembers: [ClanMemberRecord] = []
 
     private var fetchMembersTask: Task<Void, Never>?
+    private var privacyUpdateInFlight = false
 
     private var currentTab: Tab = .basic
 
@@ -210,6 +211,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         privateToggleCard.translatesAutoresizingMaskIntoConstraints = false
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(privateCardTapped))
+        tap.delegate = self
         privateToggleCard.addGestureRecognizer(tap)
         privateToggleCard.isUserInteractionEnabled = true
 
@@ -236,6 +238,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     @objc private func privateCardTapped() {
+        guard !privacyUpdateInFlight else { return }
         privateSwitch.setOn(!privateSwitch.isOn, animated: true)
         privateSwitchChanged()
     }
@@ -480,8 +483,15 @@ final class ChannelPermissionsViewController: BaseViewController {
     // MARK: - Toggle private
 
     @objc private func privateSwitchChanged() {
+        guard !privacyUpdateInFlight else {
+            privateSwitch.setOn(isPrivate, animated: true)
+            return
+        }
         let newPrivate = privateSwitch.isOn
+        guard newPrivate != isPrivate else { return }
         let previous = isPrivate
+        privacyUpdateInFlight = true
+        privateSwitch.isEnabled = false
         fetchMembersTask?.cancel()
         fetchMembersTask = nil
         Task { [weak self] in
@@ -499,9 +509,14 @@ final class ChannelPermissionsViewController: BaseViewController {
                 Toast.success(L(L10n.ChannelPermission.toastSuccess))
                 await self.refresh()
             } catch {
+                self.isPrivate = previous
                 self.privateSwitch.setOn(previous, animated: true)
+                self.refreshVisibility()
+                self.rebuildList()
                 Toast.error(L(L10n.ChannelPermission.toastFailed))
             }
+            self.privacyUpdateInFlight = false
+            self.privateSwitch.isEnabled = true
         }
     }
 
@@ -512,7 +527,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let allRoles = repository.roles(clanId: clanId)
         let memberPool = allMembers.filter { !channelMemberIds.contains($0.userId) }
         let rolePool = allRoles.filter { role in
-            !repository.isEveryone(role) && role.roleChannelActive != 1
+            !repository.isEveryone(role) && !repository.roleIsInChannel(role, channelId: channelId)
         }
         let sheet = AddMemberOrRoleSheetController(
             availableMembers: memberPool,
@@ -654,5 +669,18 @@ final class ChannelPermissionsViewController: BaseViewController {
             } : nil
         )
         return row
+    }
+}
+
+extension ChannelPermissionsViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view: UIView? = touch.view
+        while let current = view {
+            if current is UIControl {
+                return false
+            }
+            view = current.superview
+        }
+        return true
     }
 }

@@ -250,10 +250,7 @@ final class RolesRepository {
     }
 
     func canManageRoles(clanId: Int64) -> Bool {
-        if isClanOwner(clanId: clanId) { return true }
-        if hasClanPermission(.administrator, clanId: clanId) { return true }
-        if hasClanPermission(.manageClan, clanId: clanId) { return true }
-        return false
+        context.rolePermissions.canManageRoles(clanId: clanId)
     }
 
     func canEditRole(_ role: Mezon_Api_Role, clanId: Int64) -> Bool {

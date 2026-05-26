@@ -389,7 +389,7 @@ final class MezonRootController: NavigationController {
         }()
 
         let dmChatVC = ChatViewController(clanId: 0, channel: resolvedChannel, context: context)
-        dmChatVC.markNextFetchPrefersHTTPFirst()
+        dmChatVC.prepareForNotificationNavigation()
         pushViewController(dmChatVC, animated: false)
 
         Task { @MainActor [weak self] in
@@ -468,7 +468,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: resolvedClanId, channel: cachedChannel, context: context, parentName: parentName
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
@@ -491,7 +491,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: resolvedClanId, channel: ch, context: context, parentName: parentName
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
@@ -512,7 +512,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: resolvedClanId, channel: ch, context: context, parentName: parentName
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             return
         }
@@ -540,7 +540,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: notificationClanId, channel: minimal, context: context
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
 
             let loaded = homeVC.channelListVC.channelsLoadedSignal
@@ -574,7 +574,7 @@ final class MezonRootController: NavigationController {
             let chatVC = ChatViewController(
                 clanId: targetClanId, channel: minimal, context: self.context
             )
-            chatVC.markNextFetchPrefersHTTPFirst()
+            chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
             fetchClanChannelsInBackground(clanId: targetClanId, selectChannelId: channelIdInt)
         }

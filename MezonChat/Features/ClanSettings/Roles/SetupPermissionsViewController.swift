@@ -36,12 +36,14 @@ final class SetupPermissionsViewController: BaseViewController {
     private let searchContainer = UIView()
     private let headingLabel = UILabel()
 
-    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let emptyStateLabel = UILabel()
 
     private let bottomBar = UIStackView()
     private let nextButton = UIButton(type: .custom)
     private let skipButton = UIButton(type: .system)
     private var bottomBarBottomConstraint: NSLayoutConstraint?
+    private var emptyStateCenterYConstraint: NSLayoutConstraint?
     private let tableBottomInsetWithBar: CGFloat = 130.sh
 
     private var roleId: Int64 {
@@ -222,14 +224,35 @@ final class SetupPermissionsViewController: BaseViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.keyboardDismissMode = .interactive
         tableView.cellLayoutMarginsFollowReadableWidth = false
+        tableView.tableFooterView = UIView()
+        tableView.contentInset = .zero
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
         tableView.register(PermissionRowCell.self, forCellReuseIdentifier: PermissionRowCell.reuseId)
         view.addSubview(tableView)
 
+        emptyStateLabel.text = L(L10n.ClanRoles.permissionsNotFound)
+        emptyStateLabel.font = .systemFont(ofSize: 14.sf, weight: .medium)
+        emptyStateLabel.textColor = UIColor.theme.textDisabled
+        emptyStateLabel.textAlignment = .center
+        emptyStateLabel.numberOfLines = 0
+        emptyStateLabel.isHidden = true
+        emptyStateLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(emptyStateLabel)
+
+        let emptyCenterY = emptyStateLabel.centerYAnchor.constraint(equalTo: tableView.centerYAnchor, constant: -24.sh)
+        emptyStateCenterYConstraint = emptyCenterY
+
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: searchContainer.bottomAnchor, constant: 8.sh),
+            tableView.topAnchor.constraint(equalTo: searchContainer.bottomAnchor, constant: 2.sh),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            emptyStateLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24.sw),
+            emptyStateLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24.sw),
+            emptyCenterY
         ])
     }
 
@@ -282,6 +305,7 @@ final class SetupPermissionsViewController: BaseViewController {
         let insetBottom = baseInset + overlap
         tableView.contentInset.bottom = insetBottom
         tableView.verticalScrollIndicatorInsets.bottom = insetBottom
+        emptyStateCenterYConstraint?.constant = overlap > 0 ? -(overlap / 2 + 24.sh) : -24.sh
         let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
         let curveValue = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 0
         UIView.animate(
@@ -340,6 +364,14 @@ final class SetupPermissionsViewController: BaseViewController {
             }
         }
         tableView.reloadData()
+        updateEmptyState()
+    }
+
+    private func updateEmptyState() {
+        let hasQuery = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let shouldShowEmptyState = hasQuery && filteredPermissions.isEmpty
+        tableView.isHidden = shouldShowEmptyState
+        emptyStateLabel.isHidden = !shouldShowEmptyState
     }
 
     private func refreshSaveButton() {
@@ -696,20 +728,30 @@ private final class FlatPermissionSwitch: UIControl {
 
         let trackColor: UIColor
         let thumbColor: UIColor
+        let trackBorderColor: UIColor
+        let thumbBorderColor: UIColor
         if isEnabled {
-            trackColor = isOn ? UIColor.theme.bgViolet : UIColor.theme.tertiary.withAlphaComponent(0.72)
+            trackColor = isOn ? UIColor.theme.bgViolet : UIColor.theme.textDisabled.withAlphaComponent(0.24)
             thumbColor = .white
+            trackBorderColor = isOn ? .clear : UIColor.theme.textDisabled.withAlphaComponent(0.42)
+            thumbBorderColor = isOn ? .clear : UIColor.theme.borderDim
         } else {
-            trackColor = isOn ? UIColor.theme.bgViolet.withAlphaComponent(0.38) : UIColor.theme.tertiary.withAlphaComponent(0.55)
-            thumbColor = UIColor.theme.textDisabled
+            trackColor = isOn ? UIColor.theme.bgViolet.withAlphaComponent(0.42) : UIColor.theme.textDisabled.withAlphaComponent(0.16)
+            thumbColor = UIColor.theme.secondary
+            trackBorderColor = isOn ? .clear : UIColor.theme.textDisabled.withAlphaComponent(0.28)
+            thumbBorderColor = UIColor.theme.borderDim.withAlphaComponent(0.85)
         }
 
         let changes = {
             self.trackView.frame = trackFrame
             self.trackView.layer.cornerRadius = trackHeight / 2
+            self.trackView.layer.borderWidth = self.isOn ? 0 : 1
+            self.trackView.layer.borderColor = trackBorderColor.cgColor
             self.trackView.backgroundColor = trackColor
             self.thumbView.frame = thumbFrame
             self.thumbView.layer.cornerRadius = thumbDiameter / 2
+            self.thumbView.layer.borderWidth = self.isOn ? 0 : 1
+            self.thumbView.layer.borderColor = thumbBorderColor.cgColor
             self.thumbView.backgroundColor = thumbColor
         }
 

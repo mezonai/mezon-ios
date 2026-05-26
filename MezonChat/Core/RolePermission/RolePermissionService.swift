@@ -402,6 +402,13 @@ final class RolePermissionService {
     func canManageClan(clanId: Int64) -> Bool {
         return hasClanPermission(.manageClan, clanId: clanId)
     }
+
+    func canManageRoles(clanId: Int64) -> Bool {
+        if isClanOwner(clanId: clanId) { return true }
+        if hasClanPermission(.administrator, clanId: clanId) { return true }
+        if hasClanPermission(.manageClan, clanId: clanId) { return true }
+        return false
+    }
 }
 
 extension Notification.Name {

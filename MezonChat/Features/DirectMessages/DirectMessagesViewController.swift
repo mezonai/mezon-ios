@@ -7,10 +7,11 @@ struct DirectMessagesState {
     var errorMessage: String?
     var incomingFriendRequestCount: Int
     var messageActivityRows: [DmMessageActivityItem]
+    var resolvedAvatarURLByChannelId: [Int64: String]
 
     static let empty = DirectMessagesState(
         directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil,
-        incomingFriendRequestCount: 0, messageActivityRows: [])
+        incomingFriendRequestCount: 0, messageActivityRows: [], resolvedAvatarURLByChannelId: [:])
 }
 
 final class DirectMessagesViewController: ViewController {
@@ -29,6 +30,7 @@ final class DirectMessagesViewController: ViewController {
     private(set) var errorMessage: String?
     private(set) var incomingFriendRequestCount: Int = 0
     private var userActivities: [Mezon_Api_UserActivity] = []
+    private var didRefreshForCurrentAppearance = false
 
     private var directMessagesNode: DirectMessagesContainerNode { displayNode as! DirectMessagesContainerNode }
 
@@ -69,12 +71,13 @@ final class DirectMessagesViewController: ViewController {
                 self?.openDirectMessageFromActivity(item)
             }
         )
-        displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction, context: context)
+        displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        if let layout = lastLayout {
+        didRefreshForCurrentAppearance = false
+        if !animated, let layout = lastLayout {
             directMessagesNode.updateLayout(
                 size: layout.size,
                 safeTop: resolvedSafeTop(for: layout),
@@ -82,9 +85,23 @@ final class DirectMessagesViewController: ViewController {
                 transition: .immediate
             )
         }
+        if !animated {
+            refreshDirectMessagesForAppearance()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
         if isNodeLoaded {
             directMessagesNode.resetMessageActivityStripScroll(animated: false)
         }
+        if !didRefreshForCurrentAppearance {
+            refreshDirectMessagesForAppearance()
+        }
+    }
+
+    private func refreshDirectMessagesForAppearance() {
+        didRefreshForCurrentAppearance = true
         fetchDirectMessages()
         syncIncomingFriendRequestCount()
     }
@@ -360,14 +377,32 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
+        guard directMessages != v else { return }
         directMessages = v
         directMessagesPipe.putNext(v)
         needsReloadPipe.putNext(())
     }
 
-    private func setIsEmpty(_ v: Bool) { isEmpty = v; isEmptyPipe.putNext(v); needsReloadPipe.putNext(()) }
-    private func setIsLoading(_ v: Bool) { isLoading = v; isLoadingPipe.putNext(v); needsReloadPipe.putNext(()) }
-    private func setErrorMessage(_ v: String?) { errorMessage = v; errorMessagePipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setIsEmpty(_ v: Bool) {
+        guard isEmpty != v else { return }
+        isEmpty = v
+        isEmptyPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
+
+    private func setIsLoading(_ v: Bool) {
+        guard isLoading != v else { return }
+        isLoading = v
+        isLoadingPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
+
+    private func setErrorMessage(_ v: String?) {
+        guard errorMessage != v else { return }
+        errorMessage = v
+        errorMessagePipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
 
     private func setIncomingFriendRequestCount(_ v: Int) {
         let changed = incomingFriendRequestCount != v
@@ -645,6 +680,88 @@ final class DirectMessagesViewController: ViewController {
         return rows
     }
 
+    private static func buildResolvedAvatarURLCache(
+        directMessages: [Mezon_Api_ChannelDescription],
+        friends: [Mezon_Api_Friend],
+        postboxAvatarURL: (Int64) -> String?
+    ) -> [Int64: String] {
+        let friendAvatarPairs = friends.compactMap { friend -> (Int64, String)? in
+            guard friend.hasUser, friend.user.id != 0 else { return nil }
+            guard let avatarURL = normalizedURLString(friend.user.avatarURL) else { return nil }
+            return (friend.user.id, avatarURL)
+        }
+        let friendAvatarByUserId = Dictionary(friendAvatarPairs, uniquingKeysWith: { first, _ in first })
+
+        var resolved: [Int64: String] = [:]
+        resolved.reserveCapacity(directMessages.count)
+
+        for channel in directMessages {
+            if let urlString = primaryAvatarURLString(for: channel) {
+                resolved[channel.channelID] = urlString
+                continue
+            }
+
+            guard channel.type != MezonConstants.ChannelType.group.rawValue else { continue }
+            let userId = channel.userIds.first ?? 0
+            guard userId != 0 else { continue }
+
+            if let friendAvatarURL = friendAvatarByUserId[userId] {
+                resolved[channel.channelID] = friendAvatarURL
+                continue
+            }
+
+            if let postboxAvatarURL = normalizedURLString(postboxAvatarURL(userId) ?? "") {
+                resolved[channel.channelID] = postboxAvatarURL
+            }
+        }
+
+        return resolved
+    }
+
+    private static func primaryAvatarURLString(for channel: Mezon_Api_ChannelDescription) -> String? {
+        if channel.type == MezonConstants.ChannelType.group.rawValue {
+            guard !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png") else {
+                return nil
+            }
+            return normalizedURLString(channel.channelAvatar)
+        }
+        return normalizedURLString(channel.avatars.first ?? "")
+    }
+
+    private static func normalizedURLString(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if URL(string: trimmed) != nil {
+            return trimmed
+        }
+        if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           URL(string: encoded) != nil {
+            return encoded
+        }
+        return nil
+    }
+
+    private static func avatarLookupUserIds(
+        directMessages: [Mezon_Api_ChannelDescription],
+        friends: [Mezon_Api_Friend]
+    ) -> [Int64] {
+        var ids = Set<Int64>()
+        for friend in friends where friend.hasUser && friend.user.id != 0
+            && friend.user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            ids.insert(friend.user.id)
+        }
+        for channel in directMessages where channel.type != MezonConstants.ChannelType.group.rawValue {
+            let hasChannelAvatar = !(channel.avatars.first ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+            guard !hasChannelAvatar else { continue }
+            for userId in channel.userIds where userId != 0 {
+                ids.insert(userId)
+            }
+        }
+        return Array(ids)
+    }
+
     private func applyDmListFromCache() {
         let cached = context.account.postbox.getCachedDMChannelList()
         guard !cached.isEmpty else { return }
@@ -675,7 +792,9 @@ final class DirectMessagesViewController: ViewController {
     func fetchDirectMessages() {
         if fetchDirectMessagesTask != nil { return }
         if let last = lastFetchDirectMessagesAt, Date().timeIntervalSince(last) < fetchDirectMessagesCooldown {
-            applyDmListFromCache()
+            if directMessages.isEmpty {
+                applyDmListFromCache()
+            }
             return
         }
         applyDmListFromCache()
@@ -770,14 +889,32 @@ final class DirectMessagesViewController: ViewController {
     }
 
     var currentState: DirectMessagesState {
+        let friends = context.engine.friendsData.allFriends()
+        let avatarLookupIds = Self.avatarLookupUserIds(directMessages: directMessages, friends: friends)
+        let postboxAvatarURLByUserId: [Int64: String]
+        if avatarLookupIds.isEmpty {
+            postboxAvatarURLByUserId = [:]
+        } else {
+            postboxAvatarURLByUserId = context.account.postbox.read { tx -> [Int64: String] in
+                var result: [Int64: String] = [:]
+                result.reserveCapacity(avatarLookupIds.count)
+                for userId in avatarLookupIds {
+                    if let avatarURL = tx.getProfile(userId: "\(userId)")?.avatarUrl {
+                        result[userId] = avatarURL
+                    }
+                }
+                return result
+            }
+        }
+        let postboxAvatarURL: (Int64) -> String? = { userId in
+            postboxAvatarURLByUserId[userId]
+        }
         let rows = Self.buildMessageActivityRows(
             activities: userActivities,
-            friends: context.engine.friendsData.allFriends(),
+            friends: friends,
             directMessages: directMessages,
             myUserId: Int64(context.currentUser?.id ?? "") ?? 0,
-            postboxAvatarURL: { uid in
-                context.account.postbox.read { $0.getProfile(userId: "\(uid)") }?.avatarUrl
-            }
+            postboxAvatarURL: postboxAvatarURL
         )
         return DirectMessagesState(
             directMessages: directMessages,
@@ -785,7 +922,12 @@ final class DirectMessagesViewController: ViewController {
             isLoading: isLoading,
             errorMessage: errorMessage,
             incomingFriendRequestCount: incomingFriendRequestCount,
-            messageActivityRows: rows
+            messageActivityRows: rows,
+            resolvedAvatarURLByChannelId: Self.buildResolvedAvatarURLCache(
+                directMessages: directMessages,
+                friends: friends,
+                postboxAvatarURL: postboxAvatarURL
+            )
         )
     }
 
