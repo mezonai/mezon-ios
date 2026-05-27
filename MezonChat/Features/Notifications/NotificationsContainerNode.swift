@@ -22,15 +22,9 @@ enum NotificationItem {
         switch self {
         case .notification(let n): return n.subject
         case .topic(let t):
-            let preview = NotificationRecord.extractDisplayText(from: t.content)
-            if !preview.isEmpty {
-                return L(L10n.Notifications.repliedTo) + preview
-            }
             let raw = t.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if raw.first == "{" || raw.first == "[" {
-                return L(L10n.Notifications.repliedTo) + L(L10n.Notifications.unreachableMessage)
-            }
-            return L(L10n.Notifications.repliedTo) + raw
+            let preview = Self.parseTopicMessage(content: raw)
+            return L(L10n.Notifications.repliedTo) + preview
         }
     }
 
@@ -39,36 +33,18 @@ enum NotificationItem {
         case .notification(let n): return n.previewText
         case .topic(let t):
             let rawContent = t.lastSentMessageContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            let msgText: String
-            if let decoded: TopicContent = safeJsonDecode(
-                t.lastSentMessageContent, to: TopicContent.self),
-                let text = decoded.t
-            {
-                let x = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !x.isEmpty {
-                    msgText = x
-                } else {
-                    msgText = Self.topicMessagePreviewFallback(lastSent: rawContent)
-                }
-            } else if !rawContent.isEmpty && rawContent != "{}" {
-                msgText = Self.topicMessagePreviewFallback(lastSent: rawContent)
-            } else {
-                msgText = L(L10n.Notifications.unreachableMessage)
-            }
-
-            let line = L(L10n.Notifications.sender) + msgText
+            
+            let msgText = Self.parseTopicMessage(content: rawContent.isEmpty ? t.content : rawContent)
+            
+            let prefix = t.senderDisplayName.isEmpty ? "" : "\(t.senderDisplayName): "
+            let line = prefix + msgText
 
             return line
         }
     }
 
-    private static func topicMessagePreviewFallback(lastSent: String) -> String {
-        let extracted = NotificationRecord.extractDisplayText(from: lastSent)
-        if !extracted.isEmpty { return extracted }
-        if lastSent.first == "{" || lastSent.first == "[" {
-            return L(L10n.Notifications.unreachableMessage)
-        }
-        return lastSent
+    private static func parseTopicMessage(content: String) -> String {
+        return NotificationRecord.extractDisplayText(from: content)
     }
 
     var avatarURL: String {
