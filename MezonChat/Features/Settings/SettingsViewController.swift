@@ -332,11 +332,11 @@ final class SettingsViewController: BaseViewController {
             if row.icon == "Profile/ScanQR" {
                 let currentTheme = ThemeManager.shared.current
                 let effectiveTheme = currentTheme == .system ? (UIScreen.main.traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+                iconView.image = img.withRenderingMode(.alwaysTemplate)
                 if effectiveTheme == .light || effectiveTheme == .sunrise {
-                    iconView.image = img.withRenderingMode(.alwaysOriginal)
+                    iconView.tintColor = UIColor(hexString: "#ff6b6f76")
                 } else {
-                    iconView.image = img.withRenderingMode(.alwaysTemplate)
-                    iconView.tintColor = .mezonTextStrong
+                    iconView.tintColor = UIColor(hexString: "#fefefe")
                 }
             } else {
                 iconView.image = img.withRenderingMode(.alwaysOriginal)
