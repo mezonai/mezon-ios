@@ -293,12 +293,12 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         updateActionButtonEnabled()
         loadingIndicator.startAnimating()
         actionButton.isUserInteractionEnabled = false
+        defer { finishLoading() }
         do {
             let authSession = context.session ?? pendingSession
             let proto = try await context.account.network.updateUsername(username: sanitized, token: authSession.token)
             guard !proto.token.isEmpty else {
-                Toast.error(L(L10n.UpdateUsername.errorDuplicate))
-                finishLoading()
+                Toast.error(L(L10n.UpdateUsername.errorGeneric))
                 return
             }
             let merged = authSession.mergedWithUsernameResponse(proto, chosenUsername: sanitized)
@@ -308,7 +308,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
             context.account.network.updateBaseURL(from: mergedIds)
             let uid = mergedIds.userId ?? UUID().uuidString
             let user = User(id: uid, username: sanitized, displayName: sanitized, avatarURL: nil, status: .online, bio: nil)
-            context.login(user: user, session: mergedIds)
+            context.replaceCurrentSession(user: user, session: mergedIds)
             MmnWalletPreloader.fetchAndPersistAfterLogin(session: mergedIds)
             if let nav = navigationController as? NavigationController,
                nav.viewControllers.contains(where: { $0 is TabBarController }) {
@@ -317,7 +317,6 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         } catch {
             Toast.error(Self.toastMessage(for: error))
         }
-        finishLoading()
     }
 
     private func finishLoading() {
@@ -329,24 +328,19 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
 
     private static func sanitizeUsername(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let folded = trimmed.folding(options: .diacriticInsensitive, locale: .current)
+        let folded = trimmed
+            .folding(options: .diacriticInsensitive, locale: .current)
+            .lowercased()
         var out = ""
         out.reserveCapacity(folded.count)
-        for scalar in folded.unicodeScalars where CharacterSet.alphanumerics.contains(scalar) {
+        for scalar in folded.unicodeScalars where CharacterSet.alphanumerics.contains(scalar) || scalar == "." {
             out.unicodeScalars.append(scalar)
         }
         return out
     }
 
-    private static func toastMessage(for error: Error) -> String {
-        if case let MezonError.httpError(_, message) = error {
-            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
-        }
-        let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        return message.isEmpty ? L(L10n.UpdateUsername.errorDuplicate) : message
+    private static func toastMessage(for _: Error) -> String {
+        return L(L10n.UpdateUsername.errorGeneric)
     }
 }
 

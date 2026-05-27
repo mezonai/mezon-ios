@@ -21,6 +21,7 @@ protocol AccountContext: AnyObject {
     func isStillCurrentSession(epoch: Int) -> Bool
 
     func login(user: User, session: MezonSession)
+    func replaceCurrentSession(user: User, session: MezonSession)
     func logout()
     func refreshSession() async throws
     func refreshUserProfile() async

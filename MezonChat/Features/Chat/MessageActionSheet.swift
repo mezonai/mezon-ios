@@ -8,6 +8,8 @@ enum MessageAction: CaseIterable {
     case forwardAll
     case createThread
     case copyText
+    case saveImage
+    case copyImage
     case markUnread
     case topicDiscussion
     case pinMessage
@@ -28,6 +30,8 @@ enum MessageAction: CaseIterable {
         case .forwardAll:       return L(L10n.MessageAction.forwardAll)
         case .createThread:     return L(L10n.MessageAction.createThread)
         case .copyText:         return L(L10n.MessageAction.copyText)
+        case .saveImage:        return L(L10n.MessageAction.saveImage)
+        case .copyImage:        return L(L10n.MessageAction.copyImage)
         case .markUnread:       return L(L10n.MessageAction.markUnread)
         case .topicDiscussion:  return L(L10n.MessageAction.topicDiscussion)
         case .pinMessage:       return L(L10n.MessageAction.pinMessage)
@@ -50,6 +54,8 @@ enum MessageAction: CaseIterable {
         case .forwardAll:       return "Chat/IconForwardAll"
         case .createThread:     return nil
         case .copyText:         return "Chat/IconCopy"
+        case .saveImage:        return nil
+        case .copyImage:        return "Chat/IconCopy"
         case .markUnread:       return "Chat/IconMarkUnread"
         case .topicDiscussion:  return nil
         case .pinMessage:       return "Chat/IconPin"
@@ -67,6 +73,7 @@ enum MessageAction: CaseIterable {
     var sfSymbolName: String? {
         switch self {
         case .createThread:     return "square.and.pencil"
+        case .saveImage:        return "square.and.arrow.down"
         case .topicDiscussion:  return "text.bubble"
         case .quickMenu:       return "bolt.fill"
         case .unpinMessage:     return "pin.slash"
@@ -89,7 +96,7 @@ enum MessageAction: CaseIterable {
         switch self {
         case .giveACoffee, .reply, .forwardMessage, .forwardAll, .createThread, .resend, .editMessage, .forward:
             return .frequent
-        case .copyText, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
+        case .copyText, .saveImage, .copyImage, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
             return .normal
         case .deleteMessage, .report:
             return .warning
@@ -246,6 +253,10 @@ final class MessageActionSheetController: ViewController {
         if hasText {
             actions.append(.copyText)
         }
+        if display.singleImageMediaAttachment != nil {
+            actions.append(.saveImage)
+            actions.append(.copyImage)
+        }
 
         actions.append(.markUnread)
         if canCreateTopicDiscussion {
@@ -283,7 +294,6 @@ final class MessageActionSheetController: ViewController {
 
     private static func canEditMessage(display: ChatMessageDisplay) -> Bool {
         let t = display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty || !display.attachments.isEmpty else { return false }
         if display.isFailed { return false }
         if display.isSystemMessage { return false }
         if display.isCallLog { return false }
@@ -294,6 +304,8 @@ final class MessageActionSheetController: ViewController {
         if display.isForward { return false }
         if display.isPollMessage { return false }
         if display.message.id.hasPrefix("pending-") { return false }
+        if display.shareContactData != nil { return true }
+        guard !t.isEmpty || !display.attachments.isEmpty else { return false }
         return true
     }
 

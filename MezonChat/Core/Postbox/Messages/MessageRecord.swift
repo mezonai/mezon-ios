@@ -132,12 +132,7 @@ extension MessageRecord {
             && prev.mentionsJSON == fresh.mentionsJSON
             && prev.code == fresh.code
         if !sameBodyForMerge {
-            let mergedDisplayName: String = {
-                if !fresh.senderDisplayName.isEmpty && fresh.senderDisplayName != "\(api.senderID)" {
-                    return fresh.senderDisplayName
-                }
-                return prev.senderDisplayName.isEmpty ? fresh.senderDisplayName : prev.senderDisplayName
-            }()
+            let mergedDisplayName = preferredDisplayName(api: api, fresh: fresh, previous: prev)
             let mergedAvatarURL: String? = fresh.senderAvatarURL ?? prev.senderAvatarURL
             return MessageRecord(
                 id: fresh.id,
@@ -186,12 +181,7 @@ extension MessageRecord {
 
         let effectiveEditedAt: Date? = isLogicallyPoll ? nil : fresh.editedAt
 
-        let finalDisplayName: String = {
-            if !fresh.senderDisplayName.isEmpty && fresh.senderDisplayName != "\(api.senderID)" {
-                return fresh.senderDisplayName
-            }
-            return prev.senderDisplayName.isEmpty ? fresh.senderDisplayName : prev.senderDisplayName
-        }()
+        let finalDisplayName = preferredDisplayName(api: api, fresh: fresh, previous: prev)
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,
@@ -210,6 +200,26 @@ extension MessageRecord {
             referencesData: fresh.referencesData,
             mentionsJSON: fresh.mentionsJSON
         )
+    }
+
+    private static func preferredDisplayName(
+        api: Mezon_Api_ChannelMessage, fresh: MessageRecord, previous: MessageRecord
+    ) -> String {
+        let isClanContext = api.clanID != 0
+        let hasAuthoritativeName: Bool = {
+            if isClanContext, !api.clanNick.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return true
+            }
+            return !api.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }()
+        if hasAuthoritativeName, !fresh.senderDisplayName.isEmpty {
+            return fresh.senderDisplayName
+        }
+        let prevName = previous.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !prevName.isEmpty, prevName != "\(api.senderID)" {
+            return previous.senderDisplayName
+        }
+        return fresh.senderDisplayName
     }
 
     private static func mergedReactionsJSON(fresh: MessageRecord, previous: MessageRecord) -> Data {

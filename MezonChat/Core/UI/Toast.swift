@@ -52,6 +52,7 @@ private final class ToastManager {
     static let shared = ToastManager()
 
     private var toastContainer: UIView?
+    private var toastWindow: UIWindow?
     private var dismissWorkItem: DispatchWorkItem?
 
     private init() {}
@@ -62,8 +63,10 @@ private final class ToastManager {
 
         toastContainer?.removeFromSuperview()
         toastContainer = nil
+        toastWindow?.isHidden = true
+        toastWindow = nil
 
-        guard let hostView = Self.findContainerView() else { return }
+        guard let hostView = makeToastHostView() else { return }
 
         let toastView = ToastView(type: type, title: title, message: message)
         toastView.onClose = { [weak self] in self?.dismiss() }
@@ -73,10 +76,11 @@ private final class ToastManager {
 
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer.zPosition = 10000
+        container.layer.zPosition = CGFloat.greatestFiniteMagnitude
         container.addSubview(toastView)
 
         hostView.addSubview(container)
+        hostView.bringSubviewToFront(container)
 
         let safeTop = hostView.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
@@ -113,6 +117,8 @@ private final class ToastManager {
         } completion: { _ in
             self.toastContainer?.removeFromSuperview()
             self.toastContainer = nil
+            self.toastWindow?.isHidden = true
+            self.toastWindow = nil
         }
     }
 
@@ -120,14 +126,17 @@ private final class ToastManager {
         dismissWorkItem?.cancel()
         toastContainer?.removeFromSuperview()
         toastContainer = nil
-        guard let hostView = Self.findContainerView() else { return }
+        toastWindow?.isHidden = true
+        toastWindow = nil
+        guard let hostView = makeToastHostView() else { return }
         let pill = ComingSoonPillView(message: message)
         pill.translatesAutoresizingMaskIntoConstraints = false
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer.zPosition = 10000
+        container.layer.zPosition = CGFloat.greatestFiniteMagnitude
         container.addSubview(pill)
         hostView.addSubview(container)
+        hostView.bringSubviewToFront(container)
         let safe = hostView.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             container.leadingAnchor.constraint(greaterThanOrEqualTo: hostView.leadingAnchor, constant: 20.sw),
@@ -154,22 +163,41 @@ private final class ToastManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
-    private static func findContainerView() -> UIView? {
+    private func makeToastHostView() -> UIView? {
+        guard let scene = Self.findWindowScene() else { return nil }
+        let window = ToastPassthroughWindow(windowScene: scene)
+        window.backgroundColor = .clear
+        window.windowLevel = .alert + 1
+        let controller = UIViewController()
+        controller.view.backgroundColor = .clear
+        window.rootViewController = controller
+        window.isHidden = false
+        toastWindow = window
+        return controller.view
+    }
+
+    private static func findWindowScene() -> UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-        for scene in scenes {
-            if let win = scene.windows.first(where: { $0.isKeyWindow }),
-               let rootVC = win.rootViewController {
-                return rootVC.view
-            }
+        if let scene = scenes.first(where: { $0.activationState == .foregroundActive }) {
+            return scene
         }
         for scene in scenes {
-            if let win = scene.windows.first,
-               let rootVC = win.rootViewController {
-                return rootVC.view
+            if let win = scene.windows.first(where: { $0.isKeyWindow }) {
+                return win.windowScene
             }
         }
-        return nil
+        return scenes.first
+    }
+}
+
+private final class ToastPassthroughWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hitView = super.hitTest(point, with: event)
+        if hitView === rootViewController?.view {
+            return nil
+        }
+        return hitView
     }
 }
 

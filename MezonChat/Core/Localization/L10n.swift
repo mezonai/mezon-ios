@@ -351,6 +351,7 @@ enum L10n {
         static let usernamePreview = "updateUsername.usernamePreview"
         static let update = "updateUsername.update"
         static let errorDuplicate = "updateUsername.errorDuplicate"
+        static let errorGeneric = "updateUsername.errorGeneric"
         static let skipUpdateQuestion = "updateUsername.skipUpdateQuestion"
         static let skipUpdateBack = "updateUsername.skipUpdateBack"
     }
@@ -800,9 +801,20 @@ enum L10n {
         static let onlyVisibleToRecipient = "embed.onlyVisibleToRecipient"
     }
 
+    enum Gallery {
+        static let imageSaved = "gallery.imageSaved"
+        static let imageSaveFailed = "gallery.imageSaveFailed"
+        static let imageLoadFailed = "gallery.imageLoadFailed"
+        static let photoPermissionDenied = "gallery.photoPermissionDenied"
+        static let photoPermissionTitle = "gallery.photoPermissionTitle"
+        static let photoPermissionMessage = "gallery.photoPermissionMessage"
+    }
+
     enum MessageAction {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
+        static let saveImage        = "messageAction.saveImage"
+        static let copyImage        = "messageAction.copyImage"
         static let editMessage      = "messageAction.editMessage"
         static let editingMessage   = "messageAction.editingMessage"
         static let editedSuffix     = "messageAction.editedSuffix"
@@ -858,6 +870,7 @@ enum L10n {
         static let noFilesYet = "channelDetail.noFilesYet"
         static let noMediaYet = "channelDetail.noMediaYet"
         static let pinAttachmentPreview = "channelDetail.pinAttachmentPreview"
+        static let pinContactPreview = "channelDetail.pinContactPreview"
         static let pinEmbedPreview = "channelDetail.pinEmbedPreview"
         static let noPinsYet = "channelDetail.noPinsYet"
         static let unpinError = "channelDetail.unpinError"
@@ -1204,6 +1217,7 @@ extension L10n {
         "updateUsername.usernamePreview": "Username: %@",
         "updateUsername.update": "Update",
         "updateUsername.errorDuplicate": "There's an issue or the name already exists, please choose another one.",
+        "updateUsername.errorGeneric": "Something went wrong. Please try again or enter another name.",
         "updateUsername.skipUpdateQuestion": "Want to sign in again with your phone number?",
         "updateUsername.skipUpdateBack": "Return to login with phone number",
 
@@ -1647,8 +1661,17 @@ extension L10n {
         "friendList.sent": "Sent",
         "friendList.noResults": "No friends results found",
 
+        "gallery.imageSaved": "Image saved",
+        "gallery.imageSaveFailed": "Could not save image",
+        "gallery.imageLoadFailed": "Could not load image",
+        "gallery.photoPermissionDenied": "Allow photo access to save images",
+        "gallery.photoPermissionTitle": "Photo Access Needed",
+        "gallery.photoPermissionMessage": "Photo access was denied. Enable Photos access in Settings to save images.",
+
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
+        "messageAction.saveImage": "Save Image",
+        "messageAction.copyImage": "Copy Image",
         "messageAction.editMessage": "Edit Message",
         "messageAction.editingMessage": "Editing message",
         "messageAction.editedSuffix": "(edited)",
@@ -1835,6 +1858,7 @@ extension L10n {
         "channelDetail.noFilesYet": "No files yet",
         "channelDetail.noMediaYet": "No photos or videos yet",
         "channelDetail.pinAttachmentPreview": "Attachment",
+        "channelDetail.pinContactPreview": "Contact",
         "channelDetail.pinEmbedPreview": "Embed",
         "channelDetail.noPinsYet": "No pinned messages",
         "channelDetail.unpinError": "Couldn’t unpin message. Try again.",
@@ -2099,6 +2123,7 @@ extension L10n {
         "updateUsername.usernamePreview": "Tên người dùng: %@",
         "updateUsername.update": "Cập nhật",
         "updateUsername.errorDuplicate": "Có sự cố hoặc tên đã tồn tại, vui lòng chọn tên khác.",
+        "updateUsername.errorGeneric": "Có lỗi xảy ra vui lòng thử lại hoặc nhập 1 cái tên khác",
         "updateUsername.skipUpdateQuestion": "Muốn đăng nhập lại với số điện thoại của bạn?",
         "updateUsername.skipUpdateBack": "Quay lại đăng nhập với số điện thoại",
 
@@ -2543,8 +2568,17 @@ extension L10n {
         "friendList.sent": "Đã gửi",
         "friendList.noResults": "Không tìm thấy kết quả bạn bè",
 
+        "gallery.imageSaved": "Đã lưu ảnh",
+        "gallery.imageSaveFailed": "Không thể lưu ảnh",
+        "gallery.imageLoadFailed": "Không thể tải ảnh",
+        "gallery.photoPermissionDenied": "Vui lòng cấp quyền ảnh để lưu ảnh",
+        "gallery.photoPermissionTitle": "Cần quyền truy cập ảnh",
+        "gallery.photoPermissionMessage": "Quyền truy cập ảnh đã bị từ chối. Vui lòng bật quyền Ảnh trong Cài đặt để lưu ảnh.",
+
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
+        "messageAction.saveImage": "Lưu ảnh",
+        "messageAction.copyImage": "Sao chép ảnh",
         "messageAction.editMessage": "Chỉnh sửa tin nhắn",
         "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",
         "messageAction.editedSuffix": "(đã chỉnh sửa)",
@@ -2732,6 +2766,7 @@ extension L10n {
         "channelDetail.noFilesYet": "Chưa có tệp",
         "channelDetail.noMediaYet": "Chưa có ảnh hay video",
         "channelDetail.pinAttachmentPreview": "Tệp đính kèm",
+        "channelDetail.pinContactPreview": "Danh bạ",
         "channelDetail.pinEmbedPreview": "Nội dung nhúng",
         "channelDetail.noPinsYet": "Chưa có tin nhắn ghim",
         "channelDetail.unpinError": "Không thể bỏ ghim. Thử lại sau.",

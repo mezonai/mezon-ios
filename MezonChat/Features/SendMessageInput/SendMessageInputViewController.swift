@@ -483,6 +483,9 @@ final class SendMessageInputViewController: UIViewController {
 
     private(set) var replyDisplay: ChatMessageDisplay?
     private var editingDisplay: ChatMessageDisplay?
+    private var isEditingShareContactMessage: Bool {
+        editingDisplay?.shareContactData != nil
+    }
     private static let replyBannerHeight: CGFloat = 40
 
     private static var channelAttachmentCache: [String: [UIImage]] = [:]
@@ -1302,7 +1305,8 @@ final class SendMessageInputViewController: UIViewController {
         ensureChannelMetadataResolvedFromPostboxIfNeeded()
         if let edit = editingDisplay, let mid = Int64(edit.message.id) {
             let hasKeptRemote = !editingRemoteImageAttachments.isEmpty || !editingRemoteFileAttachments.isEmpty
-            guard !trimmed.isEmpty || hasAttachments || hasKeptRemote else { return }
+            let canSubmitEmptyTextEdit = edit.shareContactData != nil
+            guard !trimmed.isEmpty || hasAttachments || hasKeptRemote || canSubmitEmptyTextEdit else { return }
             sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel, editingMessageId: mid)
             return
         }
@@ -1337,7 +1341,10 @@ final class SendMessageInputViewController: UIViewController {
             clearReply()
         }
     }
-    @objc private func expandAttachControlsAction() { expandAttachControls() }
+    @objc private func expandAttachControlsAction() {
+        guard !isEditingShareContactMessage else { return }
+        expandAttachControls()
+    }
     @objc private func openPhotoPickerAction() { openPhotoPicker() }
     @objc private func toggleAdvancePanelAction() { toggleAdvancePanel() }
     @objc private func toggleEmojiPickerAction() { toggleEmojiPicker() }
@@ -1358,6 +1365,7 @@ final class SendMessageInputViewController: UIViewController {
 
     func sendLocation(latitude: Double, longitude: Double) {
         guard !composerSendPermissionBlocked else { return }
+        guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -1434,6 +1442,7 @@ final class SendMessageInputViewController: UIViewController {
 
     func sendBuzzMessage(text: String) {
         guard !composerSendPermissionBlocked else { return }
+        guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -1502,6 +1511,7 @@ final class SendMessageInputViewController: UIViewController {
     func sendShareContact(friend: Mezon_Api_Friend) {
         guard !composerSendPermissionBlocked else { return }
         guard !shouldSendAsAnonymousMessage else { return }
+        guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -1559,7 +1569,7 @@ final class SendMessageInputViewController: UIViewController {
                 return
             }
             do {
-                _ = try await self.context.account.network.sendChannelMessage(
+                let ack = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
                     mode: mode,
@@ -1575,6 +1585,10 @@ final class SendMessageInputViewController: UIViewController {
                     code: MezonConstants.MessageCode.shareContact.rawValue,
                     token: token
                 )
+                self.updateCachedDMLastSentMessageIfNeeded(
+                    ack: ack,
+                    fallbackContent: contentStr
+                )
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "sendShareContact",
@@ -1586,7 +1600,39 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private func updateCachedDMLastSentMessageIfNeeded(
+        ack: Mezon_Realtime_ChannelMessageAck,
+        fallbackContent: String
+    ) {
+        let isDmListChannel = channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
+            || clanId == 0
+        guard isDmListChannel else { return }
+
+        let now = UInt32(Date().timeIntervalSince1970)
+        let timestamp = ack.createTimeSeconds > 0 ? ack.createTimeSeconds : now
+        var header = Mezon_Api_ChannelMessageHeader()
+        header.id = ack.messageID
+        header.timestampSeconds = timestamp
+        header.senderID = Int64(context.currentUser?.id ?? "") ?? 0
+        header.content = fallbackContent
+
+        var updated = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) ?? channel
+        updated.lastSentMessage = header
+        updated.updateTimeSeconds = max(updated.updateTimeSeconds, timestamp)
+        context.account.postbox.updateCachedDMChannelDescription(updated)
+        NotificationCenter.default.post(
+            name: .mezonChannelDescriptionDidUpdate,
+            object: nil,
+            userInfo: [
+                "clanId": Int64(0),
+                "channelId": channel.channelID,
+            ]
+        )
+    }
+
     func sendSticker(_ sticker: CachedClanStickerRecord) {
+        guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -1608,6 +1654,7 @@ final class SendMessageInputViewController: UIViewController {
 
 
     func sendGif(url: String) {
+        guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
             clearEditingMessage()
         }
@@ -1635,6 +1682,11 @@ final class SendMessageInputViewController: UIViewController {
         clearPickedImages()
         populateComposerFromEditDisplay(display)
         updateReplyBannerVisibility()
+        if isEditingShareContactMessage {
+            hideAdvancePanelIfNeeded()
+            hideEmojiPickerIfNeeded()
+            collapseAttachControls()
+        }
         syncAttachControlsWithTypedText()
         updateSendVoiceToggle()
         textView.becomeFirstResponder()
@@ -1915,6 +1967,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func openPhotoPicker() {
+        guard !isEditingShareContactMessage else { return }
         MediaPickerViewController.present(from: self) { [weak self] results in
             guard let self else { return }
             for result in results {
@@ -1935,6 +1988,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func openFilePicker() {
+        guard !isEditingShareContactMessage else { return }
         let picker: UIDocumentPickerViewController
         if #available(iOS 14.0, *) {
             picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
@@ -1983,6 +2037,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func toggleAdvancePanel() {
+        guard !isEditingShareContactMessage else { return }
         isAdvancePanelVisible.toggle()
 
         if isAdvancePanelVisible {
@@ -2145,6 +2200,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func addPickedImage(_ image: UIImage) {
+        guard !isEditingShareContactMessage else { return }
         pickedImages.append(image)
         attachmentPreviewView.addImage(image)
         saveToCache()
@@ -2152,6 +2208,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func handlePastedImages(_ images: [UIImage]) {
+        guard !isEditingShareContactMessage else { return }
         let tempDir = FileManager.default.temporaryDirectory
         for image in images {
             let filename = "pasted-\(UUID().uuidString).png"
@@ -2172,6 +2229,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func handlePastedGIF(_ data: Data) {
+        guard !isEditingShareContactMessage else { return }
         let tempDir = FileManager.default.temporaryDirectory
         let filename = "pasted-\(UUID().uuidString).gif"
         let fileURL = tempDir.appendingPathComponent(filename)
@@ -2340,6 +2398,10 @@ final class SendMessageInputViewController: UIViewController {
             clearOgpPreview(userDismissed: false, resetDismissed: false)
             return
         }
+        guard !isEditingShareContactMessage else {
+            clearOgpPreview(userDismissed: false, resetDismissed: false)
+            return
+        }
         let candidates = OgpPreviewService.fetchableCandidates(in: rawText)
         guard !candidates.isEmpty else {
             clearOgpPreview(userDismissed: false, resetDismissed: true)
@@ -2386,6 +2448,12 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func syncAttachControlsWithTypedText() {
+        if isEditingShareContactMessage {
+            if !isAttachControlCollapsed {
+                collapseAttachControls()
+            }
+            return
+        }
         if alwaysShowAttachToolbarWhileTyping {
             if isAttachControlCollapsed {
                 expandAttachControls()
@@ -2640,7 +2708,7 @@ final class SendMessageInputViewController: UIViewController {
     private func updateSendVoiceToggle() {
         let hasContent = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pickedImages.isEmpty || !pickedFiles.isEmpty
         let isEditingHoldingMedia = (editingDisplay != nil) && (!editingRemoteImageAttachments.isEmpty || !editingRemoteFileAttachments.isEmpty)
-        let shouldShowSend = hasContent || isEditingHoldingMedia
+        let shouldShowSend = hasContent || isEditingHoldingMedia || isEditingShareContactMessage
 
         guard sendButton.isHidden == shouldShowSend else { return }
 
@@ -4707,6 +4775,71 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    private static let textPayloadKeys: Set<String> = ["t", "text", "mk", "ej", "hg", "mentions", "lk"]
+
+    private static func jsonContentObject(from data: Data?) -> [String: Any]? {
+        guard let data,
+              !data.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let json = object as? [String: Any] else { return nil }
+        return json
+    }
+
+    private static func shareContactContentObject(from display: ChatMessageDisplay) -> [String: Any] {
+        if let json = jsonContentObject(from: display.rawContentData) {
+            return json
+        }
+
+        guard let contact = display.shareContactData else { return [:] }
+        return [
+            "embed": [[
+                "fields": [
+                    ["name": "key", "value": MezonConstants.shareContactKey, "inline": true],
+                    ["name": "user_id", "value": contact.userId, "inline": true],
+                    ["name": "username", "value": contact.username, "inline": true],
+                    ["name": "display_name", "value": contact.displayName, "inline": true],
+                    ["name": "avatar", "value": contact.avatar, "inline": true],
+                ],
+            ]],
+        ]
+    }
+
+    private func makeOutgoingContentData(
+        rawInput: String,
+        displayText: String,
+        markdownList: [[String: Any]],
+        emojiList: [[String: Any]],
+        hashtagList: [[String: Any]],
+        isEdit: Bool
+    ) -> Data {
+        let isShareContactEdit = isEdit && editingDisplay?.shareContactData != nil
+        var contentJSON: [String: Any] = {
+            guard isShareContactEdit, let editingDisplay else { return [:] }
+            return Self.shareContactContentObject(from: editingDisplay)
+        }()
+
+        for key in Self.textPayloadKeys {
+            contentJSON.removeValue(forKey: key)
+        }
+
+        if isShareContactEdit || !rawInput.isEmpty {
+            contentJSON["t"] = displayText
+        }
+        if !rawInput.isEmpty {
+            if !markdownList.isEmpty {
+                contentJSON["mk"] = markdownList
+            }
+            if !emojiList.isEmpty {
+                contentJSON["ej"] = emojiList
+            }
+            if !hashtagList.isEmpty {
+                contentJSON["hg"] = hashtagList
+            }
+        }
+
+        return (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
+    }
+
     private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription, editingMessageId: Int64 = 0) {
         guard !composerSendPermissionBlocked else { return }
         let isEdit = editingMessageId != 0
@@ -4757,19 +4890,14 @@ final class SendMessageInputViewController: UIViewController {
             return id
         }()
 
-        var contentJSON: [String: Any] = text.isEmpty ? [:] : ["t": displayText]
-        if !text.isEmpty {
-            if !markdownList.isEmpty {
-                contentJSON["mk"] = markdownList
-            }
-            if !built.ej.isEmpty {
-                contentJSON["ej"] = built.ej
-            }
-            if !hashtagListForContent.isEmpty {
-                contentJSON["hg"] = hashtagListForContent
-            }
-        }
-        let outgoingContentData = (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
+        let outgoingContentData = makeOutgoingContentData(
+            rawInput: text,
+            displayText: displayText,
+            markdownList: markdownList,
+            emojiList: built.ej,
+            hashtagList: hashtagListForContent,
+            isEdit: isEdit
+        )
 
         let mentionsPayload: Data = {
             guard !mentionList.isEmpty else { return Data() }

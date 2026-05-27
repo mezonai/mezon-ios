@@ -427,6 +427,9 @@ final class DmListItemCell: UITableViewCell {
             .replacingOccurrences(of: "\\/", with: "/")
             .replacingOccurrences(of: "\\n", with: " ")
             .replacingOccurrences(of: "\\\"", with: "\"")
+        if normalized.contains(MezonConstants.shareContactKey) || normalized.contains("share_contact_key") {
+            return "[\(L(L10n.DirectMessage.previewContact))]"
+        }
         if let text = rawPreviewTextValue(from: normalized), !text.isEmpty {
             return text
         }
@@ -496,7 +499,7 @@ final class DmListItemCell: UITableViewCell {
         d.isEmpty
     }
 
-    private static let shareContactFieldValue = "share_contact"
+    private static let shareContactFieldValues: Set<String> = ["share_contact", "share_contact_key"]
 
     private static func attachmentDicts(from content: [String: Any]) -> [[String: Any]] {
         if let arr = content["attachments"] as? [[String: Any]] { return arr }
@@ -529,11 +532,18 @@ final class DmListItemCell: UITableViewCell {
             }
         }
         if let one = content["embed"] as? [String: Any] { return one }
+        if let arr = content["embeds"] as? [[String: Any]] { return arr.first }
+        if let arr = content["embeds"] as? [Any] {
+            for item in arr {
+                if let d = item as? [String: Any] { return d }
+            }
+        }
+        if let one = content["embeds"] as? [String: Any] { return one }
         return nil
     }
 
     private static func hasEmbedPayload(in content: [String: Any]) -> Bool {
-        content["embed"] != nil
+        content["embed"] != nil || content["embeds"] != nil
     }
 
     private static func bracketEmbedPreview() -> String {
@@ -557,8 +567,7 @@ final class DmListItemCell: UITableViewCell {
         if let embed = firstEmbed(in: content) {
             if let title = nonEmptyEmbedString(embed, key: "title") { return title }
             if let desc = nonEmptyEmbedString(embed, key: "description") { return desc }
-            if let fields = embed["fields"] as? [[String: Any]],
-               fields.contains(where: { ($0["value"] as? String) == shareContactFieldValue }) {
+            if embedFieldsContainShareContact(embed["fields"]) {
                 return "[\(L(L10n.DirectMessage.previewContact))]"
             }
             if let u = nonEmptyEmbedString(embed, key: "url"), textContainsURL(u) {
@@ -585,6 +594,30 @@ final class DmListItemCell: UITableViewCell {
         }
 
         return ""
+    }
+
+    private static func embedFieldsContainShareContact(_ fields: Any?) -> Bool {
+        if let fields = fields as? [[String: Any]] {
+            return fields.contains(where: fieldContainsShareContact)
+        }
+        if let fields = fields as? [Any] {
+            return fields.contains { item in
+                guard let field = item as? [String: Any] else { return false }
+                return fieldContainsShareContact(field)
+            }
+        }
+        return false
+    }
+
+    private static func fieldContainsShareContact(_ field: [String: Any]) -> Bool {
+        let name = ((field["name"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let value = ((field["value"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if name == "key", shareContactFieldValues.contains(value) { return true }
+        return shareContactFieldValues.contains(value)
     }
 
     private static func textContainsURL(_ text: String) -> Bool {

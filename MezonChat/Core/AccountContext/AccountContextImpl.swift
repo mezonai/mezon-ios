@@ -271,6 +271,18 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    func replaceCurrentSession(user: User, session: MezonSession) {
+        VoIPAnswerAccountBridge.context = self
+        applySession(session, user: user, connectSocket: !session.created, fetchAccount: false)
+        setLoggedIn(true)
+        hasCompletedInitialSetup = true
+        lastRecoverTime = Date()
+        markSessionReady()
+        rolePermissions.start()
+        scheduleHeavyAccountBootstrapAfterYield(token: session.token)
+        registerFCMTokenIfNeeded()
+    }
+
     func logout() {
         sessionEpoch &+= 1
         heavyAccountBootstrapTask?.cancel()
