@@ -501,6 +501,8 @@ private struct PinRowContent {
         let parsed = MessageContentParser.parse(data: data, mentionsData: Data())
         let trimmed = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasEmbed = !parsed.embeds.isEmpty
+        let isShareContact = isShareContactEmbed(parsed.embeds)
+            || rawContentContainsShareContact(pin.content)
 
         let decoded = collatedAttachments(for: pin, context: context, attachmentExtras: attachmentExtras)
         let enriched = decoded.map { attachmentWithEmbedMediaURLIfNeeded($0, embeds: parsed.embeds) }
@@ -522,6 +524,9 @@ private struct PinRowContent {
 
         let caption: String? = {
             if !trimmed.isEmpty { return trimmed }
+            if isShareContact {
+                return "[\(L(L10n.ChannelDetail.pinContactPreview))]"
+            }
             if hasEmbed, mediaAttachments.isEmpty, audioAttachments.isEmpty, fileAttachments.isEmpty {
                 return L(L10n.ChannelDetail.pinEmbedPreview)
             }
@@ -547,6 +552,68 @@ private struct PinRowContent {
             audioAttachments: audioAttachments,
             fileAttachments: fileAttachments
         )
+    }
+
+    private static func isShareContactEmbed(_ embeds: [ParsedEmbed]) -> Bool {
+        embeds.contains { embed in
+            embed.fields.contains { field in
+                let name = field.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let value = field.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if name == "key", isShareContactValue(value) { return true }
+                return isShareContactValue(value)
+            }
+        }
+    }
+
+    private static func rawContentContainsShareContact(_ raw: String) -> Bool {
+        guard let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return embedPayloadContainsShareContact(json["embed"])
+            || embedPayloadContainsShareContact(json["embeds"])
+    }
+
+    private static func embedPayloadContainsShareContact(_ payload: Any?) -> Bool {
+        if let embeds = payload as? [[String: Any]] {
+            return embeds.contains(where: embedDictionaryContainsShareContact)
+        }
+        if let embed = payload as? [String: Any] {
+            return embedDictionaryContainsShareContact(embed)
+        }
+        if let embeds = payload as? [Any] {
+            return embeds.contains { item in
+                guard let embed = item as? [String: Any] else { return false }
+                return embedDictionaryContainsShareContact(embed)
+            }
+        }
+        return false
+    }
+
+    private static func embedDictionaryContainsShareContact(_ embed: [String: Any]) -> Bool {
+        if let fields = embed["fields"] as? [[String: Any]] {
+            return fieldsContainShareContact(fields)
+        }
+        if let fields = embed["fields"] as? [Any] {
+            return fields.contains { item in
+                guard let field = item as? [String: Any] else { return false }
+                return fieldContainsShareContact(field)
+            }
+        }
+        return false
+    }
+
+    private static func fieldsContainShareContact(_ fields: [[String: Any]]) -> Bool {
+        fields.contains(where: fieldContainsShareContact)
+    }
+
+    private static func fieldContainsShareContact(_ field: [String: Any]) -> Bool {
+        let name = ((field["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let value = ((field["value"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if name == "key", isShareContactValue(value) { return true }
+        return isShareContactValue(value)
+    }
+
+    private static func isShareContactValue(_ value: String) -> Bool {
+        value == MezonConstants.shareContactKey || value == "share_contact_key"
     }
 
     @MainActor

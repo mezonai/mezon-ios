@@ -288,10 +288,18 @@ final class MessageReactionsNode: ASDisplayNode {
     }
 }
 
+private final class EmojiContentHostNode: ASDisplayNode {
+    override func clearContents() {
+        super.clearContents()
+        guard isNodeLoaded else { return }
+        (view as? AnimatedEmojiImageView)?.reapplyContentsIfCleared()
+    }
+}
+
 final class ReactionPillNode: ASDisplayNode {
 
     private let emojiImageNode: ASDisplayNode = {
-        let node = ASDisplayNode { AnimatedEmojiImageView() }
+        let node = EmojiContentHostNode(viewBlock: { AnimatedEmojiImageView() })
         node.clipsToBounds = true
         return node
     }()

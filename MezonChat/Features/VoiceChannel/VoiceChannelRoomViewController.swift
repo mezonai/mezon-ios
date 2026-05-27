@@ -178,7 +178,12 @@ enum VoiceChannelAudioPreferences {
     private static let mixWithOthersKey = "mezon.voiceChannel.mixWithOthers"
 
     static var mixWithOthersEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: mixWithOthersKey) }
+        get {
+            if let value = UserDefaults.standard.object(forKey: mixWithOthersKey) as? Bool {
+                return value
+            }
+            return true
+        }
         set {
             UserDefaults.standard.set(newValue, forKey: mixWithOthersKey)
             UserDefaults.standard.synchronize()
@@ -223,7 +228,9 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
             try rtc.overrideOutputAudioPort(.speaker)
         case .bluetooth, .earpiece:
             AudioManager.shared.isSpeakerOutputPreferred = false
-            cfg.mode = AVAudioSession.Mode.voiceChat.rawValue
+            cfg.mode = (VoiceChannelAudioPreferences.mixWithOthersEnabled
+                ? AVAudioSession.Mode.default
+                : AVAudioSession.Mode.voiceChat).rawValue
             cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
             LKRTCAudioSessionConfiguration.setWebRTC(cfg)
             try rtc.setConfiguration(cfg, active: true)
@@ -362,6 +369,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var systemCallPiPForegroundObserver: NSObjectProtocol?
     private var systemCallPiPActiveObserver: NSObjectProtocol?
     private var themeChangeObserver: NSObjectProtocol?
+    private var isRestoringFromSystemPiP = false
 
     private weak var overlayPiPRootViewController: UIViewController?
     private var overlayLiveKitReconnectTask: Task<Void, Never>?
@@ -565,6 +573,7 @@ final class VoiceChannelPiPOverlay: NSObject {
             height: Self.pipHeight
         )
         rootVC.view.addSubview(pipView)
+        pipView.alpha = 1
         pipView.isUserInteractionEnabled = true
         pipWindow = w
 
@@ -606,6 +615,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         overlayLiveKitReconnectTask = nil
         overlayPiPRootViewController = nil
         sendMeetLeaveIfNeeded()
+        isRestoringFromSystemPiP = false
         tearDownOverlaySystemCallPiP()
         let b = bridge
         videoView.track = nil
@@ -703,7 +713,10 @@ final class VoiceChannelPiPOverlay: NSObject {
         overlayLiveKitReconnectTask?.cancel()
         overlayLiveKitReconnectTask = nil
         overlayPiPRootViewController = nil
-        tearDownOverlaySystemCallPiP()
+        let keepSystemPiPSourceForRestore = isRestoringFromSystemPiP && systemCallPiPController != nil
+        if !keepSystemPiPSourceForRestore {
+            tearDownOverlaySystemCallPiP()
+        }
         guard let b = bridge else { return nil }
         bridge?.onRoomParticipantsChanged = nil
         bridge?.onDisconnected = nil
@@ -711,11 +724,16 @@ final class VoiceChannelPiPOverlay: NSObject {
         let leaveFlag = didAnnounceMeetLeave
         let route = preservedAudioRoute
         preservedAudioRoute = nil
-        pipWindow?.isHidden = true
-        pipView.removeFromSuperview()
-        pipWindow = nil
-        videoView.track = nil
-        systemCallPiPVideoView.track = nil
+        if keepSystemPiPSourceForRestore {
+            pipView.alpha = 0
+            pipView.isUserInteractionEnabled = false
+        } else {
+            pipWindow?.isHidden = true
+            pipView.removeFromSuperview()
+            pipWindow = nil
+            videoView.track = nil
+            systemCallPiPVideoView.track = nil
+        }
         bridge = nil
         context = nil
         channel = nil
@@ -881,12 +899,13 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     @objc private func handleTap() {
         guard !isDragging else { return }
-        restoreFullScreen()
+        restoreFullScreen(animated: true)
     }
 
-    private func restoreFullScreen() {
-        guard let ctx = context, let ch = channel else { return }
-        guard let nav = findVisibleNavigationController() else { return }
+    @discardableResult
+    private func restoreFullScreen(animated: Bool) -> Bool {
+        guard let ctx = context, let ch = channel else { return false }
+        guard let nav = findVisibleNavigationController() else { return false }
         let vc = VoiceChannelRoomViewController(
             context: ctx,
             channel: ch,
@@ -900,7 +919,15 @@ final class VoiceChannelPiPOverlay: NSObject {
             vc.view.frame = frame
             vc.view.layoutIfNeeded()
         }
-        nav.pushViewController(vc, animated: true)
+        if animated {
+            nav.pushViewController(vc, animated: true)
+        } else {
+            UIView.performWithoutAnimation {
+                nav.pushViewController(vc, animated: false)
+                nav.view.layoutIfNeeded()
+            }
+        }
+        return true
     }
 
     private func findVisibleNavigationController() -> NavigationController? {
@@ -1019,17 +1046,16 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private func stopSystemPiPOnForeground() {
         guard #available(iOS 15.0, *) else { return }
-        guard let pip = systemCallPiPController else { return }
-        if pip.isPictureInPictureActive {
-            pip.stopPictureInPicture()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, let pip = self.systemCallPiPController, pip.isPictureInPictureActive else { return }
+        guard !isRestoringFromSystemPiP else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self, !self.isRestoringFromSystemPiP else { return }
+            guard UIApplication.shared.applicationState == .active else { return }
+            guard let pip = self.systemCallPiPController, pip.isPictureInPictureActive else { return }
             pip.stopPictureInPicture()
         }
     }
 
-    private func tearDownOverlaySystemCallPiP() {
+    private func tearDownOverlaySystemCallPiP(stopActivePiP: Bool = true) {
         if let obs = systemCallPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
             systemCallPiPBackgroundObserver = nil
@@ -1043,9 +1069,10 @@ final class VoiceChannelPiPOverlay: NSObject {
             systemCallPiPActiveObserver = nil
         }
         let pip = systemCallPiPController
-        if pip?.isPictureInPictureActive == true {
+        if stopActivePiP, pip?.isPictureInPictureActive == true {
             pip?.stopPictureInPicture()
         }
+        isRestoringFromSystemPiP = false
         pip?.delegate = nil
         systemCallPiPController = nil
         systemCallPiPVideoView.track = nil
@@ -1053,13 +1080,29 @@ final class VoiceChannelPiPOverlay: NSObject {
         systemCallPiPSourceView?.removeFromSuperview()
         systemCallPiPSourceView = nil
         systemCallPiPContentVC = nil
+        pipView.alpha = 1
+        pipView.isUserInteractionEnabled = true
     }
 }
 
 extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
-    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        Task { @MainActor [weak self] in
+            guard let self, pictureInPictureController === self.systemCallPiPController else { return }
+            let shouldTearDownAfterRestore = self.isRestoringFromSystemPiP && self.bridge == nil
+            self.isRestoringFromSystemPiP = false
+            if shouldTearDownAfterRestore {
+                self.tearDownOverlaySystemCallPiP(stopActivePiP: false)
+                self.pipWindow?.isHidden = true
+                self.pipView.removeFromSuperview()
+                self.pipWindow = nil
+                self.videoView.track = nil
+                self.systemCallPiPVideoView.track = nil
+            }
+        }
+    }
 
     nonisolated func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
@@ -1084,7 +1127,16 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
                 completionHandler(false)
                 return
             }
-            completionHandler(true)
+            self.isRestoringFromSystemPiP = true
+            let restored = self.restoreFullScreen(animated: false)
+            if restored {
+                DispatchQueue.main.async {
+                    completionHandler(true)
+                }
+            } else {
+                self.isRestoringFromSystemPiP = false
+                completionHandler(false)
+            }
         }
     }
 }
@@ -1093,7 +1145,10 @@ private final class VoicePiPPassthroughWindow: UIWindow {
     var pipView: UIView?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard let pip = pipView else { return nil }
+        guard let pip = pipView,
+              !pip.isHidden,
+              pip.alpha > 0.01,
+              pip.isUserInteractionEnabled else { return nil }
         let pipPoint = pip.convert(point, from: self)
         if pip.bounds.contains(pipPoint) {
             return pip
@@ -1108,6 +1163,12 @@ private enum VoiceCallSystemPiPViewTag {
     static let initial = 9003
     static let avatar = 9010
     static let phoneIcon = 9011
+}
+
+private enum VoiceCallSystemPiPSourceLayout {
+    static let width: CGFloat = 200
+    static let height: CGFloat = 150
+    static let margin: CGFloat = 10
 }
 
 @MainActor
@@ -1133,13 +1194,15 @@ private enum VoiceCallSystemPiPFactory {
         let sourceView = UIView()
         sourceView.translatesAutoresizingMaskIntoConstraints = false
         sourceView.isUserInteractionEnabled = false
-        sourceView.alpha = 0.02
+        sourceView.alpha = 0.01
+        sourceView.backgroundColor = .clear
+        sourceView.accessibilityElementsHidden = true
         sourceSuperview.addSubview(sourceView)
         NSLayoutConstraint.activate([
-            sourceView.widthAnchor.constraint(equalToConstant: 2),
-            sourceView.heightAnchor.constraint(equalToConstant: 2),
-            sourceView.leadingAnchor.constraint(equalTo: sourceSuperview.safeAreaLayoutGuide.leadingAnchor),
-            sourceView.bottomAnchor.constraint(equalTo: sourceSuperview.safeAreaLayoutGuide.bottomAnchor),
+            sourceView.widthAnchor.constraint(equalToConstant: VoiceCallSystemPiPSourceLayout.width),
+            sourceView.heightAnchor.constraint(equalToConstant: VoiceCallSystemPiPSourceLayout.height),
+            sourceView.leadingAnchor.constraint(equalTo: sourceSuperview.safeAreaLayoutGuide.leadingAnchor, constant: VoiceCallSystemPiPSourceLayout.margin),
+            sourceView.topAnchor.constraint(equalTo: sourceSuperview.safeAreaLayoutGuide.topAnchor, constant: VoiceCallSystemPiPSourceLayout.margin),
         ])
 
         let contentVC = AVPictureInPictureVideoCallViewController()
@@ -1315,6 +1378,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var callPiPBackgroundObserver: NSObjectProtocol?
     private var callPiPForegroundObserver: NSObjectProtocol?
     private var callPiPActiveObserver: NSObjectProtocol?
+    private var isEndingVoiceRoom = false
+    private var isRestoringCallPiP = false
 
     private let connectingOverlay = UIView()
     private let connectingSpinner = UIActivityIndicatorView(style: .medium)
@@ -1374,21 +1439,64 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     private func popVoiceRoomOrAlignHomeAfterCrossClanVoice() {
-        guard let align = voiceChannelCrossClanExitAlignClanId, align != 0 else {
-            navigationController?.popViewController(animated: true)
+        if let align = voiceChannelCrossClanExitAlignClanId, align != 0 {
+            NotificationCenter.default.post(
+                name: .mezonAlignHomeAfterCrossClanVoice,
+                object: nil,
+                userInfo: ["clanId": align, "channelId": channel.channelID]
+            )
+            leaveVoiceRoomNavigation(toRoot: true)
+        } else {
+            leaveVoiceRoomNavigation(toRoot: false)
+        }
+    }
+
+    private func leaveVoiceRoomNavigation(toRoot: Bool) {
+        guard let nav = navigationController else { return }
+        if toRoot {
+            if nav.viewControllers.count > 1 {
+                if let mezonNav = nav as? NavigationController {
+                    mezonNav.popToRoot(animated: true)
+                } else {
+                    nav.popToRootViewController(animated: true)
+                }
+                return
+            }
+            if restoreRootTabIfVoiceRoomIsOnlyController(on: nav, animated: false) {
+                return
+            }
+            if nav.presentingViewController != nil {
+                nav.dismiss(animated: true)
+            }
             return
         }
-        let chId = channel.channelID
-        NotificationCenter.default.post(
-            name: .mezonAlignHomeAfterCrossClanVoice,
-            object: nil,
-            userInfo: ["clanId": align, "channelId": chId]
-        )
-        if let nav = navigationController as? NavigationController {
-            nav.popToRoot(animated: true)
-        } else {
-            navigationController?.popToRootViewController(animated: true)
+
+        if nav.viewControllers.count > 1 {
+            nav.popViewController(animated: true)
+            return
         }
+
+        if restoreRootTabIfVoiceRoomIsOnlyController(on: nav, animated: false) {
+            return
+        }
+
+        if nav.presentingViewController != nil {
+            nav.dismiss(animated: true)
+        }
+    }
+
+    private func restoreRootTabIfVoiceRoomIsOnlyController(on nav: UINavigationController, animated: Bool) -> Bool {
+        guard let rootNav = nav as? MezonRootController,
+              let rootTab = rootNav.rootTabController else {
+            return false
+        }
+        let rootTabController = rootTab as UIViewController
+        rootTab.selectedIndex = 0
+        if rootNav.viewControllers.count == 1, rootNav.viewControllers.first === rootTabController {
+            return true
+        }
+        rootNav.setViewControllers([rootTabController], animated: animated)
+        return true
     }
 
     override func loadDisplayNode() {
@@ -2536,6 +2644,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func voiceRoomShouldTransferToPiPWhenDisappearing() -> Bool {
+        if isEndingVoiceRoom { return false }
         if isScreenShareDetailCoveringVoiceRoom { return false }
         if isMovingFromParent || isBeingDismissed { return true }
         if presentedViewController != nil { return false }
@@ -2676,6 +2785,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func popTapped() {
+        guard !isEndingVoiceRoom else { return }
+        isEndingVoiceRoom = true
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
@@ -2689,9 +2800,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let bridge = liveKitBridge
         liveKitBridge = nil
         bridge?.clearCallbacks()
-        Task { @MainActor in
+        popVoiceRoomOrAlignHomeAfterCrossClanVoice()
+        Task {
             await bridge?.disconnect()
-            self.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
         }
     }
 
@@ -2931,12 +3042,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func stopCallPiPOnForeground() {
         guard #available(iOS 15.0, *) else { return }
-        guard let pip = callPiPController else { return }
-        if pip.isPictureInPictureActive {
-            pip.stopPictureInPicture()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, let pip = self.callPiPController, pip.isPictureInPictureActive else { return }
+        guard !isRestoringCallPiP else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self, !self.isRestoringCallPiP else { return }
+            guard UIApplication.shared.applicationState == .active else { return }
+            guard let pip = self.callPiPController, pip.isPictureInPictureActive else { return }
             pip.stopPictureInPicture()
         }
     }
@@ -3311,7 +3421,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         defer { rtc.unlockForConfiguration() }
         let cfg = LKRTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
-        cfg.mode = (currentAudioOutput == .speaker
+        let shouldMix = VoiceChannelAudioPreferences.mixWithOthersEnabled
+        cfg.mode = (shouldMix || currentAudioOutput == .speaker
             ? AVAudioSession.Mode.default
             : AVAudioSession.Mode.voiceChat).rawValue
         cfg.categoryOptions = currentAudioOutput == .speaker
@@ -3488,6 +3599,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func performLiveKitFinalTeardown(error: LiveKitError?) {
+        isEndingVoiceRoom = true
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
 
@@ -3822,6 +3934,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 user: apiUser,
                 context: self.context,
                 isCurrentUser: false,
+                clanId: self.channel.clanID,
                 voiceChannelActions: voiceActions,
                 onSendMessage: { [weak self] dmChannel in
                     guard let self else { return }
@@ -4049,7 +4162,10 @@ extension VoiceChannelRoomViewController: UIScrollViewDelegate {
 extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
-    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        guard pictureInPictureController === callPiPController else { return }
+        isRestoringCallPiP = false
+    }
 
     func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
@@ -4063,11 +4179,20 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
     ) {
-        guard pictureInPictureController === callPiPController else {
+        guard pictureInPictureController === callPiPController,
+              !isEndingVoiceRoom,
+              !isMinimizingToPiP,
+              view.window != nil else {
             completionHandler(false)
             return
         }
-        completionHandler(true)
+        isRestoringCallPiP = true
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        navigationController?.view.layoutIfNeeded()
+        DispatchQueue.main.async {
+            completionHandler(true)
+        }
     }
 }
 

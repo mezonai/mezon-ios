@@ -1,8 +1,14 @@
 import Foundation
 import UIKit
 import AsyncDisplayKit
+import Photos
 
 final class GalleryController: UIViewController {
+    private enum PhotoLibrarySaveAuthorizationResult {
+        case authorized
+        case denied
+        case restricted
+    }
 
     private let items: [GalleryItemInfo]
     private let initialIndex: Int
@@ -285,9 +291,19 @@ final class GalleryController: UIViewController {
         let currentItem = items[pagingNode.centralItemIndex]
         if !currentItem.isVideo {
             sheet.addAction(UIAlertAction(title: "Save Image", style: .default) { [weak self] _ in
+                guard let self else { return }
+                guard let node = self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
+                      let image = node.currentImage else {
+                    Toast.error(L(L10n.Gallery.imageSaveFailed))
+                    return
+                }
+                self.saveImageToPhotoLibrary(image)
+            })
+            sheet.addAction(UIAlertAction(title: "Copy Image", style: .default) { [weak self] _ in
                 guard let node = self?.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
                       let image = node.currentImage else { return }
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                UIPasteboard.general.image = image
+                Toast.success(L(L10n.MessageAction.copied))
             })
         }
 
@@ -308,6 +324,112 @@ final class GalleryController: UIViewController {
 
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         present(sheet, animated: true)
+    }
+
+    private func saveImageToPhotoLibrary(_ image: UIImage) {
+        requestPhotoLibrarySaveAuthorization { [weak self] result in
+            switch result {
+            case .authorized:
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }, completionHandler: { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            Toast.success(L(L10n.Gallery.imageSaved))
+                        } else {
+                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.imageSaveFailed))
+                        }
+                    }
+                })
+            case .denied:
+                DispatchQueue.main.async {
+                    self?.presentPhotoPermissionSettingsAlert()
+                }
+            case .restricted:
+                DispatchQueue.main.async {
+                    Toast.error(L(L10n.Gallery.photoPermissionDenied))
+                }
+            }
+        }
+    }
+
+    private func requestPhotoLibrarySaveAuthorization(completion: @escaping (PhotoLibrarySaveAuthorizationResult) -> Void) {
+        if #available(iOS 14.0, *) {
+            switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
+            case .authorized, .limited:
+                completion(.authorized)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    switch status {
+                    case .authorized, .limited:
+                        completion(.authorized)
+                    case .denied:
+                        completion(.denied)
+                    case .restricted:
+                        completion(.restricted)
+                    case .notDetermined:
+                        completion(.denied)
+                    @unknown default:
+                        completion(.denied)
+                    }
+                }
+            case .denied:
+                completion(.denied)
+            case .restricted:
+                completion(.restricted)
+            @unknown default:
+                completion(.denied)
+            }
+        } else {
+            switch PHPhotoLibrary.authorizationStatus() {
+            case .authorized, .limited:
+                completion(.authorized)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization { status in
+                    switch status {
+                    case .authorized, .limited:
+                        completion(.authorized)
+                    case .denied:
+                        completion(.denied)
+                    case .restricted:
+                        completion(.restricted)
+                    case .notDetermined:
+                        completion(.denied)
+                    @unknown default:
+                        completion(.denied)
+                    }
+                }
+            case .denied:
+                completion(.denied)
+            case .restricted:
+                completion(.restricted)
+            @unknown default:
+                completion(.denied)
+            }
+        }
+    }
+
+    private func presentPhotoPermissionSettingsAlert() {
+        let presentAlert = { [weak self] in
+            guard let self else { return }
+            let alert = UIAlertController(
+                title: L(L10n.Gallery.photoPermissionTitle),
+                message: L(L10n.Gallery.photoPermissionMessage),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+            alert.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default) { _ in
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            })
+            self.present(alert, animated: true)
+        }
+
+        if let presentedViewController {
+            presentedViewController.dismiss(animated: true, completion: presentAlert)
+        } else {
+            presentAlert()
+        }
     }
 
     @objc private func handlePanDismiss(_ gesture: UIPanGestureRecognizer) {

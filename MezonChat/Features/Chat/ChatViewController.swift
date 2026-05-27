@@ -2,6 +2,7 @@ import SwiftProtobuf
 import UIKit
 import CoreLocation
 import QuartzCore
+import Photos
 
 enum ActiveChannelTracker {
     private static let lock = NSLock()
@@ -191,6 +192,14 @@ struct ChatMessageDisplay: Identifiable {
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
     var isLocation: Bool { locationData != nil }
+    var singleImageMediaAttachment: ParsedAttachment? {
+        guard attachments.count == 1,
+              let attachment = attachments.first,
+              attachment.isImage,
+              !attachment.isVideo else { return nil }
+        if attachment.localImage != nil { return attachment }
+        return attachment.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : attachment
+    }
     var shareContactData: ShareContactData? {
         guard let embed = parsedContent.embeds.first else { return nil }
         let isShareContact = messageCode == MezonConstants.MessageCode.shareContact.rawValue
@@ -348,6 +357,7 @@ final class ChatViewController: ViewController {
         return lm
     }()
     private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
+    private var isWaitingForLocationAuthorization = false
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -1012,11 +1022,30 @@ final class ChatViewController: ViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        lastLayout = layout
-
-        let bottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
-        let layoutInputH = layout.inputHeight ?? 0
+        var layoutToApply = layout
+        let initialBottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
+        let initialInputH = layout.inputHeight ?? 0
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
+        let shouldSuppressShareContactKeyboardInset =
+            shouldSuppressShareContactKeyboardInsetOnReturn
+            && initialInputH > initialBottomInset + 1
+            && !composerHasKeyboardFocus
+            && !isKeyboardVisible
+            && trackedKeyboardHeight <= 0.5
+        if shouldSuppressShareContactKeyboardInset {
+            layoutToApply = layout.withUpdatedInputHeight(nil)
+            currentKeyboardOffset = 0
+            suppressScrollToBottomForNextKeyboardInset = false
+        }
+        if shouldSuppressShareContactKeyboardInsetOnReturn {
+            if composerHasKeyboardFocus || isKeyboardVisible {
+                shouldSuppressShareContactKeyboardInsetOnReturn = false
+            }
+        }
+        lastLayout = layoutToApply
+
+        let bottomInset = max(layoutToApply.intrinsicInsets.bottom, layoutToApply.safeInsets.bottom)
+        let layoutInputH = layoutToApply.inputHeight ?? 0
         let shouldIgnoreNotificationKeyboardInset =
             shouldReconcileKeyboardAfterNotificationNavigation
             && layoutInputH > bottomInset + 1
@@ -1069,11 +1098,11 @@ final class ChatViewController: ViewController {
         let appHotbarH: CGFloat = showAppHotbar ? ChannelAppHotbarBarView.prefersFixedHeight : 0
         channelAppHotbar.isHidden = !showAppHotbar
         let totalBottomH = appHotbarH + sendComposerH
-        let inputY = layout.size.height - bottomInset - bottomOffset - totalBottomH
+        let inputY = layoutToApply.size.height - bottomInset - bottomOffset - totalBottomH
         let inputFrame = CGRect(
             x: 0,
             y: inputY,
-            width: layout.size.width,
+            width: layoutToApply.size.width,
             height: sendComposerH + bottomInset
         )
         sendInputViewController.syncComposerBottomSafeInset(bottomInset)
@@ -1081,14 +1110,14 @@ final class ChatViewController: ViewController {
             let hotbarFrame = CGRect(
                 x: 0,
                 y: inputY,
-                width: layout.size.width,
+                width: layoutToApply.size.width,
                 height: appHotbarH
             )
             let composerTop = inputY + appHotbarH
             let composerFrame = CGRect(
                 x: 0,
                 y: composerTop,
-                width: layout.size.width,
+                width: layoutToApply.size.width,
                 height: sendComposerH + bottomInset
             )
             transition.updateFrame(view: channelAppHotbar, frame: hotbarFrame, beginWithCurrentState: true)
@@ -1101,12 +1130,12 @@ final class ChatViewController: ViewController {
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
-        let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layout.size.width, height: stripH)
+        let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layoutToApply.size.width, height: stripH)
         transition.updateFrame(view: remoteTypingStripView, frame: typingFrame, beginWithCurrentState: true)
         remoteTypingLabel.frame = CGRect(
             x: 12,
             y: 0,
-            width: max(0, layout.size.width - 24),
+            width: max(0, layoutToApply.size.width - 24),
             height: Self.remoteTypingStripMaxHeight
         )
 
@@ -1128,7 +1157,7 @@ final class ChatViewController: ViewController {
         currentKeyboardOffset = bottomOffset
 
         messagesNode.updateLayout(
-            layout: layout,
+            layout: layoutToApply,
             inputBarHeight: totalInputArea + Self.chatFrameBottomGap,
             transition: transition
         )
@@ -1137,6 +1166,7 @@ final class ChatViewController: ViewController {
     private var lastLayout: ContainerViewLayout?
     private var wasCoveredByPushedController = false
     private var needsRefreshAfterTopicDiscussion = false
+    private var shouldSuppressShareContactKeyboardInsetOnReturn = false
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -1161,6 +1191,17 @@ final class ChatViewController: ViewController {
         if !hasComposerFR && !isReactionEmojiPickerSheetHostingFirstResponder {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
+        }
+        if shouldSuppressShareContactKeyboardInsetOnReturn {
+            if !hasComposerFR {
+                isKeyboardVisible = false
+                trackedKeyboardHeight = 0
+                currentKeyboardOffset = 0
+                suppressScrollToBottomForNextKeyboardInset = false
+                if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
+                    lastLayout = layout.withUpdatedInputHeight(nil)
+                }
+            }
         }
         reconcileKeyboardAfterNotificationNavigationIfNeeded()
         if let layout = lastLayout {
@@ -1573,6 +1614,17 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
+
+            let immediateToken: String? = {
+                if let t = self.context.session?.token, !t.isEmpty { return t }
+                if let t = SessionStore.load()?.token, !t.isEmpty { return t }
+                return nil
+            }()
+            if let immediateToken {
+                self.hasCompletedInitialFetch = true
+                self.fetchMessages(token: immediateToken)
+            }
+
             var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
             if token == nil {
                 await self.context.waitForSessionReady()
@@ -1582,8 +1634,10 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
-            self.hasCompletedInitialFetch = true
-            self.fetchMessages(token: token)
+            if !self.hasCompletedInitialFetch {
+                self.hasCompletedInitialFetch = true
+                self.fetchMessages(token: token)
+            }
             await self.waitForSocketConnected()
             self.joinChat()
             self.refreshPinnedMessagesFromServer()
@@ -3540,6 +3594,11 @@ final class ChatViewController: ViewController {
 
     private func navigateToShareContact() {
         view.endEditing(true)
+        shouldSuppressShareContactKeyboardInsetOnReturn = true
+        isKeyboardVisible = false
+        trackedKeyboardHeight = 0
+        currentKeyboardOffset = 0
+        suppressScrollToBottomForNextKeyboardInset = false
         sendInputViewController.markAdvancePanelDismissedByHost()
         handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
 
@@ -3595,6 +3654,7 @@ final class ChatViewController: ViewController {
         switch status {
         case .notDetermined:
             locationManager.delegate = self
+            isWaitingForLocationAuthorization = true
             locationCompletion = { [weak self] coord in
                 guard let self, let coord else { return }
                 self.showLocationConfirm(coordinate: coord)
@@ -3611,11 +3671,37 @@ final class ChatViewController: ViewController {
 
     private func fetchLocationAndShowConfirm() {
         locationManager.delegate = self
+        isWaitingForLocationAuthorization = false
         locationCompletion = { [weak self] coord in
             guard let self, let coord else { return }
             self.showLocationConfirm(coordinate: coord)
         }
         locationManager.requestLocation()
+    }
+
+    private func handleLocationAuthorizationStatus(_ status: CLAuthorizationStatus, manager: CLLocationManager) {
+        guard isWaitingForLocationAuthorization else { return }
+        guard status != .notDetermined else { return }
+
+        isWaitingForLocationAuthorization = false
+        switch status {
+        case .authorizedWhenInUse, .authorizedAlways:
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak manager] in
+                guard let self, let manager, self.locationCompletion != nil else { return }
+                manager.requestLocation()
+            }
+        case .denied, .restricted:
+            manager.delegate = nil
+            let completion = locationCompletion
+            locationCompletion = nil
+            completion?(nil)
+            showLocationPermissionDeniedAlert()
+        case .notDetermined:
+            break
+        @unknown default:
+            manager.delegate = nil
+            locationCompletion = nil
+        }
     }
 
     private func showLocationConfirm(coordinate: CLLocationCoordinate2D) {
@@ -4253,12 +4339,16 @@ final class ChatViewController: ViewController {
             user: user,
             context: context,
             isCurrentUser: isCurrentUser,
+            clanId: clanId,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
                 let chatVC = ChatViewController(
                     clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
+            },
+            onStartCall: { [weak self] dmChannel in
+                self?.startDirectMessageCall(channel: dmChannel, user: user)
             }
         )
         presentInGlobalOverlay(sheet)
@@ -4317,12 +4407,16 @@ final class ChatViewController: ViewController {
             user: user,
             context: context,
             isCurrentUser: isCurrentUser,
+            clanId: clanId,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
                 let chatVC = ChatViewController(
                     clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
+            },
+            onStartCall: { [weak self] dmChannel in
+                self?.startDirectMessageCall(channel: dmChannel, user: user)
             }
         )
         presentInGlobalOverlay(sheet)
@@ -4386,6 +4480,31 @@ final class ChatViewController: ViewController {
             let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
             self.navigationController?.pushViewController(chatVC, animated: true)
         }
+    }
+
+    private func startDirectMessageCall(channel: Mezon_Api_ChannelDescription, user: Mezon_Api_User) {
+        guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
+            Toast.error("Cannot call yourself")
+            return
+        }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
+        let displayName = user.displayName.isEmpty ? (channel.channelLabel.isEmpty ? user.username : channel.channelLabel) : user.displayName
+        let avatarURL = user.avatarURL.isEmpty ? channel.avatars.first : user.avatarURL
+        let callVC = PeerCallViewController(
+            context: context,
+            remoteUserName: displayName,
+            remoteAvatarURL: avatarURL,
+            remoteUserId: user.id,
+            channelId: channel.channelID,
+            isVideo: false
+        )
+        pushPeerCallScreen(callVC)
     }
 
     private func startShareContactCall(_ data: ShareContactData) {
@@ -4809,6 +4928,183 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    private enum PhotoLibrarySaveAuthorizationResult {
+        case authorized
+        case denied
+        case restricted
+    }
+
+    private func saveSingleMessageImage(display: ChatMessageDisplay) {
+        loadSingleMessageImage(display: display) { [weak self] image in
+            guard let self else { return }
+            guard let image else {
+                Toast.error(L(L10n.Gallery.imageLoadFailed))
+                return
+            }
+            self.saveImageToPhotoLibrary(image)
+        }
+    }
+
+    private func copySingleMessageImage(display: ChatMessageDisplay) {
+        loadSingleMessageImage(display: display) { image in
+            guard let image else {
+                Toast.error(L(L10n.Gallery.imageLoadFailed))
+                return
+            }
+            UIPasteboard.general.image = image
+            Toast.success(L(L10n.MessageAction.copied))
+        }
+    }
+
+    private func loadSingleMessageImage(display: ChatMessageDisplay, completion: @escaping (UIImage?) -> Void) {
+        guard let attachment = display.singleImageMediaAttachment else {
+            completion(nil)
+            return
+        }
+        if let localImage = attachment.localImage {
+            completion(localImage)
+            return
+        }
+
+        let url = attachment.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        if let cached = ImageCache.shared.cachedImage(forURL: url) {
+            completion(cached)
+            return
+        }
+
+        let proxyWidth = min(max(attachment.width ?? 1200, 1200), 2400)
+        let proxyHeight = min(max(attachment.height ?? 1200, 1200), 2400)
+        let fallbackProxyURL = ImgproxyURL.attachmentURL(
+            from: url,
+            width: proxyWidth,
+            height: proxyHeight,
+            resizeType: "fit"
+        )
+
+        ImageCache.shared.loadImage(urlString: url) { image in
+            if let image {
+                completion(image)
+                return
+            }
+            guard !fallbackProxyURL.isEmpty, fallbackProxyURL != url else {
+                completion(nil)
+                return
+            }
+            ImageCache.shared.loadImage(urlString: fallbackProxyURL, completion: completion)
+        }
+    }
+
+    private func saveImageToPhotoLibrary(_ image: UIImage) {
+        requestPhotoLibrarySaveAuthorization { [weak self] result in
+            switch result {
+            case .authorized:
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }, completionHandler: { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            Toast.success(L(L10n.Gallery.imageSaved))
+                        } else {
+                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.imageSaveFailed))
+                        }
+                    }
+                })
+            case .denied:
+                DispatchQueue.main.async {
+                    self?.presentPhotoPermissionSettingsAlert()
+                }
+            case .restricted:
+                DispatchQueue.main.async {
+                    Toast.error(L(L10n.Gallery.photoPermissionDenied))
+                }
+            }
+        }
+    }
+
+    private func requestPhotoLibrarySaveAuthorization(completion: @escaping (PhotoLibrarySaveAuthorizationResult) -> Void) {
+        if #available(iOS 14.0, *) {
+            switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
+            case .authorized, .limited:
+                completion(.authorized)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    switch status {
+                    case .authorized, .limited:
+                        completion(.authorized)
+                    case .denied:
+                        completion(.denied)
+                    case .restricted:
+                        completion(.restricted)
+                    case .notDetermined:
+                        completion(.denied)
+                    @unknown default:
+                        completion(.denied)
+                    }
+                }
+            case .denied:
+                completion(.denied)
+            case .restricted:
+                completion(.restricted)
+            @unknown default:
+                completion(.denied)
+            }
+        } else {
+            switch PHPhotoLibrary.authorizationStatus() {
+            case .authorized, .limited:
+                completion(.authorized)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization { status in
+                    switch status {
+                    case .authorized, .limited:
+                        completion(.authorized)
+                    case .denied:
+                        completion(.denied)
+                    case .restricted:
+                        completion(.restricted)
+                    case .notDetermined:
+                        completion(.denied)
+                    @unknown default:
+                        completion(.denied)
+                    }
+                }
+            case .denied:
+                completion(.denied)
+            case .restricted:
+                completion(.restricted)
+            @unknown default:
+                completion(.denied)
+            }
+        }
+    }
+
+    private func presentPhotoPermissionSettingsAlert() {
+        let presentAlert = { [weak self] in
+            guard let self else { return }
+            let alert = UIAlertController(
+                title: L(L10n.Gallery.photoPermissionTitle),
+                message: L(L10n.Gallery.photoPermissionMessage),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+            alert.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default) { _ in
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            })
+            self.present(alert, animated: true)
+        }
+
+        if let presentedViewController {
+            presentedViewController.dismiss(animated: true, completion: presentAlert)
+        } else {
+            presentAlert()
+        }
+    }
+
     private func showMessageActionComingSoon(_ action: MessageAction) {
         let line = "\(action.title) — \(L(L10n.Common.comingSoon))"
         Toast.comingSoonLine(line)
@@ -4822,6 +5118,10 @@ final class ChatViewController: ViewController {
         case .copyText:
             UIPasteboard.general.string = display.parsedContent.text
             Toast.success(L(L10n.MessageAction.copied))
+        case .saveImage:
+            saveSingleMessageImage(display: display)
+        case .copyImage:
+            copySingleMessageImage(display: display)
         case .deleteMessage:
             let msgId = display.message.id
             if let msgIdInt = Int64(msgId) {
@@ -5156,6 +5456,7 @@ extension ChatViewController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         manager.delegate = nil
+        isWaitingForLocationAuthorization = false
         let completion = locationCompletion
         locationCompletion = nil
         completion?(locations.last?.coordinate)
@@ -5163,6 +5464,7 @@ extension ChatViewController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         manager.delegate = nil
+        isWaitingForLocationAuthorization = false
         let completion = locationCompletion
         locationCompletion = nil
         completion?(nil)
@@ -5175,16 +5477,11 @@ extension ChatViewController: CLLocationManagerDelegate {
         } else {
             status = CLLocationManager.authorizationStatus()
         }
-        guard status != .notDetermined else { return }
-        if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.requestLocation()
-        } else {
-            manager.delegate = nil
-            let completion = locationCompletion
-            locationCompletion = nil
-            completion?(nil)
-            showLocationPermissionDeniedAlert()
-        }
+        handleLocationAuthorizationStatus(status, manager: manager)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        handleLocationAuthorizationStatus(status, manager: manager)
     }
 }
 

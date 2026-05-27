@@ -143,7 +143,7 @@ final class MessageBubbleNode: ASDisplayNode {
             self.hasShareContact = false
             self.hasLocation = false
         } else if shareContactData != nil {
-            self.hasContent = false
+            self.hasContent = !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             self.hasMedia = false
             self.hasAudio = false
             self.hasFiles = false
@@ -828,7 +828,6 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.isLocation { return false }
         if display.isPollMessage { return false }
         if display.isSendTokenLog { return false }
-        if display.shareContactData != nil { return false }
         if display.checkOneLinkImage { return false }
         return !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }

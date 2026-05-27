@@ -388,6 +388,11 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
         refreshFriends()
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        view.endEditing(true)
+    }
+
     private func setupHeader() {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         headerView.backgroundColor = UIColor.theme.primary

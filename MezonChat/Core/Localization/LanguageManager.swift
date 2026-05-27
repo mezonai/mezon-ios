@@ -27,8 +27,20 @@ final class LanguageManager {
     private(set) var current: AppLanguage
 
     private init() {
-        let stored = UserDefaults.standard.string(forKey: Self.userDefaultsKey) ?? ""
-        current = AppLanguage(rawValue: stored) ?? .english
+        if let stored = UserDefaults.standard.string(forKey: Self.userDefaultsKey),
+           let language = AppLanguage(rawValue: stored) {
+            current = language
+        } else {
+            current = Self.defaultLanguageForSystem()
+        }
+    }
+
+    private static func defaultLanguageForSystem() -> AppLanguage {
+        let preferredLanguage = Locale.preferredLanguages.first?
+            .replacingOccurrences(of: "_", with: "-")
+            .lowercased() ?? ""
+        let languageCode = preferredLanguage.split(separator: "-").first.map(String.init)
+        return languageCode == AppLanguage.vietnamese.rawValue ? .vietnamese : .english
     }
 
     func set(_ language: AppLanguage) {

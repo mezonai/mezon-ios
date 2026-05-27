@@ -942,10 +942,28 @@ final class ForwardMessageViewController: UIViewController {
 
     private static func previewPlainText(for record: MessageRecord, maxLength: Int = 500) -> String {
         let parsed = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
+        if record.code == MezonConstants.MessageCode.shareContact.rawValue || isShareContactEmbed(parsed.embeds) {
+            return "[\(L(L10n.DirectMessage.previewContact))]"
+        }
         let t = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return "" }
         if t.count <= maxLength { return t }
         return String(t.prefix(maxLength)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
+    private static func isShareContactEmbed(_ embeds: [ParsedEmbed]) -> Bool {
+        embeds.contains { embed in
+            embed.fields.contains { field in
+                let name = field.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let value = field.value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if name == "key", isShareContactValue(value) { return true }
+                return isShareContactValue(value)
+            }
+        }
+    }
+
+    private static func isShareContactValue(_ value: String) -> Bool {
+        value == MezonConstants.shareContactKey || value == "share_contact_key"
     }
 
     @objc private func searchChanged(_ field: UITextField) {

@@ -136,16 +136,23 @@ enum ReactionEmojiImageLoader {
     private static func loadData(from url: URL, completion: @escaping (Data?) -> Void) -> URLSessionDataTask? {
         let key = url.absoluteString
         if let cached = EmojiDataCache.shared.data(forKey: key) {
-            DispatchQueue.main.async { completion(cached) }
+            if isValidImageData(cached) {
+                DispatchQueue.main.async { completion(cached) }
+            } else {
+                EmojiDataCache.shared.remove(forKey: key)
+                DispatchQueue.main.async { completion(nil) }
+            }
             return nil
         }
         if ImageCache.shared.hasDiskCache(forKey: key) {
             DispatchQueue.global(qos: .userInitiated).async {
                 let data = ImageCache.shared.cachedData(forKey: key)
-                if let data {
+                if let data, isValidImageData(data) {
                     EmojiDataCache.shared.setData(data, forKey: key)
+                    DispatchQueue.main.async { completion(data) }
+                } else {
+                    DispatchQueue.main.async { completion(nil) }
                 }
-                DispatchQueue.main.async { completion(data) }
             }
             return nil
         }
@@ -156,7 +163,7 @@ enum ReactionEmojiImageLoader {
                     "url": url.absoluteString,
                 ])
             }
-            guard let data else {
+            guard let data, isValidImageData(data) else {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
@@ -166,6 +173,11 @@ enum ReactionEmojiImageLoader {
         }
         task.resume()
         return task
+    }
+
+    private static func isValidImageData(_ data: Data) -> Bool {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        return CGImageSourceGetCount(source) > 0
     }
 }
 
@@ -209,6 +221,7 @@ final class AnimatedEmojiImageView: UIView {
     private var isStatic: Bool = true
     private var pendingDecodeGeneration: Int = 0
     private var currentDataKey: String?
+    private var lastRenderedContents: CGImage?
 
     var contentsGravity: CALayerContentsGravity = .resizeAspect {
         didSet { layer.contentsGravity = contentsGravity }
@@ -237,14 +250,25 @@ final class AnimatedEmojiImageView: UIView {
         lastFrameIndex = -1
         isStatic = true
         currentDataKey = nil
+        lastRenderedContents = nil
         layer.contents = nil
+    }
+
+    func reapplyContentsIfCleared() {
+        guard layer.contents == nil, let lastRenderedContents else { return }
+        layer.contents = lastRenderedContents
+        if !isStatic, imageSource != nil, window != nil {
+            requestedFrameIndex = -1
+            AnimatedEmojiTicker.shared.register(self)
+        }
     }
 
 
     func setImage(_ image: UIImage?) {
         reset()
         guard let image else { return }
-        layer.contents = image.cgImage
+        lastRenderedContents = image.cgImage
+        layer.contents = lastRenderedContents
     }
 
 
@@ -254,7 +278,7 @@ final class AnimatedEmojiImageView: UIView {
             return
         }
 
-        if let cacheKey, cacheKey == currentDataKey, !isStatic {
+        if let cacheKey, cacheKey == currentDataKey, !isStatic, layer.contents != nil {
             return
         }
 
@@ -282,6 +306,7 @@ final class AnimatedEmojiImageView: UIView {
                     self.totalDuration = 0
                     self.lastFrameIndex = -1
                     self.requestedFrameIndex = -1
+                    self.lastRenderedContents = cg
                     self.layer.contents = cg
                 }
                 return
@@ -302,6 +327,7 @@ final class AnimatedEmojiImageView: UIView {
                 self.lastFrameIndex = 0
                 self.requestedFrameIndex = 0
                 self.startTime = CACurrentMediaTime()
+                self.lastRenderedContents = firstFrame
                 self.layer.contents = firstFrame
                 if self.window != nil {
                     AnimatedEmojiTicker.shared.register(self)
@@ -319,7 +345,8 @@ final class AnimatedEmojiImageView: UIView {
         frameDelays = []
         totalDuration = 0
         lastFrameIndex = -1
-        layer.contents = image?.cgImage
+        lastRenderedContents = image?.cgImage
+        layer.contents = lastRenderedContents
     }
 
     fileprivate func tick(now: CFTimeInterval) {
@@ -343,6 +370,7 @@ final class AnimatedEmojiImageView: UIView {
             DispatchQueue.main.async {
                 guard let self, gen == self.pendingDecodeGeneration else { return }
                 self.lastFrameIndex = target
+                self.lastRenderedContents = cg
                 self.layer.contents = cg
             }
         }
@@ -351,7 +379,13 @@ final class AnimatedEmojiImageView: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
+            if layer.contents == nil, let lastRenderedContents {
+                layer.contents = lastRenderedContents
+            }
             if !isStatic, imageSource != nil {
+                if layer.contents == nil {
+                    requestedFrameIndex = -1
+                }
                 AnimatedEmojiTicker.shared.register(self)
             }
         } else {

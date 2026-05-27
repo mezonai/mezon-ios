@@ -536,6 +536,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             user: user,
             context: context,
             isCurrentUser: isCurrentUser,
+            clanId: clanId,
             groupAction: groupAction,
             onSendMessage: { [weak self, weak host] dmChannel in
                 guard let self, let host else { return }
@@ -543,6 +544,29 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 let chatVC = ChatViewController(
                     clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 host.navigationController?.pushViewController(chatVC, animated: true)
+            },
+            onStartCall: { [weak self, weak host] dmChannel in
+                guard let self, let host else { return }
+                let displayName = user.displayName.isEmpty ? (dmChannel.channelLabel.isEmpty ? user.username : dmChannel.channelLabel) : user.displayName
+                let avatarURL = user.avatarURL.isEmpty ? dmChannel.avatars.first : user.avatarURL
+                PeerCallLogMessage.sendStartCallLog(
+                    context: self.context,
+                    channel: dmChannel,
+                    isVideoCall: false
+                )
+                let callVC = PeerCallViewController(
+                    context: self.context,
+                    remoteUserName: displayName,
+                    remoteAvatarURL: avatarURL,
+                    remoteUserId: user.id,
+                    channelId: dmChannel.channelID,
+                    isVideo: false
+                )
+                if let nav = host.navigationController {
+                    nav.pushViewController(callVC, animated: true)
+                } else {
+                    host.present(callVC, animated: true)
+                }
             }
         )
         host.presentInGlobalOverlay(sheet)
