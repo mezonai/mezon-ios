@@ -1979,11 +1979,11 @@ final class ChannelListHeaderView: UIView {
         searchLabel.textColor = t.textDisabled
         let currentTheme = ThemeManager.shared.current
         let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         if effectiveTheme == .light || effectiveTheme == .sunrise {
-            qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysOriginal), for: .normal)
+            qrButton.tintColor = UIColor(hexString: "#ff6b6f76")
         } else {
-            qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-            qrButton.tintColor = t.textStrong
+            qrButton.tintColor = UIColor(hexString: "#fefefe")
         }
         
         qrButton.backgroundColor = t.tertiary

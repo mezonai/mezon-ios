@@ -67,7 +67,7 @@ public struct NotificationRecord: PostboxCoding, Identifiable, Equatable {
 extension NotificationRecord {
 
     public var previewText: String {
-        Self.extractDisplayText(from: content)
+        return content
     }
 
     init(from apiModel: Mezon_Api_Notification) {
@@ -87,7 +87,6 @@ extension NotificationRecord {
         } else {
             self.channelType = 0
         }
-
         let decoded = NotificationRecord.decodeContent(from: apiModel.content)
         self.content = decoded.text
         self.avatarURL = apiModel.avatarURL.isEmpty ? decoded.avatar : apiModel.avatarURL
@@ -107,83 +106,55 @@ extension NotificationRecord {
     static func extractDisplayText(from raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
+
         guard trimmed.first == "{" || trimmed.first == "[" else { return trimmed }
         guard let data = trimmed.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
             return trimmed
         }
-        if let extracted = extractText(fromJSONObject: obj), !extracted.isEmpty {
-            return extracted
+        
+        var hasEmbed = false
+        var isContact = false
+        
+        if let embeds = obj["embed"] as? [[String: Any]] ?? (obj["embed"] as? [String: Any]).map({ [$0] }), !embeds.isEmpty {
+            hasEmbed = true
+            if let first = embeds.first, let fields = first["fields"] as? [[String: Any]], let firstField = fields.first, let val = firstField["value"] as? String, val.lowercased() == "share_contact_key" {
+                isContact = true
+            }
+        } else if let embeds = obj["embeds"] as? [[String: Any]] ?? (obj["embeds"] as? [String: Any]).map({ [$0] }), !embeds.isEmpty {
+            hasEmbed = true
         }
-        if obj["embed"] != nil || obj["embeds"] != nil {
-            return ""
+        
+        if hasEmbed {
+            if isContact {
+                return "[\(L(L10n.DirectMessage.previewContact))]"
+            } else {
+                return "[\(L(L10n.DirectMessage.previewEmbed))]"
+            }
         }
-        if obj["t"] is String || obj["text"] is String {
-            return ""
+        
+        var hasAttachment = false
+        if let attachments = obj["attachments"] as? [Any], !attachments.isEmpty {
+            hasAttachment = true
+        } else if let a = obj["a"] as? [Any], !a.isEmpty {
+            hasAttachment = true
         }
-        return trimmed
+        
+        if hasAttachment {
+            return "[\(L(L10n.DirectMessage.previewAttachment))]"
+        }
+        
+        if let text = obj["t"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if let text = obj["text"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        
+        return "[\(L(L10n.DirectMessage.previewAttachment))]"
     }
 
-    private static func extractText(fromJSONObject obj: [String: Any]) -> String? {
-        if let t = obj["t"] as? String {
-            let x = t.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { return x }
-        }
-        if let t = obj["text"] as? String {
-            let x = t.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { return x }
-        }
-        if let embedLine = extractEmbedSummary(from: obj["embed"]) { return embedLine }
-        if let embedLine = extractEmbedSummary(from: obj["embeds"]) { return embedLine }
-        guard let contentVal = obj["content"] else { return nil }
-        if let nestedString = contentVal as? String {
-            let out = extractDisplayText(from: nestedString)
-            return out.isEmpty ? nil : out
-        }
-        if let inner = contentVal as? [String: Any] {
-            return extractText(fromJSONObject: inner)
-        }
-        return nil
-    }
 
-    private static func extractEmbedSummary(from value: Any?) -> String? {
-        let items: [[String: Any]]
-        if let arr = value as? [[String: Any]] {
-            items = arr
-        } else if let one = value as? [String: Any] {
-            items = [one]
-        } else {
-            return nil
-        }
-        guard let first = items.first else { return nil }
-        var parts: [String] = []
-        if let s = first["title"] as? String {
-            let x = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { parts.append(x) }
-        }
-        if let s = first["description"] as? String {
-            let x = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { parts.append(x) }
-        }
-        if let author = first["author"] as? [String: Any], let s = author["name"] as? String {
-            let x = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { parts.append(x) }
-        }
-        if let footer = first["footer"] as? [String: Any], let s = footer["text"] as? String {
-            let x = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { parts.append(x) }
-        } else if let s = first["footer"] as? String {
-            let x = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !x.isEmpty { parts.append(x) }
-        }
-        guard !parts.isEmpty else { return nil }
-        let joined = parts.joined(separator: " ")
-        if joined.count > 220 {
-            return String(joined.prefix(220)) + "…"
-        }
-        return joined
-    }
 
     private static func parseInt64(_ value: Any?) -> Int64? {
         if let n = value as? NSNumber {
@@ -277,7 +248,7 @@ extension NotificationRecord {
         else {
             return (extractDisplayText(from: raw), "", 0, 0, 0)
         }
-        let text = extractText(fromJSONObject: obj) ?? extractDisplayText(from: raw)
+        let text = extractDisplayText(from: raw)
         let avatar = extractAvatar(fromJSONObject: obj)
         let messageID =
             parseInt64(obj["message_id"]) ?? parseInt64(obj["messageId"]) ?? parseInt64(obj["messageID"])
