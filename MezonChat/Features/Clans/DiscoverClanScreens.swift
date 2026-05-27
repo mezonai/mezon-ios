@@ -231,7 +231,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
     private let searchField = UITextField()
     private let qrHeaderButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(named: "Channel/QR")?.withRenderingMode(.alwaysOriginal), for: .normal)
+        btn.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
         btn.clipsToBounds = true
@@ -428,6 +428,16 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         headerContainer.layer.borderWidth = 0
         qrHeaderButton.backgroundColor = t.tertiary
         qrHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
+        
+        let currentTheme = ThemeManager.shared.current
+        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        qrHeaderButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        if effectiveTheme == .light || effectiveTheme == .sunrise {
+            qrHeaderButton.tintColor = UIColor(hexString: "#ff6b6f76")
+        } else {
+            qrHeaderButton.tintColor = UIColor(hexString: "#fefefe")
+        }
+        
         addFriendHeaderButton.backgroundColor = t.tertiary
         addFriendHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         statusLabel.textColor = t.textDisabled
