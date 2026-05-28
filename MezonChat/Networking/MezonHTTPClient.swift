@@ -2224,6 +2224,42 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
     }
+
+    func listWebhooksByChannelId(channelId: Int64, clanId: Int64, token: String) async throws -> [Mezon_Api_Webhook] {
+        var req = Mezon_Api_WebhookListRequest()
+        req.channelID = channelId
+        req.clanID = clanId
+        let response: Mezon_Api_WebhookListResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListWebhookByChannelId",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.webhooks
+    }
+
+    func generateWebhook(request: Mezon_Api_WebhookCreateRequest, token: String) async throws -> Mezon_Api_WebhookGenerateResponse {
+        return try await postProto(
+            path: "/mezon.api.Mezon/GenerateWebhook",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateWebhookById(request: Mezon_Api_WebhookUpdateRequestById, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateWebhookById",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteWebhookById(request: Mezon_Api_WebhookDeleteRequestById, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteWebhookById",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
 }
 
 private struct EmptyBody: Encodable {}
