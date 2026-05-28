@@ -153,22 +153,7 @@ final class MessageReplyNode: ASDisplayNode {
         } else {
             hasAttachment = false
             attachmentIconNode.removeFromSupernode()
-            let raw = ref.content
-            let preview: String
-            if raw.isEmpty {
-                preview = ""
-            } else if let data = raw.data(using: .utf8),
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                let textVal = (json["t"] as? String) ?? (json["text"] as? String)
-                if let s = textVal {
-                    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                    preview = trimmed.isEmpty ? "" : (trimmed.count > 80 ? String(trimmed.prefix(80)) + "…" : trimmed)
-                } else {
-                    preview = ""
-                }
-            } else {
-                preview = raw.count > 80 ? String(raw.prefix(80)) + "…" : raw
-            }
+            let preview = Self.previewText(from: ref.content)
             previewNode.isHidden = preview.isEmpty
             previewNode.attributedText = NSAttributedString(
                 string: preview,
@@ -178,6 +163,64 @@ final class MessageReplyNode: ASDisplayNode {
                 ]
             )
         }
+    }
+
+    private static func previewText(from raw: String) -> String {
+        let trimmedRaw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRaw.isEmpty else { return "" }
+
+        guard let data = trimmedRaw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return truncatedPreview(trimmedRaw)
+        }
+
+        if isShareContactContent(json) {
+            return "[\(L(L10n.DirectMessage.previewContact))]"
+        }
+
+        let textVal = (json["t"] as? String) ?? (json["text"] as? String)
+        guard let textVal else { return "" }
+        let trimmed = textVal.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "" : truncatedPreview(trimmed)
+    }
+
+    private static func truncatedPreview(_ text: String) -> String {
+        text.count > 80 ? String(text.prefix(80)) + "…" : text
+    }
+
+    private static func isShareContactContent(_ json: [String: Any]) -> Bool {
+        if containsShareContactEmbed(json["embed"]) { return true }
+        if containsShareContactEmbed(json["embeds"]) { return true }
+        return false
+    }
+
+    private static func containsShareContactEmbed(_ value: Any?) -> Bool {
+        let embeds: [[String: Any]]
+        if let array = value as? [[String: Any]] {
+            embeds = array
+        } else if let object = value as? [String: Any] {
+            embeds = [object]
+        } else {
+            return false
+        }
+
+        return embeds.contains { embed in
+            guard let fields = embed["fields"] as? [[String: Any]] else { return false }
+            return fields.contains { field in
+                let name = (field["name"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                let value = (field["value"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() ?? ""
+                if name == "key", isShareContactValue(value) { return true }
+                return isShareContactValue(value)
+            }
+        }
+    }
+
+    private static func isShareContactValue(_ value: String) -> Bool {
+        value == MezonConstants.shareContactKey || value == "share_contact_key"
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {

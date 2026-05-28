@@ -50,6 +50,7 @@ final class Toast {
 private final class ToastManager {
 
     static let shared = ToastManager()
+    private static let overlayZPosition: CGFloat = 10_000
 
     private var toastContainer: UIView?
     private var toastWindow: UIWindow?
@@ -76,7 +77,7 @@ private final class ToastManager {
 
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer.zPosition = CGFloat.greatestFiniteMagnitude
+        container.layer.zPosition = Self.overlayZPosition
         container.addSubview(toastView)
 
         hostView.addSubview(container)
@@ -94,10 +95,8 @@ private final class ToastManager {
         ])
 
         toastContainer = container
-        toastView.alpha = 0
         toastView.transform = CGAffineTransform(translationX: 0, y: -20)
         UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
-            toastView.alpha = 1
             toastView.transform = .identity
         }
 
@@ -112,14 +111,10 @@ private final class ToastManager {
         dismissWorkItem?.cancel()
         dismissWorkItem = nil
 
-        UIView.animate(withDuration: 0.2) {
-            self.toastContainer?.alpha = 0
-        } completion: { _ in
-            self.toastContainer?.removeFromSuperview()
-            self.toastContainer = nil
-            self.toastWindow?.isHidden = true
-            self.toastWindow = nil
-        }
+        toastContainer?.removeFromSuperview()
+        toastContainer = nil
+        toastWindow?.isHidden = true
+        toastWindow = nil
     }
 
     func presentComingSoonPill(message: String, duration: TimeInterval) {
@@ -133,7 +128,7 @@ private final class ToastManager {
         pill.translatesAutoresizingMaskIntoConstraints = false
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer.zPosition = CGFloat.greatestFiniteMagnitude
+        container.layer.zPosition = Self.overlayZPosition
         container.addSubview(pill)
         hostView.addSubview(container)
         hostView.bringSubviewToFront(container)
@@ -150,10 +145,8 @@ private final class ToastManager {
             pill.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
         toastContainer = container
-        pill.alpha = 0
         pill.transform = CGAffineTransform(translationX: 0, y: 16)
         UIView.animate(withDuration: 0.25, delay: 0, options: .curveEaseOut) {
-            pill.alpha = 1
             pill.transform = .identity
         }
         let work = DispatchWorkItem { [weak self] in
@@ -165,15 +158,28 @@ private final class ToastManager {
 
     private func makeToastHostView() -> UIView? {
         guard let scene = Self.findWindowScene() else { return nil }
+        let statusBarStyle = Self.currentStatusBarStyle(in: scene)
         let window = ToastPassthroughWindow(windowScene: scene)
         window.backgroundColor = .clear
         window.windowLevel = .alert + 1
-        let controller = UIViewController()
+        let controller = ToastRootViewController(statusBarStyle: statusBarStyle)
         controller.view.backgroundColor = .clear
         window.rootViewController = controller
         window.isHidden = false
         toastWindow = window
         return controller.view
+    }
+
+    private static func currentStatusBarStyle(in scene: UIWindowScene) -> UIStatusBarStyle {
+        let candidateWindows = scene.windows.filter { window in
+            window.isKeyWindow && !window.isHidden && !(window is ToastPassthroughWindow)
+        }
+
+        if let rootViewController = candidateWindows.first?.rootViewController {
+            return rootViewController.preferredStatusBarStyle
+        }
+
+        return ThemeManager.shared.preferredStatusBarStyle
     }
 
     private static func findWindowScene() -> UIWindowScene? {
@@ -191,7 +197,30 @@ private final class ToastManager {
     }
 }
 
+private final class ToastRootViewController: UIViewController {
+    private let statusBarStyle: UIStatusBarStyle
+
+    init(statusBarStyle: UIStatusBarStyle) {
+        self.statusBarStyle = statusBarStyle
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        statusBarStyle
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        .all
+    }
+}
+
 private final class ToastPassthroughWindow: UIWindow {
+    override var canBecomeKey: Bool {
+        false
+    }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
         if hitView === rootViewController?.view {
@@ -210,6 +239,10 @@ private final class ToastView: UIView {
     private let titleText: String?
     private let messageText: String
 
+    private let contentView = UIView()
+    private let gradientLayer = CAGradientLayer()
+    private let cornerRadius: CGFloat = 12.sw
+
     init(type: ToastType, title: String?, message: String) {
         self.type = type
         self.titleText = title
@@ -220,15 +253,39 @@ private final class ToastView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = contentView.bounds
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: cornerRadius).cgPath
+    }
+
     private func setup() {
         let config = Self.config(for: type)
 
         translatesAutoresizingMaskIntoConstraints = false
-        backgroundColor = config.bgColor
-        layer.cornerRadius = 12.sw
-        layer.borderWidth = 1
-        layer.borderColor = config.borderColor.cgColor
-        clipsToBounds = true
+        backgroundColor = .clear
+
+        layer.shadowColor = UIColor.black.cgColor
+        layer.shadowOpacity = 0.08
+        layer.shadowOffset = CGSize(width: 0, height: 3)
+        layer.shadowRadius = 10
+
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.backgroundColor = UIColor.white
+        contentView.layer.cornerRadius = cornerRadius
+        contentView.layer.borderWidth = 1
+        contentView.layer.borderColor = config.borderColor.cgColor
+        contentView.layer.masksToBounds = true
+
+        gradientLayer.colors = [
+            config.bgGradientStart.cgColor,
+            config.bgGradientEnd.cgColor
+        ]
+        gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        contentView.layer.insertSublayer(gradientLayer, at: 0)
+
+        addSubview(contentView)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         addGestureRecognizer(tap)
@@ -251,43 +308,46 @@ private final class ToastView: UIView {
         let titleLabel = UILabel()
         titleLabel.text = titleText ?? config.defaultTitle
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
-        titleLabel.textColor = type == .notification ? UIColor.theme.textStrong : .init(white: 0.15, alpha: 1)
+        titleLabel.textColor = type == .notification ? UIColor.theme.textStrong : .init(white: 0.1, alpha: 1)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let messageLabel = UILabel()
         messageLabel.text = messageText
         messageLabel.font = .systemFont(ofSize: 14.sf)
-        messageLabel.textColor = type == .notification ? UIColor.theme.text : .init(white: 0.35, alpha: 1)
+        messageLabel.textColor = type == .notification ? UIColor.theme.text : .init(white: 0.25, alpha: 1)
         messageLabel.numberOfLines = 3
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let closeBtn = UIButton(type: .system)
         closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeBtn.tintColor = type == .notification ? UIColor.theme.iconSecondary : .init(white: 0.4, alpha: 1)
+        closeBtn.tintColor = type == .notification ? UIColor.theme.iconSecondary : .init(white: 0.3, alpha: 1)
         closeBtn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(leftBar)
-        addSubview(iconBg)
-        addSubview(titleLabel)
-        addSubview(messageLabel)
-        addSubview(closeBtn)
+        contentView.addSubview(leftBar)
+        contentView.addSubview(iconBg)
+        contentView.addSubview(closeBtn)
 
         let textStack = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
         textStack.axis = .vertical
         textStack.spacing = 4.sh
         textStack.alignment = .leading
         textStack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(textStack)
+        contentView.addSubview(textStack)
 
         NSLayoutConstraint.activate([
-            leftBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            leftBar.topAnchor.constraint(equalTo: topAnchor),
-            leftBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            leftBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            leftBar.topAnchor.constraint(equalTo: contentView.topAnchor),
+            leftBar.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             leftBar.widthAnchor.constraint(equalToConstant: 4.sw),
 
             iconBg.leadingAnchor.constraint(equalTo: leftBar.trailingAnchor, constant: 12.sw),
-            iconBg.centerYAnchor.constraint(equalTo: centerYAnchor),
+            iconBg.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             iconBg.widthAnchor.constraint(equalToConstant: 36.swh),
             iconBg.heightAnchor.constraint(equalToConstant: 36.swh),
             iconView.centerXAnchor.constraint(equalTo: iconBg.centerXAnchor),
@@ -297,27 +357,34 @@ private final class ToastView: UIView {
 
             textStack.leadingAnchor.constraint(equalTo: iconBg.trailingAnchor, constant: 12.sw),
             textStack.trailingAnchor.constraint(equalTo: closeBtn.leadingAnchor, constant: -12.sw),
-            textStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            textStack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 14.sh),
-            bottomAnchor.constraint(greaterThanOrEqualTo: textStack.bottomAnchor, constant: 14.sh),
+            textStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 14.sh),
+            contentView.bottomAnchor.constraint(greaterThanOrEqualTo: textStack.bottomAnchor, constant: 14.sh),
 
-            closeBtn.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12.sw),
-            closeBtn.centerYAnchor.constraint(equalTo: centerYAnchor),
+            closeBtn.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12.sw),
+            closeBtn.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             closeBtn.widthAnchor.constraint(equalToConstant: 32.swh),
             closeBtn.heightAnchor.constraint(equalToConstant: 32.swh),
         ])
     }
 
-    private static func config(for type: ToastType) -> (accentColor: UIColor, bgColor: UIColor, borderColor: UIColor, iconName: String, defaultTitle: String) {
+    private static func config(for type: ToastType) -> (
+        accentColor: UIColor,
+        bgGradientStart: UIColor,
+        bgGradientEnd: UIColor,
+        borderColor: UIColor,
+        iconName: String,
+        defaultTitle: String
+    ) {
         switch type {
         case .success:
-            return (hex("#22c55e"), hex("#dcfce7"), hex("#bbf7d0"), "checkmark", "Success")
+            return (hex("#22c55e"), hex("#86efac"), hex("#dcfce7"), hex("#86efac"), "checkmark", "Success")
         case .error:
-            return (hex("#ef4444"), hex("#fef2f2"), hex("#fecaca"), "xmark", "Error")
+            return (hex("#ef4444"), hex("#fca5a5"), hex("#fef2f2"), hex("#fca5a5"), "xmark", "Error")
         case .info:
-            return (hex("#3b82f6"), hex("#eff6ff"), hex("#bfdbfe"), "info.circle.fill", "Info")
+            return (hex("#3b82f6"), hex("#93c5fd"), hex("#eff6ff"), hex("#93c5fd"), "info.circle.fill", "Info")
         case .notification:
-            return (UIColor.theme.iconPrimary, UIColor.theme.secondary, UIColor.theme.border, "bell.fill", "Notification")
+            return (UIColor.theme.iconPrimary, UIColor.theme.secondary, UIColor.theme.secondary, UIColor.theme.border, "bell.fill", "Notification")
         }
     }
 
@@ -334,7 +401,7 @@ private final class ToastView: UIView {
 private final class ComingSoonPillView: UIView {
     init(message: String) {
         super.init(frame: .zero)
-        backgroundColor = UIColor(white: 0.2, alpha: 0.92)
+        backgroundColor = UIColor(white: 0.2, alpha: 1)
         layer.cornerRadius = 24.swh
         layer.masksToBounds = true
         let label = UILabel()

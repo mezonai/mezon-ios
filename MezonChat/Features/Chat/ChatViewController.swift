@@ -319,7 +319,15 @@ final class ChatViewController: ViewController {
     let clanId: Int64
     private(set) var channel: Mezon_Api_ChannelDescription
     let context: AccountContext
-    var topicId: Int64 = 0
+    var topicId: Int64 = 0 {
+        didSet {
+            guard topicId != oldValue else { return }
+            if isViewLoaded {
+                syncChannelToComposer()
+            }
+        }
+    }
+    private var skipRemoteFetchWhileTopicIsEmpty = false
     private var storageChannelId: String {
         topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
     }
@@ -433,7 +441,7 @@ final class ChatViewController: ViewController {
     private var notificationKeyboardReconcileWorkItem: DispatchWorkItem?
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
-    private var hasMarkedAsRead = false
+    private var lastMarkedAsReadMessageId: Int64?
     private var pendingMarkAsRead = false
     private var nextFetchPrefersHTTPFirst = false
     private var readyToLoadMore = false
@@ -595,6 +603,9 @@ final class ChatViewController: ViewController {
             },
             onShareContactCallTapped: { [weak self] data in
                 self?.startShareContactCall(data)
+            },
+            isShareContactCallBlocked: { [weak self] data in
+                self?.isShareContactCallBlocked(data) ?? false
             },
             onSwipeReply: { [weak self] display in
                 self?.sendInputViewController.setReply(display)
@@ -792,6 +803,9 @@ final class ChatViewController: ViewController {
             onMessageNeedsRelayout: nil,
             onEmbedButtonClicked: nil
         )
+        interaction.onMediaTapped = { [weak self] index, media, display in
+            self?.presentMessageMediaGallery(index: index, media: media, display: display)
+        }
         interaction.onMessagesReloaded = { [weak self] in
             guard let self else { return }
             if let seenId = self.lastSeenMessageId {
@@ -1458,6 +1472,9 @@ final class ChatViewController: ViewController {
         let oldLastId = messages.last?.id
         persistentMessages = normalizedDisplayOrder(v)
         messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages)
+        if !persistentMessages.isEmpty {
+            skipRemoteFetchWhileTopicIsEmpty = false
+        }
         let newFirstId = persistentMessages.first(where: { !$0.isWelcome })?.id
         let newLastId = persistentMessages.last?.id
         if newFirstId != oldFirstId { lastFetchedOlderMessageId = nil }
@@ -1555,6 +1572,7 @@ final class ChatViewController: ViewController {
 
         let channelIdStr = storageChannelId
         let messagesKeyInvalid = topicId == 0 && channel.channelID == 0
+        var skipInitialRemoteFetchForEmptyTopic = false
 
         if messagesKeyInvalid {
             setMessages([])
@@ -1565,7 +1583,16 @@ final class ChatViewController: ViewController {
                 tx.getMessages(channelId: channelIdStr).filter { $0.channelId == channelIdStr }
             }
             let hasCache = !cachedMessages.isEmpty
-            if !hasCache && NetworkMonitor.shared.isConnected {
+            skipInitialRemoteFetchForEmptyTopic = shouldSkipRemoteFetchForEmptyTopic(
+                hadCachedMessages: !messages.isEmpty,
+                hadCachedInPostbox: hasCache
+            )
+            if skipInitialRemoteFetchForEmptyTopic {
+                hasCompletedInitialFetch = true
+                setHasMoreOlder(false)
+                setHasMoreNewer(false)
+            }
+            if !hasCache && NetworkMonitor.shared.isConnected && !skipInitialRemoteFetchForEmptyTopic {
                 setIsLoading(true)
             } else {
                 setIsLoading(false)
@@ -1604,11 +1631,18 @@ final class ChatViewController: ViewController {
         )
         ensureParentChannelMetaSubscription()
 
+        let shouldSkipInitialRemoteFetchForEmptyTopic = skipInitialRemoteFetchForEmptyTopic
         Task { @MainActor [weak self] in
             guard let self else { return }
             if self.topicId == 0 && self.channel.channelID == 0 {
                 self.setIsLoading(false)
                 return
+            }
+            if shouldSkipInitialRemoteFetchForEmptyTopic {
+                self.setHasMoreOlder(false)
+                self.setHasMoreNewer(false)
+                self.setIsLoading(false)
+                self.setIsLoadingMessageContext(false)
             }
             if !NetworkMonitor.shared.isConnected {
                 self.setIsLoading(false)
@@ -1620,7 +1654,7 @@ final class ChatViewController: ViewController {
                 if let t = SessionStore.load()?.token, !t.isEmpty { return t }
                 return nil
             }()
-            if let immediateToken {
+            if let immediateToken, !self.hasCompletedInitialFetch {
                 self.hasCompletedInitialFetch = true
                 self.fetchMessages(token: immediateToken)
             }
@@ -1820,7 +1854,7 @@ final class ChatViewController: ViewController {
 
     func handleBroughtForwardFromNotificationDeepLink() {
         prepareForNotificationNavigation()
-        hasMarkedAsRead = false
+        lastMarkedAsReadMessageId = nil
         if !messages.isEmpty {
             markChannelAsRead()
         }
@@ -1871,14 +1905,24 @@ final class ChatViewController: ViewController {
     }
 
     private func markChannelAsRead() {
-        guard !hasMarkedAsRead, !messages.isEmpty else { return }
-        guard let lastMessage = messages.last else { return }
-        guard let messageId = Int64(lastMessage.message.id) else { return }
+        guard !messages.isEmpty else { return }
+
+        var latestServerMessageId: Int64?
+        for display in messages.reversed() where !display.isWelcome {
+            if let id = Int64(display.message.id), id != 0 {
+                latestServerMessageId = id
+                break
+            }
+        }
+        guard let messageId = latestServerMessageId else { return }
+
+        if let already = lastMarkedAsReadMessageId, messageId <= already { return }
+
         guard context.account.socket.isConnected else {
             pendingMarkAsRead = true
             return
         }
-        hasMarkedAsRead = true
+        lastMarkedAsReadMessageId = messageId
         pendingMarkAsRead = false
 
         let channelUnreadCount = channel.countMessUnread
@@ -1923,9 +1967,27 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private func shouldSkipRemoteFetchForEmptyTopic(hadCachedMessages: Bool, hadCachedInPostbox: Bool) -> Bool {
+        topicId != 0
+            && skipRemoteFetchWhileTopicIsEmpty
+            && !hadCachedMessages
+            && !hadCachedInPostbox
+    }
+
     func fetchMessages(token: String? = nil) {
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
+        if shouldSkipRemoteFetchForEmptyTopic(
+            hadCachedMessages: hadCachedMessages,
+            hadCachedInPostbox: hadCachedInPostbox
+        ) {
+            setHasMoreOlder(false)
+            setHasMoreNewer(false)
+            setIsLoading(false)
+            setIsLoadingMessageContext(false)
+            setErrorMessage(nil)
+            return
+        }
         if !NetworkMonitor.shared.isConnected {
             setIsLoading(false)
             return
@@ -3883,6 +3945,7 @@ final class ChatViewController: ViewController {
         let topicVC = ChatViewController(
             clanId: clanId, channel: topicChannel, context: context, parentName: nil)
         topicVC.topicId = topicIdInt
+        topicVC.skipRemoteFetchWhileTopicIsEmpty = topicData.replyCount <= 0
         needsRefreshAfterTopicDiscussion = true
         navigationController?.pushViewController(topicVC, animated: true)
     }
@@ -4512,6 +4575,10 @@ final class ChatViewController: ViewController {
             Toast.error("Cannot call yourself")
             return
         }
+        guard !isShareContactCallBlocked(data) else {
+            Toast.error(L(L10n.Forward.blockedByYou))
+            return
+        }
         loadOrCreateShareContactDirectMessage(data) { [weak self] channel in
             guard let self, let remoteUserId = data.userIdInt else { return }
             PeerCallLogMessage.sendStartCallLog(
@@ -4529,6 +4596,11 @@ final class ChatViewController: ViewController {
             )
             self.pushPeerCallScreen(callVC)
         }
+    }
+
+    private func isShareContactCallBlocked(_ data: ShareContactData) -> Bool {
+        guard let userId = data.userIdInt else { return false }
+        return context.engine.friendsData.blockedUserIds().contains(userId)
     }
 
     private func loadOrCreateShareContactDirectMessage(
@@ -4926,6 +4998,192 @@ final class ChatViewController: ViewController {
         )
         presentInGlobalOverlay(sheet)
         sheet.animateIn()
+    }
+
+    private func presentMessageMediaGallery(index: Int, media: [ParsedAttachment], display: ChatMessageDisplay) {
+        let galleryItems = media.map {
+            makeMessageGalleryItem(attachment: $0, display: display)
+        }
+        guard !galleryItems.isEmpty else { return }
+        let initialIndex = max(0, min(index, galleryItems.count - 1))
+        let gallery = GalleryController(
+            items: galleryItems,
+            initialIndex: initialIndex,
+            channelItemsLoader: { [weak self] in
+                guard let self else { return [] }
+                return await self.loadChannelGalleryItems(around: display)
+            }
+        )
+        present(gallery, animated: true)
+    }
+
+    private func makeMessageGalleryItem(attachment: ParsedAttachment, display: ChatMessageDisplay) -> GalleryItemInfo {
+        let placeholderURL: String? = attachment.isVideo
+            ? nil
+            : ImgproxyURL.attachmentURL(
+                from: attachment.url,
+                width: 400,
+                height: 400,
+                resizeType: "fit"
+            )
+        return GalleryItemInfo(
+            url: attachment.url,
+            sourceURL: attachment.url,
+            image: attachment.localImage,
+            placeholderURL: placeholderURL,
+            senderName: display.senderDisplayName,
+            senderAvatarURL: display.avatarURL,
+            timestamp: display.message.createdAt,
+            isVideo: attachment.isVideo
+        )
+    }
+
+    private func loadChannelGalleryItems(around display: ChatMessageDisplay) async -> [GalleryItemInfo] {
+        guard let token = await context.getToken() else { return [] }
+        let channelType = channel.type != 0
+            ? channel.type
+            : (clanId == 0 ? MezonConstants.ChannelType.group.rawValue : MezonConstants.ChannelType.channel.rawValue)
+        let requestClanId =
+            (channelType == MezonConstants.ChannelType.dm.rawValue
+                || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+        let messageTimestamp = display.message.createdAt.timeIntervalSince1970
+        let selectedTimestamp = UInt32(max(0, min(messageTimestamp, Double(UInt32.max))))
+        let beforeTime = display.message.createdAt.addingTimeInterval(24 * 60 * 60).timeIntervalSince1970
+        let beforeTimestamp = UInt32(max(0, min(beforeTime, Double(UInt32.max))))
+
+        let olderAndCurrent = await requestChannelGalleryAttachments(
+            clanId: requestClanId,
+            token: token,
+            before: beforeTimestamp,
+            after: 0
+        )
+        let newer = await requestChannelGalleryAttachments(
+            clanId: requestClanId,
+            token: token,
+            before: 0,
+            after: selectedTimestamp
+        )
+
+        let fullPx = galleryFullScreenProxyPixels()
+        let visualItems = (newer + olderAndCurrent)
+            .filter { Self.isVisualChannelAttachment($0) }
+            .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
+            .reduce(into: [Mezon_Api_ChannelAttachment]()) { result, attachment in
+                let key = attachment.url.isEmpty ? "id:\(attachment.id)" : "url:\(attachment.url)"
+                guard !result.contains(where: {
+                    ($0.url.isEmpty ? "id:\($0.id)" : "url:\($0.url)") == key
+                }) else { return }
+                result.append(attachment)
+            }
+            .map { makeChannelGalleryItem(attachment: $0, fullProxyPixels: fullPx) }
+        return Array(visualItems.reversed())
+    }
+
+    private func requestChannelGalleryAttachments(
+        clanId: Int64,
+        token: String,
+        before: UInt32,
+        after: UInt32
+    ) async -> [Mezon_Api_ChannelAttachment] {
+        do {
+            let response = try await context.account.network.listChannelAttachments(
+                clanId: clanId,
+                channelId: channel.channelID,
+                fileType: "image",
+                limit: 30,
+                before: before,
+                after: after,
+                token: token
+            )
+            return response.attachments
+        } catch {
+            return []
+        }
+    }
+
+    private func makeChannelGalleryItem(attachment: Mezon_Api_ChannelAttachment, fullProxyPixels: Int) -> GalleryItemInfo {
+        let isVideo = Self.isVideoChannelAttachment(attachment)
+        let url: String
+        let placeholderURL: String?
+        if isVideo {
+            url = attachment.url
+            placeholderURL = nil
+        } else {
+            url = ImgproxyURL.attachmentURL(
+                from: attachment.url,
+                width: fullProxyPixels,
+                height: fullProxyPixels,
+                resizeType: "fit"
+            )
+            placeholderURL = ImgproxyURL.attachmentURL(
+                from: attachment.url,
+                width: 100,
+                height: 100,
+                resizeType: "fit"
+            )
+        }
+        let uploader = resolvedUploaderInfo(uploaderId: attachment.uploader)
+        let timestamp = attachment.createTimeSeconds > 0
+            ? Date(timeIntervalSince1970: TimeInterval(attachment.createTimeSeconds))
+            : nil
+        return GalleryItemInfo(
+            url: url,
+            sourceURL: attachment.url,
+            image: nil,
+            placeholderURL: placeholderURL,
+            senderName: uploader.name,
+            senderAvatarURL: uploader.avatarURL,
+            timestamp: timestamp,
+            isVideo: isVideo
+        )
+    }
+
+    private static func isVisualChannelAttachment(_ attachment: Mezon_Api_ChannelAttachment) -> Bool {
+        let filetype = attachment.filetype.lowercased()
+        if filetype == "sticker" || attachment.url.contains("/stickers") { return false }
+        if filetype.hasPrefix("image/") || filetype.hasPrefix("video/") { return true }
+        let filenameExtension = (attachment.filename as NSString).pathExtension.lowercased()
+        let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
+        let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp", "heic"]
+        let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "webm"]
+        return imageExtensions.contains(filenameExtension)
+            || imageExtensions.contains(urlExtension)
+            || videoExtensions.contains(filenameExtension)
+            || videoExtensions.contains(urlExtension)
+    }
+
+    private static func isVideoChannelAttachment(_ attachment: Mezon_Api_ChannelAttachment) -> Bool {
+        let filetype = attachment.filetype.lowercased()
+        if filetype.hasPrefix("video/") { return true }
+        let filenameExtension = (attachment.filename as NSString).pathExtension.lowercased()
+        let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
+        return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
+            || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
+    }
+
+    private func galleryFullScreenProxyPixels() -> Int {
+        let longest = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
+        let pixels = Int((longest * UIScreen.main.scale).rounded(.up))
+        return max(512, min(pixels, 2048))
+    }
+
+    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {
+        guard uploaderId != 0 else { return ("", nil) }
+        let idString = String(uploaderId)
+        var name = ""
+        var avatarURL: String?
+        context.account.postbox.read { tx in
+            guard let profile = tx.getProfile(userId: idString) else { return }
+            if let displayName = profile.displayName, !displayName.isEmpty {
+                name = displayName
+            } else if !profile.username.isEmpty {
+                name = profile.username
+            }
+            if let avatar = profile.avatarUrl, !avatar.isEmpty {
+                avatarURL = avatar
+            }
+        }
+        return (name.isEmpty ? idString : name, avatarURL)
     }
 
     private enum PhotoLibrarySaveAuthorizationResult {

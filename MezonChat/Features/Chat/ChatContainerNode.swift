@@ -47,6 +47,7 @@ struct ChatInteraction {
     let onShareContactProfileTapped: (ShareContactData) -> Void
     let onShareContactMessageTapped: (ShareContactData) -> Void
     let onShareContactCallTapped: (ShareContactData) -> Void
+    let isShareContactCallBlocked: (ShareContactData) -> Bool
     let onSwipeReply: (ChatMessageDisplay) -> Void
     let loadClanInviteInfo: (String, @escaping (ClanInviteInfo?) -> Void) -> Void
     let onClanInvitePrimaryAction: (String, ClanInviteInfo) -> Void
@@ -63,6 +64,7 @@ struct ChatInteraction {
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
     var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
+    var onMediaTapped: ((_ index: Int, _ media: [ParsedAttachment], _ display: ChatMessageDisplay) -> Void)? = nil
 }
 
 final class ChatContainerNode: ASDisplayNode {
@@ -92,6 +94,7 @@ final class ChatContainerNode: ASDisplayNode {
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
     private var lastKnownDistanceFromBottom: CGFloat = 0
+    private static let nearBottomDistanceThreshold: CGFloat = 100
 
     init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction, isDM: Bool = false) {
         listView = ListView()
@@ -128,7 +131,7 @@ final class ChatContainerNode: ASDisplayNode {
             switch offset {
             case let .known(value):
                 self.lastKnownDistanceFromBottom = value
-                let atBottom = value < 100
+                let atBottom = value < Self.nearBottomDistanceThreshold
                 self.interaction.onScrolledToBottom(atBottom)
                 self.refreshJumpButtonVisibility()
             case .none, .unknown:
@@ -209,7 +212,7 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     private func refreshJumpButtonVisibility() {
-        let isFarFromBottom = lastKnownDistanceFromBottom >= 100
+        let isFarFromBottom = lastKnownDistanceFromBottom >= Self.nearBottomDistanceThreshold
         let hasNewerToLoad = state.hasMoreNewer
         setJumpButtonVisible(isFarFromBottom || hasNewerToLoad)
     }
@@ -506,9 +509,9 @@ final class ChatContainerNode: ASDisplayNode {
         let isAtBottom: Bool = {
             switch self.listView.visibleContentOffset() {
             case let .known(value):
-                return value < 10
+                return value < Self.nearBottomDistanceThreshold
             case .none, .unknown:
-                return true
+                return self.lastKnownDistanceFromBottom < Self.nearBottomDistanceThreshold
             }
         }()
 
