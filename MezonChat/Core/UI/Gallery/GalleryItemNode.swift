@@ -4,6 +4,7 @@ import AsyncDisplayKit
 
 public struct GalleryItemInfo {
     public let url: String
+    public let sourceURL: String?
     public let image: UIImage?
     public let placeholderURL: String?
     public let senderName: String
@@ -11,8 +12,14 @@ public struct GalleryItemInfo {
     public let timestamp: Date?
     public let isVideo: Bool
 
-    public init(url: String, image: UIImage? = nil, placeholderURL: String? = nil, senderName: String = "", senderAvatarURL: String? = nil, timestamp: Date? = nil, isVideo: Bool = false) {
+    public var stableIdentity: String {
+        if let sourceURL, !sourceURL.isEmpty { return sourceURL }
+        return url
+    }
+
+    public init(url: String, sourceURL: String? = nil, image: UIImage? = nil, placeholderURL: String? = nil, senderName: String = "", senderAvatarURL: String? = nil, timestamp: Date? = nil, isVideo: Bool = false) {
         self.url = url
+        self.sourceURL = sourceURL
         self.image = image
         self.placeholderURL = placeholderURL
         self.senderName = senderName

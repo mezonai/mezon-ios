@@ -367,7 +367,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         if hasShareContact, let shareContactData {
             let scn = MessageShareContactNode()
-            scn.configure(data: shareContactData)
+            scn.configure(data: shareContactData, callBlocked: interaction.isShareContactCallBlocked(shareContactData))
             scn.onProfileTapped = { [weak self] data in
                 self?.interaction.onShareContactProfileTapped(data)
             }
@@ -630,6 +630,7 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(n)
         }
 
+        let textContentExistenceChanged: Bool
         if Self.shouldShowTextContent(for: newDisplay) {
             if let tcn = textContentNode {
                 if textChanged || mentionHighlightChanged {
@@ -639,6 +640,7 @@ final class MessageBubbleNode: ASDisplayNode {
                         hashtagChannelAccess: interaction.hashtagChannelIsAccessible
                     )
                 }
+                textContentExistenceChanged = false
             } else {
                 let tcn = MessageTextContentNode()
                 tcn.configure(
@@ -657,11 +659,15 @@ final class MessageBubbleNode: ASDisplayNode {
                 if let c = clanInviteLinkNode { insertSubnode(tcn, belowSubnode: c) }
                 else if let m = mediaContentNode { insertSubnode(tcn, belowSubnode: m) }
                 else { addSubnode(tcn) }
+                textContentExistenceChanged = true
             }
         } else {
             if let tcn = textContentNode {
                 tcn.removeFromSupernode()
                 textContentNode = nil
+                textContentExistenceChanged = true
+            } else {
+                textContentExistenceChanged = false
             }
         }
 
@@ -688,13 +694,16 @@ final class MessageBubbleNode: ASDisplayNode {
         let newShareContact = newDisplay.shareContactData
         let shareContactChanged = oldShareContact != newShareContact
         if let data = newShareContact {
+            let callBlocked = interaction.isShareContactCallBlocked(data)
             if let scn = shareContactNode {
                 if shareContactChanged {
-                    scn.configure(data: data)
+                    scn.configure(data: data, callBlocked: callBlocked)
+                } else {
+                    scn.setCallBlocked(callBlocked)
                 }
             } else {
                 let scn = MessageShareContactNode()
-                scn.configure(data: data)
+                scn.configure(data: data, callBlocked: callBlocked)
                 scn.onProfileTapped = { [weak self] data in
                     self?.interaction.onShareContactProfileTapped(data)
                 }
@@ -809,7 +818,7 @@ final class MessageBubbleNode: ASDisplayNode {
             || ogpPreviewChanged
             || (oldFailed != newDisplay.isFailed)
             || inviteChanged || (oldWantInvite != newWantInvite)
-            || (Self.shouldShowTextContent(for: newDisplay) != (textContentNode != nil))
+            || textContentExistenceChanged
             || shareContactChanged
             || embedChanged
             || topicChanged
@@ -817,6 +826,9 @@ final class MessageBubbleNode: ASDisplayNode {
         if needsRelayout {
             let _ = measureSize(width: cachedTotalSize.width)
             setNeedsLayout()
+        }
+        if textContentExistenceChanged {
+            interaction.onMessageNeedsRelayout?(newDisplay.id)
         }
         if !isCombine && avatarChanged {
             loadAvatar()
@@ -1063,6 +1075,10 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
+        if let onMediaTapped = interaction.onMediaTapped {
+            onMediaTapped(index, media, display)
+            return
+        }
         let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
             let placeholderURL: String? = att.isVideo
                 ? nil
@@ -1074,6 +1090,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 )
             return GalleryItemInfo(
                 url: att.url,
+                sourceURL: att.url,
                 image: nil,
                 placeholderURL: placeholderURL,
                 senderName: display.senderDisplayName,
@@ -1768,6 +1785,7 @@ private final class MessageShareContactNode: ASDisplayNode {
     private var cachedTopHeight: CGFloat = 0
     private var cachedSize: CGSize = .zero
     private var avatarLoadGeneration: Int = 0
+    private var callBlocked = false
 
     var onProfileTapped: ((ShareContactData) -> Void)?
     var onMessageTapped: ((ShareContactData) -> Void)?
@@ -1816,7 +1834,7 @@ private final class MessageShareContactNode: ASDisplayNode {
         addSubnode(messageButtonNode)
     }
 
-    func configure(data: ShareContactData) {
+    func configure(data: ShareContactData, callBlocked: Bool) {
         self.data = data
         let t = UIColor.theme
         borderColor = t.borderDim.cgColor
@@ -1854,8 +1872,16 @@ private final class MessageShareContactNode: ASDisplayNode {
                 .foregroundColor: t.text,
             ]
         )
-        callButtonNode.applyTheme()
+        setCallBlocked(callBlocked)
         messageButtonNode.applyTheme()
+    }
+
+    func setCallBlocked(_ callBlocked: Bool) {
+        self.callBlocked = callBlocked
+        callButtonNode.isHidden = callBlocked
+        dividerNode.isHidden = callBlocked
+        callButtonNode.setEnabled(!callBlocked)
+        setNeedsLayout()
     }
 
     private func loadAvatar(_ rawAvatar: String, seed: String) {
@@ -1947,8 +1973,13 @@ private final class MessageShareContactNode: ASDisplayNode {
         profileControlNode.frame = CGRect(x: 0, y: 0, width: bounds.width, height: topHeight)
 
         let buttonWidth = floor(bounds.width / 2)
-        callButtonNode.frame = CGRect(x: 0, y: topHeight, width: buttonWidth, height: actionHeight)
-        messageButtonNode.frame = CGRect(x: buttonWidth, y: topHeight, width: bounds.width - buttonWidth, height: actionHeight)
+        if callBlocked {
+            callButtonNode.frame = CGRect(x: 0, y: topHeight, width: 0, height: actionHeight)
+            messageButtonNode.frame = CGRect(x: 0, y: topHeight, width: bounds.width, height: actionHeight)
+        } else {
+            callButtonNode.frame = CGRect(x: 0, y: topHeight, width: buttonWidth, height: actionHeight)
+            messageButtonNode.frame = CGRect(x: buttonWidth, y: topHeight, width: bounds.width - buttonWidth, height: actionHeight)
+        }
     }
 }
 
@@ -1976,6 +2007,7 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
 
     var onTapped: (() -> Void)?
     private let titleUsesAccent: Bool
+    private var actionEnabled = true
 
     init(title: String, systemIcon: String, titleUsesAccent: Bool) {
         self.titleUsesAccent = titleUsesAccent
@@ -2005,40 +2037,56 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
         applyTheme()
     }
 
+    func setEnabled(_ enabled: Bool) {
+        actionEnabled = enabled
+        control.isEnabled = enabled
+        applyTheme()
+    }
+
     func applyTheme() {
         backgroundNode.backgroundColor = .clear
-        iconNode.tintColor = MessageShareContactNode.blurpleColor
+        let accentColor = MessageShareContactNode.blurpleColor
+        let textColor = titleUsesAccent ? accentColor : UIColor.theme.textStrong
+        let foregroundColor = actionEnabled ? textColor : UIColor.theme.textDisabled
+        iconNode.tintColor = actionEnabled ? accentColor : UIColor.theme.textDisabled
         if let text = titleNode.attributedText?.string {
             titleNode.attributedText = NSAttributedString(
                 string: text,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                    .foregroundColor: titleUsesAccent ? MessageShareContactNode.blurpleColor : UIColor.theme.textStrong,
+                    .foregroundColor: foregroundColor,
                 ]
             )
         }
     }
 
     @objc private func tapped() {
+        guard actionEnabled else { return }
         onTapped?()
     }
 
     override func layout() {
         super.layout()
         backgroundNode.frame = bounds
+        controlNode.frame = bounds
+        guard bounds.width > 0, bounds.height > 0 else {
+            iconNode.frame = .zero
+            titleNode.frame = .zero
+            return
+        }
         let iconSide: CGFloat = 18
         let gap: CGFloat = 6
         let labelSize = titleNode.measure(CGSize(width: max(bounds.width - 30, 1), height: bounds.height))
         let totalWidth = min(iconSide + gap + labelSize.width, bounds.width - 12)
         let x = max((bounds.width - totalWidth) / 2, 6)
         iconNode.frame = CGRect(x: x, y: (bounds.height - iconSide) / 2, width: iconSide, height: iconSide)
+        let titleWidth = max(min(labelSize.width, bounds.width - iconNode.frame.maxX - gap - 6), 0)
         titleNode.frame = CGRect(
             x: iconNode.frame.maxX + gap,
             y: (bounds.height - labelSize.height) / 2,
-            width: min(labelSize.width, bounds.width - iconNode.frame.maxX - gap - 6),
+            width: titleWidth,
             height: labelSize.height
         )
-        controlNode.frame = bounds
     }
 }
 

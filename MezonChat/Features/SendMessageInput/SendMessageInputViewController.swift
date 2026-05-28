@@ -2207,21 +2207,35 @@ final class SendMessageInputViewController: UIViewController {
         updatePreviewVisibility()
     }
 
-    private func handlePastedImages(_ images: [UIImage]) {
+    private static let pastePreservedImageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp"]
+
+    private func handlePastedImages(_ pasted: [PastedImage]) {
         guard !isEditingShareContactMessage else { return }
         let tempDir = FileManager.default.temporaryDirectory
-        for image in images {
-            let filename = "pasted-\(UUID().uuidString).png"
+        for item in pasted {
+            let resolvedData: Data
+            let resolvedExt: String
+            if let originalData = item.data,
+               let originalExt = item.fileExtension,
+               Self.pastePreservedImageExtensions.contains(originalExt.lowercased()) {
+                resolvedData = originalData
+                resolvedExt = originalExt
+            } else if let jpegData = item.image.jpegData(compressionQuality: 0.9) {
+                resolvedData = jpegData
+                resolvedExt = "jpg"
+            } else {
+                continue
+            }
+            let filename = "pasted-\(UUID().uuidString).\(resolvedExt)"
             let fileURL = tempDir.appendingPathComponent(filename)
-            guard let data = image.pngData() else { continue }
             do {
-                try data.write(to: fileURL)
+                try resolvedData.write(to: fileURL)
             } catch {
                 continue
             }
             let index = pickedImages.count
-            pickedImages.append(image)
-            attachmentPreviewView.addImage(image)
+            pickedImages.append(item.image)
+            attachmentPreviewView.addImage(item.image)
             pickedFileURLs[index] = fileURL
         }
         saveToCache()
@@ -4583,6 +4597,8 @@ final class SendMessageInputViewController: UIViewController {
         case "gif":         return "image/gif"
         case "webp":        return "image/webp"
         case "heic", "heif": return "image/heic"
+        case "tiff", "tif": return "image/tiff"
+        case "bmp":         return "image/bmp"
         case "mp4":         return "video/mp4"
         case "mov":         return "video/quicktime"
         case "m4v":         return "video/x-m4v"
@@ -5378,10 +5394,14 @@ final class SendMessageInputViewController: UIViewController {
         ref.messageSenderDisplayName = display.senderDisplayName
         ref.messageSenderAvatar = display.avatarURL ?? ""
         ref.hasAttachment_p = !display.attachments.isEmpty
-        let contentJSON: [String: Any] = ["t": display.parsedContent.text]
-        if let jsonData = try? JSONSerialization.data(withJSONObject: contentJSON),
-           let jsonStr = String(data: jsonData, encoding: .utf8) {
-            ref.content = jsonStr
+        if display.shareContactData != nil {
+            ref.content = display.replyRefSourceContent
+        } else {
+            let contentJSON: [String: Any] = ["t": display.parsedContent.text]
+            if let jsonData = try? JSONSerialization.data(withJSONObject: contentJSON),
+               let jsonStr = String(data: jsonData, encoding: .utf8) {
+                ref.content = jsonStr
+            }
         }
         return ref
     }
@@ -5670,9 +5690,15 @@ extension SendMessageInputViewController: UITextViewDelegate {
 }
 
 
+struct PastedImage {
+    let image: UIImage
+    let data: Data?
+    let fileExtension: String?
+}
+
 final class PastableTextView: UITextView {
 
-    var onImagesPasted: (([UIImage]) -> Void)?
+    var onImagesPasted: (([PastedImage]) -> Void)?
     var onGIFPasted: ((Data) -> Void)?
 
     override func layoutSubviews() {
@@ -5707,8 +5733,18 @@ final class PastableTextView: UITextView {
             return
         }
 
+        let dataImages = Self.imagesFromPasteboardData(pb)
+        if !dataImages.isEmpty {
+            onImagesPasted?(dataImages)
+            if let text = pb.string, !text.isEmpty {
+                insertText(text)
+            }
+            return
+        }
+
         if let images = pb.images, !images.isEmpty {
-            onImagesPasted?(images)
+            let pasted = images.map { PastedImage(image: Self.normalizedOrientation($0), data: nil, fileExtension: nil) }
+            onImagesPasted?(pasted)
             if let text = pb.string, !text.isEmpty {
                 insertText(text)
             }
@@ -5716,11 +5752,76 @@ final class PastableTextView: UITextView {
         }
 
         if pb.hasImages, let image = pb.image {
-            onImagesPasted?([image])
+            onImagesPasted?([PastedImage(image: Self.normalizedOrientation(image), data: nil, fileExtension: nil)])
             return
         }
 
         super.paste(sender)
+    }
+
+    private static let imageDataPasteboardTypes: [(uti: String, ext: String)] = [
+        ("public.heic", "heic"),
+        ("public.heif", "heif"),
+        ("public.jpeg", "jpg"),
+        ("public.png", "png"),
+        ("public.tiff", "tiff"),
+        ("public.webp", "webp"),
+        ("public.image", ""),
+    ]
+
+    private static func imagesFromPasteboardData(_ pb: UIPasteboard) -> [PastedImage] {
+        let itemCount = pb.numberOfItems
+        guard itemCount > 0 else { return [] }
+        var result: [PastedImage] = []
+        for i in 0..<itemCount {
+            for entry in imageDataPasteboardTypes {
+                guard let data = pb.data(forPasteboardType: entry.uti, inItemSet: IndexSet(integer: i))?.first,
+                      let decoded = UIImage(data: data) else { continue }
+                let resolvedExt = entry.ext.isEmpty ? Self.inferExtension(from: data) : entry.ext
+                result.append(PastedImage(
+                    image: normalizedOrientation(decoded),
+                    data: data,
+                    fileExtension: resolvedExt
+                ))
+                break
+            }
+        }
+        return result
+    }
+
+    private static func inferExtension(from data: Data) -> String? {
+        guard data.count >= 12 else { return nil }
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "jpg" }
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
+        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "gif" }
+        if bytes.starts(with: [0x42, 0x4D]) { return "bmp" }
+        if bytes.starts(with: [0x49, 0x49, 0x2A, 0x00]) || bytes.starts(with: [0x4D, 0x4D, 0x00, 0x2A]) { return "tiff" }
+        if bytes.count >= 12, bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 {
+            let brand = String(bytes: bytes[8..<12], encoding: .ascii) ?? ""
+            switch brand {
+            case "heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs": return "heic"
+            case "mif1", "msf1": return "heif"
+            default: return nil
+            }
+        }
+        if bytes.starts(with: [0x52, 0x49, 0x46, 0x46]),
+           bytes.count >= 12,
+           bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 {
+            return "webp"
+        }
+        return nil
+    }
+
+    private static func normalizedOrientation(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
 }
 

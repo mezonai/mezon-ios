@@ -378,7 +378,7 @@ final class DmListItemCell: UITableViewCell {
             return (Self.previewWhenNoMessageBody(), time)
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
-        return (body.count >= 32 ? body + "..." : body, time)
+        return (body.utf8.count >= 31 ? body + "..." : body, time)
     }
 
     private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]

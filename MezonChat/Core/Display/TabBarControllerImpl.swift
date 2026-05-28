@@ -48,10 +48,6 @@ open class TabBarControllerImpl: ViewController, TabBarController {
 
     required public init(coder aDecoder: NSCoder) { fatalError() }
 
-    override open var shouldAutomaticallyForwardAppearanceMethods: Bool {
-        false
-    }
-
     deinit {
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
         pendingControllerDisposable.dispose()
@@ -249,17 +245,17 @@ open class TabBarControllerImpl: ViewController, TabBarController {
 
     override open func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        currentController?.beginAppearanceTransition(true, animated: animated)
+        currentController?.viewWillAppear(animated)
     }
 
     override open func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        currentController?.endAppearanceTransition()
+        currentController?.viewDidAppear(animated)
     }
 
     override open func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        currentController?.beginAppearanceTransition(false, animated: animated)
+        currentController?.viewWillDisappear(animated)
     }
 
     override open func viewDidDisappear(_ animated: Bool) {
