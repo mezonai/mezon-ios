@@ -1012,6 +1012,32 @@ enum L10n {
         static let bannerWeakNetwork         = "peerCall.bannerWeakNetwork"
         static let remoteMicOffBanner        = "peerCall.remoteMicOffBanner"
     }
+
+    enum Webhook {
+        static let title            = "webhook.title"
+        static let description      = "webhook.description"
+        static let learnMore        = "webhook.learnMore"
+        static let buildOne         = "webhook.buildOne"
+        static let noWebhooks       = "webhook.noWebhooks"
+        static let editTitle        = "webhook.editTitle"
+        static let name             = "webhook.name"
+        static let nameLengthError  = "webhook.nameLengthError"
+        static let channel          = "webhook.channel"
+        static let webhookURL       = "webhook.webhookURL"
+        static let copy             = "webhook.copy"
+        static let copied           = "webhook.copied"
+        static let delete           = "webhook.delete"
+        static let deleteTitle      = "webhook.deleteTitle"
+        static let deleteConfirm    = "webhook.deleteConfirm"
+        static let recommendImage   = "webhook.recommendImage"
+        static let addSuccess       = "webhook.addSuccess"
+        static let addError         = "webhook.addError"
+        static let saveSuccess      = "webhook.saveSuccess"
+        static let saveError        = "webhook.saveError"
+        static let deleteSuccess    = "webhook.deleteSuccess"
+        static let deleteError      = "webhook.deleteError"
+        static let createdBy        = "webhook.createdBy"
+    }
 }
 
 extension L10n {
@@ -1529,6 +1555,30 @@ extension L10n {
         "channel.setting.streamChannelDesc":    "Sharing hobby activities",
         "channel.setting.privateChannel":       "Private Channel",
         "channel.setting.privateChannelDesc":   "Only selected members and roles will be able to view this channel.",
+
+        "webhook.title":            "Webhook",
+        "webhook.description":      "Webhook is a tool that helps you receive automatic messages and updates sent to text channels in your clan via Internet connections.",
+        "webhook.learnMore":        "Learn more",
+        "webhook.buildOne":         "build your own",
+        "webhook.noWebhooks":       "No webhooks",
+        "webhook.editTitle":        "Edit webhook",
+        "webhook.name":             "Webhook name",
+        "webhook.nameLengthError":  "Must be 64 characters or fewer in length.",
+        "webhook.channel":          "Channel",
+        "webhook.webhookURL":       "Webhook URL",
+        "webhook.copy":             "Copy",
+        "webhook.copied":           "Copied",
+        "webhook.delete":           "Delete",
+        "webhook.deleteTitle":      "Delete Webhook",
+        "webhook.deleteConfirm":    "Are you sure you want to delete webhook '%@'?",
+        "webhook.recommendImage":   "Recommended image size is at least 128x128 px",
+        "webhook.addSuccess":       "Webhook added successfully",
+        "webhook.addError":         "Failed to add webhook",
+        "webhook.saveSuccess":      "Saved successfully",
+        "webhook.saveError":        "Failed to save",
+        "webhook.deleteSuccess":    "Webhook deleted successfully",
+        "webhook.deleteError":      "Failed to delete webhook",
+        "webhook.createdBy":        "Created on %@ by %@",
 
         "channelPermission.title":              "Channel Permissions",
         "channelPermission.basicView":          "Basic View",
@@ -2436,6 +2486,30 @@ extension L10n {
         "channel.setting.streamChannelDesc":    "Phát sóng các hoạt động sở thích",
         "channel.setting.privateChannel":       "Kênh riêng tư",
         "channel.setting.privateChannelDesc":   "Chỉ những thành viên và vai trò được chọn mới có thể xem kênh này.",
+
+        "webhook.title":            "Webhook",
+        "webhook.description":      "Webhook là công cụ giúp bạn nhận tin nhắn tự động và cập nhật dữ liệu gửi đến kênh văn bản trong clan của bạn thông qua các kết nối Internet.",
+        "webhook.learnMore":        "Tìm hiểu thêm",
+        "webhook.buildOne":         "tạo một cái của riêng bạn",
+        "webhook.noWebhooks":       "Không có webhook",
+        "webhook.editTitle":        "Chỉnh sửa webhook",
+        "webhook.name":             "Tên webhook",
+        "webhook.nameLengthError":  "Độ dài phải từ 64 kí tự trở xuống.",
+        "webhook.channel":          "Kênh",
+        "webhook.webhookURL":       "URL webhook",
+        "webhook.copy":             "Sao chép",
+        "webhook.copied":           "Đã sao chép",
+        "webhook.delete":           "Xóa",
+        "webhook.deleteTitle":      "Xóa Webhook",
+        "webhook.deleteConfirm":    "Bạn có chắc chắn muốn xóa webhook '%@'?",
+        "webhook.recommendImage":   "Khuyến nghị sử dụng hình ảnh có kích thước tối thiểu 128x128 px",
+        "webhook.addSuccess":       "Thêm webhook thành công",
+        "webhook.addError":         "Thêm webhook thất bại",
+        "webhook.saveSuccess":      "Lưu thành công",
+        "webhook.saveError":        "Lưu thất bại",
+        "webhook.deleteSuccess":    "Xóa webhook thành công",
+        "webhook.deleteError":      "Xóa webhook thất bại",
+        "webhook.createdBy":        "Được tạo vào %@ bởi %@",
 
         "channelPermission.title":              "Quyền hạn kênh",
         "channelPermission.basicView":          "Cơ bản",

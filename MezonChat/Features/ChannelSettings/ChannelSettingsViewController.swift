@@ -72,6 +72,9 @@ final class ChannelSettingsViewController: BaseViewController {
             onChangeCategoryTap: { [weak self] in
                 self?.openChangeCategory()
             },
+            onWebhookTap: { [weak self] in
+                self?.openWebhookList()
+            },
             showDeleteButton: !isGeneralChannel && canManageChannel,
             showPermissionsButton: showPermissions,
             showChangeCategoryButton: showChangeCategory
@@ -160,6 +163,15 @@ final class ChannelSettingsViewController: BaseViewController {
             currentCategoryName: categoryName,
             channelLabel: initialName,
             channelTopic: initialTopic
+        )
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func openWebhookList() {
+        let vc = WebhookListViewController(
+            context: context,
+            clanId: clanId,
+            channelId: channelId
         )
         navigationController?.pushViewController(vc, animated: true)
     }

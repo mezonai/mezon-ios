@@ -544,6 +544,9 @@
 		FE41D162FA0301E63E7198BE /* SharingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938CD478A6578D888E1A6C46 /* SharingManager.swift */; };
 		FF8835F2F844100EBB021E44 /* GalleryPagingNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 542FE4B3B1D2B5BFB01D04C9 /* GalleryPagingNode.swift */; };
 		FFE436B00AFD1F6E5900E437 /* MezonEngine+Messages.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83DA31200DE6131EF4A99480 /* MezonEngine+Messages.swift */; };
+		WBH001A1B2C3D4E5F6A7B8C9 /* WebhookListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = WBH101A1B2C3D4E5F6A7B8C9 /* WebhookListViewController.swift */; };
+		WBH002A1B2C3D4E5F6A7B8C9 /* WebhookEditViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = WBH102A1B2C3D4E5F6A7B8C9 /* WebhookEditViewController.swift */; };
+		WBH003A1B2C3D4E5F6A7B8C9 /* WebhookSelectChannelViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = WBH103A1B2C3D4E5F6A7B8C9 /* WebhookSelectChannelViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1162,6 +1165,9 @@
 		FEFCDB2717CD2B32FAEBE9B2 /* MezonEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MezonEngine.swift; sourceTree = "<group>"; };
 		FFC984FAEFCAD0688DC1F29C /* UINavigationItem+Proxy.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "UINavigationItem+Proxy.m"; sourceTree = "<group>"; };
 		FFCA8E7371399EE77AA19EDF /* MediaLoadingSignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLoadingSignals.swift; sourceTree = "<group>"; };
+		WBH101A1B2C3D4E5F6A7B8C9 /* WebhookListViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebhookListViewController.swift; sourceTree = "<group>"; };
+		WBH102A1B2C3D4E5F6A7B8C9 /* WebhookEditViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebhookEditViewController.swift; sourceTree = "<group>"; };
+		WBH103A1B2C3D4E5F6A7B8C9 /* WebhookSelectChannelViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebhookSelectChannelViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1801,8 +1807,19 @@
 				6A84D0510D594D745D508FB5 /* ChannelSettingsViewController.swift */,
 				CC1A2B3C4D5E6F7890123456 /* ChangeCategoryViewController.swift */,
 				DE781345804FE6966B3B00DD /* Permissions */,
+				WBH200A1B2C3D4E5F6A7B8C9 /* Webhook */,
 			);
 			path = ChannelSettings;
+			sourceTree = "<group>";
+		};
+		WBH200A1B2C3D4E5F6A7B8C9 /* Webhook */ = {
+			isa = PBXGroup;
+			children = (
+				WBH101A1B2C3D4E5F6A7B8C9 /* WebhookListViewController.swift */,
+				WBH102A1B2C3D4E5F6A7B8C9 /* WebhookEditViewController.swift */,
+				WBH103A1B2C3D4E5F6A7B8C9 /* WebhookSelectChannelViewController.swift */,
+			);
+			path = Webhook;
 			sourceTree = "<group>";
 		};
 		696541592BA8AE16763B373D /* Clans */ = {
@@ -3279,6 +3296,9 @@
 				1AFDA7CF41FCE5FF0BF3019E /* ZoomableContentGalleryItemNode.swift in Sources */,
 				3287AC5C18B31DD1DCF7B888 /* api.pb.swift in Sources */,
 				A585745863D22A16A52173D7 /* realtime.pb.swift in Sources */,
+				WBH001A1B2C3D4E5F6A7B8C9 /* WebhookListViewController.swift in Sources */,
+				WBH002A1B2C3D4E5F6A7B8C9 /* WebhookEditViewController.swift in Sources */,
+				WBH003A1B2C3D4E5F6A7B8C9 /* WebhookSelectChannelViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

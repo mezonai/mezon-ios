@@ -8,6 +8,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let onDeleteTap: (() -> Void)?
     private let onChangeCategoryTap: (() -> Void)?
     private let onPermissionsTap: (() -> Void)?
+    private let onWebhookTap: (() -> Void)?
     private let showDeleteButton: Bool
     private let showPermissionsButton: Bool
     private let showChangeCategoryButton: Bool
@@ -33,6 +34,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         onPermissionsTap: (() -> Void)? = nil,
         onDeleteTap: (() -> Void)? = nil,
         onChangeCategoryTap: (() -> Void)? = nil,
+        onWebhookTap: (() -> Void)? = nil,
         showDeleteButton: Bool = true,
         showPermissionsButton: Bool = true,
         showChangeCategoryButton: Bool = true
@@ -45,6 +47,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.onPermissionsTap = onPermissionsTap
         self.onDeleteTap = onDeleteTap
         self.onChangeCategoryTap = onChangeCategoryTap
+        self.onWebhookTap = onWebhookTap
         self.showDeleteButton = showDeleteButton
         self.showPermissionsButton = showPermissionsButton
         self.showChangeCategoryButton = showChangeCategoryButton
@@ -175,7 +178,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
 
         let group2 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: nil),
+            .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
+                self?.onWebhookTap?()
+            }),
         ])
         stackView.addArrangedSubview(group2)
 
