@@ -9,6 +9,7 @@ final class WebhookListViewController: BaseViewController {
 
     private var webhooks: [Mezon_Api_Webhook] = []
     private var members: [ClanMemberRecord] = []
+    private var isCreating: Bool = false
 
     private let webhookNames = ["Captain hook", "Spidey bot", "Komu Knight"]
     private var webhookAvatars: [String] {
@@ -245,8 +246,17 @@ final class WebhookListViewController: BaseViewController {
     }
 
     private func handleAddWebhook() {
+        guard !isCreating else { return }
+        isCreating = true
+        addButton.isEnabled = false
+        
         Task { [weak self] in
             guard let self else { return }
+            defer {
+                self.isCreating = false
+                self.addButton.isEnabled = true
+            }
+            
             guard let token = await self.context.getToken() else {
                 Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
