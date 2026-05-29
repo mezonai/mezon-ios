@@ -30,7 +30,8 @@ final class ClanSettingsViewController: BaseViewController {
             clanId: clanId,
             clanName: clanName,
             avatarURL: avatarURL,
-            canShowRoles: canShowRolesSection()
+            canShowRoles: canShowRolesSection(),
+            canShowIntegrations: canShowIntegrationsSection()
         )
         node.onClose = { [weak self] in
             if let nav = self?.navigationController {
@@ -45,6 +46,11 @@ final class ClanSettingsViewController: BaseViewController {
             let vc = ClanRolesViewController(context: self.context, clanId: self.clanId)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onSelectIntegrations = { [weak self] in
+            guard let self else { return }
+            let vc = IntegrationsViewController(context: self.context, clanId: self.clanId)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 
@@ -56,12 +62,12 @@ final class ClanSettingsViewController: BaseViewController {
         disposables.add((context.engine.clanData.clanPermissionsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, updatedClanId == self.clanId else { return }
-                self.settingsNode.updateCanShowRoles(self.canShowRolesSection())
+                self.settingsNode.updateCanShowRoles(self.canShowRolesSection(), canShowIntegrations: self.canShowIntegrationsSection())
             }))
         disposables.add((context.engine.clanData.clanRolesUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, updatedClanId == self.clanId else { return }
-                self.settingsNode.updateCanShowRoles(self.canShowRolesSection())
+                self.settingsNode.updateCanShowRoles(self.canShowRolesSection(), canShowIntegrations: self.canShowIntegrationsSection())
             }))
     }
 
@@ -72,5 +78,11 @@ final class ClanSettingsViewController: BaseViewController {
 
     private func canShowRolesSection() -> Bool {
         context.rolePermissions.canManageRoles(clanId: clanId)
+    }
+
+    private func canShowIntegrationsSection() -> Bool {
+        context.rolePermissions.isClanOwner(clanId: clanId) ||
+        context.rolePermissions.hasClanPermission(.administrator, clanId: clanId) ||
+        context.rolePermissions.canManageClan(clanId: clanId)
     }
 }

@@ -1012,6 +1012,45 @@ enum L10n {
         static let bannerWeakNetwork         = "peerCall.bannerWeakNetwork"
         static let remoteMicOffBanner        = "peerCall.remoteMicOffBanner"
     }
+
+    struct Integrations {
+        static let title = "integrations.title"
+        static let description = "integrations.description"
+        static let learnMore = "integrations.learnMore"
+        static let webhooks = "integrations.webhooks"
+        static let clanWebhooks = "integrations.clanWebhooks"
+        static let messagesUpdates = "integrations.messagesUpdates"
+    }
+
+    enum Webhook {
+        static let title            = "webhook.title"
+        static let description      = "webhook.description"
+        static let clanDescription  = "webhook.clanDescription"
+        static let clanDescriptionTip = "webhook.clanDescriptionTip"
+        static let learnMore        = "webhook.learnMore"
+        static let buildOne         = "webhook.buildOne"
+        static let noWebhooks       = "webhook.noWebhooks"
+        static let editTitle        = "webhook.editTitle"
+        static let name             = "webhook.name"
+        static let nameLengthError  = "webhook.nameLengthError"
+        static let channel          = "webhook.channel"
+        static let webhookURL       = "webhook.webhookURL"
+        static let copy             = "webhook.copy"
+        static let copied           = "webhook.copied"
+        static let delete           = "webhook.delete"
+        static let deleteTitle      = "webhook.deleteTitle"
+        static let deleteConfirm    = "webhook.deleteConfirm"
+        static let recommendImage   = "webhook.recommendImage"
+        static let addSuccess       = "webhook.addSuccess"
+        static let addError         = "webhook.addError"
+        static let saveSuccess      = "webhook.saveSuccess"
+        static let saveError        = "webhook.saveError"
+        static let deleteSuccess    = "webhook.deleteSuccess"
+        static let deleteError      = "webhook.deleteError"
+        static let createdBy        = "webhook.createdBy"
+        static let resetToken       = "webhook.resetToken"
+        static let resetSuccess     = "webhook.resetSuccess"
+    }
 }
 
 extension L10n {
@@ -1194,7 +1233,7 @@ extension L10n {
         "notifications.messages": "Messages",
         "notifications.forYou": "For you",
         "notifications.topic": "Topic",
-        "notifications.empty.title": "Notthing here yet",
+        "notifications.empty.title": "Nothing yet here",
         "notifications.empty.description": "Come back for notifications on events, stream and more",
         "notifications.repliedTo": "Replied to: ",
         "notifications.sender": "Sender: ",
@@ -1529,6 +1568,40 @@ extension L10n {
         "channel.setting.streamChannelDesc":    "Sharing hobby activities",
         "channel.setting.privateChannel":       "Private Channel",
         "channel.setting.privateChannelDesc":   "Only selected members and roles will be able to view this channel.",
+
+        "webhook.title":            "Webhook",
+        "integrations.title":           "Integrations",
+        "integrations.description":     "Customize your clan with integrations. Manage webhooks, followed channels and apps, integrate external systems and automate notification workflows in Mezon.",
+        "integrations.learnMore":       "Learn more about managing integrations",
+        "integrations.webhooks":        "Webhooks",
+        "integrations.clanWebhooks":    "Clan Webhooks",
+        "integrations.messagesUpdates": "Messages and automated updates",
+        "webhook.description":          "Webhooks are a simple way to post messages from other apps and websites into Mezon using internet magic.",
+        "webhook.clanDescription":      "Clan Webhooks are a simple way to post messages from other apps and websites for each Mezon user using internet technology.",
+        "webhook.clanDescriptionTip":   "\nTip: If you feel the token on your URL is compromised or outdated, reset it and copy the new URL",
+        "webhook.learnMore":            "Learn more",
+        "webhook.buildOne":         "build your own",
+        "webhook.noWebhooks":       "No Webhooks",
+        "webhook.editTitle":        "Edit Webhook",
+        "webhook.name":             "Webhook name",
+        "webhook.nameLengthError":  "Must be 64 characters or fewer in length.",
+        "webhook.channel":          "Channel",
+        "webhook.webhookURL":       "Webhook URL",
+        "webhook.copy":             "Copy",
+        "webhook.copied":           "Copied",
+        "webhook.delete":           "Delete",
+        "webhook.deleteTitle":      "Delete Webhook",
+        "webhook.deleteConfirm":    "Are you sure you want to delete webhook %@?",
+        "webhook.recommendImage":   "Recommended image size is at least 128x128 px",
+        "webhook.addSuccess":       "Webhook added successfully",
+        "webhook.addError":         "Failed to add webhook",
+        "webhook.saveSuccess":      "Saved successfully",
+        "webhook.saveError":        "Failed to save",
+        "webhook.deleteSuccess":    "Webhook deleted successfully",
+        "webhook.deleteError":      "Failed to delete webhook",
+        "webhook.createdBy":        "Created on %@ by %@",
+        "webhook.resetToken":       "Reset Token",
+        "webhook.resetSuccess":     "Reset successfully",
 
         "channelPermission.title":              "Channel Permissions",
         "channelPermission.basicView":          "Basic View",
@@ -2436,6 +2509,40 @@ extension L10n {
         "channel.setting.streamChannelDesc":    "Phát sóng các hoạt động sở thích",
         "channel.setting.privateChannel":       "Kênh riêng tư",
         "channel.setting.privateChannelDesc":   "Chỉ những thành viên và vai trò được chọn mới có thể xem kênh này.",
+
+        "webhook.title":            "Webhook",
+        "integrations.title":           "Tích hợp",
+        "integrations.description":     "Tùy chỉnh clan của bạn với các tính năng tích hợp. Quản lý webhook, các kênh và ứng dụng đã theo dõi, tích hợp các hệ thống bên ngoài và tự động hóa quy trình thông báo trong Mezon.",
+        "integrations.learnMore":       "Tìm hiểu thêm về quản lý tích hợp",
+        "integrations.webhooks":        "Webhooks",
+        "integrations.clanWebhooks":    "Clan webhooks",
+        "integrations.messagesUpdates": "Tin nhắn và cập nhật tự động",
+        "webhook.description":          "Webhook là một cách đơn giản để gửi tin nhắn từ các ứng dụng và trang web khác vào Mezon bằng cách sử dụng công nghệ internet.",
+        "webhook.clanDescription":      "Webhook Clan là một cách đơn giản để gửi tin nhắn từ các ứng dụng và trang web khác cho mỗi người dùng Mezon bằng cách sử dụng công nghệ internet.",
+        "webhook.clanDescriptionTip":   "\nMẹo: Nếu bạn cảm thấy token trên URL của bạn bị xâm phạm hoặc lỗi thời, hãy đặt lại và sao chép URL mới",
+        "webhook.learnMore":            "Tìm hiểu thêm",
+        "webhook.buildOne":         "tạo một cái của riêng bạn",
+        "webhook.noWebhooks":       "Không có webhook",
+        "webhook.editTitle":        "Chỉnh sửa webhook",
+        "webhook.name":             "Tên webhook",
+        "webhook.nameLengthError":  "Độ dài phải từ 64 kí tự trở xuống.",
+        "webhook.channel":          "Kênh",
+        "webhook.webhookURL":       "Webhook URL",
+        "webhook.copy":             "Sao chép",
+        "webhook.copied":           "Đã sao chép",
+        "webhook.delete":           "Xóa",
+        "webhook.deleteTitle":      "Xóa Webhook",
+        "webhook.deleteConfirm":    "Bạn có chắc chắn muốn xóa webhook %@?",
+        "webhook.recommendImage":   "Khuyến nghị sử dụng hình ảnh có kích thước tối thiểu 128x128 px",
+        "webhook.addSuccess":       "Thêm webhook thành công",
+        "webhook.addError":         "Thêm webhook thất bại",
+        "webhook.saveSuccess":      "Lưu thành công",
+        "webhook.saveError":        "Lưu thất bại",
+        "webhook.deleteSuccess":    "Xóa webhook thành công",
+        "webhook.deleteError":      "Xóa webhook thất bại",
+        "webhook.createdBy":        "Được tạo vào %@ bởi %@",
+        "webhook.resetToken":       "Đặt lại token",
+        "webhook.resetSuccess":     "Đặt lại thành công",
 
         "channelPermission.title":              "Quyền hạn kênh",
         "channelPermission.basicView":          "Cơ bản",
