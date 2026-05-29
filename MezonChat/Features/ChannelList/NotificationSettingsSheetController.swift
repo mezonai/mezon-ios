@@ -421,7 +421,7 @@ private final class NotificationOptionRow: ASDisplayNode {
             radioInner.backgroundColor = .white
             radioInner.isHidden = false
         } else {
-            radioNode.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+            radioNode.borderColor = UIColor.theme.textStrong.withAlphaComponent(0.3).cgColor
             radioNode.backgroundColor = .clear
             radioInner.isHidden = true
         }
