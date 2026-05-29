@@ -12,6 +12,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let showDeleteButton: Bool
     private let showPermissionsButton: Bool
     private let showChangeCategoryButton: Bool
+    private let showWebhookButton: Bool
+    private let showQuickActionButton: Bool
+    private let showBanListButton: Bool
     private let isThread: Bool
 
     private let scrollView = UIScrollView()
@@ -37,7 +40,10 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         onWebhookTap: (() -> Void)? = nil,
         showDeleteButton: Bool = true,
         showPermissionsButton: Bool = true,
-        showChangeCategoryButton: Bool = true
+        showChangeCategoryButton: Bool = true,
+        showWebhookButton: Bool = true,
+        showQuickActionButton: Bool = true,
+        showBanListButton: Bool = true
     ) {
         self.initialName = channelName
         self.initialTopic = channelTopic
@@ -51,6 +57,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.showDeleteButton = showDeleteButton
         self.showPermissionsButton = showPermissionsButton
         self.showChangeCategoryButton = showChangeCategoryButton
+        self.showWebhookButton = showWebhookButton
+        self.showQuickActionButton = showQuickActionButton
+        self.showBanListButton = showBanListButton
         super.init()
         backgroundColor = UIColor.theme.primary
 
@@ -161,10 +170,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             }))
         }
         
-        group1Actions.append(contentsOf: [
-            .init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: nil),
-            .init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil),
-        ])
+        if showQuickActionButton {
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: nil))
+        }
+        
+        if showBanListButton {
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil))
+        }
         
         let group1 = createGroup(actions: group1Actions)
         stackView.addArrangedSubview(group1)
@@ -177,12 +189,14 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(footerLabel)
 
 
-        let group2 = createGroup(actions: [
-            .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
-                self?.onWebhookTap?()
-            }),
-        ])
-        stackView.addArrangedSubview(group2)
+        if showWebhookButton {
+            let group2 = createGroup(actions: [
+                .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
+                    self?.onWebhookTap?()
+                }),
+            ])
+            stackView.addArrangedSubview(group2)
+        }
 
 
         if showDeleteButton {

@@ -24,12 +24,24 @@ final class WebhookSelectChannelViewController: BaseViewController {
     override func setupUI() {
         displayNode.backgroundColor = UIColor.theme.primary
         let t = UIColor.theme
+        
+        let grabber = UIView()
+        grabber.backgroundColor = t.textDisabled
+        grabber.layer.cornerRadius = 2.5
+        grabber.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(grabber)
+        NSLayoutConstraint.activate([
+            grabber.topAnchor.constraint(equalTo: view.topAnchor, constant: 8.sh),
+            grabber.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            grabber.widthAnchor.constraint(equalToConstant: 36.sw),
+            grabber.heightAnchor.constraint(equalToConstant: 5.sh)
+        ])
 
         let header = UIView()
         view.addSubview(header)
         header.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            header.topAnchor.constraint(equalTo: view.topAnchor, constant: 16.sh),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             header.heightAnchor.constraint(equalToConstant: 44.sh),

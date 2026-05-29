@@ -2225,6 +2225,41 @@ final class MezonHTTPClient {
         )
     }
 
+    func listClanWebhooks(clanId: Int64, token: String) async throws -> [Mezon_Api_ClanWebhook] {
+        var req = Mezon_Api_ListClanWebhookRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListClanWebhookResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListClanWebhook",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listClanWebhooks
+    }
+
+    func generateClanWebhook(request: Mezon_Api_GenerateClanWebhookRequest, token: String) async throws -> Mezon_Api_GenerateClanWebhookResponse {
+        return try await postProto(
+            path: "/mezon.api.Mezon/GenerateClanWebhook",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateClanWebhookById(request: Mezon_Api_UpdateClanWebhookRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateClanWebhookById",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteClanWebhookById(request: Mezon_Api_WebhookDeleteRequestById, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteClanWebhookById",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
     func listWebhooksByChannelId(channelId: Int64, clanId: Int64, token: String) async throws -> [Mezon_Api_Webhook] {
         var req = Mezon_Api_WebhookListRequest()
         req.channelID = channelId
