@@ -18,7 +18,6 @@ final class WebhookEditViewController: BaseViewController {
     private var selectedImage: UIImage?
     private var selectedImageData: Data?
     private var selectedChannelId: Int64
-    private var hasChanges: Bool = false
     private var isSaving: Bool = false
 
     private let headerView = UIView()
@@ -40,11 +39,16 @@ final class WebhookEditViewController: BaseViewController {
     private let channelIconView = UIImageView()
     private let urlLabel = UILabel()
     private let copyButton = UIButton(type: .system)
+    private let resetTokenButton = UIButton(type: .system)
     private let deleteButton = UIButton(type: .system)
 
     private var imageTask: URLSessionDataTask?
+    
+    private let isClanIntegration: Bool
+    
+    var onWebhookUpdated: (() -> Void)?
 
-    init(context: AccountContext, clanId: Int64, channelId: Int64, webhook: Mezon_Api_Webhook) {
+    init(context: AccountContext, clanId: Int64, channelId: Int64, webhook: Mezon_Api_Webhook, isClanIntegration: Bool = false) {
         self.context = context
         self.clanId = clanId
         self.channelId = channelId
@@ -52,6 +56,7 @@ final class WebhookEditViewController: BaseViewController {
         self.webhookName = webhook.webhookName
         self.avatarURL = webhook.avatar
         self.selectedChannelId = webhook.channelID
+        self.isClanIntegration = isClanIntegration
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -63,9 +68,11 @@ final class WebhookEditViewController: BaseViewController {
         setupScrollView()
         setupAvatarSection()
         setupNameSection()
-        setupChannelSection()
+        if !isClanIntegration {
+            setupChannelSection()
+        }
         setupURLSection()
-        setupDeleteSection()
+        setupActionButtonsSection()
     }
 
     override func viewDidLoad() {
@@ -100,7 +107,7 @@ final class WebhookEditViewController: BaseViewController {
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
         titleLabel.text = L(L10n.Webhook.editTitle)
-        titleLabel.font = .systemFont(ofSize: 16.sf, weight: .bold)
+        titleLabel.font = .systemFont(ofSize: 17.sf, weight: .bold)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.textAlignment = .center
 
@@ -108,7 +115,6 @@ final class WebhookEditViewController: BaseViewController {
         saveButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         saveButton.tintColor = UIColor.theme.bgViolet
         saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
-        saveButton.isHidden = true
 
         [backButton, titleLabel, saveButton].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -209,7 +215,7 @@ final class WebhookEditViewController: BaseViewController {
             avatarImageView.heightAnchor.constraint(equalToConstant: 80.swh),
 
             uploadIndicatorContainer.topAnchor.constraint(equalTo: avatarView.topAnchor, constant: 0),
-            uploadIndicatorContainer.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor, constant: 0),
+            uploadIndicatorContainer.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 0),
             uploadIndicatorContainer.widthAnchor.constraint(equalToConstant: 28.swh),
             uploadIndicatorContainer.heightAnchor.constraint(equalToConstant: 28.swh),
             
@@ -348,22 +354,41 @@ final class WebhookEditViewController: BaseViewController {
         stackView.addArrangedSubview(section)
     }
 
-    private func setupDeleteSection() {
+    private func setupActionButtonsSection() {
         let spacer = UIView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.heightAnchor.constraint(equalToConstant: 10.sh).isActive = true
         stackView.addArrangedSubview(spacer)
 
+        let actionsStack = UIStackView()
+        actionsStack.axis = .vertical
+        actionsStack.spacing = 16.sh
+        actionsStack.translatesAutoresizingMaskIntoConstraints = false
+
+        if isClanIntegration {
+            resetTokenButton.setTitle(L(L10n.Webhook.resetToken), for: .normal)
+            resetTokenButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
+            resetTokenButton.setTitleColor(.white, for: .normal)
+            resetTokenButton.backgroundColor = UIColor(red: 34/255, green: 197/255, blue: 94/255, alpha: 1)
+            resetTokenButton.layer.cornerRadius = 12
+            resetTokenButton.addTarget(self, action: #selector(resetTokenTapped), for: .touchUpInside)
+            resetTokenButton.translatesAutoresizingMaskIntoConstraints = false
+            actionsStack.addArrangedSubview(resetTokenButton)
+            resetTokenButton.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
+        }
+
         deleteButton.setTitle(L(L10n.Webhook.delete), for: .normal)
         deleteButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
-        deleteButton.setTitleColor(.mezonError, for: .normal)
-        deleteButton.backgroundColor = UIColor.theme.secondary
+        deleteButton.setTitleColor(.white, for: .normal)
+        deleteButton.backgroundColor = .mezonError
         deleteButton.layer.cornerRadius = 12
         deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
         deleteButton.translatesAutoresizingMaskIntoConstraints = false
 
-        stackView.addArrangedSubview(deleteButton)
+        actionsStack.addArrangedSubview(deleteButton)
         deleteButton.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
+
+        stackView.addArrangedSubview(actionsStack)
     }
 
     private func createSection(title: String) -> UIStackView {
@@ -396,6 +421,8 @@ final class WebhookEditViewController: BaseViewController {
 
         avatarView.configure(username: webhook.webhookName)
         loadAvatarImage(webhook.avatar)
+        
+        updateSaveButtonVisibility()
     }
 
     private func loadAvatarImage(_ urlString: String) {
@@ -430,15 +457,21 @@ final class WebhookEditViewController: BaseViewController {
         imageTask?.resume()
     }
 
+    private var isResettingToken = false
+
     private func updateSaveButtonVisibility() {
-        let trimmedName = webhookName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let isValid = !trimmedName.isEmpty && trimmedName.count <= 64
-        hasChanges = trimmedName != webhook.webhookName || avatarURL != webhook.avatar || selectedImage != nil || selectedChannelId != webhook.channelID
+        let nameChanged = webhookName != webhook.webhookName
+        let avatarChanged = avatarURL != webhook.avatar || selectedImage != nil
+        let channelChanged = !isClanIntegration && selectedChannelId != webhook.channelID
+        let hasChanges = nameChanged || avatarChanged || channelChanged
         
-        nameErrorLabel.isHidden = isValid || webhookName.isEmpty
-        saveButton.isHidden = !hasChanges || trimmedName.isEmpty
-        saveButton.isEnabled = isValid
-        saveButton.alpha = saveButton.isEnabled ? 1.0 : 0.5
+        let trimmedName = webhookName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isNameTooLong = trimmedName.count > 64
+        nameErrorLabel.isHidden = !isNameTooLong
+        
+        let isValidName = !isNameTooLong && !trimmedName.isEmpty
+        saveButton.isEnabled = hasChanges && isValidName && !isSaving
+        saveButton.isHidden = !hasChanges
     }
 
     @objc private func backTapped() {
@@ -465,7 +498,6 @@ final class WebhookEditViewController: BaseViewController {
         vc.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
             vc.sheetPresentationController?.detents = [.medium(), .large()]
-            vc.sheetPresentationController?.prefersGrabberVisible = true
         }
         present(vc, animated: true)
     }
@@ -486,6 +518,41 @@ final class WebhookEditViewController: BaseViewController {
     @objc private func copyTapped() {
         UIPasteboard.general.string = webhook.url
         Toast.success(L(L10n.Webhook.copied))
+    }
+
+    @objc private func resetTokenTapped() {
+        guard !isResettingToken else { return }
+        isResettingToken = true
+        resetTokenButton.isEnabled = false
+        
+        Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.isResettingToken = false
+                self.resetTokenButton.isEnabled = true
+            }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            
+            do {
+                var req = Mezon_Api_UpdateClanWebhookRequest()
+                req.id = self.webhook.id
+                req.clanID = self.clanId
+                req.webhookName = self.webhook.webhookName
+                req.avatar = self.webhook.avatar
+                req.resetToken = true
+                _ = try await MezonHTTPClient.shared.updateClanWebhookById(request: req, token: token)
+                
+                Toast.success(L(L10n.Webhook.resetSuccess))
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay for backend sync
+                self.onWebhookUpdated?()
+                self.fetchLatestWebhook()
+            } catch {
+                Toast.error(L(L10n.Webhook.saveError))
+            }
+        }
     }
 
     @objc private func deleteTapped() {
@@ -510,12 +577,6 @@ final class WebhookEditViewController: BaseViewController {
                 Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
-            var req = Mezon_Api_WebhookUpdateRequestById()
-            req.id = self.webhook.id
-            req.webhookName = trimmedName
-            req.channelID = self.webhook.channelID
-            req.channelIDUpdate = self.selectedChannelId
-            req.clanID = self.clanId
             
             if let imgData = self.selectedImageData, let img = self.selectedImage {
                 do {
@@ -532,21 +593,70 @@ final class WebhookEditViewController: BaseViewController {
                         data: imgData,
                         contentType: "image/jpeg"
                     )
-                    req.avatar = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                    self.avatarURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 } catch {
                     Toast.error(L(L10n.Webhook.saveError))
                     return
                 }
-            } else {
-                req.avatar = self.avatarURL
             }
 
             do {
-                try await MezonHTTPClient.shared.updateWebhookById(request: req, token: token)
+                if self.isClanIntegration {
+                    var req = Mezon_Api_UpdateClanWebhookRequest()
+                    req.id = self.webhook.id
+                    req.clanID = self.clanId
+                    req.webhookName = trimmedName
+                    req.avatar = self.avatarURL
+                    _ = try await MezonHTTPClient.shared.updateClanWebhookById(request: req, token: token)
+                } else {
+                    var req = Mezon_Api_WebhookUpdateRequestById()
+                    req.id = self.webhook.id
+                    req.clanID = self.clanId
+                    req.webhookName = trimmedName
+                    req.avatar = self.avatarURL
+                    req.channelID = self.webhook.channelID
+                    req.channelIDUpdate = self.selectedChannelId
+                    _ = try await MezonHTTPClient.shared.updateWebhookById(request: req, token: token)
+                }
                 Toast.success(L(L10n.Webhook.saveSuccess))
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay for backend sync
+                self.onWebhookUpdated?()
                 self.navigationController?.popViewController(animated: true)
             } catch {
                 Toast.error(L(L10n.Webhook.saveError))
+            }
+        }
+    }
+
+    private func fetchLatestWebhook() {
+        Task { [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                if self.isClanIntegration {
+                    let clanWebhooks = try await MezonHTTPClient.shared.listClanWebhooks(clanId: self.clanId, token: token)
+                    if let updated = clanWebhooks.first(where: { $0.id == self.webhook.id }) {
+                        self.webhook = updated.toWebhook()
+                    }
+                } else {
+                    let fetchChannelId = self.selectedChannelId
+                    let webhooks = try await MezonHTTPClient.shared.listWebhooksByChannelId(channelId: fetchChannelId, clanId: self.clanId, token: token)
+                    if let updated = webhooks.first(where: { $0.id == self.webhook.id }) {
+                        self.webhook = updated
+                    }
+                }
+                
+                self.webhookName = self.webhook.webhookName
+                self.avatarURL = self.webhook.avatar
+                self.selectedChannelId = self.webhook.channelID
+                self.selectedImage = nil
+                self.selectedImageData = nil
+                self.populateData()
+            } catch {
+                
             }
         }
     }
@@ -586,8 +696,13 @@ final class WebhookEditViewController: BaseViewController {
             req.clanID = self.clanId
             req.channelID = self.webhook.channelID
             do {
-                try await MezonHTTPClient.shared.deleteWebhookById(request: req, token: token)
+                if self.isClanIntegration {
+                    try await MezonHTTPClient.shared.deleteClanWebhookById(request: req, token: token)
+                } else {
+                    try await MezonHTTPClient.shared.deleteWebhookById(request: req, token: token)
+                }
                 Toast.success(L(L10n.Webhook.deleteSuccess))
+                self.onWebhookUpdated?()
                 self.navigationController?.popViewController(animated: true)
             } catch {
                 Toast.error(L(L10n.Webhook.deleteError))

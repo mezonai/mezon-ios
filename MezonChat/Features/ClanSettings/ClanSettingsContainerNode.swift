@@ -5,12 +5,14 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     var onClose: (() -> Void)?
     var onSelectRoles: (() -> Void)?
+    var onSelectIntegrations: (() -> Void)?
 
     private let context: AccountContext
     private let clanId: Int64
     private let clanName: String
     private let avatarURL: String
     private var canShowRoles: Bool
+    private var canShowIntegrations: Bool
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -19,12 +21,13 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
 
-    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool) {
+    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool) {
         self.context = context
         self.clanId = clanId
         self.clanName = clanName
         self.avatarURL = avatarURL
         self.canShowRoles = canShowRoles
+        self.canShowIntegrations = canShowIntegrations
         super.init()
         backgroundColor = .mezonSecondary
     }
@@ -78,15 +81,22 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(settingsHeader)
         stackView.setCustomSpacing(10.sh, after: settingsHeader)
 
-        let settingsActions: [SettingAction] = [
+        var settingsActions: [SettingAction] = [
             .init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview"),
-            .init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon"),
-            .init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon"),
+            .init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon")
+        ]
+        
+        if canShowIntegrations {
+            settingsActions.append(.init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon", navigate: .integrations))
+        }
+        
+        settingsActions.append(contentsOf: [
             .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji"),
             .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon"),
             .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon"),
-            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon"),
-        ]
+            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon")
+        ])
+        
         let settingsGroup = createGroup(actions: settingsActions)
         stackView.addArrangedSubview(settingsGroup)
 
@@ -110,9 +120,10 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(footerSpacer)
     }
 
-    func updateCanShowRoles(_ canShowRoles: Bool) {
-        guard self.canShowRoles != canShowRoles else { return }
+    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool) {
+        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations else { return }
         self.canShowRoles = canShowRoles
+        self.canShowIntegrations = canShowIntegrations
         guard isNodeLoaded else { return }
         rebuildContent()
     }
@@ -372,6 +383,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         switch nav {
         case .roles:
             onSelectRoles?()
+        case .integrations:
+            onSelectIntegrations?()
         }
     }
 
@@ -396,6 +409,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
 private enum ClanSettingsNavigateAction: Int {
     case roles = 1
+    case integrations = 2
 }
 
 private struct SettingAction {

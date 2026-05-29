@@ -49,9 +49,27 @@ final class ChannelSettingsViewController: BaseViewController {
 
         let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
         let isPublicChannel = !channelPrivate
-        let showPermissions = !(isPublicChannel || isThread)
-        let showChangeCategory = !isThread
         let canManageChannel = context.rolePermissions.canManageChannel(clanId: clanId)
+        let isAdministrator = context.rolePermissions.hasClanPermission(.administrator, clanId: clanId) || context.rolePermissions.isClanOwner(clanId: clanId)
+        
+        let showPermissions = canManageChannel &&
+                              !isThread &&
+                              !isGeneralChannel &&
+                              channelType != MezonConstants.ChannelType.app.rawValue &&
+                              channelType != MezonConstants.ChannelType.streaming.rawValue &&
+                              channelType != MezonConstants.ChannelType.mezonVoice.rawValue
+        let showChangeCategory = canManageChannel && !isThread
+        
+        let showWebhook = canManageChannel &&
+                          channelType != MezonConstants.ChannelType.streaming.rawValue &&
+                          channelType != MezonConstants.ChannelType.mezonVoice.rawValue
+                          
+        let showQuickAction = canManageChannel && 
+                              (channelType == MezonConstants.ChannelType.channel.rawValue || 
+                               channelType == MezonConstants.ChannelType.thread.rawValue ||
+                               channelType == MezonConstants.ChannelType.app.rawValue)
+                               
+        let showBanList = isAdministrator
 
         displayNode = ChannelSettingsContainerNode(
             channelName: initialName,
@@ -77,7 +95,10 @@ final class ChannelSettingsViewController: BaseViewController {
             },
             showDeleteButton: !isGeneralChannel && canManageChannel,
             showPermissionsButton: showPermissions,
-            showChangeCategoryButton: showChangeCategory
+            showChangeCategoryButton: showChangeCategory,
+            showWebhookButton: showWebhook,
+            showQuickActionButton: showQuickAction,
+            showBanListButton: showBanList
         )
     }
 

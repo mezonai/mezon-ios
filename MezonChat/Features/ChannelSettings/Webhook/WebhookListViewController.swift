@@ -43,12 +43,18 @@ final class WebhookListViewController: BaseViewController {
     private let emptyIcon = UIImageView()
     private let emptyLabel = UILabel()
 
+    private let descriptionTextView = UITextView()
     private let addButton = UIButton(type: .system)
 
-    init(context: AccountContext, clanId: Int64, channelId: Int64) {
+    private let isClanIntegration: Bool
+    private let isClanSetting: Bool
+
+    init(context: AccountContext, clanId: Int64, channelId: Int64, isClanIntegration: Bool = false, isClanSetting: Bool = false) {
         self.context = context
         self.clanId = clanId
         self.channelId = channelId
+        self.isClanIntegration = isClanIntegration
+        self.isClanSetting = isClanSetting
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -91,9 +97,14 @@ final class WebhookListViewController: BaseViewController {
         backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-
-        titleLabel.text = L(L10n.Webhook.title)
-        titleLabel.font = .systemFont(ofSize: 16.sf, weight: .bold)
+        
+        if isClanIntegration {
+            titleLabel.text = L(L10n.Integrations.clanWebhooks)
+        } else {
+            titleLabel.text = L(L10n.Webhook.title)
+        }
+        
+        titleLabel.font = .systemFont(ofSize: 17.sf, weight: .bold)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.textAlignment = .center
 
@@ -126,6 +137,48 @@ final class WebhookListViewController: BaseViewController {
         containerView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.addSubview(containerView)
 
+        descriptionTextView.translatesAutoresizingMaskIntoConstraints = false
+        
+        let text: String
+        let linkText: String
+        let urlString: String
+        
+        if isClanIntegration {
+            text = L(L10n.Webhook.clanDescription) + L(L10n.Webhook.clanDescriptionTip)
+            linkText = L(L10n.Webhook.clanDescriptionTip)
+            urlString = "\(MezonConfig.chatWebAppBaseURL)/docs/en/developer/webhooks/clan-webhook"
+        } else {
+            text = L(L10n.Webhook.description) + " " + L(L10n.Webhook.learnMore)
+            linkText = L(L10n.Webhook.learnMore)
+            urlString = "\(MezonConfig.chatWebAppBaseURL)/docs/en/developer/webhooks/channel-webhook/"
+        }
+        
+        let attributedString = NSMutableAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.textDisabled
+            ]
+        )
+        
+        let linkRange = (text as NSString).range(of: linkText)
+        if linkRange.location != NSNotFound {
+            attributedString.addAttribute(.link, value: urlString, range: linkRange)
+        }
+        
+        descriptionTextView.attributedText = attributedString
+        descriptionTextView.isEditable = false
+        descriptionTextView.isScrollEnabled = false
+        descriptionTextView.backgroundColor = .clear
+        descriptionTextView.textContainerInset = .zero
+        descriptionTextView.textContainer.lineFragmentPadding = 0
+        descriptionTextView.delegate = self
+        descriptionTextView.linkTextAttributes = [
+            .foregroundColor: UIColor.theme.bgViolet
+        ]
+        
+        containerView.addSubview(descriptionTextView)
+
         tableView.backgroundColor = UIColor.theme.secondary
         tableView.layer.cornerRadius = 12
         tableView.clipsToBounds = true
@@ -149,8 +202,12 @@ final class WebhookListViewController: BaseViewController {
             containerView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             containerView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             containerView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+            
+            descriptionTextView.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4.sh),
+            descriptionTextView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16.sw),
+            descriptionTextView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16.sw),
 
-            tableView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            tableView.topAnchor.constraint(equalTo: descriptionTextView.bottomAnchor, constant: 16.sh),
             tableView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16.sw),
             tableView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16.sw),
             tableView.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: -16.sh)
@@ -226,11 +283,17 @@ final class WebhookListViewController: BaseViewController {
                 return
             }
             do {
-                self.webhooks = try await MezonHTTPClient.shared.listWebhooksByChannelId(
-                    channelId: self.channelId,
-                    clanId: self.clanId,
-                    token: token
-                )
+                if self.isClanIntegration {
+                    let clanWebhooks = try await MezonHTTPClient.shared.listClanWebhooks(clanId: self.clanId, token: token)
+                    self.webhooks = clanWebhooks.map { $0.toWebhook() }.sorted { $0.id < $1.id }
+                } else {
+                    let fetchChannelId = self.isClanSetting ? 0 : self.channelId
+                    self.webhooks = try await MezonHTTPClient.shared.listWebhooksByChannelId(
+                        channelId: fetchChannelId,
+                        clanId: self.clanId,
+                        token: token
+                    ).sorted { $0.id < $1.id }
+                }
                 self.members = self.context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
                 self.reloadUI()
             } catch {
@@ -247,6 +310,27 @@ final class WebhookListViewController: BaseViewController {
 
     private func handleAddWebhook() {
         guard !isCreating else { return }
+        
+        if !isClanIntegration && isClanSetting {
+            let vc = WebhookSelectChannelViewController(
+                context: context,
+                clanId: clanId,
+                currentChannelId: channelId
+            ) { [weak self] selectedChannel in
+                self?.performAddWebhook(for: selectedChannel.channelID)
+            }
+            vc.modalPresentationStyle = .pageSheet
+            if #available(iOS 15.0, *) {
+                vc.sheetPresentationController?.detents = [.medium(), .large()]
+            }
+            present(vc, animated: true)
+            return
+        }
+        
+        performAddWebhook(for: self.channelId)
+    }
+
+    private func performAddWebhook(for channelId: Int64) {
         isCreating = true
         addButton.isEnabled = false
         
@@ -261,13 +345,23 @@ final class WebhookListViewController: BaseViewController {
                 Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
-            var req = Mezon_Api_WebhookCreateRequest()
-            req.channelID = self.channelId
-            req.clanID = self.clanId
-            req.webhookName = self.webhookNames.randomElement() ?? "Captain hook"
-            req.avatar = self.webhookAvatars.randomElement() ?? ""
+            
             do {
-                _ = try await MezonHTTPClient.shared.generateWebhook(request: req, token: token)
+                if self.isClanIntegration {
+                    var req = Mezon_Api_GenerateClanWebhookRequest()
+                    req.clanID = self.clanId
+                    req.webhookName = self.webhookNames.randomElement() ?? "Captain hook"
+                    req.avatar = self.webhookAvatars.randomElement() ?? ""
+                    _ = try await MezonHTTPClient.shared.generateClanWebhook(request: req, token: token)
+                } else {
+                    var req = Mezon_Api_WebhookCreateRequest()
+                    req.channelID = channelId
+                    req.clanID = self.clanId
+                    req.webhookName = self.webhookNames.randomElement() ?? "Captain hook"
+                    req.avatar = self.webhookAvatars.randomElement() ?? ""
+                    _ = try await MezonHTTPClient.shared.generateWebhook(request: req, token: token)
+                }
+                
                 Toast.success(L(L10n.Webhook.addSuccess))
                 self.fetchWebhooks()
             } catch {
@@ -280,10 +374,21 @@ final class WebhookListViewController: BaseViewController {
         let vc = WebhookEditViewController(
             context: context,
             clanId: clanId,
-            channelId: channelId,
-            webhook: webhook
+            channelId: webhook.channelID,
+            webhook: webhook,
+            isClanIntegration: isClanIntegration
         )
+        vc.onWebhookUpdated = { [weak self] in
+            self?.fetchWebhooks()
+        }
         navigationController?.pushViewController(vc, animated: true)
+    }
+}
+
+extension WebhookListViewController: UITextViewDelegate {
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        UIApplication.shared.open(URL)
+        return false
     }
 }
 
@@ -296,7 +401,12 @@ extension WebhookListViewController: UITableViewDelegate, UITableViewDataSource 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: WebhookItemCell.reuseId, for: indexPath) as! WebhookItemCell
         let webhook = webhooks[indexPath.row]
-        let creatorName = members.first(where: { $0.userId == webhook.creatorID })?.displayName ?? "Unknown"
+        
+        var creatorName = "Unknown"
+        if let member = members.first(where: { $0.userId == webhook.creatorID }), !member.username.isEmpty {
+            creatorName = member.username
+        }
+        
         let isLast = indexPath.row == webhooks.count - 1
         cell.configure(with: webhook, creatorName: creatorName, isLast: isLast)
         return cell
@@ -319,6 +429,7 @@ final class WebhookItemCell: UITableViewCell {
     private let avatarView = TextAvatarView(username: "", size: 40)
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
+    private let clockIconView = UIImageView()
     private let subtitleLabel = UILabel()
     private let chevronView = UIImageView()
     private let separatorView = UIView()
@@ -348,6 +459,12 @@ final class WebhookItemCell: UITableViewCell {
         nameLabel.textColor = UIColor.theme.textStrong
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(nameLabel)
+
+        clockIconView.image = UIImage(named: "ClanSetting/ClockIcon")?.withRenderingMode(.alwaysTemplate)
+        clockIconView.tintColor = UIColor.theme.textDisabled
+        clockIconView.contentMode = .scaleAspectFit
+        clockIconView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(clockIconView)
 
         subtitleLabel.font = .systemFont(ofSize: 12.sf)
         subtitleLabel.textColor = UIColor.theme.textDisabled
@@ -382,7 +499,12 @@ final class WebhookItemCell: UITableViewCell {
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevronView.leadingAnchor, constant: -8.sw),
             nameLabel.topAnchor.constraint(equalTo: contentView.centerYAnchor, constant: -18.sh),
 
-            subtitleLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            clockIconView.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            clockIconView.centerYAnchor.constraint(equalTo: subtitleLabel.centerYAnchor),
+            clockIconView.widthAnchor.constraint(equalToConstant: 12.swh),
+            clockIconView.heightAnchor.constraint(equalToConstant: 12.swh),
+
+            subtitleLabel.leadingAnchor.constraint(equalTo: clockIconView.trailingAnchor, constant: 4.sw),
             subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevronView.leadingAnchor, constant: -8.sw),
             subtitleLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 3.sh),
 
@@ -450,8 +572,8 @@ final class WebhookItemCell: UITableViewCell {
 
     private func formatDisplay(_ date: Date) -> String {
         let display = DateFormatter()
-        display.dateFormat = "EEE MMM dd - HH:mm"
-        display.locale = Locale(identifier: "en_GB")
+        display.dateFormat = "dd MMMM yyyy"
+        display.locale = LanguageManager.shared.current.locale
         return display.string(from: date)
     }
 
@@ -462,5 +584,22 @@ final class WebhookItemCell: UITableViewCell {
         avatarImageView.image = nil
         avatarImageView.isHidden = true
         avatarView.showPlaceholder()
+    }
+}
+
+extension Mezon_Api_ClanWebhook {
+    func toWebhook() -> Mezon_Api_Webhook {
+        var webhook = Mezon_Api_Webhook()
+        webhook.id = self.id
+        webhook.webhookName = self.webhookName
+        webhook.clanID = self.clanID
+        webhook.active = self.active
+        webhook.url = self.url
+        webhook.creatorID = self.creatorID
+        webhook.avatar = self.avatar
+        webhook.createTime = self.createTime
+        webhook.updateTime = self.updateTime
+        webhook.channelID = 0
+        return webhook
     }
 }
