@@ -2,6 +2,7 @@ import Foundation
 import CryptoKit
 import UIKit
 import AVFoundation
+import MobileVLCKit
 
 enum ImageResizeMode {
     case fit
@@ -627,6 +628,17 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
             return EmptyDisposable
         }
 
+        let fileExtension = videoURL.pathExtension.lowercased()
+        let isUnsupportedByAV = ["webm", "ogv", "ogg", "mkv", "avi", "flv", "wmv", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
+        
+        if isUnsupportedByAV {
+            let transparentImage = createTransparentImage()
+            cache.setImage(transparentImage, data: nil, forKey: cacheKey)
+            subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+            subscriber.putCompletion()
+            return EmptyDisposable
+        }
+
         let asset = AVURLAsset(url: videoURL, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
@@ -643,6 +655,10 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
                 let jpegData = image.jpegData(compressionQuality: 0.7)
                 cache.setImage(image, data: jpegData, forKey: cacheKey)
                 subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+            } else {
+                let transparentImage = createTransparentImage()
+                cache.setImage(transparentImage, data: nil, forKey: cacheKey)
+                subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
             }
             subscriber.putCompletion()
         }
@@ -650,6 +666,15 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
         return ActionDisposable {
             generator.cancelAllCGImageGeneration()
         }
+    }
+}
+
+private func createTransparentImage() -> UIImage {
+    let size = CGSize(width: 1, height: 1)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    return renderer.image { context in
+        UIColor.clear.setFill()
+        context.fill(CGRect(origin: .zero, size: size))
     }
 }
 

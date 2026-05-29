@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -91,6 +91,7 @@
 		285F431CF445346553D9D919 /* VoIPMinimalCallBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C760AB3DB8EE79760C0E5352 /* VoIPMinimalCallBootstrap.swift */; };
 		2895706E6E15283A5E928A91 /* NotificationCenterUtils.m in Sources */ = {isa = PBXBuildFile; fileRef = 06FFAFBBA23556931B1237A2 /* NotificationCenterUtils.m */; };
 		28FE25A4DAC9F57215BA3FCA /* Signal_Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A264BB4E0457188124F711E /* Signal_Timing.swift */; };
+		2912D50C20140A4F102F33FA /* CategoryActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626DCD4F21BD21F0F8A43000 /* CategoryActionSheet.swift */; };
 		2974C7C27CE3C377340386F3 /* PresentationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9002B9CF1B449422C695AC /* PresentationContext.swift */; };
 		2A80AD66D74340B6359639A5 /* MessageReactionsNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A981FBC8F4A29D5CB381A8A2 /* MessageReactionsNode.swift */; };
 		2A86B60BB575D1439F046CBC /* InteractiveTransitionGestureRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B60BD894B027827AACFC0404 /* InteractiveTransitionGestureRecognizer.swift */; };
@@ -121,6 +122,7 @@
 		36DBCCFDB73539CCE15104EB /* Table.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BCED0ACD3A8BBE228CAE023 /* Table.swift */; };
 		373AC93E46899A1F19FCCD97 /* QRClanInviteNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F3FB7559B1F80C26DDA70E /* QRClanInviteNode.swift */; };
 		379266DA24CBC753FBBAE78A /* TapLongTapOrDoubleTapGestureRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1781A4247453C898AE7F0ACB /* TapLongTapOrDoubleTapGestureRecognizer.swift */; };
+		380B1E85970234714024023E /* CreateChannelViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2372A1A4E43E98CD5614E460 /* CreateChannelViewController.swift */; };
 		38578BCEE876D63544BF30EE /* ChatSystemMessageItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94485B00A51813358227AE7 /* ChatSystemMessageItem.swift */; };
 		385BC3A069C94A5195D135E3 /* PeerCallVideoFrameSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = F94DACA22A49FE159F416465 /* PeerCallVideoFrameSink.swift */; };
 		397886E67C39001A59CF5C5B /* NavigationLayoutEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85A1FD53749AF15825DDD0B8 /* NavigationLayoutEnvironment.swift */; };
@@ -254,6 +256,7 @@
 		73E71FE09A0C8C87469C1A0C /* NavigationContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B858B98534F445136E919DE /* NavigationContainer.swift */; };
 		7421E8D37AFB9330922AE74F /* MandatoryUsernamePendingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99539737AF418178858A4444 /* MandatoryUsernamePendingStore.swift */; };
 		743016BAAD3CB0F90E758122 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7595BD459C34777F031BAEF6 /* AppTheme.swift */; };
+		746C4337048C3F4D245AD876 /* UniversalVideoPlayerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FEED0BA4DDB22AD23961161 /* UniversalVideoPlayerNode.swift */; };
 		764EA61AB986AD49D8AE512F /* ChannelTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D6A11F23322191B459D9AD6 /* ChannelTable.swift */; };
 		768AE9BD59B66014479DBF45 /* VoIPAnswerAccountBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5E7CA166848AC32CD0C9935 /* VoIPAnswerAccountBridge.swift */; };
 		769C338E9CC06768CCEB7FD8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 633FB25A726D9F54EB42E9C8 /* Assets.xcassets */; };
@@ -261,6 +264,7 @@
 		770F28AFF6F2B17327A54155 /* TabBarNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02704FB176A15119FA54C18B /* TabBarNode.swift */; };
 		7754BD8E7AE70F6381D41967 /* ChannelListContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0086350E45925F120C897BFC /* ChannelListContainerNode.swift */; };
 		77EA03E635E272563F70FF59 /* ChannelRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = F156C71998F2AC6F3CFDF6C0 /* ChannelRecord.swift */; };
+		7873C5CC4751E47A975BA852 /* Pods_MezonChat.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 21F7544354F05854BFF57071 /* Pods_MezonChat.framework */; };
 		78A0954F240A46733AFA58B3 /* SharingChannelCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2273002D08DB3A9E0CC1C4CC /* SharingChannelCell.swift */; };
 		78C2EB91F84E8355F3C20656 /* NavigationTransitionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2E51B5A7E4D668AC3A8ECE3 /* NavigationTransitionCoordinator.swift */; };
 		79C432770BF58B2AC9EFEB8E /* ChannelsData.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31F689C5C9B1D1F82FF39B7 /* ChannelsData.swift */; };
@@ -283,6 +287,7 @@
 		83297FB300A781A7EA0B8230 /* DirectMessagesContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CAE873940BA07736BE01F46 /* DirectMessagesContainerNode.swift */; };
 		832CD88A3A91FA207B3321BA /* ListViewTempItemNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AB336747DD04D9A49650B1B /* ListViewTempItemNode.swift */; };
 		83635C7D6777CFE7A871B709 /* VoiceChannelLiveKitBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A357842F68DB9EC646C12708 /* VoiceChannelLiveKitBridge.swift */; };
+		8499EFA3922C73D93D8A5AD6 /* ChangeCategoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B023A60FC9D841757874E1C9 /* ChangeCategoryViewController.swift */; };
 		84F138FAE293EB7DC223464C /* QRUserProfileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D517A910B492508C07E94F /* QRUserProfileNode.swift */; };
 		85EC1F4474514D7E9D418D92 /* UpdatePhoneNumberViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445CA2DFA0A186FD2D973CC3 /* UpdatePhoneNumberViewController.swift */; };
 		862E43DB8C0CCC19CAA8E0D7 /* JoinVoiceChannelSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B262E43F9878F009631DD23 /* JoinVoiceChannelSheetViewController.swift */; };
@@ -447,6 +452,7 @@
 		D3A0D2994AB2DDAEEBE87A75 /* PostboxTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DB8E25157272AA0154FF6E /* PostboxTransaction.swift */; };
 		D433A244C74046816691FF04 /* VoiceCallReactionFlightView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 409D883DE3D7CC947F3B5AB6 /* VoiceCallReactionFlightView.swift */; };
 		D4B169F2D05179F169702270 /* Insets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62B75603E948BAC54C4A2E8E /* Insets.swift */; };
+		D566F38087CB0505B83F7A5B /* CreateChannelContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828EB2522095AF8B70D0F42A /* CreateChannelContainerNode.swift */; };
 		D5A448CB6AC3895CAC70E92C /* PlaceholderViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB277867F983A3D7C44DF1D2 /* PlaceholderViewController.swift */; };
 		D6419A3C6921C53F669A58F2 /* MezonSharing.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C5F56FEE8A54000B408A70DC /* MezonSharing.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D66098A09131987263808AE2 /* MessageHistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC28CE76D94A246FC245797 /* MessageHistoryView.swift */; };
@@ -514,6 +520,7 @@
 		F423BE89B2ABFD920F71D97A /* ImmediateTextNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553F1496F9101E8B516C5531 /* ImmediateTextNode.swift */; };
 		F49309A0A4177F4029863DE8 /* SSignal+Pipe.m in Sources */ = {isa = PBXBuildFile; fileRef = 9E2AEA544D0BA14F188BF20C /* SSignal+Pipe.m */; };
 		F54E2364A35CA65C63D9A8C4 /* UIColor+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4679F3F19BD6AD9CA83068 /* UIColor+Theme.swift */; };
+		F56C9A0C82CB228F9A14388A /* VLCVideoPlayerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0FEBF8D96C7E683DBF51F0 /* VLCVideoPlayerNode.swift */; };
 		F56E24CFA4F8F8041CFD941F /* Spring.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80E81EA9503DE4D7EFBF6C23 /* Spring.swift */; };
 		F62F2DCD986FA51662B85A19 /* SettingsTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28E905BE83781946540AFC28 /* SettingsTable.swift */; };
 		F72AD525D052CD210668C9D2 /* Timer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA949DA799B409DD2C37A364 /* Timer.swift */; };
@@ -650,11 +657,13 @@
 		208C195B44CADEB924D95E84 /* UIImage+Decode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UIImage+Decode.swift"; sourceTree = "<group>"; };
 		20AE25A5CC6C4330DFC371DC /* QRLoginConfirmNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRLoginConfirmNode.swift; sourceTree = "<group>"; };
 		217BAF002E75D223C6014B51 /* MyQRCodeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyQRCodeViewController.swift; sourceTree = "<group>"; };
+		21F7544354F05854BFF57071 /* Pods_MezonChat.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_MezonChat.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		2273002D08DB3A9E0CC1C4CC /* SharingChannelCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharingChannelCell.swift; sourceTree = "<group>"; };
 		2278E66BC4F533B5EDAD2A2C /* PageControlNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageControlNode.swift; sourceTree = "<group>"; };
 		22ADC19CBC5B74D8D3C10098 /* ContextGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextGesture.swift; sourceTree = "<group>"; };
 		23127E92E3ABED9189AA55F3 /* MmnSendTokenLogMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MmnSendTokenLogMessage.swift; sourceTree = "<group>"; };
 		234ED3032CCC0DD91F778755 /* MezonConfirmController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MezonConfirmController.swift; sourceTree = "<group>"; };
+		2372A1A4E43E98CD5614E460 /* CreateChannelViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateChannelViewController.swift; sourceTree = "<group>"; };
 		23FCB0915B1551025FEAA769 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		243F73240E9CAC19CAC0296A /* SplashViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplashViewController.swift; sourceTree = "<group>"; };
 		24557F6346DDE96BC1E06E22 /* FriendListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendListViewController.swift; sourceTree = "<group>"; };
@@ -674,6 +683,7 @@
 		2CAA3BBDC76B7604BC57C9E1 /* Gesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Gesture.swift; sourceTree = "<group>"; };
 		2CAE873940BA07736BE01F46 /* DirectMessagesContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectMessagesContainerNode.swift; sourceTree = "<group>"; };
 		2CB0C6609FDB868F1792A991 /* ReportMessageModalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportMessageModalController.swift; sourceTree = "<group>"; };
+		2D0FEBF8D96C7E683DBF51F0 /* VLCVideoPlayerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCVideoPlayerNode.swift; sourceTree = "<group>"; };
 		2D21EF8735E3ABC31AC0B6CE /* GridNodeScroller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GridNodeScroller.swift; sourceTree = "<group>"; };
 		2DC7B5164690BE5E9A66CE25 /* SSignal+Mapping.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "SSignal+Mapping.m"; sourceTree = "<group>"; };
 		2EB27F29703EC1C63C110829 /* SwitchNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwitchNode.swift; sourceTree = "<group>"; };
@@ -696,7 +706,7 @@
 		380217E26784374B78348BC8 /* NotificationSettingRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingRecord.swift; sourceTree = "<group>"; };
 		386A788D50FF0B389BEB44C7 /* SSignal+Combine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SSignal+Combine.h"; sourceTree = "<group>"; };
 		38EBD3DE736872C6AC2D4D66 /* ChatWelcomeItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatWelcomeItem.swift; sourceTree = "<group>"; };
-		3910C328DAF28A5D8A379BA3 /* mezon_callkit_silent.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = mezon_callkit_silent.caf; sourceTree = "<group>"; };
+		3910C328DAF28A5D8A379BA3 /* mezon_callkit_silent.caf */ = {isa = PBXFileReference; path = mezon_callkit_silent.caf; sourceTree = "<group>"; };
 		392D5A59E301B17B09BEF416 /* ListViewReorderingItemNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListViewReorderingItemNode.swift; sourceTree = "<group>"; };
 		393A7534D077AA187486557A /* UniversalMasterController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalMasterController.swift; sourceTree = "<group>"; };
 		39568002A6E6690CE6D2C9EA /* AddMemberOrRoleSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMemberOrRoleSheetController.swift; sourceTree = "<group>"; };
@@ -793,6 +803,7 @@
 		61A5C825F0B49E835666DEFE /* EscapeGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeGuard.swift; sourceTree = "<group>"; };
 		61DB8E25157272AA0154FF6E /* PostboxTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostboxTransaction.swift; sourceTree = "<group>"; };
 		626893BDDF2B615F6FF05EA8 /* CAAnimationUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CAAnimationUtils.swift; sourceTree = "<group>"; };
+		626DCD4F21BD21F0F8A43000 /* CategoryActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryActionSheet.swift; sourceTree = "<group>"; };
 		62B75603E948BAC54C4A2E8E /* Insets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Insets.swift; sourceTree = "<group>"; };
 		6337C92DC79E9791B1904132 /* CardComponent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardComponent.swift; sourceTree = "<group>"; };
 		633FB25A726D9F54EB42E9C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -848,7 +859,7 @@
 		7A1614BDC3FD9434A6F2F4A9 /* CanvasWebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasWebViewController.swift; sourceTree = "<group>"; };
 		7BC05A1D70218FEF88ECD091 /* ThemeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeManager.swift; sourceTree = "<group>"; };
 		7C9DD86C33B3394AABB6B02C /* SAtomic.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SAtomic.h; sourceTree = "<group>"; };
-		7CBD0290A77BC1FAC28E6FEE /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7CBD0290A77BC1FAC28E6FEE /* NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D231D0BB4770A6BAAC1ACE2 /* NSWeakReference.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSWeakReference.h; sourceTree = "<group>"; };
 		7D51F5462EB85FBDE2E8973F /* ClanListContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanListContainerNode.swift; sourceTree = "<group>"; };
 		7D5960091C540D0308F86AFE /* MezonSharing.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MezonSharing.entitlements; sourceTree = "<group>"; };
@@ -868,6 +879,7 @@
 		81FECEC6985B72B5808CB158 /* Rect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Rect.swift; sourceTree = "<group>"; };
 		8228F77FEA2EC6D988AC9EE0 /* TabBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarController.swift; sourceTree = "<group>"; };
 		826EFCF51B8477C6CE4A4839 /* SSignal+Meta.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SSignal+Meta.h"; sourceTree = "<group>"; };
+		828EB2522095AF8B70D0F42A /* CreateChannelContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateChannelContainerNode.swift; sourceTree = "<group>"; };
 		82DFB3A9B36023962DDB9491 /* SimpleLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleLayer.swift; sourceTree = "<group>"; };
 		8341822AEBB71096468C8B33 /* ProfileTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileTable.swift; sourceTree = "<group>"; };
 		834E032683CA0671FA880978 /* TransformImageNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransformImageNode.swift; sourceTree = "<group>"; };
@@ -882,6 +894,7 @@
 		85A1FD53749AF15825DDD0B8 /* NavigationLayoutEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationLayoutEnvironment.swift; sourceTree = "<group>"; };
 		86FD4A3143D8EC7A0F470236 /* OpenURLHelper.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = OpenURLHelper.m; sourceTree = "<group>"; };
 		872B2357D03FAC002169FB75 /* PollDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PollDetailViewController.swift; sourceTree = "<group>"; };
+		872CFF6B0698BC0A495761E1 /* Pods-MezonChat.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MezonChat.debug.xcconfig"; path = "Target Support Files/Pods-MezonChat/Pods-MezonChat.debug.xcconfig"; sourceTree = "<group>"; };
 		8742D1794B61567C6B48E0B5 /* Signal_Catch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Signal_Catch.swift; sourceTree = "<group>"; };
 		8818BDDFBBEBB14DEF6A366C /* ChatCallLogItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCallLogItem.swift; sourceTree = "<group>"; };
 		882C8E4A6A22E09E08DBBBAA /* UIBarButtonItem+Proxy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "UIBarButtonItem+Proxy.h"; sourceTree = "<group>"; };
@@ -934,9 +947,11 @@
 		9E2AEA544D0BA14F188BF20C /* SSignal+Pipe.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "SSignal+Pipe.m"; sourceTree = "<group>"; };
 		9F1523073DDF7DE2819F2EE4 /* CollectionIndexNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionIndexNode.swift; sourceTree = "<group>"; };
 		9F48F4F61C640B1ABD2CEFA6 /* Font.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Font.swift; sourceTree = "<group>"; };
+		9FEED0BA4DDB22AD23961161 /* UniversalVideoPlayerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalVideoPlayerNode.swift; sourceTree = "<group>"; };
 		A1B338DB5ECF662E1ECC8A15 /* SessionExpiredModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionExpiredModal.swift; sourceTree = "<group>"; };
 		A2D6E3E946850C57F426884E /* ContextMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuController.swift; sourceTree = "<group>"; };
 		A357842F68DB9EC646C12708 /* VoiceChannelLiveKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChannelLiveKitBridge.swift; sourceTree = "<group>"; };
+		A399AA484AF064C2C25E4FFB /* Pods-MezonChat.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-MezonChat.release.xcconfig"; path = "Target Support Files/Pods-MezonChat/Pods-MezonChat.release.xcconfig"; sourceTree = "<group>"; };
 		A3BF7CE196F5D0037D7AAEB6 /* DmListItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DmListItemCell.swift; sourceTree = "<group>"; };
 		A3D94D76E71D13F887187862 /* ProfileStatusPresentations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStatusPresentations.swift; sourceTree = "<group>"; };
 		A40538D684C87D6F965B158E /* Signal_Combine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Signal_Combine.swift; sourceTree = "<group>"; };
@@ -968,6 +983,7 @@
 		AF1474613AF293DE1300E9E2 /* ClanCreationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanCreationModels.swift; sourceTree = "<group>"; };
 		AF2FC17680CF7799526E82D1 /* ChannelAppWebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelAppWebViewController.swift; sourceTree = "<group>"; };
 		AFEE13650E2C37137836C834 /* ClanRolesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanRolesViewController.swift; sourceTree = "<group>"; };
+		B023A60FC9D841757874E1C9 /* ChangeCategoryViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeCategoryViewController.swift; sourceTree = "<group>"; };
 		B0517D9E456A802AF58B7C01 /* ScrollToTopProxyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollToTopProxyView.swift; sourceTree = "<group>"; };
 		B054BCF6A5309CFD2C8E100F /* SThreadPoolTask.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = SThreadPoolTask.h; sourceTree = "<group>"; };
 		B0560EA6C75C85DE47FBDA31 /* UIMenuItem+Icons.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "UIMenuItem+Icons.m"; sourceTree = "<group>"; };
@@ -1030,7 +1046,7 @@
 		C5912BDE56C84777786DF134 /* SSignal+Take.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "SSignal+Take.m"; sourceTree = "<group>"; };
 		C5E07664F250504B41F2FCE0 /* ChildComponentTransitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildComponentTransitions.swift; sourceTree = "<group>"; };
 		C5E7CA166848AC32CD0C9935 /* VoIPAnswerAccountBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPAnswerAccountBridge.swift; sourceTree = "<group>"; };
-		C5F56FEE8A54000B408A70DC /* MezonSharing.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MezonSharing.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C5F56FEE8A54000B408A70DC /* MezonSharing.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = MezonSharing.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C63401D42D34F16D2D657AB9 /* NotificationsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsViewController.swift; sourceTree = "<group>"; };
 		C6AF8577C7F4EDA9424052AC /* ScrollComponent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollComponent.swift; sourceTree = "<group>"; };
 		C6D517A910B492508C07E94F /* QRUserProfileNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRUserProfileNode.swift; sourceTree = "<group>"; };
@@ -1072,7 +1088,7 @@
 		D60BC4DBAC8680ECBB3998D5 /* ContextMenuAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuAction.swift; sourceTree = "<group>"; };
 		D61DC64AF09CF71E054447B8 /* MessageActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageActionSheet.swift; sourceTree = "<group>"; };
 		D66C3D58A9E438C84EE96F22 /* ThreadPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadPool.swift; sourceTree = "<group>"; };
-		D6770D303E39BF3CD083400D /* Mezon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Mezon.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D6770D303E39BF3CD083400D /* MezonChat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MezonChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D6A61559422270AEFB788549 /* TooltipController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TooltipController.swift; sourceTree = "<group>"; };
 		D6CAB118D81CCEE9DAAC9E86 /* MezonRootController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MezonRootController.swift; sourceTree = "<group>"; };
 		D6FCBF73086932953EE28120 /* Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Helpers.swift; sourceTree = "<group>"; };
@@ -1181,6 +1197,7 @@
 				E198763D3F940271D8AC6957 /* LiveKitWebRTC in Frameworks */,
 				969538DEB3C57CBDDCBF47E0 /* SwiftProtobuf in Frameworks */,
 				53B2AA34A915496FA1143830 /* Sentry in Frameworks */,
+				7873C5CC4751E47A975BA852 /* Pods_MezonChat.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1686,7 +1703,7 @@
 		543B289376928B8228B0AD96 /* ChannelList */ = {
 			isa = PBXGroup;
 			children = (
-				9A67B0042FC4367A00707AD3 /* CategoryActionSheet.swift */,
+				626DCD4F21BD21F0F8A43000 /* CategoryActionSheet.swift */,
 				37BB4471F6CF213C42E3ECBF /* ChannelActionSheet.swift */,
 				B23BEA15E0F21603451529E0 /* ChannelBannerView.swift */,
 				4CDB4E4964AC3AA188D73679 /* ChannelItemCellNode.swift */,
@@ -1741,7 +1758,7 @@
 		5D009DF3818076C7CDE50BF0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				D6770D303E39BF3CD083400D /* Mezon.app */,
+				D6770D303E39BF3CD083400D /* MezonChat.app */,
 				C5F56FEE8A54000B408A70DC /* MezonSharing.appex */,
 				7CBD0290A77BC1FAC28E6FEE /* NotificationService.appex */,
 			);
@@ -1796,9 +1813,9 @@
 		652BD002D7995007DC11BD87 /* ChannelSettings */ = {
 			isa = PBXGroup;
 			children = (
+				B023A60FC9D841757874E1C9 /* ChangeCategoryViewController.swift */,
 				723A3601949B959F1F8CA29D /* ChannelSettingsContainerNode.swift */,
 				6A84D0510D594D745D508FB5 /* ChannelSettingsViewController.swift */,
-				CC1A2B3C4D5E6F7890123456 /* ChangeCategoryViewController.swift */,
 				DE781345804FE6966B3B00DD /* Permissions */,
 				WBH200A1B2C3D4E5F6A7B8C9 /* Webhook */,
 			);
@@ -1856,6 +1873,7 @@
 				CD7E9FEB6B0B50ABBC05F659 /* NotificationService */,
 				EA83705E3BB7ABF26349CE36 /* Pods */,
 				5D009DF3818076C7CDE50BF0 /* Products */,
+				C89BD3C31D5C92524ECAEAB1 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -2042,6 +2060,7 @@
 			children = (
 				F4B7CC3D95A193071AEA9C75 /* Auth */,
 				B5F30D4E644DDEAA27B48957 /* ChannelApp */,
+				A5E01820D98BD1801BB176E7 /* ChannelCreator */,
 				3397774A42366178D85F44B8 /* ChannelDetail */,
 				543B289376928B8228B0AD96 /* ChannelList */,
 				652BD002D7995007DC11BD87 /* ChannelSettings */,
@@ -2061,7 +2080,6 @@
 				EBE12BB5AF7B277FB894E3D9 /* Sharing */,
 				F60104892B41DE86F87E3DBA /* TabBar */,
 				7EBD64DCD599D22BDF836E87 /* VoiceChannel */,
-				ABCE92E1E0DDB41DF65D4599 /* ChannelCreator */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -2073,6 +2091,15 @@
 				773E2D5E88AA9EB969C03C13 /* RuntimeUtils.m */,
 			);
 			path = ObjCRuntimeUtils;
+			sourceTree = "<group>";
+		};
+		A5E01820D98BD1801BB176E7 /* ChannelCreator */ = {
+			isa = PBXGroup;
+			children = (
+				828EB2522095AF8B70D0F42A /* CreateChannelContainerNode.swift */,
+				2372A1A4E43E98CD5614E460 /* CreateChannelViewController.swift */,
+			);
+			path = ChannelCreator;
 			sourceTree = "<group>";
 		};
 		A88DEC62D40377977B49ACA5 /* MezonSharing */ = {
@@ -2277,6 +2304,14 @@
 			path = Source;
 			sourceTree = "<group>";
 		};
+		C89BD3C31D5C92524ECAEAB1 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				21F7544354F05854BFF57071 /* Pods_MezonChat.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		C98A169F52C816558D7DCE1B /* UI */ = {
 			isa = PBXGroup;
 			children = (
@@ -2450,6 +2485,8 @@
 			isa = PBXGroup;
 			children = (
 				1813841AB9729992EC4419D3 /* Target Support Files */,
+				872CFF6B0698BC0A495761E1 /* Pods-MezonChat.debug.xcconfig */,
+				A399AA484AF064C2C25E4FFB /* Pods-MezonChat.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -2529,6 +2566,8 @@
 			isa = PBXGroup;
 			children = (
 				50D4EEF5E861F907B3A41782 /* MezonVideoPlayerNode.swift */,
+				9FEED0BA4DDB22AD23961161 /* UniversalVideoPlayerNode.swift */,
+				2D0FEBF8D96C7E683DBF51F0 /* VLCVideoPlayerNode.swift */,
 			);
 			path = Video;
 			sourceTree = "<group>";
@@ -2586,8 +2625,6 @@
 			dependencies = (
 			);
 			name = MezonSharing;
-			packageProductDependencies = (
-			);
 			productName = MezonSharing;
 			productReference = C5F56FEE8A54000B408A70DC /* MezonSharing.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -2596,13 +2633,16 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = EC72BD5A9A9D143AE179DBD5 /* Build configuration list for PBXNativeTarget "MezonChat" */;
 			buildPhases = (
+				4C069271E8BEC03F553743FE /* [CP] Check Pods Manifest.lock */,
 				92A6A179EF8E12E0B4022079 /* Validate Secrets.swift */,
 				19F4DA105C897E310E067B9B /* Sources */,
 				BE4910FC6D318402623B7340 /* Resources */,
 				5A295EE582C60FFCE8897D74 /* Frameworks */,
 				F43D6A2CE84BF39FC2D3BE56 /* Embed Foundation Extensions */,
 				99F43EB3C132A8A6F8012E98 /* Generate LiveKitWebRTC dSYM */,
-				2F763D22A982463B8DB355C7 /* Copy Sentry dSYM */,
+				FC37184D359CFB8E5DE03924 /* Copy Sentry dSYM */,
+				040BCF082301B4FFCF538CEC /* [CP] Embed Pods Frameworks */,
+				D0585232FB699B339CD5AA5A /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -2618,7 +2658,7 @@
 				569BB5ED0A719F403FD9DEE5 /* Sentry */,
 			);
 			productName = MezonChat;
-			productReference = D6770D303E39BF3CD083400D /* Mezon.app */;
+			productReference = D6770D303E39BF3CD083400D /* MezonChat.app */;
 			productType = "com.apple.product-type.application";
 		};
 		AC5A47AC852E8A9FE2245D9E /* NotificationService */ = {
@@ -2632,8 +2672,6 @@
 			dependencies = (
 			);
 			name = NotificationService;
-			packageProductDependencies = (
-			);
 			productName = NotificationService;
 			productReference = 7CBD0290A77BC1FAC28E6FEE /* NotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -2648,9 +2686,11 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					09C2682B354953312A4C98EC = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					2055A71796058B31A0F6D83C = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 						SystemCapabilities = {
 							com.apple.ApplicationGroups.iOS = {
@@ -2665,6 +2705,7 @@
 						};
 					};
 					AC5A47AC852E8A9FE2245D9E = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -2685,6 +2726,8 @@
 				C1E4C8C615FE293BED810C78 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				AB033BCC9ED02682CF74E65D /* XCRemoteSwiftPackageReference "swift-protobuf" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5D009DF3818076C7CDE50BF0 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -2712,6 +2755,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		040BCF082301B4FFCF538CEC /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MezonChat/Pods-MezonChat-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MezonChat/Pods-MezonChat-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MezonChat/Pods-MezonChat-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		4C069271E8BEC03F553743FE /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
 		2F763D22A982463B8DB355C7 /* Copy Sentry dSYM */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -2721,6 +2783,19 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-MezonChat-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
 			);
 			name = "Copy Sentry dSYM";
 			outputFileListPaths = (
@@ -2769,6 +2844,42 @@
 			shellPath = /bin/sh;
 			shellScript = "/bin/sh \"${SRCROOT}/scripts/generate_livekit_webrtc_dsym.sh\"\n";
 		};
+		D0585232FB699B339CD5AA5A /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MezonChat/Pods-MezonChat-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-MezonChat/Pods-MezonChat-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-MezonChat/Pods-MezonChat-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		FC37184D359CFB8E5DE03924 /* Copy Sentry dSYM */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Sentry dSYM";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/bin/sh \"${SRCROOT}/scripts/copy_sentry_dsym.sh\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -2776,8 +2887,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				2C9739ADDFE6678B15F5F5A1 /* CreateChannelContainerNode.swift in Sources */,
-				99FA9478911EB3BFD4AB51B4 /* CreateChannelViewController.swift in Sources */,
 				8F86CFDCD730499F49787149 /* ASCGImageBuffer.mm in Sources */,
 				89B03906CB574F31B9373594 /* ASDisplayNode+Measure.swift in Sources */,
 				9D75DE1606BAA81A2D2A3199 /* ASTransformLayerNode.swift in Sources */,
@@ -2813,6 +2922,8 @@
 				2EEDFED2C4509F97854007FB /* CanvasNode.swift in Sources */,
 				8C5D3B8CC8BF821B238EFE17 /* CanvasWebViewController.swift in Sources */,
 				E4B469F3E24858A8F3A6FBDC /* CardComponent.swift in Sources */,
+				2912D50C20140A4F102F33FA /* CategoryActionSheet.swift in Sources */,
+				8499EFA3922C73D93D8A5AD6 /* ChangeCategoryViewController.swift in Sources */,
 				B399287BC00A4B05717CFEAE /* ChannelActionSheet.swift in Sources */,
 				EAA9B6AFE1645E28873B8112 /* ChannelAppNodes.swift in Sources */,
 				2E05E1CCD65E94F669DB09C3 /* ChannelAppWebViewController.swift in Sources */,
@@ -2889,6 +3000,8 @@
 				240F53CD74374B9510F4F955 /* ContextMenuAction.swift in Sources */,
 				CFBF15E96C691B4F533E8710 /* ContextMenuContainerNode.swift in Sources */,
 				219D2726AEA48AA9107BE45B /* ContextMenuController.swift in Sources */,
+				D566F38087CB0505B83F7A5B /* CreateChannelContainerNode.swift in Sources */,
+				380B1E85970234714024023E /* CreateChannelViewController.swift in Sources */,
 				11E2044E4515867090CE86BF /* CreateClanEntryViewController.swift in Sources */,
 				0EDB580A72650037E391D034 /* CreateClanViewController.swift in Sources */,
 				BD6841EC07DAE8F29B1A9439 /* CreateNewRoleViewController.swift in Sources */,
@@ -2982,7 +3095,6 @@
 				990BFCA15E9F12829DEC8E07 /* LongPressGesture.swift in Sources */,
 				7421E8D37AFB9330922AE74F /* MandatoryUsernamePendingStore.swift in Sources */,
 				4444836AA1460B8FC130B0D4 /* MediaGalleryNode.swift in Sources */,
-				9A67B0052FC4367A00707AD3 /* CategoryActionSheet.swift in Sources */,
 				25CC4616A8FCB877452D5B35 /* MediaLoadingSignals.swift in Sources */,
 				4332AC94EBAD1B51FDC284F6 /* MediaPanelCacheRecords.swift in Sources */,
 				8BFE02B3A8771B4144F6E25F /* MediaPickerViewController.swift in Sources */,
@@ -3266,10 +3378,12 @@
 				0DC5B7AD0A77BD90861393BC /* UIWindow+OrientationChange.m in Sources */,
 				46D6A8760CF4DAB5027387D6 /* UniversalMasterController.swift in Sources */,
 				B8B3BE792A068FC7E9223BCF /* UniversalTapRecognizer.swift in Sources */,
+				746C4337048C3F4D245AD876 /* UniversalVideoPlayerNode.swift in Sources */,
 				2109F024782BFCFD89B5C9EF /* UpdateEmailViewController.swift in Sources */,
 				85EC1F4474514D7E9D418D92 /* UpdatePhoneNumberViewController.swift in Sources */,
 				9AAD17101CD67E93010DC8BB /* UpdateUsernameViewController.swift in Sources */,
 				A9C3DB05DFD5E9D1F9C3720E /* User.swift in Sources */,
+				F56C9A0C82CB228F9A14388A /* VLCVideoPlayerNode.swift in Sources */,
 				B47F7138A4BB90103FB87738 /* VStack.swift in Sources */,
 				B63F1635A0DE875845FAB510 /* ValuePipe.swift in Sources */,
 				CDCC47FBF6BBE6F6098E0551 /* VerifyEmailOTPViewController.swift in Sources */,
@@ -3399,7 +3513,7 @@
 		};
 		433A5251B2769A74EDD27D32 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = BD20F700232CB92701B501FD /* Pods-MezonChat.release.xcconfig */;
+			baseConfigurationReference = A399AA484AF064C2C25E4FFB /* Pods-MezonChat.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -3408,7 +3522,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = E9Y2J54ZH3;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -3420,11 +3534,7 @@
 				);
 				INFOPLIST_FILE = MezonChat/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.2.96;
+				MARKETING_VERSION = 1.2.97;
 				OTHER_LDFLAGS = "$(inherited)";
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -disable-target-os-checking";
 				PRODUCT_BUNDLE_IDENTIFIER = mezon.mobile;
@@ -3442,7 +3552,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = E9Y2J54ZH3;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NotificationService/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -3463,7 +3573,7 @@
 				CODE_SIGN_ENTITLEMENTS = MezonSharing/MezonSharing.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = E9Y2J54ZH3;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = MezonSharing/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -3471,7 +3581,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.96;
+				MARKETING_VERSION = 1.2.97;
 				PRODUCT_BUNDLE_IDENTIFIER = mezon.mobile.MezonSharing;
 				PRODUCT_NAME = MezonSharing;
 				SDKROOT = iphoneos;
@@ -3485,7 +3595,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = E9Y2J54ZH3;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = NotificationService/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -3506,7 +3616,7 @@
 				CODE_SIGN_ENTITLEMENTS = MezonSharing/MezonSharing.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = E9Y2J54ZH3;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = MezonSharing/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -3514,7 +3624,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.2.96;
+				MARKETING_VERSION = 1.2.97;
 				PRODUCT_BUNDLE_IDENTIFIER = mezon.mobile.MezonSharing;
 				PRODUCT_NAME = MezonSharing;
 				SDKROOT = iphoneos;
@@ -3525,7 +3635,7 @@
 		};
 		D6110184B3C571C58191E396 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 4DDD39BC40258F000789A998 /* Pods-MezonChat.debug.xcconfig */;
+			baseConfigurationReference = 872CFF6B0698BC0A495761E1 /* Pods-MezonChat.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -3534,7 +3644,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = E9Y2J54ZH3;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				HEADER_SEARCH_PATHS = (
 					"$(inherited)",
@@ -3546,11 +3656,7 @@
 				);
 				INFOPLIST_FILE = MezonChat/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MARKETING_VERSION = 1.2.96;
+				MARKETING_VERSION = 1.2.97;
 				OTHER_LDFLAGS = "$(inherited)";
 				OTHER_SWIFT_FLAGS = "$(inherited) -Xfrontend -disable-target-os-checking";
 				PRODUCT_BUNDLE_IDENTIFIER = mezon.mobile;

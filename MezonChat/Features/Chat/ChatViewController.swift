@@ -31,7 +31,9 @@ struct ParsedAttachment: Equatable {
     }
 
     var isVideo: Bool {
-        filetype.hasPrefix("video/") || ["mp4", "mov", "m4v", "webm"].contains(fileExtension)
+        filetype.hasPrefix("video/") 
+            || ["mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "ogv", "ogg", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
+            || ["mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "ogv", "ogg", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(urlExtension)
     }
 
     var isSticker: Bool { filetype == "sticker" }

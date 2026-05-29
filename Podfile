@@ -8,6 +8,7 @@ target 'MezonChat' do
   pod 'Texture', '~> 3.1.0'
   pod 'SQLCipher', '~> 4.0'
   pod 'FirebaseMessaging', '~> 10.0'
+  pod 'MobileVLCKit', '~> 3.6.0'
 end
 
 post_install do |installer|

@@ -4,7 +4,7 @@ import AsyncDisplayKit
 
 final class ChatVideoGalleryItemNode: GalleryItemNode {
 
-    private var playerNode: MezonVideoPlayerNode?
+    private var playerNode: UniversalVideoPlayerNode?
 
     override init() {
         super.init()
@@ -14,7 +14,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         guard let url = URL(string: info.url) else { return }
         playerNode?.removeFromSupernode()
         playerNode = nil
-        let node = MezonVideoPlayerNode(url: url, posterURL: info.url)
+        let node = UniversalVideoPlayerNode(url: url, posterURL: info.url)
         node.toggleOverlayVisibility = { [weak self] in
             self?.toggleControlsVisibility()
         }
