@@ -417,7 +417,7 @@ private class RadioButtonView: UIView {
             inner.backgroundColor = .white
             inner.isHidden = false
         } else {
-            layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+            layer.borderColor = UIColor.theme.textStrong.withAlphaComponent(0.3).cgColor
             backgroundColor = .clear
             inner.isHidden = true
         }
