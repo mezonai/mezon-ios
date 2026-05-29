@@ -629,7 +629,7 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
         }
 
         let fileExtension = videoURL.pathExtension.lowercased()
-        let isUnsupportedByAV = ["webm", "ogv", "ogg", "mkv", "avi", "flv", "wmv"].contains(fileExtension)
+        let isUnsupportedByAV = ["webm", "ogv", "ogg", "mkv", "avi", "flv", "wmv", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
         
         if isUnsupportedByAV {
             let transparentImage = createTransparentImage()

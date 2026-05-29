@@ -30,9 +30,14 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     private let seekDelta: Double = 15.0
     
+    private var sourceURL: URL?
+    private var errorOverlayNode: ASDisplayNode?
+    private var loadingTimeoutTimer: Foundation.Timer?
+    
     var toggleOverlayVisibility: (() -> Void)?
     
     init(url: URL, posterURL: String) {
+        self.sourceURL = url
         self.playerContainerNode = ASDisplayNode()
         self.playerContainerNode.backgroundColor = .black
         
@@ -104,8 +109,12 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
         
+        self.view.isUserInteractionEnabled = true
+        playerContainerNode.view.isUserInteractionEnabled = true
+        
         let tap = UITapGestureRecognizer(target: self, action: #selector(playerTapped))
-        self.view.addGestureRecognizer(tap)
+        tap.cancelsTouchesInView = false
+        playerContainerNode.view.addGestureRecognizer(tap)
         
         scrubberBarNode.view.addSubview(timeSlider)
         resetControlsTimer()
@@ -164,6 +173,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     deinit {
+        loadingTimeoutTimer?.invalidate()
         updateTimer?.invalidate()
         vlcPlayer?.stop()
         controlsHideTimer?.invalidate()
@@ -176,6 +186,14 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         posterNode.isHidden = true
         updatePlayPauseIcons(isPlaying: true)
         resetControlsTimer()
+        
+        loadingTimeoutTimer?.invalidate()
+        loadingTimeoutTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if self.vlcPlayer?.state == .error {
+                self.showErrorOverlay(message: "Video failed to load. The format may not be supported or the connection timed out.")
+            }
+        }
     }
     
     public func pause() {
@@ -238,16 +256,19 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     @objc private func sliderDidBeginScrubbing() {
         isScrubbing = true
-        vlcPlayer?.pause()
         controlsHideTimer?.invalidate()
     }
     
     @objc private func sliderDidChange() {
+        guard let player = vlcPlayer, let media = player.media else { return }
+        let duration = Double(media.length.intValue) / 1000.0
+        guard duration > 0 else { return }
+        
         let seconds = Double(timeSlider.value)
-        vlcPlayer?.time = VLCTime(int: Int32(seconds * 1000))
+        let clampedSeconds = max(0, min(seconds, duration))
         
         currentTimeLabel.attributedText = NSAttributedString(
-            string: formatTime(seconds),
+            string: formatTime(clampedSeconds),
             attributes: [.font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: UIColor.white]
         )
         setNeedsLayout()
@@ -255,12 +276,16 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     @objc private func sliderDidEndScrubbing() {
         isScrubbing = false
-        let seconds = Double(timeSlider.value)
-        vlcPlayer?.time = VLCTime(int: Int32(seconds * 1000))
+        guard let player = vlcPlayer, let media = player.media else { return }
+        let duration = Double(media.length.intValue) / 1000.0
+        guard duration > 0 else { return }
         
-        if vlcPlayer?.isPlaying == false {
-            
-        } else {
+        let seconds = Double(timeSlider.value)
+        let clampedSeconds = max(0, min(seconds, duration))
+        
+        player.time = VLCTime(int: Int32(clampedSeconds * 1000))
+        
+        if player.isPlaying {
             resetControlsTimer()
         }
     }
@@ -321,6 +346,10 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         playerContainerNode.frame = b
         posterNode.frame = b
         
+        if let errorNode = errorOverlayNode {
+            errorNode.frame = b
+        }
+        
         let args = TransformImageArguments(corners: ImageCorners(), imageSize: b.size, boundingSize: b.size, intrinsicInsets: .zero)
         let apply = posterNode.asyncLayout()(args)
         apply()
@@ -365,19 +394,26 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if areControlsVisible {
-            let centerPoint = self.view.convert(point, to: centerOverlayNode.view)
-            if let hitView = centerOverlayNode.view.hitTest(centerPoint, with: event) {
-                return hitView
-            }
-            
-            let scrubberPoint = self.view.convert(point, to: scrubberBarNode.view)
-            if let hitView = scrubberBarNode.view.hitTest(scrubberPoint, with: event) {
+        if let errorNode = errorOverlayNode, errorNode.supernode != nil {
+            let errorPoint = self.view.convert(point, to: errorNode.view)
+            if let hitView = errorNode.view.hitTest(errorPoint, with: event) {
                 return hitView
             }
         }
         
-        return super.hitTest(point, with: event)
+        if areControlsVisible {
+            let centerPoint = self.view.convert(point, to: centerOverlayNode.view)
+            if let hitView = centerOverlayNode.view.hitTest(centerPoint, with: event), hitView != centerOverlayNode.view {
+                return hitView
+            }
+            
+            let scrubberPoint = self.view.convert(point, to: scrubberBarNode.view)
+            if let hitView = scrubberBarNode.view.hitTest(scrubberPoint, with: event), hitView != scrubberBarNode.view {
+                return hitView
+            }
+        }
+        
+        return playerContainerNode.view
     }
 }
 
@@ -386,18 +422,123 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
         guard let player = vlcPlayer else { return }
         
         DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
             switch player.state {
             case .ended:
-                self?.updatePlayPauseIcons(isPlaying: false)
-                self?.showControls()
+                self.loadingTimeoutTimer?.invalidate()
+                self.updatePlayPauseIcons(isPlaying: false)
+                self.showControls()
             case .playing:
-                self?.updatePlayPauseIcons(isPlaying: true)
+                self.loadingTimeoutTimer?.invalidate()
+                self.updatePlayPauseIcons(isPlaying: true)
             case .paused:
-                self?.updatePlayPauseIcons(isPlaying: false)
+                self.loadingTimeoutTimer?.invalidate()
+                self.updatePlayPauseIcons(isPlaying: false)
+            case .error:
+                self.loadingTimeoutTimer?.invalidate()
+                self.showErrorOverlay(message: "An error occurred while playing this video.")
+            case .stopped:
+                self.loadingTimeoutTimer?.invalidate()
+            case .opening, .buffering:
+                break
             default:
                 break
             }
         }
+    }
+    
+    private func showErrorOverlay(message: String) {
+        guard errorOverlayNode == nil else { return }
+        
+        centerOverlayNode.isHidden = true
+        scrubberBarNode.isHidden = true
+        
+        let overlayNode = ASDisplayNode()
+        overlayNode.backgroundColor = UIColor.black.withAlphaComponent(0.9)
+        overlayNode.automaticallyManagesSubnodes = true
+        
+        let iconNode = ASImageNode()
+        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .regular)
+        iconNode.image = UIImage(systemName: "exclamationmark.triangle", withConfiguration: config)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        iconNode.contentMode = .scaleAspectFit
+        
+        let titleNode = ASTextNode()
+        titleNode.attributedText = NSAttributedString(
+            string: "Cannot Play Video",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
+                .foregroundColor: UIColor.white
+            ]
+        )
+        titleNode.maximumNumberOfLines = 1
+        
+        let messageNode = ASTextNode()
+        messageNode.attributedText = NSAttributedString(
+            string: message,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.8)
+            ]
+        )
+        messageNode.maximumNumberOfLines = 0
+        
+        let openButton = ASButtonNode()
+        openButton.setTitle("Open in Browser", with: UIFont.systemFont(ofSize: 16, weight: .medium), with: .white, for: .normal)
+        openButton.backgroundColor = UIColor.systemBlue
+        openButton.cornerRadius = 8
+        openButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        openButton.addTarget(self, action: #selector(openInBrowserTapped), forControlEvents: .touchUpInside)
+        
+        let closeButton = ASButtonNode()
+        closeButton.setTitle("Close", with: UIFont.systemFont(ofSize: 16, weight: .medium), with: UIColor.white.withAlphaComponent(0.8), for: .normal)
+        closeButton.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+        closeButton.cornerRadius = 8
+        closeButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        closeButton.addTarget(self, action: #selector(closeErrorOverlay), forControlEvents: .touchUpInside)
+        
+        overlayNode.layoutSpecBlock = { _, constrainedSize in
+            iconNode.style.preferredSize = CGSize(width: 48, height: 48)
+            let iconSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: iconNode)
+            
+            let titleSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: titleNode)
+            
+            messageNode.style.maxWidth = ASDimension(unit: .points, value: min(constrainedSize.max.width - 64, 320))
+            let messageSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: messageNode)
+            
+            openButton.style.preferredSize = CGSize(width: 200, height: 44)
+            closeButton.style.preferredSize = CGSize(width: 200, height: 44)
+            
+            let buttonsStack = ASStackLayoutSpec.vertical()
+            buttonsStack.spacing = 12
+            buttonsStack.children = [openButton, closeButton]
+            let buttonsSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: buttonsStack)
+            
+            let stack = ASStackLayoutSpec.vertical()
+            stack.spacing = 16
+            stack.children = [iconSpec, titleSpec, messageSpec, buttonsSpec]
+            
+            return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: stack)
+        }
+        
+        errorOverlayNode = overlayNode
+        addSubnode(overlayNode)
+        setNeedsLayout()
+    }
+    
+    @objc private func closeErrorOverlay() {
+        errorOverlayNode?.removeFromSupernode()
+        errorOverlayNode = nil
+        
+        centerOverlayNode.isHidden = false
+        scrubberBarNode.isHidden = false
+        showControls()
+    }
+    
+    @objc private func openInBrowserTapped() {
+        guard let url = sourceURL else { return }
+        UIApplication.shared.open(url)
     }
 }
 

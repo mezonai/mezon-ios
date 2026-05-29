@@ -28,8 +28,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var areControlsVisible = true
 
     private let seekDelta: Double = 15.0
+    
+    private var sourceURL: URL?
+    private var errorOverlayNode: ASDisplayNode?
 
     var toggleOverlayVisibility: (() -> Void)?
+    var onPlaybackFailed: (() -> Void)?
 
     convenience init(url: URL, posterURL: String) {
         let asset = AVURLAsset(url: url, options: [
@@ -37,6 +41,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         ])
         let item = AVPlayerItem(asset: asset, automaticallyLoadedAssetKeys: ["playable", "tracks"])
         self.init(playerItem: item, posterURL: posterURL)
+        self.sourceURL = url
     }
 
     init(playerItem: AVPlayerItem, posterURL: String) {
@@ -181,6 +186,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
                         self?.setNeedsLayout()
                     }
                 }
+            } else if item.status == .failed {
+                DispatchQueue.main.async {
+                    self?.showErrorOverlay(error: item.error)
+                }
             }
         }
     }
@@ -191,7 +200,104 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
         player?.pause()
         controlsHideTimer?.invalidate()
+        statusObserver?.invalidate()
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    private func showErrorOverlay(error: Error?) {
+        guard errorOverlayNode == nil else { return }
+        
+        onPlaybackFailed?()
+        
+        centerOverlayNode.isHidden = true
+        scrubberBarNode.isHidden = true
+        
+        let overlayNode = ASDisplayNode()
+        overlayNode.backgroundColor = UIColor.black.withAlphaComponent(0.9)
+        overlayNode.automaticallyManagesSubnodes = true
+        
+        let iconNode = ASImageNode()
+        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .regular)
+        iconNode.image = UIImage(systemName: "exclamationmark.triangle", withConfiguration: config)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        iconNode.contentMode = .scaleAspectFit
+        
+        let titleNode = ASTextNode()
+        titleNode.attributedText = NSAttributedString(
+            string: "Cannot Play Video",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 18, weight: .semibold),
+                .foregroundColor: UIColor.white
+            ]
+        )
+        titleNode.maximumNumberOfLines = 1
+        
+        let messageNode = ASTextNode()
+        let errorMessage = error?.localizedDescription ?? "This video format may not be supported"
+        messageNode.attributedText = NSAttributedString(
+            string: errorMessage,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14, weight: .regular),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.8)
+            ]
+        )
+        messageNode.maximumNumberOfLines = 0
+        
+        let openButton = ASButtonNode()
+        openButton.setTitle("Open in Browser", with: UIFont.systemFont(ofSize: 16, weight: .medium), with: .white, for: .normal)
+        openButton.backgroundColor = UIColor.systemBlue
+        openButton.cornerRadius = 8
+        openButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        openButton.addTarget(self, action: #selector(openInBrowserTapped), forControlEvents: .touchUpInside)
+        
+        let closeButton = ASButtonNode()
+        closeButton.setTitle("Close", with: UIFont.systemFont(ofSize: 16, weight: .medium), with: UIColor.white.withAlphaComponent(0.8), for: .normal)
+        closeButton.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+        closeButton.cornerRadius = 8
+        closeButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        closeButton.addTarget(self, action: #selector(closeErrorOverlay), forControlEvents: .touchUpInside)
+        
+        overlayNode.layoutSpecBlock = { _, constrainedSize in
+            iconNode.style.preferredSize = CGSize(width: 48, height: 48)
+            let iconSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: iconNode)
+            
+            let titleSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: titleNode)
+            
+            messageNode.style.maxWidth = ASDimension(unit: .points, value: min(constrainedSize.max.width - 64, 320))
+            let messageSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: messageNode)
+            
+            openButton.style.preferredSize = CGSize(width: 200, height: 44)
+            closeButton.style.preferredSize = CGSize(width: 200, height: 44)
+            
+            let buttonsStack = ASStackLayoutSpec.vertical()
+            buttonsStack.spacing = 12
+            buttonsStack.children = [openButton, closeButton]
+            let buttonsSpec = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: [], child: buttonsStack)
+            
+            let stack = ASStackLayoutSpec.vertical()
+            stack.spacing = 16
+            stack.children = [iconSpec, titleSpec, messageSpec, buttonsSpec]
+            
+            return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: stack)
+        }
+        
+        errorOverlayNode = overlayNode
+        addSubnode(overlayNode)
+        setNeedsLayout()
+    }
+    
+    @objc private func closeErrorOverlay() {
+        errorOverlayNode?.removeFromSupernode()
+        errorOverlayNode = nil
+        
+        centerOverlayNode.isHidden = false
+        scrubberBarNode.isHidden = false
+        showControls()
+    }
+    
+    @objc private func openInBrowserTapped() {
+        guard let url = sourceURL else { return }
+        UIApplication.shared.open(url)
     }
 
     public func play() {
@@ -377,6 +483,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         playerNode.frame = b
         posterNode.frame = b
+        
+        if let errorNode = errorOverlayNode {
+            errorNode.frame = b
+        }
 
         let args = TransformImageArguments(corners: ImageCorners(), imageSize: b.size, boundingSize: b.size, intrinsicInsets: .zero)
         let apply = posterNode.asyncLayout()(args)

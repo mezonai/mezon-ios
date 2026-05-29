@@ -9,6 +9,8 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private var vlcPlayerNode: VLCVideoPlayerNode?
     private let url: URL
     private let posterURL: String
+    private var didTryAVPlayer = false
+    private var didTryVLCPlayer = false
     
     var toggleOverlayVisibility: (() -> Void)?
     
@@ -25,24 +27,55 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         let useVLC = shouldUseVLCPlayer(for: fileExtension)
         
         if useVLC {
-            let vlcNode = VLCVideoPlayerNode(url: url, posterURL: posterURL)
-            vlcNode.toggleOverlayVisibility = { [weak self] in
-                self?.toggleOverlayVisibility?()
-            }
-            vlcPlayerNode = vlcNode
-            addSubnode(vlcNode)
+            setupVLCPlayer()
         } else {
-            let avNode = MezonVideoPlayerNode(url: url, posterURL: posterURL)
-            avNode.toggleOverlayVisibility = { [weak self] in
-                self?.toggleOverlayVisibility?()
-            }
-            avPlayerNode = avNode
-            addSubnode(avNode)
+            setupAVPlayer()
+        }
+    }
+    
+    private func setupAVPlayer() {
+        guard !didTryAVPlayer else { return }
+        didTryAVPlayer = true
+        
+        let avNode = MezonVideoPlayerNode(url: url, posterURL: posterURL)
+        avNode.toggleOverlayVisibility = { [weak self] in
+            self?.toggleOverlayVisibility?()
+        }
+        avNode.onPlaybackFailed = { [weak self] in
+            self?.fallbackToVLC()
+        }
+        avPlayerNode = avNode
+        addSubnode(avNode)
+    }
+    
+    private func setupVLCPlayer() {
+        guard !didTryVLCPlayer else { return }
+        didTryVLCPlayer = true
+        
+        let vlcNode = VLCVideoPlayerNode(url: url, posterURL: posterURL)
+        vlcNode.toggleOverlayVisibility = { [weak self] in
+            self?.toggleOverlayVisibility?()
+        }
+        vlcPlayerNode = vlcNode
+        addSubnode(vlcNode)
+    }
+    
+    private func fallbackToVLC() {
+        guard !didTryVLCPlayer else { return }
+        
+        avPlayerNode?.removeFromSupernode()
+        avPlayerNode = nil
+        
+        setupVLCPlayer()
+        
+        if let vlcNode = vlcPlayerNode {
+            vlcNode.frame = bounds
+            vlcNode.play()
         }
     }
     
     private func shouldUseVLCPlayer(for fileExtension: String) -> Bool {
-        let vlcOnlyFormats = ["webm", "ogv", "ogg", "mkv", "avi", "flv", "wmv", "3gp"]
+        let vlcOnlyFormats = ["webm", "ogv", "ogg", "mkv", "avi", "flv", "wmv", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"]
         return vlcOnlyFormats.contains(fileExtension)
     }
     
