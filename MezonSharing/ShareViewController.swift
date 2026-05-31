@@ -83,7 +83,9 @@ class ShareViewController: UIViewController {
                                 path: savedURL.absoluteString,
                                 thumbnail: nil,
                                 duration: nil,
-                                type: .image
+                                type: .image,
+                                width: nil,
+                                height: nil
                             ))
                         }
                     }
@@ -109,7 +111,9 @@ class ShareViewController: UIViewController {
                     path: newPath.absoluteString,
                     thumbnail: nil,
                     duration: nil,
-                    type: .image
+                    type: .image,
+                    width: nil,
+                    height: nil
                 ))
             }
 
@@ -168,7 +172,9 @@ class ShareViewController: UIViewController {
                         path: newPath.absoluteString,
                         thumbnail: nil,
                         duration: nil,
-                        type: .file
+                        type: .file,
+                        width: nil,
+                        height: nil
                     ))
                 } catch {
                 }
@@ -204,7 +210,9 @@ class ShareViewController: UIViewController {
                 path: newPath.absoluteString,
                 thumbnail: nil,
                 duration: nil,
-                type: .file
+                type: .file,
+                width: nil,
+                height: nil
             ))
         }
     }
@@ -339,9 +347,38 @@ class ShareViewController: UIViewController {
         let asset = AVAsset(url: videoURL)
         let duration = CMTimeGetSeconds(asset.duration) * 1000
 
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+        
+        if let videoTrack = asset.tracks(withMediaType: .video).first {
+            let size = videoTrack.naturalSize
+            let transform = videoTrack.preferredTransform
+            
+            let txA = transform.a
+            let txB = transform.b
+            let txC = transform.c
+            let txD = transform.d
+            
+            if (txA == 0 && txB == 1.0 && txC == -1.0 && txD == 0) ||
+               (txA == 0 && txB == -1.0 && txC == 1.0 && txD == 0) {
+                width = size.height
+                height = size.width
+            } else {
+                width = size.width
+                height = size.height
+            }
+        }
+
         let thumbnailPath = getThumbnailPath(for: videoURL)
         if FileManager.default.fileExists(atPath: thumbnailPath.path) {
-            return SharedMediaFile(path: videoURL.absoluteString, thumbnail: thumbnailPath.absoluteString, duration: duration, type: .video)
+            return SharedMediaFile(
+                path: videoURL.absoluteString,
+                thumbnail: thumbnailPath.absoluteString,
+                duration: duration,
+                type: .video,
+                width: width,
+                height: height
+            )
         }
 
         let assetImgGenerate = AVAssetImageGenerator(asset: asset)
@@ -351,9 +388,23 @@ class ShareViewController: UIViewController {
         do {
             let img = try assetImgGenerate.copyCGImage(at: CMTimeMakeWithSeconds(0, preferredTimescale: 1), actualTime: nil)
             try UIImage(cgImage: img).pngData()?.write(to: thumbnailPath)
-            return SharedMediaFile(path: videoURL.absoluteString, thumbnail: thumbnailPath.absoluteString, duration: duration, type: .video)
+            return SharedMediaFile(
+                path: videoURL.absoluteString,
+                thumbnail: thumbnailPath.absoluteString,
+                duration: duration,
+                type: .video,
+                width: width,
+                height: height
+            )
         } catch {
-            return SharedMediaFile(path: videoURL.absoluteString, thumbnail: nil, duration: duration, type: .video)
+            return SharedMediaFile(
+                path: videoURL.absoluteString,
+                thumbnail: nil,
+                duration: duration,
+                type: .video,
+                width: width,
+                height: height
+            )
         }
     }
 
@@ -388,6 +439,8 @@ struct SharedMediaFile: Codable {
     var thumbnail: String?
     var duration: Double?
     var type: SharedMediaType
+    var width: CGFloat?
+    var height: CGFloat?
 }
 
 enum SharedMediaType: Int, Codable {

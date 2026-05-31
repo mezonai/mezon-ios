@@ -7,6 +7,7 @@ struct TransferQRPayload: Sendable {
     var note: String?
     var extraAttribute: String?
     var receiverDisplayName: String?
+    var recipientLocked: Bool = false
 }
 
 enum MmnTransferParse {
@@ -30,7 +31,8 @@ enum MmnTransferParse {
             suggestedAmount: amount,
             note: note,
             extraAttribute: extra,
-            receiverDisplayName: (rname?.isEmpty == false) ? rname : nil
+            receiverDisplayName: (rname?.isEmpty == false) ? rname : nil,
+            recipientLocked: rid != nil || wa != nil
         )
         return p
     }

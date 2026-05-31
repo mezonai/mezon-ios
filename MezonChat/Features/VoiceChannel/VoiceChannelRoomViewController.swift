@@ -187,7 +187,7 @@ enum VoiceChannelAudioPreferences {
         set {
             UserDefaults.standard.set(newValue, forKey: mixWithOthersKey)
             UserDefaults.standard.synchronize()
-            VoiceChannelLiveKitBridge.applyVoiceProcessingBypassForMix(newValue)
+            VoiceChannelLiveKitBridge.applyEchoCancellationConfiguration()
         }
     }
 }
@@ -3942,6 +3942,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     let chatVC = ChatViewController(
                         clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                     self.navigationController?.pushViewController(chatVC, animated: true)
+                },
+                onTransferFunds: { [weak self] payload in
+                    guard let self else { return }
+                    let vc = WalletTransferViewController(context: self.context, payload: payload)
+                    self.navigationController?.pushViewController(vc, animated: true)
                 }
             )
 

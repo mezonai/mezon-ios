@@ -191,17 +191,19 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard firstCategoryIndexContainingListChannel(selectedId) != nil else { return }
         let selectionChanged = prevState.selectedChannelId != newState.selectedChannelId
         let loadingJustFinished = prevState.isLoading && !newState.isLoading
-        let voiceMapChanged = prevState.voiceUsersByChannel != newState.voiceUsersByChannel
         let selectedIsVoiceChannel = newState.allChannels.contains {
             $0.channelID == selectedId && Self.voiceChannelTypes.contains($0.type)
         }
+        let prevSelectedVoiceEmpty = (prevState.voiceUsersByChannel[selectedId] ?? []).isEmpty
+        let newSelectedVoiceActive = !(newState.voiceUsersByChannel[selectedId] ?? []).isEmpty
+        let selectedVoiceBecameActive = prevSelectedVoiceEmpty && newSelectedVoiceActive
         if loadingJustFinished && skipNextLoadingFinishedReveal {
             skipNextLoadingFinishedReveal = false
-            if !(wasClanSwitching || selectionChanged || (selectedIsVoiceChannel && voiceMapChanged)) {
+            if !(wasClanSwitching || selectionChanged || (selectedIsVoiceChannel && selectedVoiceBecameActive)) {
                 return
             }
         }
-        guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && voiceMapChanged) else { return }
+        guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && selectedVoiceBecameActive) else { return }
         scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
     }
 
@@ -340,6 +342,12 @@ final class ChannelListContainerNode: ASDisplayNode {
                 if $0.section != $1.section { return $0.section < $1.section }
                 return $0.row < $1.row
             }
+
+            let voiceStructureChanged =
+                pathsContainVoiceRow(sortedInserts, in: new)
+                || pathsContainVoiceRow(sortedDeletes, in: prev)
+            let scrollAnchor = voiceStructureChanged ? captureScrollAnchor(prev: prev) : nil
+
             tableNode.performBatch(animated: false) {
                 if !sortedDeletes.isEmpty {
                     self.tableNode.deleteRows(at: sortedDeletes, with: rowAnim)
@@ -374,8 +382,100 @@ final class ChannelListContainerNode: ASDisplayNode {
                     tableNode.waitUntilAllUpdatesAreProcessed()
                 }
             }
+
+            if let scrollAnchor {
+                restoreScrollAnchor(scrollAnchor)
+            }
         }
         committedSectionCount = expectedAfter
+    }
+
+    private func pathsContainVoiceRow(_ paths: [IndexPath], in stateForPaths: ChannelListState) -> Bool {
+        guard !paths.isEmpty else { return false }
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        for ip in paths {
+            guard ip.section >= sectionOffset else { continue }
+            let catIdx = ip.section - sectionOffset
+            guard catIdx >= 0, catIdx < stateForPaths.categories.count else { continue }
+            let rows = computeRows(for: stateForPaths, categoryIndex: catIdx)
+            guard ip.row >= 0, ip.row < rows.count else { continue }
+            switch rows[ip.row] {
+            case .voiceMembersCollapsed, .voiceMemberExpanded:
+                return true
+            default:
+                continue
+            }
+        }
+        return false
+    }
+
+    private struct ScrollAnchor {
+        let key: String
+        let section: Int
+        let distanceFromTop: CGFloat
+    }
+
+    private func captureScrollAnchor(prev: ChannelListState) -> ScrollAnchor? {
+        let tv = tableNode.view
+        guard tv.bounds.height > 0 else { return nil }
+        guard let visible = tv.indexPathsForVisibleRows, !visible.isEmpty else { return nil }
+        let offsetY = tv.contentOffset.y
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sorted = visible.sorted {
+            $0.section != $1.section ? $0.section < $1.section : $0.row < $1.row
+        }
+
+        func makeAnchor(_ ip: IndexPath, _ row: ChannelListRow) -> ScrollAnchor? {
+            let rect = tv.rectForRow(at: ip)
+            guard rect.height > 0 else { return nil }
+            return ScrollAnchor(
+                key: Self.rowDiffKey(row),
+                section: ip.section,
+                distanceFromTop: rect.minY - offsetY
+            )
+        }
+
+        var firstVisibleAnchor: ScrollAnchor?
+        for ip in sorted {
+            guard ip.section >= sectionOffset else { continue }
+            let catIdx = ip.section - sectionOffset
+            guard catIdx >= 0, catIdx < prev.categories.count else { continue }
+            let oldRows = computeRows(for: prev, categoryIndex: catIdx)
+            guard ip.row >= 0, ip.row < oldRows.count else { continue }
+            let row = oldRows[ip.row]
+            guard let anchor = makeAnchor(ip, row) else { continue }
+            if firstVisibleAnchor == nil { firstVisibleAnchor = anchor }
+            switch row {
+            case .voiceMembersCollapsed, .voiceMemberExpanded:
+                continue
+            default:
+                return anchor
+            }
+        }
+        return firstVisibleAnchor
+    }
+
+    private func restoreScrollAnchor(_ anchor: ScrollAnchor) {
+        let tv = tableNode.view
+        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let section = anchor.section
+        guard section >= sectionOffset, section < tableNode.numberOfSections else { return }
+        let catIdx = section - sectionOffset
+        guard catIdx >= 0, catIdx < state.categories.count else { return }
+        let newRows = rowsForSection(catIdx)
+        guard let newRow = newRows.firstIndex(where: { Self.rowDiffKey($0) == anchor.key }) else { return }
+        guard newRow < tableNode.numberOfRows(inSection: section) else { return }
+        let rect = tv.rectForRow(at: IndexPath(row: newRow, section: section))
+        guard rect.height > 0 else { return }
+        let targetY = rect.minY - anchor.distanceFromTop
+        let minY = -tv.adjustedContentInset.top
+        let maxY = max(minY, tv.contentSize.height - tv.bounds.height + tv.adjustedContentInset.bottom)
+        let clamped = min(max(targetY, minY), maxY)
+        guard abs(clamped - tv.contentOffset.y) > 0.5 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        tv.setContentOffset(CGPoint(x: tv.contentOffset.x, y: clamped), animated: false)
+        CATransaction.commit()
     }
 
     private static func rowDiffKey(_ row: ChannelListRow) -> String {

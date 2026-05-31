@@ -275,7 +275,9 @@ final class TransferSuccessViewController: UIViewController {
                 path: url.path,
                 thumbnail: nil,
                 duration: nil,
-                type: .image
+                type: .image,
+                width: nil,
+                height: nil
             )
             let sharingVC = SharingViewController(context: context, sharedContent: .media([file]))
             sharingVC.modalPresentationStyle = .pageSheet

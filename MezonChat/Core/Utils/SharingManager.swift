@@ -15,6 +15,8 @@ final class SharingManager {
         var thumbnail: String?
         var duration: Double?
         var type: SharedMediaType
+        var width: CGFloat?
+        var height: CGFloat?
     }
 
     enum SharedMediaType: Int, Codable {

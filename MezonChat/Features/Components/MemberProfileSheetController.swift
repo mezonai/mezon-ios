@@ -226,6 +226,7 @@ final class MemberProfileSheetController: ViewController {
     private let onDismiss: (() -> Void)?
     private let onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onStartCall: ((Mezon_Api_ChannelDescription) -> Void)?
+    private let onTransferFunds: ((TransferQRPayload) -> Void)?
 
     private var sheetNode: MemberProfileSheetNode { displayNode as! MemberProfileSheetNode }
 
@@ -238,7 +239,8 @@ final class MemberProfileSheetController: ViewController {
         groupAction: MemberProfileGroupAction? = nil,
         onDismiss: (() -> Void)? = nil,
         onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)? = nil,
-        onStartCall: ((Mezon_Api_ChannelDescription) -> Void)? = nil
+        onStartCall: ((Mezon_Api_ChannelDescription) -> Void)? = nil,
+        onTransferFunds: ((TransferQRPayload) -> Void)? = nil
     ) {
         self.user = user
         self.context = context
@@ -249,6 +251,7 @@ final class MemberProfileSheetController: ViewController {
         self.onDismiss = onDismiss
         self.onSendMessage = onSendMessage
         self.onStartCall = onStartCall
+        self.onTransferFunds = onTransferFunds
         super.init(navigationBarPresentationData: nil)
         self.statusBar.statusBarStyle = .Hide
         self.blocksBackgroundWhenInOverlay = true
@@ -265,6 +268,7 @@ final class MemberProfileSheetController: ViewController {
             showAddFriendAction: voiceChannelActions == nil && shouldShowAddFriendAction(),
             voiceChannelActions: voiceChannelActions,
             showRemoveFromGroup: groupAction != nil && !isCurrentUser,
+            showTransferAction: onTransferFunds != nil && !isCurrentUser && user.id != 0,
             onSendMessageTapped: { [weak self] in
                 self?.handleSendMessage()
             },
@@ -273,6 +277,9 @@ final class MemberProfileSheetController: ViewController {
             },
             onAddFriendTapped: { [weak self] in
                 self?.handleAddFriend()
+            },
+            onTransferFundsTapped: { [weak self] in
+                self?.handleTransferFunds()
             },
             onDimTapped: { [weak self] in
                 self?.animateDismiss()
@@ -356,10 +363,11 @@ final class MemberProfileSheetController: ViewController {
         sheetNode.animateIn()
     }
 
-    private func animateDismiss() {
+    private func animateDismiss(completion: (() -> Void)? = nil) {
         sheetNode.animateOut { [weak self] in
             self?.dismiss(animated: false)
             self?.onDismiss?()
+            completion?()
         }
     }
 
@@ -525,6 +533,25 @@ final class MemberProfileSheetController: ViewController {
         }
     }
 
+    private func handleTransferFunds() {
+        guard !isCurrentUser, user.id != 0, let onTransferFunds else { return }
+
+        let displayName = user.displayName.isEmpty ? user.username : user.displayName
+        let payload = TransferQRPayload(
+            receiverUserId: String(user.id),
+            walletAddress: nil,
+            suggestedAmount: "10000",
+            note: L(L10n.Profile.transferFunds),
+            extraAttribute: nil,
+            receiverDisplayName: displayName.isEmpty ? String(user.id) : displayName,
+            recipientLocked: true
+        )
+
+        animateDismiss {
+            onTransferFunds(payload)
+        }
+    }
+
     private func resolveDirectMessageChannel() async -> Mezon_Api_ChannelDescription? {
         guard let token = await context.getToken() else {
             Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
@@ -598,6 +625,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let messageBtn = ProfileActionButton(icon: "bubble.left.fill", title: "Message")
     private let callBtn = ProfileActionButton(icon: "phone.fill", title: "Call")
     private let addFriendBtn = ProfileActionButton(icon: "person.badge.plus", title: "Add Friend", isGreen: true)
+    private let transferButton = ASButtonNode()
     private let removeFromGroupButton = ASButtonNode()
 
     private let memberCardNode = ASDisplayNode()
@@ -610,6 +638,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let onSendMessageTapped: () -> Void
     private let onStartCallTapped: () -> Void
     private let onAddFriendTapped: () -> Void
+    private let onTransferFundsTapped: () -> Void
     private let onDimTapped: () -> Void
     private let onVoiceMuteTap: () -> Void
     private let onVoiceKickTap: () -> Void
@@ -618,6 +647,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let isCurrentUser: Bool
     private let showCallAction: Bool
     private let showAddFriendAction: Bool
+    private let showTransferAction: Bool
     private let voiceChannelActions: MemberProfileVoiceChannelActions?
     private let showRemoveFromGroup: Bool
 
@@ -652,9 +682,11 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         showAddFriendAction: Bool,
         voiceChannelActions: MemberProfileVoiceChannelActions?,
         showRemoveFromGroup: Bool,
+        showTransferAction: Bool,
         onSendMessageTapped: @escaping () -> Void,
         onStartCallTapped: @escaping () -> Void,
         onAddFriendTapped: @escaping () -> Void,
+        onTransferFundsTapped: @escaping () -> Void,
         onDimTapped: @escaping () -> Void,
         onVoiceMuteTap: @escaping () -> Void,
         onVoiceKickTap: @escaping () -> Void,
@@ -668,9 +700,11 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         self.showAddFriendAction = showAddFriendAction
         self.voiceChannelActions = voiceChannelActions
         self.showRemoveFromGroup = showRemoveFromGroup
+        self.showTransferAction = showTransferAction
         self.onSendMessageTapped = onSendMessageTapped
         self.onStartCallTapped = onStartCallTapped
         self.onAddFriendTapped = onAddFriendTapped
+        self.onTransferFundsTapped = onTransferFundsTapped
         self.onDimTapped = onDimTapped
         self.onVoiceMuteTap = onVoiceMuteTap
         self.onVoiceKickTap = onVoiceKickTap
@@ -728,6 +762,17 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         infoCardNode.backgroundColor = t.secondary
         infoCardNode.cornerRadius = 10.sf
+
+        transferButton.backgroundColor = t.tertiary
+        transferButton.cornerRadius = 18.sf
+        transferButton.clipsToBounds = true
+        let transferIcon = (UIImage(named: "Profile/TransferIcon", in: Bundle.main, compatibleWith: nil)
+            ?? UIImage(systemName: "arrow.up.circle.fill"))?
+            .withTintColor(t.textStrong, renderingMode: .alwaysOriginal)
+        transferButton.setImage(transferIcon, for: .normal)
+        transferButton.imageNode.contentMode = .scaleAspectFit
+        transferButton.imageNode.style.preferredSize = CGSize(width: 20.sf, height: 20.sf)
+        transferButton.accessibilityLabel = L(L10n.Profile.transferFunds)
 
         let name = user.displayName.isEmpty ? user.username : user.displayName
         displayNameNode.attributedText = NSAttributedString(
@@ -799,6 +844,9 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             voiceCardNode.isUserInteractionEnabled = true
         }
         contentNode.addSubnode(infoCardNode)
+        if showTransferAction {
+            contentNode.addSubnode(transferButton)
+        }
         infoCardNode.addSubnode(displayNameNode)
         infoCardNode.addSubnode(usernameNode)
         infoCardNode.addSubnode(actionRow)
@@ -860,6 +908,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         voiceCardNode.layer.zPosition = voiceChannelActions != nil ? 8 : 0
         avatarNode.layer.zPosition = 10
         textAvatarNode.layer.zPosition = 9
+        transferButton.layer.zPosition = 12
         statusDotNode.layer.zPosition = 13
 
         loadingIndicator.hidesWhenStopped = true
@@ -869,6 +918,9 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         messageBtn.onTapped = { [weak self] in self?.messageTapped() }
         callBtn.onTapped = { [weak self] in self?.callTapped() }
         addFriendBtn.onTapped = { [weak self] in self?.addFriendTapped() }
+        if showTransferAction {
+            transferButton.addTarget(self, action: #selector(transferTapped), forControlEvents: .touchUpInside)
+        }
         if showRemoveFromGroup {
             removeFromGroupButton.addTarget(
                 self, action: #selector(removeFromGroupTapped), forControlEvents: .touchUpInside)
@@ -988,6 +1040,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     @objc private func dimTapped() { onDimTapped() }
     @objc private func removeFromGroupTapped() { onRemoveFromGroupTap() }
+    @objc private func transferTapped() { onTransferFundsTapped() }
     private func messageTapped() { onSendMessageTapped() }
     private func callTapped() { onStartCallTapped() }
     private func addFriendTapped() { onAddFriendTapped() }
@@ -1098,17 +1151,21 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             messageBtn.isUserInteractionEnabled = false
             callBtn.isUserInteractionEnabled = false
             addFriendBtn.isUserInteractionEnabled = false
+            transferButton.isUserInteractionEnabled = false
             messageBtn.alpha = 0.5
             callBtn.alpha = 0.5
             addFriendBtn.alpha = 0.5
+            transferButton.alpha = 0.5
         } else {
             loadingIndicator.stopAnimating()
             messageBtn.isUserInteractionEnabled = true
             callBtn.isUserInteractionEnabled = true
             addFriendBtn.isUserInteractionEnabled = true
+            transferButton.isUserInteractionEnabled = true
             messageBtn.alpha = 1
             callBtn.alpha = 1
             addFriendBtn.alpha = 1
+            transferButton.alpha = 1
         }
     }
 
@@ -1135,9 +1192,11 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let infoCardPad: CGFloat = 20.sf
         let infoBottomPad = infoCardPad + 4.sh
 
-        let nameSize = displayNameNode.measure(CGSize(width: screenW - pad * 2 - infoCardPad * 2, height: .greatestFiniteMagnitude))
+        let transferButtonSize: CGFloat = 36.sf
+        let nameMaxWidth = max(1, screenW - pad * 2 - infoCardPad * 2)
+        let nameSize = displayNameNode.measure(CGSize(width: nameMaxWidth, height: .greatestFiniteMagnitude))
         let userSize = usernameNode.attributedText != nil
-            ? usernameNode.measure(CGSize(width: screenW - pad * 2 - infoCardPad * 2, height: .greatestFiniteMagnitude))
+            ? usernameNode.measure(CGSize(width: nameMaxWidth, height: .greatestFiniteMagnitude))
             : .zero
 
         let btnH: CGFloat = 76.sh
@@ -1224,6 +1283,14 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         let infoCardH = infoY
         infoCardNode.frame = CGRect(x: pad, y: infoCardBaseTop, width: cardW, height: infoCardH)
+        if showTransferAction {
+            transferButton.frame = CGRect(
+                x: screenW - pad - transferButtonSize,
+                y: 12.sh,
+                width: transferButtonSize,
+                height: transferButtonSize
+            )
+        }
 
         var nextCardTop = infoCardBaseTop + infoCardH + 8
 

@@ -33,7 +33,13 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
         scrollView.alwaysBounceHorizontal = true
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.backgroundColor = .clear
+        scrollView.delaysContentTouches = false
+        scrollView.canCancelContentTouches = true
         self.view.addSubview(scrollView)
+    }
+
+    func setPagingEnabled(_ enabled: Bool) {
+        scrollView.isScrollEnabled = enabled
     }
 
     func configure(items: [GalleryItemInfo], initialIndex: Int, factory: @escaping (GalleryItemInfo, Int) -> GalleryItemNode) {
@@ -144,6 +150,7 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
                 node = factory(items[index], index)
                 node.toggleControlsVisibility = { [weak self] in self?.toggleControlsVisibility?() }
                 node.dismiss = { [weak self] in self?.dismiss?() }
+                node.setPagingEnabled = { [weak self] enabled in self?.setPagingEnabled(enabled) }
                 node.itemInfo = items[index]
 
                 scrollView.addSubview(node.view)
