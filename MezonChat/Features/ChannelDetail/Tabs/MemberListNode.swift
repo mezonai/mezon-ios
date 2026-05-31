@@ -567,6 +567,11 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 } else {
                     host.present(callVC, animated: true)
                 }
+            },
+            onTransferFunds: { [weak self, weak host] payload in
+                guard let self, let host else { return }
+                let vc = WalletTransferViewController(context: self.context, payload: payload)
+                host.navigationController?.pushViewController(vc, animated: true)
             }
         )
         host.presentInGlobalOverlay(sheet)

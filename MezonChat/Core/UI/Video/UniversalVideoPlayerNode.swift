@@ -13,6 +13,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private var didTryVLCPlayer = false
     
     var toggleOverlayVisibility: (() -> Void)?
+    var setPagingEnabled: ((Bool) -> Void)?
     
     init(url: URL, posterURL: String) {
         self.url = url
@@ -41,6 +42,9 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         avNode.toggleOverlayVisibility = { [weak self] in
             self?.toggleOverlayVisibility?()
         }
+        avNode.setPagingEnabled = { [weak self] enabled in
+            self?.setPagingEnabled?(enabled)
+        }
         avNode.onPlaybackFailed = { [weak self] in
             self?.fallbackToVLC()
         }
@@ -55,6 +59,9 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         let vlcNode = VLCVideoPlayerNode(url: url, posterURL: posterURL)
         vlcNode.toggleOverlayVisibility = { [weak self] in
             self?.toggleOverlayVisibility?()
+        }
+        vlcNode.setPagingEnabled = { [weak self] enabled in
+            self?.setPagingEnabled?(enabled)
         }
         vlcPlayerNode = vlcNode
         addSubnode(vlcNode)

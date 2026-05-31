@@ -237,9 +237,11 @@ enum MmnMoneyFormat {
         if value == 0 { return ("0", 0) }
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.groupingSeparator = ","
+        formatter.groupingSize = 3
         formatter.usesGroupingSeparator = true
+        formatter.maximumFractionDigits = 0
+        formatter.minimumFractionDigits = 0
         let display = formatter.string(from: NSNumber(value: value)) ?? s
         return (display, value)
     }

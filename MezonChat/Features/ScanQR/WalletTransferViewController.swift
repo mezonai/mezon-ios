@@ -1,5 +1,83 @@
 import UIKit
 
+private final class AmountFormattingTextField: UITextField {
+    var onPlainAmountChanged: ((Int64) -> Void)?
+    private var isFormattingAmount = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        addTarget(self, action: #selector(amountTextChanged), for: .editingChanged)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func setFormattedAmount(_ raw: String) {
+        text = raw
+        normalizeAmountText(preserveCaret: false)
+    }
+
+    override func insertText(_ text: String) {
+        super.insertText(text)
+        normalizeAmountText(preserveCaret: true)
+    }
+
+    override func deleteBackward() {
+        super.deleteBackward()
+        normalizeAmountText(preserveCaret: true)
+    }
+
+    override func paste(_ sender: Any?) {
+        super.paste(sender)
+        normalizeAmountText(preserveCaret: true)
+    }
+
+    @objc private func amountTextChanged() {
+        normalizeAmountText(preserveCaret: true)
+    }
+
+    private func normalizeAmountText(preserveCaret: Bool) {
+        guard !isFormattingAmount else { return }
+        isFormattingAmount = true
+        defer { isFormattingAmount = false }
+
+        let current = text ?? ""
+        let caretDigitIndex = preserveCaret
+            ? amountCaretDigitIndex()
+            : MmnMoneyFormat.onlyDigitCharacters(current).count
+        let result = MmnMoneyFormat.formatTokenAmount(current)
+        onPlainAmountChanged?(result.plain)
+        
+        guard current != result.display else { return }
+        
+        text = result.display
+        let digitCount = MmnMoneyFormat.onlyDigitCharacters(result.display).count
+        let charIdx = MmnMoneyFormat.tokenAmountCaretCharacterIndex(
+            display: result.display,
+            digitIndex: min(caretDigitIndex, digitCount)
+        )
+        setCaret(characterIndex: charIdx)
+    }
+
+    private func amountCaretDigitIndex() -> Int {
+        let current = text ?? ""
+        guard let selectedRange = selectedTextRange else {
+            return MmnMoneyFormat.onlyDigitCharacters(current).count
+        }
+        let offset = self.offset(from: beginningOfDocument, to: selectedRange.start)
+        let clampedOffset = max(0, min(offset, (current as NSString).length))
+        let beforeCaret = (current as NSString).substring(to: clampedOffset)
+        return MmnMoneyFormat.onlyDigitCharacters(beforeCaret).count
+    }
+
+    private func setCaret(characterIndex: Int) {
+        let len = (text ?? "") as NSString
+        let c = max(0, min(characterIndex, len.length))
+        if let pos = position(from: beginningOfDocument, offset: c) {
+            selectedTextRange = textRange(from: pos, to: pos)
+        }
+    }
+}
+
 @MainActor
 final class WalletTransferViewController: BaseViewController, UIGestureRecognizerDelegate {
 
@@ -28,7 +106,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
     private let recipientChevron = UIImageView()
 
     private let amountLabel = UILabel()
-    private let amountField = UITextField()
+    private let amountField = AmountFormattingTextField()
     private let amountFieldContainer = UIView()
 
     private let noteLabel = UILabel()
@@ -234,15 +312,17 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
 
     private func presentRecipientPickerIfNeeded() {
         if let w = payload.walletAddress, !w.isEmpty { return }
+        if payload.recipientLocked { return }
         let picker = TransferRecipientPickerViewController(context: context) { [weak self] row in
             guard let self else { return }
             self.payload.receiverUserId = String(row.user.id)
             self.payload.walletAddress = nil
+            self.payload.recipientLocked = false
             let label = row.primaryText.isEmpty ? "\(row.user.id)" : row.primaryText
             self.payload.receiverDisplayName = label
             self.recipientValueLabel.text = label
             self.copyButton.isHidden = true
-            self.recipientChevron.isHidden = true
+            self.recipientChevron.isHidden = false
             DispatchQueue.main.async {
                 _ = self.amountField.becomeFirstResponder()
             }
@@ -288,8 +368,10 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
         amountField.font = .systemFont(ofSize: 16, weight: .semibold)
         amountField.keyboardType = .numberPad
         amountField.textAlignment = .left
-        amountField.delegate = self
-        amountField.text = "0"
+        amountField.onPlainAmountChanged = { [weak self] amount in
+            self?.plainAmount = amount
+        }
+        amountField.setFormattedAmount("0")
 
         amountFieldContainer.addSubview(amountField)
         NSLayoutConstraint.activate([
@@ -300,9 +382,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
         ])
 
         if let suggested = payload.suggestedAmount, !suggested.isEmpty {
-            let r = MmnMoneyFormat.formatTokenAmount(suggested)
-            amountField.text = r.display
-            plainAmount = r.plain
+            amountField.setFormattedAmount(suggested)
         }
     }
 
@@ -426,7 +506,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
             }()
             recipientValueLabel.text = shown
             copyButton.isHidden = true
-            recipientChevron.isHidden = true
+            recipientChevron.isHidden = payload.recipientLocked
         } else {
             recipientValueLabel.text = L(L10n.Profile.sendTokenSelectAccount)
             copyButton.isHidden = true
@@ -664,44 +744,10 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
     }
 
     private func resetForm() {
-        plainAmount = 0
-        amountField.text = "0"
+        amountField.setFormattedAmount("0")
         noteField.text = L(L10n.Profile.sendTokenDefaultNote)
         updateNotePlaceholder()
         updateNoteCounter()
-    }
-}
-
-extension WalletTransferViewController: UITextFieldDelegate {
-    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-        guard textField === amountField else { return true }
-        let current = textField.text ?? ""
-        if let out = MmnMoneyFormat.displayAfterTokenEdit(currentDisplay: current, range: range, replacement: string) {
-            plainAmount = out.plain
-            textField.text = out.display
-            let charIdx = MmnMoneyFormat.tokenAmountCaretCharacterIndex(display: out.display, digitIndex: out.caretDigitIndex)
-            DispatchQueue.main.async { [weak textField] in
-                guard let tf = textField, tf === self.amountField else { return }
-                let len = (tf.text ?? "") as NSString
-                let c = max(0, min(charIdx, len.length))
-                if let pos = tf.position(from: tf.beginningOfDocument, offset: c) {
-                    tf.selectedTextRange = tf.textRange(from: pos, to: pos)
-                }
-            }
-        } else {
-            let new = (current as NSString).replacingCharacters(in: range, with: string)
-            let result = MmnMoneyFormat.formatTokenAmount(new)
-            plainAmount = result.plain
-            textField.text = result.display
-            DispatchQueue.main.async { [weak textField] in
-                guard let tf = textField, tf === self.amountField else { return }
-                let len = (tf.text ?? "") as NSString
-                if let pos = tf.position(from: tf.beginningOfDocument, offset: len.length) {
-                    tf.selectedTextRange = tf.textRange(from: pos, to: pos)
-                }
-            }
-        }
-        return false
     }
 }
 

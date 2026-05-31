@@ -18,6 +18,9 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         node.toggleOverlayVisibility = { [weak self] in
             self?.toggleControlsVisibility()
         }
+        node.setPagingEnabled = { [weak self] enabled in
+            self?.setPagingEnabled(enabled)
+        }
         self.playerNode = node
         self.addSubnode(node)
     }

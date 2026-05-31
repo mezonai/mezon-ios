@@ -34,6 +34,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     var toggleOverlayVisibility: (() -> Void)?
     var onPlaybackFailed: (() -> Void)?
+    var setPagingEnabled: ((Bool) -> Void)?
 
     convenience init(url: URL, posterURL: String) {
         let asset = AVURLAsset(url: url, options: [
@@ -116,6 +117,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.timeSlider.addTarget(self, action: #selector(sliderDidChange), for: .valueChanged)
         self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchUpInside)
         self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchUpOutside)
+        self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchCancel)
 
 
         updatePlayPauseIcons(isPlaying: false)
@@ -381,6 +383,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     @objc private func sliderDidBeginScrubbing() {
         isScrubbing = true
+        setPagingEnabled?(false)
         player?.pause()
         controlsHideTimer?.invalidate()
     }
@@ -399,6 +402,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     @objc private func sliderDidEndScrubbing() {
         isScrubbing = false
+        setPagingEnabled?(true)
         let seconds = Double(timeSlider.value)
         player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { [weak self] _ in
             if self?.player?.rate == 0 {

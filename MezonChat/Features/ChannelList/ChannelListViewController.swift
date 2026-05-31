@@ -119,40 +119,31 @@ private func prioritizeChannels(_ channels: [Mezon_Api_ChannelDescription]) -> [
         if aTop && !bTop { return true }
         if !aTop && bTop { return false }
         if aTop && bTop {
-            return String(a.channelID) < String(b.channelID)
+            return a.channelID < b.channelID
         }
-        return String(a.parentID) < String(b.parentID)
+        return a.parentID < b.parentID
     }
 }
 
 
 private func sortChannelsForCategory(_ channels: [Mezon_Api_ChannelDescription], categoryId: Int64) -> [Mezon_Api_ChannelDescription] {
     var sortedChannels: [Mezon_Api_ChannelDescription] = []
-    let numOfChannel: Int = channels.count
-    let threadStart: Int = channels.firstIndex(where: { $0.parentID != 0 }) ?? numOfChannel
-    var indexThread: Int = threadStart
-    let numOfParent: Int = threadStart
-    var i = 0
-    while i < numOfParent {
-        let channel = channels[i]
-        if channel.categoryID == categoryId {
-            sortedChannels.append(channel)
-            while indexThread < numOfChannel {
-                let thread = channels[indexThread]
-                let parentIdStr = String(thread.parentID)
-                if thread.parentID == channel.channelID {
-                    sortedChannels.append(thread)
-                    indexThread += 1
-                } else if String(channel.channelID) < parentIdStr {
-                    indexThread -= 1
-                    break
-                } else {
-                    indexThread += 1
-                }
-            }
-        }
-        i += 1
+    
+    let parents = channels.filter { $0.parentID == 0 && $0.categoryID == categoryId }
+    let threads = channels.filter { $0.parentID != 0 }
+    
+    var threadsByParent: [Int64: [Mezon_Api_ChannelDescription]] = [:]
+    for thread in threads {
+        threadsByParent[thread.parentID, default: []].append(thread)
     }
+    
+    for parent in parents {
+        sortedChannels.append(parent)
+        if let childThreads = threadsByParent[parent.channelID] {
+            sortedChannels.append(contentsOf: childThreads)
+        }
+    }
+    
     return sortedChannels
 }
 
@@ -181,15 +172,19 @@ private func splitParentsAndOrderedThreads(from flatSorted: [Mezon_Api_ChannelDe
     var i = 0
     while i < flatSorted.count {
         let ch = flatSorted[i]
-        parents.append(ch)
-        i += 1
-        var threads: [Mezon_Api_ChannelDescription] = []
-        while i < flatSorted.count, flatSorted[i].parentID == ch.channelID {
-            threads.append(flatSorted[i])
+        if ch.parentID == 0 {
+            parents.append(ch)
             i += 1
-        }
-        if !threads.isEmpty {
-            threadsByParent[ch.channelID] = threads
+            var threads: [Mezon_Api_ChannelDescription] = []
+            while i < flatSorted.count, flatSorted[i].parentID == ch.channelID {
+                threads.append(flatSorted[i])
+                i += 1
+            }
+            if !threads.isEmpty {
+                threadsByParent[ch.channelID] = threads
+            }
+        } else {
+            i += 1
         }
     }
     return (parents, threadsByParent)
@@ -391,6 +386,9 @@ final class ChannelListViewController: ViewController {
     private let errorMessagePipe = ValuePipe<String?>()
     private let needsReloadPipe = ValuePipe<Void>()
 
+    private var voicePresenceReloadScheduled = false
+    private let voicePresenceCoalesceInterval: TimeInterval = 0.4
+
     private let channelsLoadedPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
     var channelsLoadedSignal: Signal<Bool, NoError> { channelsLoadedPromise.get() }
 
@@ -550,7 +548,18 @@ final class ChannelListViewController: ViewController {
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
         guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
         guard n.int64Value == clanId, clanId != 0 else { return }
-        needsReloadPipe.putNext(())
+        scheduleCoalescedVoicePresenceReload()
+    }
+
+    private func scheduleCoalescedVoicePresenceReload() {
+        guard !voicePresenceReloadScheduled else { return }
+        voicePresenceReloadScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + voicePresenceCoalesceInterval) { [weak self] in
+            guard let self else { return }
+            self.voicePresenceReloadScheduled = false
+            guard self.clanId != 0 else { return }
+            self.needsReloadPipe.putNext(())
+        }
     }
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {

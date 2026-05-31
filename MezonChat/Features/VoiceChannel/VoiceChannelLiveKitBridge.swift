@@ -19,7 +19,7 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
         AudioManager.shared.audioSession.isAutomaticDeactivationEnabled = false
         Self.primeWebRTCAudioConfigForMixIfNeeded()
-        Self.applyVoiceProcessingBypassForMix(VoiceChannelAudioPreferences.mixWithOthersEnabled)
+        Self.applyEchoCancellationConfiguration()
         room = Room(delegate: self, roomOptions: RoomOptions(adaptiveStream: true, dynacast: true))
     }
 
@@ -37,10 +37,10 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         LKRTCAudioSessionConfiguration.setWebRTC(cfg)
     }
 
-    static func applyVoiceProcessingBypassForMix(_ enabled: Bool) {
-        AudioManager.shared.isVoiceProcessingBypassed = enabled
+    static func applyEchoCancellationConfiguration() {
+        AudioManager.shared.isVoiceProcessingBypassed = false
         if #available(iOS 17, *) {
-            AudioManager.shared.duckingLevel = enabled ? .min : .default
+            AudioManager.shared.duckingLevel = VoiceChannelAudioPreferences.mixWithOthersEnabled ? .min : .default
         }
     }
 
@@ -78,7 +78,7 @@ final class VoiceChannelLiveKitBridge: NSObject, RoomDelegate {
         guard !didEndSession else { return }
         didEndSession = true
         await room.disconnect()
-        Self.applyVoiceProcessingBypassForMix(false)
+        AudioManager.shared.isVoiceProcessingBypassed = false
     }
 
     func setMicrophoneEnabled(_ enabled: Bool) async throws {

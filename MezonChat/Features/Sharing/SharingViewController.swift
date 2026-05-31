@@ -1395,6 +1395,11 @@ final class SharingViewController: UIViewController {
                        let image = UIImage(data: imageData) {
                         width = Int(image.size.width)
                         height = Int(image.size.height)
+                    } else if file.type == .video {
+                        if let w = file.width, let h = file.height {
+                            width = Int(w)
+                            height = Int(h)
+                        }
                     }
 
                     let sanitized = filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)

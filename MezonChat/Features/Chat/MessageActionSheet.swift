@@ -303,6 +303,7 @@ final class MessageActionSheetController: ViewController {
         if display.isBuzzMessage { return false }
         if display.isForward { return false }
         if display.isPollMessage { return false }
+        if display.isSendTokenLog { return false }
         if display.message.id.hasPrefix("pending-") { return false }
         if display.shareContactData != nil { return true }
         guard !t.isEmpty || !display.attachments.isEmpty else { return false }

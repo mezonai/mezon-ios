@@ -35,6 +35,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private var loadingTimeoutTimer: Foundation.Timer?
     
     var toggleOverlayVisibility: (() -> Void)?
+    var setPagingEnabled: ((Bool) -> Void)?
     
     init(url: URL, posterURL: String) {
         self.sourceURL = url
@@ -98,6 +99,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         self.timeSlider.addTarget(self, action: #selector(sliderDidChange), for: .valueChanged)
         self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchUpInside)
         self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchUpOutside)
+        self.timeSlider.addTarget(self, action: #selector(sliderDidEndScrubbing), for: .touchCancel)
         
         updatePlayPauseIcons(isPlaying: false)
         
@@ -256,6 +258,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     @objc private func sliderDidBeginScrubbing() {
         isScrubbing = true
+        setPagingEnabled?(false)
         controlsHideTimer?.invalidate()
     }
     
@@ -276,6 +279,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     @objc private func sliderDidEndScrubbing() {
         isScrubbing = false
+        setPagingEnabled?(true)
         guard let player = vlcPlayer, let media = player.media else { return }
         let duration = Double(media.length.intValue) / 1000.0
         guard duration > 0 else { return }

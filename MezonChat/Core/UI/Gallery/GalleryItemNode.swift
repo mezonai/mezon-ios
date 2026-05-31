@@ -39,6 +39,7 @@ open class GalleryItemNode: ASDisplayNode {
 
     public var toggleControlsVisibility: () -> Void = {}
     public var dismiss: () -> Void = {}
+    public var setPagingEnabled: (Bool) -> Void = { _ in }
     public var itemInfo: GalleryItemInfo?
 
     override public init() {

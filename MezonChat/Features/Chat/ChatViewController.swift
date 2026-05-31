@@ -4414,6 +4414,11 @@ final class ChatViewController: ViewController {
             },
             onStartCall: { [weak self] dmChannel in
                 self?.startDirectMessageCall(channel: dmChannel, user: user)
+            },
+            onTransferFunds: { [weak self] payload in
+                guard let self else { return }
+                let vc = WalletTransferViewController(context: self.context, payload: payload)
+                self.navigationController?.pushViewController(vc, animated: true)
             }
         )
         presentInGlobalOverlay(sheet)
@@ -4482,6 +4487,11 @@ final class ChatViewController: ViewController {
             },
             onStartCall: { [weak self] dmChannel in
                 self?.startDirectMessageCall(channel: dmChannel, user: user)
+            },
+            onTransferFunds: { [weak self] payload in
+                guard let self else { return }
+                let vc = WalletTransferViewController(context: self.context, payload: payload)
+                self.navigationController?.pushViewController(vc, animated: true)
             }
         )
         presentInGlobalOverlay(sheet)
@@ -4504,6 +4514,11 @@ final class ChatViewController: ViewController {
                 let chatVC = ChatViewController(
                     clanId: 0, channel: dmChannel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
+            },
+            onTransferFunds: { [weak self] payload in
+                guard let self else { return }
+                let vc = WalletTransferViewController(context: self.context, payload: payload)
+                self.navigationController?.pushViewController(vc, animated: true)
             }
         )
         presentInGlobalOverlay(sheet)
