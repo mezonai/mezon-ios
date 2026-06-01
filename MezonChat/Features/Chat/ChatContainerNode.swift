@@ -65,6 +65,7 @@ struct ChatInteraction {
     var onMessageNeedsRelayout: ((String) -> Void)?
     var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
     var onMediaTapped: ((_ index: Int, _ media: [ParsedAttachment], _ display: ChatMessageDisplay) -> Void)? = nil
+    var onMediaRetryTapped: ((_ index: Int, _ display: ChatMessageDisplay) -> Void)? = nil
 }
 
 final class ChatContainerNode: ASDisplayNode {

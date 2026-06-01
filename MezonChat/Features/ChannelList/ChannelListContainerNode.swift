@@ -71,6 +71,8 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let interaction: ChannelListInteraction
     private let disposables = DisposableSet()
     private var isClanSwitching = false
+    private var nodeIsVisible = false
+    private var pendingVisibleReconcile = false
 
     private var latestCoalescedChannelListState: ChannelListState?
     private var channelListStateApplyScheduled = false
@@ -150,7 +152,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
 
         let wasClanSwitching = isClanSwitching
-        isClanSwitching = false
         state = newState
         threadLookup = buildThreadLookup(newState.allChannels)
         cachedRows = [:]
@@ -167,9 +168,22 @@ final class ChannelListContainerNode: ASDisplayNode {
                     || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
             })
 
+        let switchSettled = wasClanSwitching && !newState.isLoading
+            && (!newCats.isEmpty || prevState.isLoading)
+        isClanSwitching = wasClanSwitching && !switchSettled
+
         if wasClanSwitching {
             cachedHeaders = [:]
-            applyCrossfadeReload()
+            if nodeIsVisible {
+                applyCrossfadeReload()
+            } else {
+                pendingVisibleReconcile = true
+                safeReloadData()
+            }
+        } else if !nodeIsVisible && structureChanged {
+            cachedHeaders = [:]
+            pendingVisibleReconcile = true
+            safeReloadData()
         } else if structureChanged {
             cachedHeaders = [:]
             applyBatchStructureUpdate(prev: prevState, new: newState)
@@ -949,6 +963,22 @@ final class ChannelListContainerNode: ASDisplayNode {
         newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
         view.addSubview(newUnreadButton)
         refreshNewUnreadButton()
+    }
+
+    override func didEnterVisibleState() {
+        super.didEnterVisibleState()
+        nodeIsVisible = true
+        if pendingVisibleReconcile {
+            pendingVisibleReconcile = false
+            cachedRows = [:]
+            cachedHeaders = [:]
+            applyCrossfadeReload()
+        }
+    }
+
+    override func didExitVisibleState() {
+        super.didExitVisibleState()
+        nodeIsVisible = false
     }
 
     private func scheduleReload() {

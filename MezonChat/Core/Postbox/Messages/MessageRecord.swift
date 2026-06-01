@@ -99,6 +99,7 @@ extension MessageRecord {
         let channelId = api.topicID != 0 ? "topic-\(api.topicID)" : "\(api.channelID)"
         let editedAt: Date? = {
             if isPoll { return nil }
+            if api.hideEditted { return nil }
             return api.updateTimeSeconds > api.createTimeSeconds
                 ? Date(timeIntervalSince1970: TimeInterval(api.updateTimeSeconds))
                 : nil

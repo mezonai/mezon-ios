@@ -154,6 +154,11 @@ final class MessageMediaContentNode: ASDisplayNode {
                 videoOverlayNodes.append(overlay)
                 addSubnode(overlay)
             }
+            if media[0].uploadFailed {
+                let overlay = makeFailedOverlay()
+                videoOverlayNodes.append(overlay)
+                addSubnode(overlay)
+            }
         } else {
             isSticker = false
             isSingleImage = false
@@ -178,6 +183,10 @@ final class MessageMediaContentNode: ASDisplayNode {
                     addSubnode(overlay)
                 } else if att.isUploading {
                     let overlay = makeUploadingOverlay()
+                    videoOverlayNodes.append(overlay)
+                    addSubnode(overlay)
+                } else if att.uploadFailed {
+                    let overlay = makeFailedOverlay()
                     videoOverlayNodes.append(overlay)
                     addSubnode(overlay)
                 } else {
@@ -332,7 +341,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                         y: imgFrame.midY - sz / 2,
                         width: sz, height: sz
                     )
-                } else if attachments.first?.isUploading == true {
+                } else if attachments.first?.isUploading == true || attachments.first?.uploadFailed == true {
                     overlay.frame = imgFrame
                 }
             }
@@ -343,7 +352,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                     let imgFrame = cachedImageFrames[i]
                     let sz: CGFloat = 48
                     overlay.frame = CGRect(x: imgFrame.midX - sz / 2, y: imgFrame.midY - sz / 2, width: sz, height: sz)
-                } else if i < attachments.count, attachments[i].isUploading {
+                } else if i < attachments.count, attachments[i].isUploading || attachments[i].uploadFailed {
                     overlay.frame = cachedImageFrames[i]
                 }
             }
@@ -478,6 +487,30 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         overlay.layoutSpecBlock = { _, _ in
             ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
+        }
+
+        return overlay
+    }
+
+    private func makeFailedOverlay() -> ASDisplayNode {
+        let overlay = ASDisplayNode()
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        overlay.cornerRadius = 8.swh
+        overlay.clipsToBounds = true
+        overlay.isUserInteractionEnabled = false
+
+        let icon = ASImageNode()
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold)
+        if let sfImage = UIImage(systemName: "arrow.clockwise.circle.fill", withConfiguration: symbolConfig)?
+            .withTintColor(.white, renderingMode: .alwaysOriginal) {
+            icon.image = sfImage
+        }
+        icon.contentMode = .scaleAspectFit
+        icon.style.preferredSize = CGSize(width: 40, height: 40)
+        overlay.addSubnode(icon)
+
+        overlay.layoutSpecBlock = { _, _ in
+            ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: icon)
         }
 
         return overlay

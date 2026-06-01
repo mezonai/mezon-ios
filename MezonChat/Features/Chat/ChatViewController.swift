@@ -23,6 +23,7 @@ struct ParsedAttachment: Equatable {
     let durationSeconds: Int?
     var localImage: UIImage?
     var isUploading: Bool = false
+    var uploadFailed: Bool = false
 
     var isImage: Bool {
         filetype.hasPrefix("image/") || filetype == "sticker"
@@ -58,7 +59,7 @@ struct ParsedAttachment: Equatable {
     static func ==(lhs: ParsedAttachment, rhs: ParsedAttachment) -> Bool {
         lhs.url == rhs.url && lhs.filename == rhs.filename && lhs.filetype == rhs.filetype
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
-            && lhs.isUploading == rhs.isUploading
+            && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
     }
 
     private static let maxPendingCacheEntries = 50
@@ -807,6 +808,11 @@ final class ChatViewController: ViewController {
         )
         interaction.onMediaTapped = { [weak self] index, media, display in
             self?.presentMessageMediaGallery(index: index, media: media, display: display)
+        }
+        interaction.onMediaRetryTapped = { [weak self] index, display in
+            guard let self else { return }
+            AttachmentUploadCoordinator.shared.retry(
+                context: self.context, messageId: display.message.id, itemIndex: index)
         }
         interaction.onMessagesReloaded = { [weak self] in
             guard let self else { return }
@@ -2612,7 +2618,15 @@ final class ChatViewController: ViewController {
                 && now.timeIntervalSince(sendingFeedbackBeganAt) >= Self.pendingSendFeedbackDelay
 
             var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if record.sendingState == .pending {
+            if let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id) {
+                let nonMedia = attachments.filter { !$0.isMedia }
+                if nonMedia.isEmpty {
+                    let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
+                    attachments = overlayMedia + localDocs
+                } else {
+                    attachments = overlayMedia + nonMedia
+                }
+            } else if record.sendingState == .pending {
                 let stillUploading = true
                 let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
                 let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []

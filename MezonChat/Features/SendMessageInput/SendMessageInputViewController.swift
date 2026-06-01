@@ -503,6 +503,21 @@ final class SendMessageInputViewController: UIViewController {
     private var editingRemoteImageAttachments: [ParsedAttachment] = []
     private var editingRemoteFileAttachments: [ParsedAttachment] = []
 
+    static let maxAttachmentsPerMessage = 20
+
+    private var currentAttachmentCount: Int {
+        pickedImages.count + pickedFiles.count
+            + editingRemoteImageAttachments.count + editingRemoteFileAttachments.count
+    }
+
+    private var remainingAttachmentSlots: Int {
+        max(0, Self.maxAttachmentsPerMessage - currentAttachmentCount)
+    }
+
+    private func notifyAttachmentLimitReached() {
+        Toast.info("You can attach up to \(Self.maxAttachmentsPerMessage) items per message.")
+    }
+
     private var allMentionMembers: [MentionMember] = []
     private var allMentionSuggestionItems: [MentionSuggestionItem] = []
     private var activeMentions: [ComposerMention] = []
@@ -1968,9 +1983,14 @@ final class SendMessageInputViewController: UIViewController {
 
     private func openPhotoPicker() {
         guard !isEditingShareContactMessage else { return }
-        MediaPickerViewController.present(from: self) { [weak self] results in
+        let remaining = remainingAttachmentSlots
+        guard remaining > 0 else {
+            notifyAttachmentLimitReached()
+            return
+        }
+        MediaPickerViewController.present(from: self, selectionLimit: remaining) { [weak self] results in
             guard let self else { return }
-            for result in results {
+            for result in results.prefix(self.remainingAttachmentSlots) {
                 let index = self.pickedImages.count
                 self.pickedImages.append(result.image)
                 if result.isVideo {
@@ -2201,6 +2221,10 @@ final class SendMessageInputViewController: UIViewController {
 
     private func addPickedImage(_ image: UIImage) {
         guard !isEditingShareContactMessage else { return }
+        guard remainingAttachmentSlots > 0 else {
+            notifyAttachmentLimitReached()
+            return
+        }
         pickedImages.append(image)
         attachmentPreviewView.addImage(image)
         saveToCache()
@@ -2212,7 +2236,9 @@ final class SendMessageInputViewController: UIViewController {
     private func handlePastedImages(_ pasted: [PastedImage]) {
         guard !isEditingShareContactMessage else { return }
         let tempDir = FileManager.default.temporaryDirectory
+        var didHitLimit = false
         for item in pasted {
+            guard remainingAttachmentSlots > 0 else { didHitLimit = true; break }
             let resolvedData: Data
             let resolvedExt: String
             if let originalData = item.data,
@@ -2238,12 +2264,17 @@ final class SendMessageInputViewController: UIViewController {
             attachmentPreviewView.addImage(item.image)
             pickedFileURLs[index] = fileURL
         }
+        if didHitLimit { notifyAttachmentLimitReached() }
         saveToCache()
         updatePreviewVisibility()
     }
 
     private func handlePastedGIF(_ data: Data) {
         guard !isEditingShareContactMessage else { return }
+        guard remainingAttachmentSlots > 0 else {
+            notifyAttachmentLimitReached()
+            return
+        }
         let tempDir = FileManager.default.temporaryDirectory
         let filename = "pasted-\(UUID().uuidString).gif"
         let fileURL = tempDir.appendingPathComponent(filename)
@@ -4866,7 +4897,8 @@ final class SendMessageInputViewController: UIViewController {
         let imagesToUpload = images
         let fileURLsToUpload = pickedFileURLs
         let filesToUpload = pickedFiles
-        if !skipOptimisticPendingMessageOnSend, !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous {
+        let useIncrementalImagePath = !isEdit && !sendAsAnonymous && !imagesToUpload.isEmpty && !skipOptimisticPendingMessageOnSend
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous, !useIncrementalImagePath {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
         if !skipOptimisticPendingMessageOnSend, !isEdit, !filesToUpload.isEmpty, !sendAsAnonymous {
@@ -5028,7 +5060,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         let pendingCreatedAt = Date()
 
-        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, let sender = context.currentUser {
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, !useIncrementalImagePath, let sender = context.currentUser {
             let pendingRecord = MessageRecord.pending(
                 localId: localId,
                 text: displayText,
@@ -5075,6 +5107,40 @@ final class SendMessageInputViewController: UIViewController {
         let isPublic = channel.channelPrivate == 0
         let avatar: String = context.currentUser?.avatarURL?.absoluteString ?? ""
         let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
+
+        if useIncrementalImagePath {
+            let imageSendParams = ImageSendParams(
+                localId: localId,
+                channelIdStr: channelIdStr,
+                clanId: clanId,
+                channelId: channel.channelID,
+                mode: mode,
+                isPublic: isPublic,
+                topicId: self.topicId,
+                hasText: !text.isEmpty,
+                contentStr: contentStr,
+                outgoingContentData: outgoingContentData,
+                mentionList: mentionList,
+                mentionsPayload: mentionsPayload,
+                references: references,
+                pendingReferencesData: pendingReferencesData,
+                avatar: avatar,
+                pendingSenderDisplayName: pendingSenderDisplayName,
+                pendingSenderAvatarURL: pendingSenderAvatarURL,
+                images: imagesToUpload,
+                fileURLs: fileURLsToUpload,
+                files: filesToUpload
+            )
+            AttachmentUploadCoordinator.shared.startImageSend(
+                context: context,
+                params: imageSendParams,
+                prepare: { [weak self] token in
+                    try? await self?.addUsersFromParentMentionsToThreadIfNeeded(
+                        mentionList: mentionList, editTargetSenderId: nil, token: token)
+                }
+            )
+            return
+        }
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
@@ -5844,7 +5910,9 @@ private final class OverflowHitTestView: UIView {
 extension SendMessageInputViewController: UIDocumentPickerDelegate {
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        var didHitLimit = false
         for url in urls {
+            guard remainingAttachmentSlots > 0 else { didHitLimit = true; break }
             let filename = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             let filetype = Self.mimeType(for: ext)
@@ -5854,6 +5922,7 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
             pickedFiles.append(fileInfo)
             attachmentPreviewView.addFile(fileInfo)
         }
+        if didHitLimit { notifyAttachmentLimitReached() }
         updatePreviewVisibility()
     }
 

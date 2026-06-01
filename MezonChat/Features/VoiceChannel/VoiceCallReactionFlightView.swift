@@ -298,10 +298,7 @@ private final class OneShotAudioPlayback: NSObject, AVAudioPlayerDelegate {
     func play(url: URL, completion: @escaping (Bool) -> Void) {
         isCancelled = false
         finish = completion
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {}
+        configureSessionForPlaybackIfSafe()
 
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
             guard let self else { return }
@@ -339,6 +336,17 @@ private final class OneShotAudioPlayback: NSObject, AVAudioPlayerDelegate {
         player?.delegate = nil
         player = nil
         finish = nil
+    }
+
+    private func configureSessionForPlaybackIfSafe() {
+        let session = AVAudioSession.sharedInstance()
+        if session.category == .playAndRecord {
+            return
+        }
+        do {
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
+        } catch {}
     }
 
     private func complete(_ flag: Bool) {

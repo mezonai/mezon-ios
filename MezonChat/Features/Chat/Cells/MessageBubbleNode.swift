@@ -1075,6 +1075,10 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleImageTap(index: Int, media: [ParsedAttachment], interaction: ChatInteraction) {
+        if index >= 0, index < media.count, media[index].uploadFailed {
+            interaction.onMediaRetryTapped?(index, display)
+            return
+        }
         if let onMediaTapped = interaction.onMediaTapped {
             onMediaTapped(index, media, display)
             return
