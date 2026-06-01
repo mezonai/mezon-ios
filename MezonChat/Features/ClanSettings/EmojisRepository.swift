@@ -32,7 +32,10 @@ final class EmojisRepository {
         req.id = id
         req.clanID = clanId
         req.shortname = shortname
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else {
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+            return
+        }
         let updated = try await context.account.network.updateClanEmoji(request: req, token: token)
         mutateEmojiCache { emojis in
             guard let idx = emojis.firstIndex(where: { $0.id == id }) else { return }
@@ -49,7 +52,10 @@ final class EmojisRepository {
         req.id = id
         req.clanID = clanId
         req.emojiLabel = shortname
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else {
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+            return
+        }
         try await context.account.network.deleteClanEmoji(request: req, token: token)
         mutateEmojiCache { emojis in
             emojis.removeAll { $0.id == id }
@@ -71,7 +77,10 @@ final class EmojisRepository {
         req.category = category
         req.isForSale = isForSale
         req.id = id ?? Int64(Date().timeIntervalSince1970 * 1000)
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else {
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+            return
+        }
         let created = try await context.account.network.createClanEmoji(request: req, token: token)
         let record: CachedClanEmojiRecord
         if Self.isEmptyApiEmojiResponse(created) {

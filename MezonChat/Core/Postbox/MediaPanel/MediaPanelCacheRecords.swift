@@ -2,8 +2,8 @@ import Foundation
 import SwiftProtobuf
 
 extension Notification.Name {
-    static let mezonStickerListDidUpdate = Notification.Name("MezonStickerListDidUpdate")
-    static let mezonEmojiListDidUpdate = Notification.Name("MezonEmojiListDidUpdate")
+    static let mezonStickerListDidUpdate = Notification.Name("mezon.stickerList.didUpdate")
+    static let mezonEmojiListDidUpdate = Notification.Name("mezon.emojiList.didUpdate")
 }
 
 enum MediaPanelRealtimeAction: Int32 {

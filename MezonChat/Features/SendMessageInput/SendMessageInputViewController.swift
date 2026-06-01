@@ -4087,7 +4087,7 @@ final class SendMessageInputViewController: UIViewController {
         textView.selectedRange = clamped
     }
 
-    private static let emojiListDidUpdateNotification = Notification.Name("MezonEmojiListDidUpdate")
+    private static let emojiListDidUpdateNotification = Notification.Name.mezonEmojiListDidUpdate
 
 
     private static func isEmojiShortnameContinuationUTF16(_ c: unichar) -> Bool {

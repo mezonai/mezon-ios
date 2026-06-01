@@ -52,7 +52,10 @@ final class StickersRepository {
         req.source = source
         req.shortname = shortname
         req.category = category
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else {
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+            return
+        }
         let updated = try await context.account.network.updateClanSticker(request: req, token: token)
         mutateStickerCache { stickers in
             guard let idx = stickers.firstIndex(where: { $0.id == id }) else { return }
@@ -93,7 +96,10 @@ final class StickersRepository {
         req.id = id
         req.clanID = clanId
         req.stickerLabel = shortname
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else {
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+            return
+        }
         try await context.account.network.deleteClanSticker(request: req, token: token)
         mutateStickerCache { stickers in
             stickers.removeAll { $0.id == id }
@@ -116,7 +122,10 @@ final class StickersRepository {
         req.mediaType = StickerMediaType.sticker.rawValue
         req.isForSale = isForSale
         req.id = id ?? Int64(Date().timeIntervalSince1970 * 1000)
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else {
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+            return
+        }
         let created = try await context.account.network.addClanSticker(request: req, token: token)
         let record: CachedClanStickerRecord
         if Self.isEmptyApiStickerResponse(created) {
