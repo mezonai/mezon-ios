@@ -11,6 +11,9 @@ struct MediaPickerResult {
 final class MediaPickerViewController: UIViewController {
 
     var onPicked: (([MediaPickerResult]) -> Void)?
+    var selectionLimit: Int = .max
+
+    private static let maxUploadImageDimension: CGFloat = 2048
 
     private let cachingImageManager = PHCachingImageManager()
     private var fetchResult: PHFetchResult<PHAsset>?
@@ -688,12 +691,22 @@ final class MediaPickerViewController: UIViewController {
                 selectedOrder[a.localIdentifier] = i + 1
             }
         } else {
+            guard selectedAssets.count < selectionLimit else {
+                Toast.info("You can select up to \(selectionLimit) item\(selectionLimit == 1 ? "" : "s").")
+                return
+            }
             selectedAssets.append(asset)
             selectedOrder[id] = selectedAssets.count
         }
         updateSendButton()
-        UIView.performWithoutAnimation {
-            collectionView.reloadItems(at: collectionView.indexPathsForVisibleItems)
+        refreshVisibleSelectionBadges()
+    }
+
+    private func refreshVisibleSelectionBadges() {
+        for case let cell as MediaPickerCell in collectionView.visibleCells {
+            let id = cell.assetIdentifier
+            guard !id.isEmpty else { continue }
+            cell.updateSelectionOrder(selectedOrder[id])
         }
     }
 
@@ -714,42 +727,42 @@ final class MediaPickerViewController: UIViewController {
     private func confirmSelection(shouldDismiss: Bool = true) {
         guard !selectedAssets.isEmpty else { return }
         didSendResults = true
+        sendButton.isEnabled = false
 
-        let group = DispatchGroup()
-        var results = [(Int, MediaPickerResult)]()
-        let lock = NSLock()
+        let assets = selectedAssets
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let group = DispatchGroup()
+            let semaphore = DispatchSemaphore(value: 3)
+            var results = [(Int, MediaPickerResult)]()
+            let lock = NSLock()
 
-        for (order, asset) in selectedAssets.enumerated() {
-            group.enter()
-            let isVideo = asset.mediaType == .video
-
-            if isVideo {
-                exportVideo(asset: asset) { result in
+            for (order, asset) in assets.enumerated() {
+                semaphore.wait()
+                group.enter()
+                let isVideo = asset.mediaType == .video
+                let done: (MediaPickerResult?) -> Void = { result in
                     if let r = result {
                         lock.lock()
                         results.append((order, r))
                         lock.unlock()
                     }
+                    semaphore.signal()
                     group.leave()
                 }
-            } else {
-                exportImage(asset: asset) { result in
-                    if let r = result {
-                        lock.lock()
-                        results.append((order, r))
-                        lock.unlock()
-                    }
-                    group.leave()
+                if isVideo {
+                    self.exportVideo(asset: asset, completion: done)
+                } else {
+                    self.exportImage(asset: asset, completion: done)
                 }
             }
-        }
 
-        group.notify(queue: .main) { [weak self] in
-            guard let self else { return }
-            let sorted = results.sorted { $0.0 < $1.0 }.map(\.1)
-            self.onPicked?(sorted)
-            if shouldDismiss {
-                self.dismiss(animated: true)
+            group.notify(queue: .main) {
+                let sorted = results.sorted { $0.0 < $1.0 }.map(\.1)
+                self.onPicked?(sorted)
+                if shouldDismiss {
+                    self.dismiss(animated: true)
+                }
             }
         }
     }
@@ -761,23 +774,42 @@ final class MediaPickerViewController: UIViewController {
         options.isNetworkAccessAllowed = true
         options.isSynchronous = false
 
+        let pixelW = CGFloat(asset.pixelWidth)
+        let pixelH = CGFloat(asset.pixelHeight)
+        let maxDim = Self.maxUploadImageDimension
+        let targetSize: CGSize
+        if pixelW > 0, pixelH > 0, max(pixelW, pixelH) > maxDim {
+            let scale = maxDim / max(pixelW, pixelH)
+            targetSize = CGSize(width: max(1, pixelW * scale), height: max(1, pixelH * scale))
+        } else if pixelW > 0, pixelH > 0 {
+            targetSize = CGSize(width: pixelW, height: pixelH)
+        } else {
+            targetSize = CGSize(width: maxDim, height: maxDim)
+        }
+
+        var didComplete = false
         cachingImageManager.requestImage(
             for: asset,
-            targetSize: PHImageManagerMaximumSize,
-            contentMode: .default,
+            targetSize: targetSize,
+            contentMode: .aspectFit,
             options: options
         ) { image, info in
             let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-            guard !isDegraded, let image else { return }
+            if isDegraded { return }
+            guard !didComplete else { return }
+            didComplete = true
+            guard let image else { completion(nil); return }
 
-            let tempDir = FileManager.default.temporaryDirectory
-            let filename = "picked-\(UUID().uuidString).jpg"
-            let fileURL = tempDir.appendingPathComponent(filename)
-            if let data = image.jpegData(compressionQuality: 0.9) {
-                try? data.write(to: fileURL)
-                completion(MediaPickerResult(image: image, fileURL: fileURL, isVideo: false))
-            } else {
-                completion(MediaPickerResult(image: image, fileURL: nil, isVideo: false))
+            DispatchQueue.global(qos: .userInitiated).async {
+                let tempDir = FileManager.default.temporaryDirectory
+                let filename = "picked-\(UUID().uuidString).jpg"
+                let fileURL = tempDir.appendingPathComponent(filename)
+                if let data = image.jpegData(compressionQuality: 0.9) {
+                    try? data.write(to: fileURL)
+                    completion(MediaPickerResult(image: image, fileURL: fileURL, isVideo: false))
+                } else {
+                    completion(MediaPickerResult(image: image, fileURL: nil, isVideo: false))
+                }
             }
         }
     }
@@ -1074,6 +1106,10 @@ private final class MediaPickerCell: UICollectionViewCell {
             gradientLayer.isHidden = true
         }
 
+        updateSelectionOrder(selectionOrder)
+    }
+
+    func updateSelectionOrder(_ selectionOrder: Int?) {
         if let order = selectionOrder {
             selectionBadge.isHidden = false
             selectionBadge.text = "\(order)"
@@ -1089,9 +1125,10 @@ private final class MediaPickerCell: UICollectionViewCell {
 
 extension MediaPickerViewController {
 
-    static func present(from viewController: UIViewController, onPicked: @escaping ([MediaPickerResult]) -> Void) {
+    static func present(from viewController: UIViewController, selectionLimit: Int = .max, onPicked: @escaping ([MediaPickerResult]) -> Void) {
         let picker = MediaPickerViewController()
         picker.onPicked = onPicked
+        picker.selectionLimit = selectionLimit
         picker.modalPresentationStyle = .pageSheet
 
         if #available(iOS 15.0, *) {
