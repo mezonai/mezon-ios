@@ -27,12 +27,14 @@ final class StickerItemCell: UITableViewCell {
     private let forSaleBadgeHost = UIView()
     private let forSaleBadgeView = UIImageView()
     private let nameTextField = UITextField()
-    private let creatorAvatarView = UIImageView()
+    private let creatorTextAvatar = TextAvatarView(username: "", size: creatorAvatarSize, fontSize: 12.sf)
+    private let creatorAvatarImageView = UIImageView()
     private let creatorNameLabel = UILabel()
     private let separatorView = UIView()
 
     private var iconTask: URLSessionDataTask?
     private var loadingIconURL: String?
+    private var creatorAvatarLoadGeneration: UInt = 0
     private var originalShortname = ""
     private var isSwipeDeletable = false
     private var swipeStartOffset: CGFloat = 0
@@ -109,9 +111,9 @@ final class StickerItemCell: UITableViewCell {
         nameTextField.clearButtonMode = .never
         nameTextField.delegate = self
 
-        creatorAvatarView.contentMode = .scaleAspectFill
-        creatorAvatarView.clipsToBounds = true
-        creatorAvatarView.layer.cornerRadius = Self.creatorAvatarSize / 2
+        creatorAvatarImageView.contentMode = .scaleAspectFill
+        creatorAvatarImageView.clipsToBounds = true
+        creatorAvatarImageView.backgroundColor = .clear
 
         creatorNameLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
         creatorNameLabel.textColor = UIColor.theme.textStrong
@@ -121,13 +123,15 @@ final class StickerItemCell: UITableViewCell {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
-        [deleteButton, iconContainerView, iconView, forSaleBadgeHost, forSaleBadgeView, nameTextField, creatorAvatarView, creatorNameLabel].forEach {
+        [deleteButton, iconContainerView, iconView, forSaleBadgeHost, forSaleBadgeView, nameTextField, creatorTextAvatar, creatorNameLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         deleteActionView.addSubview(deleteButton)
         iconContainerView.addSubview(iconView)
         forSaleBadgeHost.addSubview(forSaleBadgeView)
-        [iconContainerView, forSaleBadgeHost, nameTextField, creatorAvatarView, creatorNameLabel].forEach {
+        creatorTextAvatar.addSubview(creatorAvatarImageView)
+        creatorAvatarImageView.translatesAutoresizingMaskIntoConstraints = false
+        [iconContainerView, forSaleBadgeHost, nameTextField, creatorTextAvatar, creatorNameLabel].forEach {
             mainContentView.addSubview($0)
         }
         contentView.addGestureRecognizer(panGesture)
@@ -192,12 +196,17 @@ final class StickerItemCell: UITableViewCell {
             ),
             nameTextField.trailingAnchor.constraint(lessThanOrEqualTo: creatorNameLabel.leadingAnchor, constant: -10.sw),
 
-            creatorAvatarView.trailingAnchor.constraint(equalTo: mainContentView.trailingAnchor, constant: -Self.horizontalInset),
-            creatorAvatarView.centerYAnchor.constraint(equalTo: mainContentView.centerYAnchor),
-            creatorAvatarView.widthAnchor.constraint(equalToConstant: Self.creatorAvatarSize),
-            creatorAvatarView.heightAnchor.constraint(equalToConstant: Self.creatorAvatarSize),
+            creatorTextAvatar.trailingAnchor.constraint(equalTo: mainContentView.trailingAnchor, constant: -Self.horizontalInset),
+            creatorTextAvatar.centerYAnchor.constraint(equalTo: mainContentView.centerYAnchor),
+            creatorTextAvatar.widthAnchor.constraint(equalToConstant: Self.creatorAvatarSize),
+            creatorTextAvatar.heightAnchor.constraint(equalToConstant: Self.creatorAvatarSize),
 
-            creatorNameLabel.trailingAnchor.constraint(equalTo: creatorAvatarView.leadingAnchor, constant: -8.sw),
+            creatorAvatarImageView.topAnchor.constraint(equalTo: creatorTextAvatar.topAnchor),
+            creatorAvatarImageView.leadingAnchor.constraint(equalTo: creatorTextAvatar.leadingAnchor),
+            creatorAvatarImageView.trailingAnchor.constraint(equalTo: creatorTextAvatar.trailingAnchor),
+            creatorAvatarImageView.bottomAnchor.constraint(equalTo: creatorTextAvatar.bottomAnchor),
+
+            creatorNameLabel.trailingAnchor.constraint(equalTo: creatorTextAvatar.leadingAnchor, constant: -8.sw),
             creatorNameLabel.centerYAnchor.constraint(equalTo: mainContentView.centerYAnchor),
             creatorNameLabel.widthAnchor.constraint(
                 lessThanOrEqualTo: mainContentView.widthAnchor,
@@ -205,7 +214,7 @@ final class StickerItemCell: UITableViewCell {
             ),
         ])
 
-        creatorAvatarView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        creatorTextAvatar.setContentCompressionResistancePriority(.required, for: .horizontal)
         nameTextField.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         creatorNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameTextField.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -289,14 +298,14 @@ final class StickerItemCell: UITableViewCell {
         creatorNameLabel.text = creatorName
         creatorNameLabel.isHidden = false
         creatorNameLabel.alpha = 1
-        creatorAvatarView.isHidden = false
-        creatorAvatarView.alpha = 1
+        creatorTextAvatar.isHidden = false
+        creatorTextAvatar.alpha = 1
         iconView.isHidden = false
         forSaleBadgeHost.isHidden = !sticker.isForSale
         isUserInteractionEnabled = true
         applyRowSeparator(isLast: isLast)
 
-        loadCreatorAvatar(creatorAvatar)
+        loadCreatorAvatar(creatorAvatar, displayName: creatorName)
         loadStickerIcon(sticker)
     }
 
@@ -306,10 +315,10 @@ final class StickerItemCell: UITableViewCell {
         updateAppearance()
         iconTask?.cancel()
         iconView.image = nil
-        creatorAvatarView.image = nil
+        creatorAvatarImageView.image = nil
         iconView.isHidden = true
         forSaleBadgeHost.isHidden = true
-        creatorAvatarView.isHidden = true
+        creatorTextAvatar.isHidden = true
         creatorNameLabel.isHidden = true
         deleteActionView.isHidden = true
         nameTextField.text = text
@@ -339,14 +348,16 @@ final class StickerItemCell: UITableViewCell {
         super.prepareForReuse()
         nameTextField.resignFirstResponder()
         closeSwipe(animated: false)
-        creatorAvatarView.alpha = 1
+        creatorTextAvatar.alpha = 1
         creatorNameLabel.alpha = 1
+        creatorAvatarLoadGeneration += 1
         iconTask?.cancel()
         iconTask = nil
         loadingIconURL = nil
         iconView.image = nil
         forSaleBadgeHost.isHidden = true
-        creatorAvatarView.image = nil
+        creatorAvatarImageView.image = nil
+        creatorTextAvatar.showImageMode()
         onShortnameCommit = nil
         onDelete = nil
         onSwipeOpened = nil
@@ -415,24 +426,54 @@ final class StickerItemCell: UITableViewCell {
         }
     }
 
-    private func loadCreatorAvatar(_ avatar: String?) {
-        guard let avatar, !avatar.isEmpty else {
-            setPlaceholderAvatar()
-            return
+    private func loadCreatorAvatar(_ avatar: String?, displayName: String) {
+        creatorAvatarLoadGeneration += 1
+        let generation = creatorAvatarLoadGeneration
+        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasDisplayName = !trimmedName.isEmpty
+
+        creatorAvatarImageView.image = nil
+        creatorAvatarImageView.tintColor = nil
+        if hasDisplayName {
+            creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
+        } else {
+            setLegacyPlaceholderAvatar()
         }
+
+        guard let avatar, !avatar.isEmpty else { return }
+
         let avatarUrl = avatar.hasPrefix("http") ? avatar : "\(MezonConfig.baseImgURL)/\(avatar)"
         let side = Int(Self.creatorAvatarSize * UIScreen.main.scale)
-        let finalUrl = ImgproxyURL.avatarProxyURL(from: avatarUrl, width: side, height: side)
-        ImageCache.shared.loadAvatar(urlString: finalUrl.isEmpty ? avatarUrl : finalUrl) { [weak self] image in
-            guard let self else { return }
-            self.creatorAvatarView.image = image ?? UIImage(systemName: "person.circle.fill")?.withRenderingMode(.alwaysTemplate)
-            self.creatorAvatarView.tintColor = image == nil ? UIColor.theme.textDisabled : nil
+        let loadKey = ImgproxyURL.avatarProxyURL(from: avatarUrl, width: side, height: side)
+        let resolvedKey = loadKey.isEmpty ? avatarUrl : loadKey
+
+        if let cached = ImageCache.shared.memoryImage(forKey: resolvedKey) {
+            creatorAvatarImageView.image = cached
+            creatorAvatarImageView.tintColor = nil
+            creatorTextAvatar.showImageMode()
+            return
+        }
+
+        ImageCache.shared.loadAvatar(urlString: resolvedKey) { [weak self] image in
+            guard let self, generation == self.creatorAvatarLoadGeneration else { return }
+            if let image {
+                self.creatorAvatarImageView.image = image
+                self.creatorAvatarImageView.tintColor = nil
+                self.creatorTextAvatar.showImageMode()
+            } else if hasDisplayName {
+                self.creatorAvatarImageView.image = nil
+                self.creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
+            } else {
+                self.setLegacyPlaceholderAvatar()
+            }
         }
     }
 
-    private func setPlaceholderAvatar() {
-        creatorAvatarView.image = UIImage(systemName: "person.circle.fill")?.withRenderingMode(.alwaysTemplate)
-        creatorAvatarView.tintColor = UIColor.theme.textDisabled
+    private func setLegacyPlaceholderAvatar() {
+        creatorTextAvatar.showImageMode()
+        creatorAvatarImageView.image = UIImage(systemName: "person.circle.fill")?
+            .withRenderingMode(.alwaysTemplate)
+        creatorAvatarImageView.tintColor = UIColor.theme.textDisabled
     }
 
     private func loadStickerIcon(_ sticker: CachedClanStickerRecord) {

@@ -325,6 +325,30 @@ final class ClanStickersViewController: BaseViewController {
         hasClanStickerAdminPermission || (currentUserId != 0 && currentUserId == sticker.creatorID)
     }
 
+    private func resolvedCreatorInfo(for creatorId: Int64) -> (avatar: String?, name: String) {
+        let member = clanMembers[creatorId]
+        let profile = context.engine.account.postbox.read {
+            $0.getProfile(userId: "\(creatorId)")
+        }
+        let profileAvatar = profile?.avatarUrl
+        if let member {
+            return (
+                member.resolvedAvatarURL(fallbackProfileAvatar: profileAvatar),
+                member.resolvedDisplayName
+            )
+        }
+        let name: String = {
+            if let displayName = profile?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !displayName.isEmpty {
+                return displayName
+            }
+            let username = profile?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return username
+        }()
+        let avatar = profileAvatar?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (avatar?.isEmpty == false ? avatar : nil, name)
+    }
+
     @objc private func backTapped() {
         navigationController?.popViewController(animated: true)
     }
@@ -470,12 +494,12 @@ extension ClanStickersViewController: UITableViewDataSource, UITableViewDelegate
         let rowCount = stickers.count
         let isLast = indexPath.row == rowCount - 1
         let sticker = stickers[indexPath.row]
-        let creator = clanMembers[sticker.creatorID]
+        let creatorInfo = resolvedCreatorInfo(for: sticker.creatorID)
         let editable = canEdit(sticker)
         cell.configure(
             sticker: sticker,
-            creatorAvatar: creator?.resolvedAvatarURL(fallbackProfileAvatar: nil),
-            creatorName: creator?.resolvedDisplayName ?? "",
+            creatorAvatar: creatorInfo.avatar,
+            creatorName: creatorInfo.name,
             isEditable: editable,
             isLast: isLast
         )
