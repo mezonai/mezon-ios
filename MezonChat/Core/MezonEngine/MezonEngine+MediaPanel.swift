@@ -81,7 +81,7 @@ extension MezonEngine {
                     postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
                     DispatchQueue.main.async {
                         NotificationCenter.default.post(
-                            name: Notification.Name("MezonStickerListDidUpdate"),
+                            name: .mezonStickerListDidUpdate,
                             object: nil,
                             userInfo: nil
                         )

@@ -1,6 +1,10 @@
 import Foundation
 import SwiftProtobuf
 
+extension Notification.Name {
+    static let mezonStickerListDidUpdate = Notification.Name("MezonStickerListDidUpdate")
+}
+
 enum MediaPanelPostboxKeys {
     static let emojiListByUser = "mediaPanel.emojiList.byUser"
     static let stickerListByUser = "mediaPanel.stickerList.byUser"
@@ -88,5 +92,26 @@ extension Mezon_Api_ClanSticker {
             mediaType: mediaType,
             isForSale: isForSale
         )
+    }
+}
+
+extension CachedClanStickerRecord {
+    var displayImageURLString: String {
+        let src = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
+        if src.hasPrefix("//") { return "https:\(src)" }
+        if !src.isEmpty {
+            let base = MezonConfig.baseImgURL
+            return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
+        }
+        return "\(MezonConfig.baseImgURL)/stickers/\(id).webp"
+    }
+}
+
+extension ClanMemberRecord {
+    var resolvedDisplayName: String {
+        if !clanNick.isEmpty { return clanNick }
+        if !displayName.isEmpty { return displayName }
+        return username
     }
 }

@@ -108,7 +108,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleStickerCacheUpdated),
-            name: Notification.Name("MezonStickerListDidUpdate"),
+            name: .mezonStickerListDidUpdate,
             object: nil
         )
     }

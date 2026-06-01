@@ -443,6 +443,32 @@ enum L10n {
         static let userManagement       = "clan.setting.userManagement"
         static let roles                = "clan.setting.roles"
         static let invites              = "clan.setting.invites"
+
+        enum Stickers {
+            static let duplicateName = "clan.setting.stickers.duplicateName"
+            static let updateSuccess = "clan.setting.stickers.updateSuccess"
+            static let deleteConfirmTitle = "clan.setting.stickers.deleteConfirmTitle"
+            static let deleteConfirmDesc = "clan.setting.stickers.deleteConfirmDesc"
+            static let deleteSuccess = "clan.setting.stickers.deleteSuccess"
+            static let empty = "clan.setting.stickers.empty"
+            static let create = "clan.setting.stickers.create"
+            static let createSuccess = "clan.setting.stickers.createSuccess"
+            static let validateName = "clan.setting.stickers.validateName"
+            static let errorUpdating = "clan.setting.stickers.errorUpdating"
+            static let uploadLimit = "clan.setting.stickers.uploadLimit"
+            static let uploadButton = "clan.setting.stickers.uploadButton"
+            static let uploadRequirementsTitle = "clan.setting.stickers.uploadRequirementsTitle"
+            static let uploadRequirement1 = "clan.setting.stickers.uploadRequirement1"
+            static let uploadRequirement2 = "clan.setting.stickers.uploadRequirement2"
+            static let uploadRequirement3 = "clan.setting.stickers.uploadRequirement3"
+            static let uploadFileTooLarge = "clan.setting.stickers.uploadFileTooLarge"
+            static let previewTitle = "clan.setting.stickers.previewTitle"
+            static let previewNameLabel = "clan.setting.stickers.previewNameLabel"
+            static let previewForSale = "clan.setting.stickers.previewForSale"
+            static let previewUpload = "clan.setting.stickers.previewUpload"
+            static let previewLengthError = "clan.setting.stickers.previewLengthError"
+            static let previewTypeSticker = "clan.setting.stickers.previewTypeSticker"
+        }
     }
 
     enum ClanRoles {
@@ -1337,6 +1363,30 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+
+        "clan.setting.stickers.duplicateName": "Sticker name already exists",
+        "clan.setting.stickers.updateSuccess": "Sticker updated successfully",
+        "clan.setting.stickers.deleteConfirmTitle": "Delete Sticker",
+        "clan.setting.stickers.deleteConfirmDesc": "Are you sure you want to delete this sticker?",
+        "clan.setting.stickers.deleteSuccess": "Sticker deleted successfully",
+        "clan.setting.stickers.empty": "No stickers available",
+        "clan.setting.stickers.create": "Create Sticker",
+        "clan.setting.stickers.createSuccess": "Sticker created successfully",
+        "clan.setting.stickers.validateName": "Length must be %d - %d characters. Only letters, numbers, _ and - are allowed.",
+        "clan.setting.stickers.errorUpdating": "Failed to update sticker. Please try again.",
+        "clan.setting.stickers.uploadLimit": "Sticker upload limit reached",
+        "clan.setting.stickers.uploadButton": "Upload Sticker",
+        "clan.setting.stickers.uploadRequirementsTitle": "Upload Requirements",
+        "clan.setting.stickers.uploadRequirement1": "Can be a static image (PNG) or an animated image (GIF).",
+        "clan.setting.stickers.uploadRequirement2": "Must be exactly 320 x 320 pixels.",
+        "clan.setting.stickers.uploadRequirement3": "Must not be larger than 512KB.",
+        "clan.setting.stickers.uploadFileTooLarge": "Image must not be larger than 512KB.",
+        "clan.setting.stickers.previewTitle": "Sticker Preview",
+        "clan.setting.stickers.previewNameLabel": "Sticker Name",
+        "clan.setting.stickers.previewForSale": "For Sale",
+        "clan.setting.stickers.previewUpload": "Upload",
+        "clan.setting.stickers.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
+        "clan.setting.stickers.previewTypeSticker": "Sticker",
 
         "clanRoles.title":                  "Roles",
         "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
@@ -2277,6 +2327,30 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+
+        "clan.setting.stickers.duplicateName": "Tên nhãn dán đã tồn tại",
+        "clan.setting.stickers.updateSuccess": "Cập nhật nhãn dán thành công",
+        "clan.setting.stickers.deleteConfirmTitle": "Xoá nhãn dán",
+        "clan.setting.stickers.deleteConfirmDesc": "Bạn có chắc muốn xoá nhãn dán này?",
+        "clan.setting.stickers.deleteSuccess": "Đã xoá nhãn dán thành công",
+        "clan.setting.stickers.empty": "Chưa có nhãn dán nào",
+        "clan.setting.stickers.create": "Tạo nhãn dán",
+        "clan.setting.stickers.createSuccess": "Tạo nhãn dán thành công",
+        "clan.setting.stickers.validateName": "Độ dài phải từ %d - %d ký tự. Chỉ cho phép chữ, số, _ và -.",
+        "clan.setting.stickers.errorUpdating": "Cập nhật nhãn dán thất bại. Vui lòng thử lại.",
+        "clan.setting.stickers.uploadLimit": "Đã đạt giới hạn tải nhãn dán",
+        "clan.setting.stickers.uploadButton": "Tải lên nhãn dán",
+        "clan.setting.stickers.uploadRequirementsTitle": "Yêu cầu tải lên",
+        "clan.setting.stickers.uploadRequirement1": "Có thể là ảnh tĩnh (PNG) hoặc ảnh động (GIF).",
+        "clan.setting.stickers.uploadRequirement2": "Phải chính xác 320 x 320 pixel.",
+        "clan.setting.stickers.uploadRequirement3": "Không lớn hơn 512KB.",
+        "clan.setting.stickers.uploadFileTooLarge": "Ảnh không được lớn hơn 512KB.",
+        "clan.setting.stickers.previewTitle": "Xem trước nhãn dán",
+        "clan.setting.stickers.previewNameLabel": "Tên nhãn dán",
+        "clan.setting.stickers.previewForSale": "Để bán",
+        "clan.setting.stickers.previewUpload": "Tải lên",
+        "clan.setting.stickers.previewLengthError": "Tên %@ phải từ %d đến %d kí tự, chỉ bao gồm chữ cái, chữ số, _ và -.",
+        "clan.setting.stickers.previewTypeSticker": "nhãn dán",
 
         "clanRoles.title":                  "Vai trò",
         "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",

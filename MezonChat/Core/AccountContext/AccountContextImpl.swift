@@ -1166,6 +1166,9 @@ final class AccountContextImpl: AccountContext {
                 )
             }
 
+        case .stickerCreated, .stickerUpdated, .stickerDeleted:
+            engine.handleStickerEvent(event)
+
         default:
             break
         }
