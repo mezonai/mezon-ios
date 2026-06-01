@@ -56,6 +56,11 @@ final class ClanSettingsViewController: BaseViewController {
             let vc = ClanStickersViewController(context: self.context, clanId: self.clanId)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onSelectEmojis = { [weak self] in
+            guard let self else { return }
+            let vc = ClanEmojisViewController(context: self.context, clanId: self.clanId)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 

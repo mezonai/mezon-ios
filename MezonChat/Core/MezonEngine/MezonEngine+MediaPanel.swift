@@ -51,19 +51,16 @@ extension MezonEngine {
             group.addTask {
                 do {
                     let res = try await network.getListEmojisByUserId(token: token)
-                    let rows = res.emojiList.map { $0.toCachedRecord() }
-                    if rows.isEmpty {
-                        let existing = postbox.getSetting(key: MediaPanelPostboxKeys.emojiListByUser, type: MediaPanelEmojiListCache.self)
+                    let existing = postbox.getSetting(key: MediaPanelPostboxKeys.emojiListByUser, type: MediaPanelEmojiListCache.self)
+                    let apiRows = res.emojiList.map { $0.toCachedRecord() }
+                    if apiRows.isEmpty {
                         if let existing, !existing.emojis.isEmpty { return }
                     }
+                    let rows = apiRows.deduplicatedByEmojiId()
                     let cache = MediaPanelEmojiListCache(fetchedAt: now, emojis: rows)
                     postbox.setSetting(key: MediaPanelPostboxKeys.emojiListByUser, value: cache)
                     DispatchQueue.main.async {
-                        NotificationCenter.default.post(
-                            name: Notification.Name("MezonEmojiListDidUpdate"),
-                            object: nil,
-                            userInfo: nil
-                        )
+                        NotificationCenter.default.post(name: .mezonEmojiListDidUpdate, object: nil)
                     }
                     MediaPanelEmojiImagePrefetch.start(for: rows)
                 } catch {

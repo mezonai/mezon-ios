@@ -162,6 +162,7 @@
 		4A0C85A11465B8D62B7B9902 /* SQueueLocalObject.m in Sources */ = {isa = PBXBuildFile; fileRef = 1470475C004E286663D6B1E6 /* SQueueLocalObject.m */; };
 		4A84D184B722C3CB3C85264E /* ThreadListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5EAED7067D53B28D4943FD6 /* ThreadListViewController.swift */; };
 		4AB4B3729A5F5FA3256363E5 /* MezonEngine+StickersEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50A60B6351068C2F15435FC1 /* MezonEngine+StickersEvents.swift */; };
+		EME001A1B2C3D4E5F6A7B8C9 /* MezonEngine+EmojisEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = EME002A1B2C3D4E5F6A7B8C9 /* MezonEngine+EmojisEvents.swift */; };
 		4B184A6D33AE232840D998C5 /* TabBarControllerImpl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609D7CC11C5F4EDFE9EEFF2A /* TabBarControllerImpl.swift */; };
 		4B1AB2F147C6B43EC61AB8B1 /* ChatImageGalleryItemNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 696412483ADE15012B06E3C8 /* ChatImageGalleryItemNode.swift */; };
 		4B6160BBC2288FDBC4C18D69 /* NotificationRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27755E998831708535B097F6 /* NotificationRecord.swift */; };
@@ -227,7 +228,6 @@
 		68EB93226962DCF548EA6232 /* NavigationTitleNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11CFD145FA96F1DFB434452 /* NavigationTitleNode.swift */; };
 		691096F2FA1D811345759C14 /* ChannelDetailContainerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EFEFC2DC504F1088838AC29 /* ChannelDetailContainerNode.swift */; };
 		6911295A5A03A73EF85BCFF6 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58EE90084FB51B72FB971B6F /* Secrets.swift */; };
-		694D716CD190C52668EB4585 /* MezonHTTPClient+Stickers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47052FC6EAAC6D167FAB8FEA /* MezonHTTPClient+Stickers.swift */; };
 		69C67AE9F6081F83E06CFF55 /* MessageReactionDetailSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ADC517EE4A0324C366CF4B8 /* MessageReactionDetailSheetController.swift */; };
 		6AD8E8964C302350B1E7D873 /* ListViewIntermediateState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D54B2D5B1393569D5BB03D0 /* ListViewIntermediateState.swift */; };
 		6C30595FB0BC5B4EBE51D7F5 /* MessageReplyNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD09206CACE54148D5F811FA /* MessageReplyNode.swift */; };
@@ -242,6 +242,7 @@
 		6EA747EB009CCDEC00BF65D4 /* ClanSettingsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF025D4E3B004CE1CDF5835B /* ClanSettingsViewController.swift */; };
 		6EB5790EEE02107DFF7A8020 /* NativeWindowHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76425B26EF36AC19B820D2EC /* NativeWindowHostView.swift */; };
 		6EF64F645123DB53A6B48763 /* StickersRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17F49A8984D8C2A1C3A2232D /* StickersRepository.swift */; };
+		ERE001A1B2C3D4E5F6A7B8C9 /* EmojisRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = ERE002A1B2C3D4E5F6A7B8C9 /* EmojisRepository.swift */; };
 		6FF64AF93AF34BA066524420 /* MmnDebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02B6AB235292AB8EF92206F7 /* MmnDebugLog.swift */; };
 		7016EE5DFE6408AD85FBC0CE /* HighlightableButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9012EF946860E9509BBB3F04 /* HighlightableButton.swift */; };
 		701944EDFC90B4D3BDFB982B /* ListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9CC0F6C2C22D6A5CB97B5D9 /* ListView.swift */; };
@@ -293,6 +294,7 @@
 		8499EFA3922C73D93D8A5AD6 /* ChangeCategoryViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B023A60FC9D841757874E1C9 /* ChangeCategoryViewController.swift */; };
 		84F138FAE293EB7DC223464C /* QRUserProfileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6D517A910B492508C07E94F /* QRUserProfileNode.swift */; };
 		853C053A0E5A3BEA6FF441CB /* StickerItemCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB912EED3883B195E63268D /* StickerItemCell.swift */; };
+		EIC001A1B2C3D4E5F6A7B8C9 /* EmojiItemCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = EIC002A1B2C3D4E5F6A7B8C9 /* EmojiItemCell.swift */; };
 		85EC1F4474514D7E9D418D92 /* UpdatePhoneNumberViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 445CA2DFA0A186FD2D973CC3 /* UpdatePhoneNumberViewController.swift */; };
 		862E43DB8C0CCC19CAA8E0D7 /* JoinVoiceChannelSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B262E43F9878F009631DD23 /* JoinVoiceChannelSheetViewController.swift */; };
 		86A60306A0C6348CCE1BF35D /* StatusBarHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DBECD482FCB7D9A2D59DD56 /* StatusBarHost.swift */; };
@@ -394,7 +396,9 @@
 		B480EC16F711CD9D565AD59E /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE4AFCAFC81E709D0F8E5E0A /* Color.swift */; };
 		B4C7FE062A636293AD75E4B0 /* Multicast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB2999E4CD60069A40CC551 /* Multicast.swift */; };
 		B56D71650BC2514F98F46C79 /* ClanStickersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13579A2D9FBB3BF6B5719F5 /* ClanStickersViewController.swift */; };
+		CEV001A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEV002A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift */; };
 		CSP001A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSP002A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift */; };
+		CEP001A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEP002A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift */; };
 		B5A61807597E26B005D8BB1C /* SSignal+Catch.m in Sources */ = {isa = PBXBuildFile; fileRef = C3190E51CD73D1FBBE37A917 /* SSignal+Catch.m */; };
 		B63F1635A0DE875845FAB510 /* ValuePipe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26613576EFA161EB6E44D250 /* ValuePipe.swift */; };
 		B666C5B9A0DEE57C6E7E847A /* ClanActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317F5A4A753C758360E2B7C /* ClanActionSheet.swift */; };
@@ -648,6 +652,7 @@
 		16EC4DCBD8214E1A780B8507 /* ClanListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanListView.swift; sourceTree = "<group>"; };
 		1781A4247453C898AE7F0ACB /* TapLongTapOrDoubleTapGestureRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapLongTapOrDoubleTapGestureRecognizer.swift; sourceTree = "<group>"; };
 		17F49A8984D8C2A1C3A2232D /* StickersRepository.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StickersRepository.swift; sourceTree = "<group>"; };
+		ERE002A1B2C3D4E5F6A7B8C9 /* EmojisRepository.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmojisRepository.swift; sourceTree = "<group>"; };
 		1962C0F4ACBDF65103CC9DBE /* MmnWalletStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MmnWalletStore.swift; sourceTree = "<group>"; };
 		19AC9F5BB3165577BF0BFFFF /* Signal_Mapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Signal_Mapping.swift; sourceTree = "<group>"; };
 		1A3E3E584894196D5C19EDB4 /* TopicRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicRecord.swift; sourceTree = "<group>"; };
@@ -750,7 +755,6 @@
 		46FBCDB8D52845828B116809 /* WalletTransferViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletTransferViewController.swift; sourceTree = "<group>"; };
 		46FCA163ACA462CBFF146B25 /* MmnRedEnvelopeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MmnRedEnvelopeClient.swift; sourceTree = "<group>"; };
 		4702A08907EB6825208DCF5C /* Size.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Size.swift; sourceTree = "<group>"; };
-		47052FC6EAAC6D167FAB8FEA /* MezonHTTPClient+Stickers.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MezonHTTPClient+Stickers.swift"; sourceTree = "<group>"; };
 		470F262CF3E6F77DB1D0E81E /* NotificationsData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsData.swift; sourceTree = "<group>"; };
 		47A5FA5469866E412648B94C /* ZkProverClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZkProverClient.swift; sourceTree = "<group>"; };
 		482D8C2054A804B6DC05D1B1 /* GalleryController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryController.swift; sourceTree = "<group>"; };
@@ -775,6 +779,7 @@
 		4FFB76353ECD4F96A5F8AF94 /* DeviceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceMetrics.swift; sourceTree = "<group>"; };
 		505143035F519359BC64B2AA /* SSignal.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SSignal.m; sourceTree = "<group>"; };
 		50A60B6351068C2F15435FC1 /* MezonEngine+StickersEvents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MezonEngine+StickersEvents.swift"; sourceTree = "<group>"; };
+		EME002A1B2C3D4E5F6A7B8C9 /* MezonEngine+EmojisEvents.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MezonEngine+EmojisEvents.swift"; sourceTree = "<group>"; };
 		50D4EEF5E861F907B3A41782 /* MezonVideoPlayerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MezonVideoPlayerNode.swift; sourceTree = "<group>"; };
 		52062A73B95CE401EE3E0E27 /* AddMembersSheetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddMembersSheetController.swift; sourceTree = "<group>"; };
 		53200B34C61530486CD1E2D5 /* ComponentHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComponentHostView.swift; sourceTree = "<group>"; };
@@ -915,6 +920,7 @@
 		895E0E43E059E64E11F7B11D /* ScreenShareExpandedViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenShareExpandedViewController.swift; sourceTree = "<group>"; };
 		89C94922400D7811518ED19B /* HashtagSuggestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HashtagSuggestionView.swift; sourceTree = "<group>"; };
 		8AB912EED3883B195E63268D /* StickerItemCell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = StickerItemCell.swift; sourceTree = "<group>"; };
+		EIC002A1B2C3D4E5F6A7B8C9 /* EmojiItemCell.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmojiItemCell.swift; sourceTree = "<group>"; };
 		8AC31CEE54C9389301AEF2FA /* VoIPMinimalShellViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoIPMinimalShellViewController.swift; sourceTree = "<group>"; };
 		8BB4644E0853C6E628F688FB /* FileListNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileListNode.swift; sourceTree = "<group>"; };
 		8CE37ECCF50C4B307B23F70B /* ProfileContainerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileContainerNode.swift; sourceTree = "<group>"; };
@@ -959,7 +965,9 @@
 		9F48F4F61C640B1ABD2CEFA6 /* Font.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Font.swift; sourceTree = "<group>"; };
 		9FEED0BA4DDB22AD23961161 /* UniversalVideoPlayerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalVideoPlayerNode.swift; sourceTree = "<group>"; };
 		A13579A2D9FBB3BF6B5719F5 /* ClanStickersViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanStickersViewController.swift; sourceTree = "<group>"; };
+		CEV002A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanEmojisViewController.swift; sourceTree = "<group>"; };
 		CSP002A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanStickerPreviewViewController.swift; sourceTree = "<group>"; };
+		CEP002A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanEmojiPreviewViewController.swift; sourceTree = "<group>"; };
 		A1B338DB5ECF662E1ECC8A15 /* SessionExpiredModal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionExpiredModal.swift; sourceTree = "<group>"; };
 		A2D6E3E946850C57F426884E /* ContextMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuController.swift; sourceTree = "<group>"; };
 		A357842F68DB9EC646C12708 /* VoiceChannelLiveKitBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChannelLiveKitBridge.swift; sourceTree = "<group>"; };
@@ -1737,6 +1745,7 @@
 				CF025D4E3B004CE1CDF5835B /* ClanSettingsViewController.swift */,
 				FB993C3FCC88C691C1FA9FD8 /* Roles */,
 				DBC453C51106AF7894F19252 /* Stickers */,
+				EMG001A1B2C3D4E5F6A7B8C9 /* Emojis */,
 			);
 			path = ClanSettings;
 			sourceTree = "<group>";
@@ -1859,7 +1868,6 @@
 				58EE90084FB51B72FB971B6F /* Secrets.swift */,
 				6C44C6AB27450CFE50259EDF /* SessionRefreshManager.swift */,
 				A6134781E821A16A7A8EABE0 /* WebRTCSignalingDataType.swift */,
-				47052FC6EAAC6D167FAB8FEA /* MezonHTTPClient+Stickers.swift */,
 			);
 			path = Networking;
 			sourceTree = "<group>";
@@ -1986,6 +1994,7 @@
 				E7C16892A200167A8055A7BD /* MezonEngine+TopicDiscussion.swift */,
 				C256BCD58F832D5D4185466E /* Data */,
 				50A60B6351068C2F15435FC1 /* MezonEngine+StickersEvents.swift */,
+				EME002A1B2C3D4E5F6A7B8C9 /* MezonEngine+EmojisEvents.swift */,
 			);
 			path = MezonEngine;
 			sourceTree = "<group>";
@@ -2441,6 +2450,17 @@
 				8AB912EED3883B195E63268D /* StickerItemCell.swift */,
 			);
 			name = Stickers;
+			sourceTree = "<group>";
+		};
+		EMG001A1B2C3D4E5F6A7B8C9 /* Emojis */ = {
+			isa = PBXGroup;
+			children = (
+				ERE002A1B2C3D4E5F6A7B8C9 /* EmojisRepository.swift */,
+				CEV002A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift */,
+				CEP002A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift */,
+				EIC002A1B2C3D4E5F6A7B8C9 /* EmojiItemCell.swift */,
+			);
+			name = Emojis;
 			sourceTree = "<group>";
 		};
 		DE2CA669A2323BA3B7789AB8 /* rtapi */ = {
@@ -3442,12 +3462,16 @@
 				WBH001A1B2C3D4E5F6A7B8C9 /* WebhookListViewController.swift in Sources */,
 				WBH002A1B2C3D4E5F6A7B8C9 /* WebhookEditViewController.swift in Sources */,
 				WBH003A1B2C3D4E5F6A7B8C9 /* WebhookSelectChannelViewController.swift in Sources */,
-				694D716CD190C52668EB4585 /* MezonHTTPClient+Stickers.swift in Sources */,
 				4AB4B3729A5F5FA3256363E5 /* MezonEngine+StickersEvents.swift in Sources */,
+				EME001A1B2C3D4E5F6A7B8C9 /* MezonEngine+EmojisEvents.swift in Sources */,
 				6EF64F645123DB53A6B48763 /* StickersRepository.swift in Sources */,
+				ERE001A1B2C3D4E5F6A7B8C9 /* EmojisRepository.swift in Sources */,
 				B56D71650BC2514F98F46C79 /* ClanStickersViewController.swift in Sources */,
+				CEV001A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift in Sources */,
 				CSP001A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift in Sources */,
+				CEP001A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift in Sources */,
 				853C053A0E5A3BEA6FF441CB /* StickerItemCell.swift in Sources */,
+				EIC001A1B2C3D4E5F6A7B8C9 /* EmojiItemCell.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

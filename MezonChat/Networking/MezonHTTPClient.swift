@@ -1653,6 +1653,58 @@ final class MezonHTTPClient {
         )
     }
 
+    func createClanEmoji(request: Mezon_Api_ClanEmojiCreateRequest, token: String) async throws -> Mezon_Api_ClanEmoji {
+        return try await postProto(
+            path: "/mezon.api.Mezon/CreateClanEmoji",
+            message: request,
+            auth: .bearer(token),
+            preferHTTPFirst: false
+        )
+    }
+
+    func updateClanEmoji(request: Mezon_Api_ClanEmojiUpdateRequest, token: String) async throws -> Mezon_Api_ClanEmoji {
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateClanEmojiById",
+            message: request,
+            auth: .bearer(token),
+            preferHTTPFirst: false
+        )
+    }
+
+    func deleteClanEmoji(request: Mezon_Api_ClanEmojiDeleteRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteByIdClanEmoji",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func addClanSticker(request: Mezon_Api_ClanStickerAddRequest, token: String) async throws -> Mezon_Api_ClanSticker {
+        return try await postProto(
+            path: "/mezon.api.Mezon/AddClanSticker",
+            message: request,
+            auth: .bearer(token),
+            preferHTTPFirst: false
+        )
+    }
+
+    func updateClanSticker(request: Mezon_Api_ClanStickerUpdateByIdRequest, token: String) async throws -> Mezon_Api_ClanSticker {
+        return try await postProto(
+            path: "/mezon.api.Mezon/UpdateClanStickerById",
+            message: request,
+            auth: .bearer(token),
+            preferHTTPFirst: false
+        )
+    }
+
+    func deleteClanSticker(request: Mezon_Api_ClanStickerDeleteRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteClanStickerById",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
     func searchMessage(
         filters: [Mezon_Api_FilterParam] = [],
         from: Int32 = 1,
