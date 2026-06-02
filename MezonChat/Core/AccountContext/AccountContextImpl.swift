@@ -1166,6 +1166,12 @@ final class AccountContextImpl: AccountContext {
                 )
             }
 
+        case .stickerCreated, .stickerUpdated, .stickerDeleted:
+            engine.handleStickerEvent(event)
+
+        case .emojiEvent(let ev):
+            engine.handleEmojiEvent(ev)
+
         default:
             break
         }

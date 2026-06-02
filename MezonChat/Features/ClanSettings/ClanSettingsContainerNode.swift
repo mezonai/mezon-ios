@@ -6,6 +6,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     var onClose: (() -> Void)?
     var onSelectRoles: (() -> Void)?
     var onSelectIntegrations: (() -> Void)?
+    var onSelectStickers: (() -> Void)?
+    var onSelectEmojis: (() -> Void)?
 
     private let context: AccountContext
     private let clanId: Int64
@@ -91,8 +93,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         }
         
         settingsActions.append(contentsOf: [
-            .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji"),
-            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon"),
+            .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji", navigate: .emojis),
+            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon", navigate: .stickers),
             .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon"),
             .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon")
         ])
@@ -385,6 +387,10 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             onSelectRoles?()
         case .integrations:
             onSelectIntegrations?()
+        case .stickers:
+            onSelectStickers?()
+        case .emojis:
+            onSelectEmojis?()
         }
     }
 
@@ -410,6 +416,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 private enum ClanSettingsNavigateAction: Int {
     case roles = 1
     case integrations = 2
+    case stickers = 3
+    case emojis = 4
 }
 
 private struct SettingAction {

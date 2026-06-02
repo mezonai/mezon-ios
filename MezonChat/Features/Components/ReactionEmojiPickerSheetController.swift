@@ -137,13 +137,13 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecogn
         emojisPanel.applyTheme(placement: .secondaryBottomSheet)
 
         emojiListObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name("MezonEmojiListDidUpdate"),
+            forName: .mezonEmojiListDidUpdate,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             guard let self else { return }
             self.emojisPanel.reloadFromPostboxCache()
-            self.emojisPanel.logEmojiLoadingState(tag: "MezonEmojiListDidUpdate")
+            self.emojisPanel.logEmojiLoadingState(tag: Notification.Name.mezonEmojiListDidUpdate.rawValue)
             self.syncHostedPanelFrame()
         }
         emojisPanel.logEmojiLoadingState(tag: "didLoadAfterBind")

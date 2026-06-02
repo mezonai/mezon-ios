@@ -1,6 +1,17 @@
 import Foundation
 import SwiftProtobuf
 
+extension Notification.Name {
+    static let mezonStickerListDidUpdate = Notification.Name("mezon.stickerList.didUpdate")
+    static let mezonEmojiListDidUpdate = Notification.Name("mezon.emojiList.didUpdate")
+}
+
+enum MediaPanelRealtimeAction: Int32 {
+    case created = 1
+    case update = 2
+    case delete = 3
+}
+
 enum MediaPanelPostboxKeys {
     static let emojiListByUser = "mediaPanel.emojiList.byUser"
     static let stickerListByUser = "mediaPanel.stickerList.byUser"
@@ -88,5 +99,69 @@ extension Mezon_Api_ClanSticker {
             mediaType: mediaType,
             isForSale: isForSale
         )
+    }
+}
+
+extension CachedClanEmojiRecord {
+    var displayImageURLString: String {
+        let src = self.src.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
+        if src.hasPrefix("//") { return "https:\(src)" }
+        if !src.isEmpty {
+            let base = MezonConfig.baseImgURL
+            return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
+        }
+        return "\(MezonConfig.baseImgURL)/emojis/\(id).webp"
+    }
+
+    static func innerName(from shortname: String) -> String {
+        var s = shortname.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix(":") { s.removeFirst() }
+        if s.hasSuffix(":") { s.removeLast() }
+        return s
+    }
+
+    static func wrappedShortname(_ inner: String) -> String {
+        ":\(inner):"
+    }
+}
+
+extension CachedClanStickerRecord {
+    var displayImageURLString: String {
+        let src = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
+        if src.hasPrefix("//") { return "https:\(src)" }
+        if !src.isEmpty {
+            let base = MezonConfig.baseImgURL
+            return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
+        }
+        return "\(MezonConfig.baseImgURL)/stickers/\(id).webp"
+    }
+}
+
+extension ClanMemberRecord {
+    var resolvedDisplayName: String {
+        if !clanNick.isEmpty { return clanNick }
+        if !displayName.isEmpty { return displayName }
+        return username
+    }
+}
+
+extension Array where Element == CachedClanEmojiRecord {
+    func deduplicatedByEmojiId() -> [CachedClanEmojiRecord] {
+        var byId: [Int64: CachedClanEmojiRecord] = [:]
+        var order: [Int64] = []
+        for emoji in self where emoji.id != 0 {
+            if byId[emoji.id] == nil {
+                order.append(emoji.id)
+            }
+            let existing = byId[emoji.id]
+            let existingHasSrc = !(existing?.src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+            let incomingHasSrc = !emoji.src.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if existing == nil || (incomingHasSrc && !existingHasSrc) {
+                byId[emoji.id] = emoji
+            }
+        }
+        return order.compactMap { byId[$0] }
     }
 }

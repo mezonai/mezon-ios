@@ -443,6 +443,58 @@ enum L10n {
         static let userManagement       = "clan.setting.userManagement"
         static let roles                = "clan.setting.roles"
         static let invites              = "clan.setting.invites"
+
+        enum Emojis {
+            static let duplicateName = "clan.setting.emojis.duplicateName"
+            static let updateSuccess = "clan.setting.emojis.updateSuccess"
+            static let deleteConfirmTitle = "clan.setting.emojis.deleteConfirmTitle"
+            static let deleteConfirmDesc = "clan.setting.emojis.deleteConfirmDesc"
+            static let deleteSuccess = "clan.setting.emojis.deleteSuccess"
+            static let createSuccess = "clan.setting.emojis.createSuccess"
+            static let validateName = "clan.setting.emojis.validateName"
+            static let errorUpdating = "clan.setting.emojis.errorUpdating"
+            static let uploadLimit = "clan.setting.emojis.uploadLimit"
+            static let uploadButton = "clan.setting.emojis.uploadButton"
+            static let uploadDescription = "clan.setting.emojis.uploadDescription"
+            static let uploadRequirementsTitle = "clan.setting.emojis.uploadRequirementsTitle"
+            static let uploadRequirement1 = "clan.setting.emojis.uploadRequirement1"
+            static let uploadRequirement2 = "clan.setting.emojis.uploadRequirement2"
+            static let uploadRequirement3 = "clan.setting.emojis.uploadRequirement3"
+            static let uploadRequirement4 = "clan.setting.emojis.uploadRequirement4"
+            static let uploadFileTooLarge = "clan.setting.emojis.uploadFileTooLarge"
+            static let previewTitle = "clan.setting.emojis.previewTitle"
+            static let previewNameLabel = "clan.setting.emojis.previewNameLabel"
+            static let previewForSale = "clan.setting.emojis.previewForSale"
+            static let previewUpload = "clan.setting.emojis.previewUpload"
+            static let previewLengthError = "clan.setting.emojis.previewLengthError"
+            static let previewTypeEmoji = "clan.setting.emojis.previewTypeEmoji"
+        }
+
+        enum Stickers {
+            static let duplicateName = "clan.setting.stickers.duplicateName"
+            static let updateSuccess = "clan.setting.stickers.updateSuccess"
+            static let deleteConfirmTitle = "clan.setting.stickers.deleteConfirmTitle"
+            static let deleteConfirmDesc = "clan.setting.stickers.deleteConfirmDesc"
+            static let deleteSuccess = "clan.setting.stickers.deleteSuccess"
+            static let empty = "clan.setting.stickers.empty"
+            static let create = "clan.setting.stickers.create"
+            static let createSuccess = "clan.setting.stickers.createSuccess"
+            static let validateName = "clan.setting.stickers.validateName"
+            static let errorUpdating = "clan.setting.stickers.errorUpdating"
+            static let uploadLimit = "clan.setting.stickers.uploadLimit"
+            static let uploadButton = "clan.setting.stickers.uploadButton"
+            static let uploadRequirementsTitle = "clan.setting.stickers.uploadRequirementsTitle"
+            static let uploadRequirement1 = "clan.setting.stickers.uploadRequirement1"
+            static let uploadRequirement2 = "clan.setting.stickers.uploadRequirement2"
+            static let uploadRequirement3 = "clan.setting.stickers.uploadRequirement3"
+            static let uploadFileTooLarge = "clan.setting.stickers.uploadFileTooLarge"
+            static let previewTitle = "clan.setting.stickers.previewTitle"
+            static let previewNameLabel = "clan.setting.stickers.previewNameLabel"
+            static let previewForSale = "clan.setting.stickers.previewForSale"
+            static let previewUpload = "clan.setting.stickers.previewUpload"
+            static let previewLengthError = "clan.setting.stickers.previewLengthError"
+            static let previewTypeSticker = "clan.setting.stickers.previewTypeSticker"
+        }
     }
 
     enum ClanRoles {
@@ -1337,6 +1389,53 @@ extension L10n {
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
+
+        "clan.setting.stickers.duplicateName": "Sticker name already exists",
+        "clan.setting.stickers.updateSuccess": "Sticker updated successfully",
+        "clan.setting.stickers.deleteConfirmTitle": "Delete Sticker",
+        "clan.setting.stickers.deleteConfirmDesc": "Are you sure you want to delete this sticker?",
+        "clan.setting.stickers.deleteSuccess": "Sticker deleted successfully",
+        "clan.setting.stickers.empty": "No stickers available",
+        "clan.setting.stickers.create": "Create Sticker",
+        "clan.setting.stickers.createSuccess": "Sticker created successfully",
+        "clan.setting.stickers.validateName": "Length must be %d - %d characters. Only letters, numbers, _ and - are allowed.",
+        "clan.setting.stickers.errorUpdating": "Failed to update sticker. Please try again.",
+        "clan.setting.stickers.uploadLimit": "Sticker upload limit reached",
+        "clan.setting.stickers.uploadButton": "Upload Sticker",
+        "clan.setting.stickers.uploadRequirementsTitle": "Upload Requirements",
+        "clan.setting.stickers.uploadRequirement1": "Can be a static image (PNG) or an animated image (GIF).",
+        "clan.setting.stickers.uploadRequirement2": "Must be exactly 320 x 320 pixels.",
+        "clan.setting.stickers.uploadRequirement3": "Must not be larger than 512KB.",
+        "clan.setting.stickers.uploadFileTooLarge": "Image must not be larger than 512KB.",
+        "clan.setting.stickers.previewTitle": "Sticker Preview",
+        "clan.setting.stickers.previewNameLabel": "Sticker Name",
+        "clan.setting.stickers.previewForSale": "For Sale",
+        "clan.setting.stickers.previewUpload": "Upload",
+        "clan.setting.stickers.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
+        "clan.setting.stickers.previewTypeSticker": "Sticker",
+        "clan.setting.emojis.duplicateName": "Emoji name already exists",
+        "clan.setting.emojis.updateSuccess": "Emoji updated successfully",
+        "clan.setting.emojis.deleteConfirmTitle": "Delete Emoji",
+        "clan.setting.emojis.deleteConfirmDesc": "Are you sure you want to delete this emoji?",
+        "clan.setting.emojis.deleteSuccess": "Emoji deleted successfully",
+        "clan.setting.emojis.createSuccess": "Emoji created successfully",
+        "clan.setting.emojis.validateName": "Length must be %d - %d characters. Only letters, numbers, _ and - are allowed.",
+        "clan.setting.emojis.errorUpdating": "Failed to update emoji. Please try again.",
+        "clan.setting.emojis.uploadLimit": "Emoji upload limit reached",
+        "clan.setting.emojis.uploadButton": "Upload Emoji",
+        "clan.setting.emojis.uploadDescription": "Add custom emoji that anyone in this clan can use. All Mezon members can use animated GIF emoji.",
+        "clan.setting.emojis.uploadRequirementsTitle": "Upload Requirements",
+        "clan.setting.emojis.uploadRequirement1": "File type: JPEG, PNG, GIF.",
+        "clan.setting.emojis.uploadRequirement2": "Recommended file size: 256 KB.",
+        "clan.setting.emojis.uploadRequirement3": "Recommended dimensions: 128x128.",
+        "clan.setting.emojis.uploadRequirement4": "Naming: Emoji name must be at least 3 characters and only contain letters, numbers, and underscores.",
+        "clan.setting.emojis.uploadFileTooLarge": "Image must not be larger than 256 KB.",
+        "clan.setting.emojis.previewTitle": "Emoji Preview",
+        "clan.setting.emojis.previewNameLabel": "Emoji Name",
+        "clan.setting.emojis.previewForSale": "For Sale",
+        "clan.setting.emojis.previewUpload": "Upload",
+        "clan.setting.emojis.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
+        "clan.setting.emojis.previewTypeEmoji": "Emoji",
 
         "clanRoles.title":                  "Roles",
         "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
@@ -2277,6 +2376,53 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+
+        "clan.setting.stickers.duplicateName": "Tên nhãn dán đã tồn tại",
+        "clan.setting.stickers.updateSuccess": "Cập nhật nhãn dán thành công",
+        "clan.setting.stickers.deleteConfirmTitle": "Xoá nhãn dán",
+        "clan.setting.stickers.deleteConfirmDesc": "Bạn có chắc muốn xoá nhãn dán này?",
+        "clan.setting.stickers.deleteSuccess": "Đã xoá nhãn dán thành công",
+        "clan.setting.stickers.empty": "Chưa có nhãn dán nào",
+        "clan.setting.stickers.create": "Tạo nhãn dán",
+        "clan.setting.stickers.createSuccess": "Tạo nhãn dán thành công",
+        "clan.setting.stickers.validateName": "Độ dài phải từ %d - %d ký tự. Chỉ cho phép chữ, số, _ và -.",
+        "clan.setting.stickers.errorUpdating": "Cập nhật nhãn dán thất bại. Vui lòng thử lại.",
+        "clan.setting.stickers.uploadLimit": "Đã đạt giới hạn tải nhãn dán",
+        "clan.setting.stickers.uploadButton": "Tải lên nhãn dán",
+        "clan.setting.stickers.uploadRequirementsTitle": "Yêu cầu tải lên",
+        "clan.setting.stickers.uploadRequirement1": "Có thể là ảnh tĩnh (PNG) hoặc ảnh động (GIF).",
+        "clan.setting.stickers.uploadRequirement2": "Phải chính xác 320 x 320 pixel.",
+        "clan.setting.stickers.uploadRequirement3": "Không lớn hơn 512KB.",
+        "clan.setting.stickers.uploadFileTooLarge": "Ảnh không được lớn hơn 512KB.",
+        "clan.setting.stickers.previewTitle": "Xem trước nhãn dán",
+        "clan.setting.stickers.previewNameLabel": "Tên nhãn dán",
+        "clan.setting.stickers.previewForSale": "Để bán",
+        "clan.setting.stickers.previewUpload": "Tải lên",
+        "clan.setting.stickers.previewLengthError": "Tên %@ phải từ %d đến %d kí tự, chỉ bao gồm chữ cái, chữ số, _ và -.",
+        "clan.setting.stickers.previewTypeSticker": "nhãn dán",
+        "clan.setting.emojis.duplicateName": "Tên biểu cảm đã tồn tại",
+        "clan.setting.emojis.updateSuccess": "Cập nhật biểu cảm thành công",
+        "clan.setting.emojis.deleteConfirmTitle": "Xoá biểu cảm",
+        "clan.setting.emojis.deleteConfirmDesc": "Bạn có chắc muốn xoá biểu cảm này?",
+        "clan.setting.emojis.deleteSuccess": "Xoá biểu cảm thành công",
+        "clan.setting.emojis.createSuccess": "Tạo biểu cảm thành công",
+        "clan.setting.emojis.validateName": "Độ dài phải từ %d - %d ký tự. Chỉ cho phép chữ, số, _ và -.",
+        "clan.setting.emojis.errorUpdating": "Cập nhật biểu cảm thất bại. Vui lòng thử lại.",
+        "clan.setting.emojis.uploadLimit": "Đã đạt giới hạn tải biểu cảm lên",
+        "clan.setting.emojis.uploadButton": "Tải lên biểu cảm",
+        "clan.setting.emojis.uploadDescription": "Thêm biểu cảm tùy chỉnh mà tất cả người dùng trong clan này đều có thể sử dụng. Mọi thành viên trong Mezon đều có thể sử dụng được các biểu cảm GIF động.",
+        "clan.setting.emojis.uploadRequirementsTitle": "Yêu cầu tải lên",
+        "clan.setting.emojis.uploadRequirement1": "Loại tệp: JPEG, PNG, GIF.",
+        "clan.setting.emojis.uploadRequirement2": "Kích thước đề xuất: 256 KB.",
+        "clan.setting.emojis.uploadRequirement3": "Kích cỡ ảnh đề nghị: 128x128.",
+        "clan.setting.emojis.uploadRequirement4": "Đặt tên: Tên của biểu cảm phải có ít nhất 3 ký tự và chỉ được chứa ký tự chữ, ký tự số và dấu gạch dưới.",
+        "clan.setting.emojis.uploadFileTooLarge": "Ảnh không được lớn hơn 256 KB.",
+        "clan.setting.emojis.previewTitle": "Xem trước biểu cảm",
+        "clan.setting.emojis.previewNameLabel": "Tên biểu cảm",
+        "clan.setting.emojis.previewForSale": "Để bán",
+        "clan.setting.emojis.previewUpload": "Tải lên",
+        "clan.setting.emojis.previewLengthError": "Tên %@ phải từ %d đến %d ký tự, chỉ chữ, số, _ và -.",
+        "clan.setting.emojis.previewTypeEmoji": "biểu cảm",
 
         "clanRoles.title":                  "Vai trò",
         "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",
