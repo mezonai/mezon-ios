@@ -494,14 +494,21 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
-        guard !media.isVideo, media.localImage == nil else { return }
+        guard media.localImage == nil else { return }
+        let sourceURL: String
+        if media.isVideo {
+            guard !media.thumbnail.isEmpty else { return }
+            sourceURL = media.thumbnail
+        } else {
+            sourceURL = media.url
+        }
         guard index < imageNodes.count else { return }
         let node = imageNodes[index]
         let w = 400
         let h = 400
         let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
         let proxyURL = ImgproxyURL.attachmentURL(
-            from: media.url,
+            from: sourceURL,
             width: w,
             height: h,
             resizeType: isMultiple ? "fill" : "fit"
@@ -516,9 +523,9 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
         let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
-            || ImageCache.shared.memoryImage(forKey: media.url) != nil
+            || ImageCache.shared.memoryImage(forKey: sourceURL) != nil
         node.setSignal(
-            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: media.url, resizeMode: resizeMode),
+            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: sourceURL, resizeMode: resizeMode),
             attemptSynchronously: hasMem
         )
     }
@@ -526,7 +533,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {
         if let localImage = media.localImage {
             node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
-        } else if media.isVideo {
+        } else if media.isVideo && media.thumbnail.isEmpty {
             node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
         } else if measuredPtSize != nil {
             ensureRemoteImageLoaded(at: index, media: media, isMultiple: isMultiple)

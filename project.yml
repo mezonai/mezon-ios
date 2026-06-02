@@ -119,7 +119,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.97"
+        MARKETING_VERSION: "1.2.98"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
@@ -220,7 +220,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
         PRODUCT_NAME: MezonSharing
-        MARKETING_VERSION: "1.2.97"
+        MARKETING_VERSION: "1.2.98"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic

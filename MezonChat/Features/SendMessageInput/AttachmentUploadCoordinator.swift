@@ -430,21 +430,21 @@ final class AttachmentUploadCoordinator {
     @MainActor
     private func uploadFiles(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         for file in session.params.files {
-            guard let fileData = try? Data(contentsOf: file.url) else { continue }
+            guard let size = await Self.fileSize(of: file.url) else { continue }
             let sanitized = file.filename.replacingOccurrences(
                 of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
             do {
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: sanitized, filetype: file.filetype, size: fileData.count,
+                    filename: sanitized, filetype: file.filetype, size: size,
                     width: 0, height: 0, token: token)
                 try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, data: fileData, contentType: file.filetype)
+                    url: uploadInfo.url, fileURL: file.url, contentType: file.filetype)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = file.filename
                 att.url = cdnURL
                 att.filetype = file.filetype
-                att.size = Int32(fileData.count)
+                att.size = Int32(size)
                 session.fileAttachments.append(att)
                 try? FileManager.default.removeItem(at: file.url)
             } catch {
@@ -462,33 +462,54 @@ final class AttachmentUploadCoordinator {
         context: AccountContext,
         token: String
     ) async -> Mezon_Api_MessageAttachment? {
-        guard let fileURL = item.fileURL, let fileData = try? Data(contentsOf: fileURL) else { return nil }
+        guard let fileURL = item.fileURL else { return nil }
 
+        let image = item.image
         let originalFilename = fileURL.lastPathComponent
         let ext = fileURL.pathExtension.lowercased()
         let filetype = SendMessageInputViewController.mimeType(for: ext)
-        let width = Int(item.image.size.width)
-        let height = Int(item.image.size.height)
+        let width = Int(image.size.width)
+        let height = Int(image.size.height)
         let sanitized = originalFilename.replacingOccurrences(
             of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+        let isVideo = filetype.hasPrefix("video/")
 
         do {
-            let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                filename: sanitized, filetype: filetype, size: fileData.count,
-                width: width, height: height, token: token)
-            try await context.account.network.uploadToMinIO(
-                url: uploadInfo.url, data: fileData, contentType: filetype)
-            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-            if !filetype.hasPrefix("video/") {
-                ImageCache.shared.setImage(item.image, data: fileData, forKey: cdnURL)
-            }
             var att = Mezon_Api_MessageAttachment()
             att.filename = originalFilename
-            att.url = cdnURL
             att.filetype = filetype
-            att.size = Int32(fileData.count)
             att.width = Int32(width)
             att.height = Int32(height)
+
+            if isVideo {
+                guard let size = await Self.fileSize(of: fileURL) else { return nil }
+                let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                    filename: sanitized, filetype: filetype, size: size,
+                    width: width, height: height, token: token)
+                try await context.account.network.uploadToMinIO(
+                    url: uploadInfo.url, fileURL: fileURL, contentType: filetype)
+                att.url = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                att.size = Int32(size)
+                att.thumbnail = await uploadVideoThumbnail(
+                    image, originalFilename: sanitized, context: context, token: token)
+            } else {
+                let isGif = filetype == "image/gif" || ext == "gif"
+                guard let payload = await Self.imageUploadPayload(
+                    image: image, fileURL: fileURL, filetype: filetype,
+                    filename: sanitized, isGif: isGif) else { return nil }
+                let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                    filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
+                    width: width, height: height, token: token)
+                try await context.account.network.uploadToMinIO(
+                    url: uploadInfo.url, data: payload.data, contentType: payload.filetype)
+                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                ImageCache.shared.setImage(image, data: payload.data, forKey: cdnURL)
+                att.filename = payload.filename
+                att.filetype = payload.filetype
+                att.url = cdnURL
+                att.size = Int32(payload.data.count)
+            }
+
             try? FileManager.default.removeItem(at: fileURL)
             return att
         } catch {
@@ -498,6 +519,68 @@ final class AttachmentUploadCoordinator {
             ])
             return nil
         }
+    }
+
+    @MainActor
+    private func uploadVideoThumbnail(
+        _ thumbnail: UIImage,
+        originalFilename: String,
+        context: AccountContext,
+        token: String
+    ) async -> String {
+        guard let thumbData = await Self.encodeJPEG(thumbnail, quality: 0.7) else { return "" }
+
+        let baseName = (originalFilename as NSString).deletingPathExtension
+        let thumbFilename = "\(baseName.isEmpty ? "video" : baseName)_thumb.jpg"
+        let width = Int(thumbnail.size.width)
+        let height = Int(thumbnail.size.height)
+
+        do {
+            let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
+                width: width, height: height, token: token)
+            try await context.account.network.uploadToMinIO(
+                url: uploadInfo.url, data: thumbData, contentType: "image/jpeg")
+            let thumbCdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+            ImageCache.shared.setImage(thumbnail, data: thumbData, forKey: thumbCdnURL)
+            return thumbCdnURL
+        } catch {
+            return ""
+        }
+    }
+
+    // MARK: - Background I/O
+
+    private static let imageCompressionQuality: CGFloat = 0.9
+
+    private struct ImageUploadPayload {
+        let data: Data
+        let filetype: String
+        let filename: String
+    }
+
+    private nonisolated static func imageUploadPayload(
+        image: UIImage, fileURL: URL, filetype: String, filename: String, isGif: Bool
+    ) async -> ImageUploadPayload? {
+        await Task.detached(priority: .utility) {
+            if !isGif, let jpeg = image.jpegData(compressionQuality: imageCompressionQuality) {
+                let base = (filename as NSString).deletingPathExtension
+                let name = "\(base.isEmpty ? "image" : base).jpg"
+                return ImageUploadPayload(data: jpeg, filetype: "image/jpeg", filename: name)
+            }
+            guard let raw = try? Data(contentsOf: fileURL) else { return nil }
+            return ImageUploadPayload(data: raw, filetype: filetype, filename: filename)
+        }.value
+    }
+
+    private nonisolated static func fileSize(of url: URL) async -> Int? {
+        await Task.detached(priority: .utility) {
+            (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+        }.value?.intValue
+    }
+
+    private nonisolated static func encodeJPEG(_ image: UIImage, quality: CGFloat) async -> Data? {
+        await Task.detached(priority: .utility) { image.jpegData(compressionQuality: quality) }.value
     }
 
     // MARK: - Helpers
