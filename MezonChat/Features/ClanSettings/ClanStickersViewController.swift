@@ -405,7 +405,8 @@ final class ClanStickersViewController: BaseViewController {
     }
 
     private func validateShortname(_ name: String, excludingId: Int64? = nil) -> Bool {
-        guard ClanStickerNameValidator.isValid(name) else {
+        let trimmed = ClanStickerNameValidator.normalized(name)
+        guard ClanStickerNameValidator.isValid(trimmed) else {
             Toast.error(String(
                 format: L(L10n.ClanSetting.Stickers.validateName),
                 ClanStickerNameValidator.minLength,
@@ -413,7 +414,7 @@ final class ClanStickersViewController: BaseViewController {
             ))
             return false
         }
-        guard !stickers.contains(where: { $0.shortname == name && $0.id != excludingId }) else {
+        guard !stickers.contains(where: { $0.shortname == trimmed && $0.id != excludingId }) else {
             Toast.error(L(L10n.ClanSetting.Stickers.duplicateName))
             return false
         }
@@ -425,7 +426,7 @@ final class ClanStickersViewController: BaseViewController {
         newName: String,
         completion: @escaping (Bool) -> Void
     ) {
-        let text = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ClanStickerNameValidator.normalized(newName)
         guard !text.isEmpty, text != sticker.shortname else {
             completion(true)
             return
@@ -567,9 +568,10 @@ extension ClanStickersViewController: UIImagePickerControllerDelegate, UINavigat
         let preview = ClanStickerPreviewViewController(image: image)
         preview.onConfirm = { [weak self, weak preview] shortname, isForSale in
             guard let self else { return }
-            guard self.validateShortname(shortname) else { return }
+            let trimmed = ClanStickerNameValidator.normalized(shortname)
+            guard self.validateShortname(trimmed) else { return }
             preview?.dismiss(animated: true) {
-                Task { await self.uploadSticker(image: image, picked: picked, shortname: shortname, isForSale: isForSale) }
+                Task { await self.uploadSticker(image: image, picked: picked, shortname: trimmed, isForSale: isForSale) }
             }
         }
         present(preview, animated: true)

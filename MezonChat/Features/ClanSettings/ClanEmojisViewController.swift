@@ -416,7 +416,7 @@ final class ClanEmojisViewController: BaseViewController {
     }
 
     private func validateInnerName(_ innerName: String, excludingId: Int64? = nil) -> Bool {
-        let name = innerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = ClanStickerNameValidator.normalized(innerName)
         guard ClanStickerNameValidator.isValid(name) else {
             Toast.error(String(
                 format: L(L10n.ClanSetting.Emojis.validateName),
@@ -438,7 +438,7 @@ final class ClanEmojisViewController: BaseViewController {
         innerName: String,
         completion: @escaping (Bool) -> Void
     ) {
-        let text = innerName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = ClanStickerNameValidator.normalized(innerName)
         let wrapped = CachedClanEmojiRecord.wrappedShortname(text)
         let currentInner = CachedClanEmojiRecord.innerName(from: emoji.shortname)
         guard !text.isEmpty, text != currentInner else {
@@ -584,8 +584,9 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
         let preview = ClanEmojiPreviewViewController(image: image)
         preview.onConfirm = { [weak self, weak preview] innerName, isForSale in
             guard let self else { return }
-            guard self.validateInnerName(innerName) else { return }
-            let wrapped = CachedClanEmojiRecord.wrappedShortname(innerName)
+            let trimmed = ClanStickerNameValidator.normalized(innerName)
+            guard self.validateInnerName(trimmed) else { return }
+            let wrapped = CachedClanEmojiRecord.wrappedShortname(trimmed)
             preview?.dismiss(animated: true) {
                 Task { await self.uploadEmoji(image: image, picked: picked, shortname: wrapped, isForSale: isForSale) }
             }

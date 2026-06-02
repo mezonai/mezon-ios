@@ -6,13 +6,18 @@ enum ClanStickerNameValidator {
     static let previewMaxLength = maxLength - 2
     private static let pattern = #"^[a-zA-Z0-9_-]+$"#
 
+    static func normalized(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     static func isValid(_ name: String) -> Bool {
-        guard name.count >= minLength, name.count <= maxLength else { return false }
-        return name.range(of: pattern, options: .regularExpression) != nil
+        let trimmed = normalized(name)
+        guard trimmed.count >= minLength, trimmed.count <= maxLength else { return false }
+        return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
 
     static func isValidForPreview(_ name: String) -> Bool {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = normalized(name)
         guard trimmed.count >= minLength, trimmed.count <= previewMaxLength else { return false }
         return trimmed.range(of: pattern, options: .regularExpression) != nil
     }

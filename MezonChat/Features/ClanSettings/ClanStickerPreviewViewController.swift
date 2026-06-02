@@ -192,7 +192,7 @@ final class ClanStickerPreviewViewController: UIViewController {
     }
 
     @objc private func handleUploadTapped() {
-        let name = nameTextField.text ?? ""
+        let name = ClanStickerNameValidator.normalized(nameTextField.text ?? "")
         guard ClanStickerNameValidator.isValidForPreview(name) else {
             errorLabel.text = String(
                 format: L(L10n.ClanSetting.Stickers.previewLengthError),
