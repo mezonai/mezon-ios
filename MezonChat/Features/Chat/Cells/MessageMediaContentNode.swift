@@ -47,16 +47,16 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var imageNodes: [TransformImageNode] = []
     private var videoOverlayNodes: [ASDisplayNode] = []
     private var shimmerNodes: [ShimmerPlaceholderNode] = []
-    private var overlayCountNode: ASTextNode2?
-    private var overlayBgNode: ASDisplayNode?
     private var stickerNode: ASDisplayNode?
     private var attachments: [ParsedAttachment] = []
     private(set) var isUploading: Bool = false
 
     var onImageTapped: ((Int) -> Void)?
 
+    private static let gridSpacing: CGFloat = 2.0
 
     private var cachedImageFrames: [CGRect] = []
+    private var cachedPositions: [MediaMosaicItemPosition] = []
     private var cachedTotalSize: CGSize = .zero
     private var isSingleImage = false
     private var isSticker = false
@@ -68,10 +68,127 @@ final class MessageMediaContentNode: ASDisplayNode {
         super.init()
     }
 
+    private static func mosaicItemSize(for att: ParsedAttachment) -> CGSize {
+        if let local = att.localImage, local.size.width > 0, local.size.height > 0 {
+            return local.size
+        }
+        let w = att.width ?? 0
+        let h = att.height ?? 0
+        if w > 0 && h > 0 {
+            return CGSize(width: w, height: h)
+        }
+        return CGSize(width: 1, height: 1)
+    }
+
+    private func uniformGridLayout(count: Int, maxWidth: CGFloat, spacing: CGFloat) -> ([CGRect], [MediaMosaicItemPosition]) {
+        let columns = count <= 9 ? 3 : 4
+        let rows = Int(ceil(CGFloat(count) / CGFloat(columns)))
+        let itemW = floor((maxWidth - spacing * CGFloat(columns - 1)) / CGFloat(columns))
+        let itemH = itemW
+
+        var frames: [CGRect] = []
+        var positions: [MediaMosaicItemPosition] = []
+        for i in 0..<count {
+            let row = i / columns
+            let col = i % columns
+            let lineCount = min(columns, count - row * columns)
+            let x = CGFloat(col) * (itemW + spacing)
+            let y = CGFloat(row) * (itemH + spacing)
+            frames.append(CGRect(x: x, y: y, width: itemW, height: itemH))
+
+            var position: MediaMosaicItemPosition = []
+            if row == 0 { position.insert(.top) }
+            if row == rows - 1 { position.insert(.bottom) }
+            if col == 0 { position.insert(.left) }
+            if col == lineCount - 1 { position.insert(.right) }
+            if position.isEmpty { position = .inside }
+            positions.append(position)
+        }
+        return (frames, positions)
+    }
+
+    private func splitIntoChunks(count: Int) -> [Int] {
+        guard count > 10 else { return [count] }
+        var chunks: [Int] = []
+        var remaining = count
+        while remaining > 0 {
+            if remaining <= 10 {
+                chunks.append(remaining)
+                remaining = 0
+            } else if remaining == 11 {
+                chunks.append(6)
+                chunks.append(5)
+                remaining = 0
+            } else if remaining == 12 {
+                chunks.append(6)
+                chunks.append(6)
+                remaining = 0
+            } else {
+                chunks.append(10)
+                remaining -= 10
+            }
+        }
+        return chunks
+    }
+
+    private func dynamicGridLayout(attachments: [ParsedAttachment], maxWidth: CGFloat, maxHeight: CGFloat, spacing: CGFloat) -> ([CGRect], [MediaMosaicItemPosition]) {
+        let chunkSizes = splitIntoChunks(count: attachments.count)
+
+        var allFrames: [CGRect] = []
+        var allPositions: [MediaMosaicItemPosition] = []
+        var offsetY: CGFloat = 0
+        var startIndex = 0
+
+        for chunkSize in chunkSizes {
+            let chunk = Array(attachments[startIndex ..< startIndex + chunkSize])
+            startIndex += chunkSize
+
+            let itemSizes = chunk.map { Self.mosaicItemSize(for: $0) }
+            let (framesAndPositions, dimensions) = mediaMosaicLayout(
+                maxSize: CGSize(width: maxWidth, height: maxHeight),
+                itemSizes: itemSizes,
+                spacing: spacing,
+                fillWidth: true
+            )
+
+            var frames = framesAndPositions.map { $0.0 }
+            var positions = framesAndPositions.map { $0.1 }
+
+            let mosaicValid = !frames.isEmpty
+                && frames.count == chunk.count
+                && dimensions.width > 0
+                && dimensions.height > 0
+                && !frames.contains { $0.width <= 0 || $0.height <= 0 }
+
+            if mosaicValid {
+                if abs(dimensions.width - maxWidth) > 0.5 {
+                    let scale = maxWidth / dimensions.width
+                    frames = frames.map {
+                        CGRect(x: $0.minX * scale, y: $0.minY * scale, width: $0.width * scale, height: $0.height * scale)
+                    }
+                }
+            } else {
+                (frames, positions) = uniformGridLayout(count: chunk.count, maxWidth: maxWidth, spacing: spacing)
+            }
+
+            var chunkMaxY: CGFloat = 0
+            for frame in frames {
+                let shifted = CGRect(x: frame.minX, y: frame.minY + offsetY, width: frame.width, height: frame.height)
+                allFrames.append(shifted)
+                chunkMaxY = max(chunkMaxY, shifted.maxY)
+            }
+            allPositions.append(contentsOf: positions)
+            offsetY = chunkMaxY + spacing
+        }
+
+        return (allFrames, allPositions)
+    }
+
     func prepareForMeasurement(media: [ParsedAttachment]) {
         attachments = media
         lastRemoteProxyURLByIndex.removeAll()
         cachedImageFrames = []
+        cachedPositions = []
         isUploading = media.contains { $0.isUploading }
         isSticker = false
         isGifSticker = false
@@ -97,15 +214,12 @@ final class MessageMediaContentNode: ASDisplayNode {
         videoOverlayNodes.removeAll()
         shimmerNodes.forEach { $0.removeFromSupernode() }
         shimmerNodes.removeAll()
-        overlayCountNode?.removeFromSupernode()
-        overlayCountNode = nil
-        overlayBgNode?.removeFromSupernode()
-        overlayBgNode = nil
         stickerNode?.removeFromSupernode()
         stickerNode = nil
         attachments = media
         lastRemoteProxyURLByIndex.removeAll()
         cachedImageFrames = []
+        cachedPositions = []
 
         isUploading = media.contains { $0.isUploading }
 
@@ -163,7 +277,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             isSticker = false
             isSingleImage = false
             isMultiple = true
-            let items = Array(media.prefix(4))
+            let items = media
             for (i, att) in items.enumerated() {
                 let shimmer = ShimmerPlaceholderNode()
                 shimmerNodes.append(shimmer)
@@ -194,22 +308,6 @@ final class MessageMediaContentNode: ASDisplayNode {
                     placeholder.isHidden = true
                     videoOverlayNodes.append(placeholder)
                 }
-            }
-            if media.count > 4 {
-                let countNode = ASTextNode2()
-                countNode.attributedText = NSAttributedString(
-                    string: "+\(media.count - 3)",
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 20.sf, weight: .bold),
-                        .foregroundColor: UIColor.white,
-                    ]
-                )
-                overlayCountNode = countNode
-                let bg = ASDisplayNode()
-                bg.backgroundColor = UIColor.black.withAlphaComponent(0.5)
-                overlayBgNode = bg
-                addSubnode(bg)
-                addSubnode(countNode)
             }
         }
     }
@@ -269,44 +367,41 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
 
         if isMultiple {
-            let thumbH: CGFloat = max(120.sh, 1)
-            let spacing: CGFloat = 4.sw
-            let itemW = max((maxWidth - spacing) / 2, 1)
-            let mediaCount = min(attachments.count, 4)
-            let items = Array(imageNodes.prefix(4))
+            let spacing = Self.gridSpacing
+            let gridAttachments = attachments
+            let items = imageNodes
 
-            var frames: [CGRect] = []
-            let row1Count = min(mediaCount, 2)
-            for i in 0..<row1Count {
-                frames.append(CGRect(x: CGFloat(i) * (itemW + spacing), y: 0, width: itemW, height: thumbH))
-            }
-
-            if mediaCount > 2 {
-                let row2Count = mediaCount - 2
-                for i in 0..<row2Count {
-                    frames.append(CGRect(x: CGFloat(i) * (itemW + spacing), y: thumbH + spacing, width: itemW, height: thumbH))
-                }
-            }
-
+            let (frames, positions) = dynamicGridLayout(
+                attachments: gridAttachments,
+                maxWidth: maxWidth,
+                maxHeight: maxH,
+                spacing: spacing
+            )
 
             for (i, node) in items.enumerated() {
+                guard i < frames.count else { break }
+                let frame = frames[i]
                 let args = TransformImageArguments(
-                    corners: ImageCorners(radius: 8.swh),
-                    imageSize: CGSize(width: itemW, height: thumbH),
-                    boundingSize: CGSize(width: itemW, height: thumbH),
+                    corners: ImageCorners(radius: 0),
+                    imageSize: frame.size,
+                    boundingSize: frame.size,
                     intrinsicInsets: .zero
                 )
                 let layout = node.asyncLayout()
                 let apply = layout(args)
                 apply()
-                if i < attachments.count {
-                    ensureRemoteImageLoaded(at: i, media: attachments[i], isMultiple: true)
+                if i < gridAttachments.count {
+                    ensureRemoteImageLoaded(at: i, media: gridAttachments[i], isMultiple: true)
                 }
             }
 
             cachedImageFrames = frames
-            let totalH = mediaCount > 2 ? thumbH * 2 + spacing : thumbH
-            cachedTotalSize = CGSize(width: maxWidth, height: totalH)
+            cachedPositions = positions
+            var totalH: CGFloat = 0
+            for frame in frames {
+                totalH = max(totalH, frame.maxY)
+            }
+            cachedTotalSize = CGSize(width: maxWidth, height: ceil(totalH))
             return cachedTotalSize
         }
 
@@ -326,7 +421,8 @@ final class MessageMediaContentNode: ASDisplayNode {
             guard i < cachedImageFrames.count else { break }
             node.frame = cachedImageFrames[i]
             if i < shimmerNodes.count {
-                shimmerNodes[i].frame = cachedImageFrames[i]
+                let shimmer = shimmerNodes[i]
+                shimmer.frame = cachedImageFrames[i]
             }
         }
 
@@ -348,25 +444,14 @@ final class MessageMediaContentNode: ASDisplayNode {
         } else if isMultiple {
             for (i, overlay) in videoOverlayNodes.enumerated() {
                 guard i < cachedImageFrames.count, !overlay.isHidden else { continue }
+                let imgFrame = cachedImageFrames[i]
                 if i < attachments.count, attachments[i].isVideo {
-                    let imgFrame = cachedImageFrames[i]
                     let sz: CGFloat = 48
                     overlay.frame = CGRect(x: imgFrame.midX - sz / 2, y: imgFrame.midY - sz / 2, width: sz, height: sz)
                 } else if i < attachments.count, attachments[i].isUploading || attachments[i].uploadFailed {
-                    overlay.frame = cachedImageFrames[i]
+                    overlay.frame = imgFrame
+                    overlay.cornerRadius = 0
                 }
-            }
-
-
-            if let countNode = overlayCountNode, let bg = overlayBgNode,
-               let lastFrame = cachedImageFrames.last {
-                bg.frame = lastFrame
-                let countSz = countNode.measure(lastFrame.size)
-                countNode.frame = CGRect(
-                    x: lastFrame.midX - countSz.width / 2,
-                    y: lastFrame.midY - countSz.height / 2,
-                    width: countSz.width, height: countSz.height
-                )
             }
         }
     }
@@ -409,14 +494,21 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
-        guard !media.isVideo, media.localImage == nil else { return }
+        guard media.localImage == nil else { return }
+        let sourceURL: String
+        if media.isVideo {
+            guard !media.thumbnail.isEmpty else { return }
+            sourceURL = media.thumbnail
+        } else {
+            sourceURL = media.url
+        }
         guard index < imageNodes.count else { return }
         let node = imageNodes[index]
         let w = 400
         let h = 400
         let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
         let proxyURL = ImgproxyURL.attachmentURL(
-            from: media.url,
+            from: sourceURL,
             width: w,
             height: h,
             resizeType: isMultiple ? "fill" : "fit"
@@ -431,9 +523,9 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
         let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
-            || ImageCache.shared.memoryImage(forKey: media.url) != nil
+            || ImageCache.shared.memoryImage(forKey: sourceURL) != nil
         node.setSignal(
-            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: media.url, resizeMode: resizeMode),
+            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: sourceURL, resizeMode: resizeMode),
             attemptSynchronously: hasMem
         )
     }
@@ -441,7 +533,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {
         if let localImage = media.localImage {
             node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
-        } else if media.isVideo {
+        } else if media.isVideo && media.thumbnail.isEmpty {
             node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
         } else if measuredPtSize != nil {
             ensureRemoteImageLoaded(at: index, media: media, isMultiple: isMultiple)

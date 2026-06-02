@@ -21,6 +21,7 @@ struct ParsedAttachment: Equatable {
     let width: Int?
     let height: Int?
     let durationSeconds: Int?
+    var thumbnail: String = ""
     var localImage: UIImage?
     var isUploading: Bool = false
     var uploadFailed: Bool = false
@@ -59,6 +60,7 @@ struct ParsedAttachment: Equatable {
     static func ==(lhs: ParsedAttachment, rhs: ParsedAttachment) -> Bool {
         lhs.url == rhs.url && lhs.filename == rhs.filename && lhs.filetype == rhs.filetype
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
+            && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
     }
 
@@ -2965,7 +2967,8 @@ final class ChatViewController: ViewController {
                     filetype: att.filetype,
                     width: att.width != 0 ? Int(att.width) : nil,
                     height: att.height != 0 ? Int(att.height) : nil,
-                    durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+                    durationSeconds: att.duration > 0 ? Int(att.duration) : nil,
+                    thumbnail: att.thumbnail
                 )
             }
         }
@@ -2996,7 +2999,8 @@ final class ChatViewController: ViewController {
                         filetype: item["filetype"] as? String ?? "",
                         width: w,
                         height: h,
-                        durationSeconds: d
+                        durationSeconds: d,
+                        thumbnail: item["thumbnail"] as? String ?? ""
                     )
                 }
             }

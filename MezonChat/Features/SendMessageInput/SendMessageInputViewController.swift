@@ -5181,6 +5181,7 @@ final class SendMessageInputViewController: UIViewController {
                 }
 
                 if isEdit {
+                    let hideEditted = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
                     let ack = try await self.context.account.network.updateChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
@@ -5190,22 +5191,23 @@ final class SendMessageInputViewController: UIViewController {
                         content: contentStr,
                         mentions: mentionList,
                         attachments: uploadedAttachments,
-                        hideEditted: false,
+                        hideEditted: hideEditted,
                         topicId: self.topicId,
                         isUpdateMsgTopic: false,
                         token: token
                     )
-                    let editedAt: Date = {
-                        if ack.updateTimeSeconds > 0 {
-                            return Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
-                        }
-                        return Date()
-                    }()
                     self.context.account.postbox.write { tx in
                         let lookup = "\(editingMessageId)"
                         guard let old = tx.getMessageById(lookup) else {
                             return
                         }
+                        let editedAt: Date? = {
+                            if hideEditted { return old.editedAt }
+                            if ack.updateTimeSeconds > 0 {
+                                return Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
+                            }
+                            return Date()
+                        }()
                         let newAttachmentsJSON: Data = {
                             guard !uploadedAttachments.isEmpty else { return old.attachmentsJSON }
                             var list = Mezon_Api_MessageAttachmentList()

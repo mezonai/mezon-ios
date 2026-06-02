@@ -16,7 +16,7 @@ struct MessageRecord: PostboxCoding, Equatable {
     let senderId: String
     let content: Data
     let createdAt: Date
-    let editedAt: Date?
+    var editedAt: Date?
     let isDeleted: Bool
     let code: Int32
 
@@ -124,9 +124,15 @@ extension MessageRecord {
     }
 
     static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?, customId: String? = nil) -> MessageRecord {
-        let fresh = MessageRecord(from: api, customId: customId)
+        var fresh = MessageRecord(from: api, customId: customId)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
         if prev.senderId != fresh.senderId { return fresh }
+        let bodyTextUnchanged = prev.content == fresh.content
+            && prev.mentionsJSON == fresh.mentionsJSON
+            && prev.referencesData == fresh.referencesData
+        if bodyTextUnchanged {
+            fresh.editedAt = prev.editedAt
+        }
         let sameBodyForMerge = prev.content == fresh.content
             && prev.attachmentsJSON == fresh.attachmentsJSON
             && prev.referencesData == fresh.referencesData
