@@ -33,9 +33,8 @@ extension MezonEngine {
     func handleStickerEvent(_ event: SocketEvent) {
         let postbox = account.postbox
         let now = Date().timeIntervalSince1970
-        guard var cache = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self) else {
-            return
-        }
+        var cache = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self)
+            ?? MediaPanelStickerListCache(fetchedAt: now, stickers: [])
 
         var stickers = cache.stickers
         var hasChanges = false
@@ -87,7 +86,8 @@ extension MezonEngine {
             }
             stickers.removeAll { $0.id == 0 }
         case .stickerUpdated(let ev):
-            if let idx = stickers.firstIndex(where: { $0.id == ev.stickerID }) {
+            if let idx = stickers.firstIndex(where: { $0.id == ev.stickerID }),
+               !ev.shortname.isEmpty {
                 stickers[idx].shortname = ev.shortname
                 hasChanges = true
             }

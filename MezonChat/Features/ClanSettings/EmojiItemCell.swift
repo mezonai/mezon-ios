@@ -476,7 +476,7 @@ final class EmojiItemCell: UITableViewCell {
             creatorTextAvatar.showImageMode()
         }
 
-        if let cached = ImageCache.shared.image(forKey: resolvedKey) {
+        if let cached = ImageCache.shared.memoryImage(forKey: resolvedKey) {
             applyLoadedImage(cached)
             return
         }

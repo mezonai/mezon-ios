@@ -13,8 +13,8 @@ enum ClanStickerNameValidator {
 
     static func isValidForPreview(_ name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= minLength, name.count <= previewMaxLength else { return false }
-        return name.range(of: pattern, options: .regularExpression) != nil
+        guard trimmed.count >= minLength, trimmed.count <= previewMaxLength else { return false }
+        return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
 }
 

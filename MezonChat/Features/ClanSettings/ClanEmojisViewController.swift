@@ -1,5 +1,4 @@
 import UIKit
-import CoreImage
 
 final class ClanEmojisViewController: BaseViewController {
 
@@ -564,35 +563,47 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
     ) {
         picker.dismiss(animated: true)
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        guard let image, let data = Self.pickedImageData(image: image, info: info) else { return }
-        guard data.count <= Self.maxUploadFileSize else {
+        guard let image, let picked = Self.pickedEmojiImage(image: image, info: info) else { return }
+        guard ClanGraphicImageUtils.isAllowedEmojiUpload(contentType: picked.contentType, data: picked.data) else {
+            Toast.error(L(L10n.ClanSetting.Emojis.uploadRequirement1))
+            return
+        }
+        guard picked.data.count <= Self.maxUploadFileSize else {
             Toast.error(L(L10n.ClanSetting.Emojis.uploadFileTooLarge))
             return
         }
         if showUploadLimitToastIfNeeded() { return }
-        presentEmojiPreview(image: image, data: data)
+        presentEmojiPreview(image: image, picked: picked)
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
     }
 
-    private func presentEmojiPreview(image: UIImage, data: Data) {
+    private func presentEmojiPreview(image: UIImage, picked: PickedEmojiImage) {
         let preview = ClanEmojiPreviewViewController(image: image)
         preview.onConfirm = { [weak self, weak preview] innerName, isForSale in
             guard let self else { return }
             guard self.validateInnerName(innerName) else { return }
             let wrapped = CachedClanEmojiRecord.wrappedShortname(innerName)
             preview?.dismiss(animated: true) {
-                Task { await self.uploadEmoji(image: image, data: data, shortname: wrapped, isForSale: isForSale) }
+                Task { await self.uploadEmoji(image: image, picked: picked, shortname: wrapped, isForSale: isForSale) }
             }
         }
         present(preview, animated: true)
     }
 
-    private func uploadEmoji(image: UIImage, data: Data, shortname: String, isForSale: Bool) async {
+    private func uploadEmoji(image: UIImage, picked: PickedEmojiImage, shortname: String, isForSale: Bool) async {
         if repository.isAtUploadLimit(clanId: clanId) {
             Toast.error(L(L10n.ClanSetting.Emojis.uploadLimit))
+            return
+        }
+        guard let uploadPayload = Self.prepareUploadPayload(image: image, picked: picked) else {
+            Toast.error(L(L10n.ClanSetting.Emojis.errorUpdating))
+            return
+        }
+        guard uploadPayload.data.count <= Self.maxUploadFileSize else {
+            Toast.error(L(L10n.ClanSetting.Emojis.uploadFileTooLarge))
             return
         }
         let uploadId = Int64(Date().timeIntervalSince1970 * 1000)
@@ -601,45 +612,44 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
             guard let token = await context.getToken() else { return }
             let upload = try await context.account.network.uploadAttachmentFile(
                 filename: filename,
-                filetype: "image/jpeg",
-                size: data.count,
-                width: Int(image.size.width),
-                height: Int(image.size.height),
+                filetype: uploadPayload.contentType,
+                size: uploadPayload.data.count,
+                width: uploadPayload.width,
+                height: uploadPayload.height,
                 token: token
             )
             try await context.account.network.uploadToMinIO(
                 url: upload.url,
-                data: data,
-                contentType: "image/jpeg"
+                data: uploadPayload.data,
+                contentType: uploadPayload.contentType
             )
             let cdnURL = "\(MezonConfig.baseImgURL)/\(upload.filename)"
-            ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
+            ImageCache.shared.setImage(image, data: uploadPayload.data, forKey: cdnURL)
             let listIconSide = Int(40 * UIScreen.main.scale)
-            let listProxyURL = ImgproxyURL.create(from: cdnURL, width: listIconSide, height: listIconSide)
+            let listProxyURL = ImgproxyURL.createEmoji(from: cdnURL, width: listIconSide, height: listIconSide)
             if !listProxyURL.isEmpty {
-                ImageCache.shared.setImage(image, data: data, forKey: listProxyURL)
+                ImageCache.shared.setImage(image, data: uploadPayload.data, forKey: listProxyURL)
             }
 
-            var requestId = Self.emojiId(fromUploadFilename: upload.filename) ?? uploadId
+            let requestId = Self.emojiId(fromUploadFilename: upload.filename) ?? uploadId
 
-            if isForSale, let watermarked = Self.blurredWatermarkedImage(from: image),
-               let watermarkedData = watermarked.jpegData(compressionQuality: 0.85) {
+            if isForSale, let watermarked = ClanGraphicImageUtils.blurredWatermarkedImage(from: image),
+               let previewData = ClanGraphicImageUtils.pngData(from: watermarked) {
                 let previewUploadId = Int64(Date().timeIntervalSince1970 * 1000) + 1
                 let previewFilename = "emojis/\(previewUploadId).webp"
                 let previewUpload = try await context.account.network.uploadAttachmentFile(
                     filename: previewFilename,
-                    filetype: "image/jpeg",
-                    size: watermarkedData.count,
+                    filetype: "image/png",
+                    size: previewData.count,
                     width: Int(watermarked.size.width),
                     height: Int(watermarked.size.height),
                     token: token
                 )
                 try await context.account.network.uploadToMinIO(
                     url: previewUpload.url,
-                    data: watermarkedData,
-                    contentType: "image/jpeg"
+                    data: previewData,
+                    contentType: "image/png"
                 )
-                requestId = Self.emojiId(fromUploadFilename: previewUpload.filename) ?? previewUploadId
             }
 
             try await repository.addEmoji(
@@ -663,66 +673,106 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
         return Int64(name)
     }
 
-    private static func blurredWatermarkedImage(from image: UIImage, watermarkText: String = "SOLD") -> UIImage? {
-        let size = image.size
-        guard size.width > 0, size.height > 0 else { return nil }
-
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = image.scale
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { context in
-            let rect = CGRect(origin: .zero, size: size)
-            if let blurred = image.applyingGaussianBlur(radius: 2) {
-                blurred.draw(in: rect)
-            } else {
-                image.draw(in: rect)
-            }
-
-            let fontSize = max(size.width / 2, 12)
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.boldSystemFont(ofSize: fontSize),
-                .foregroundColor: UIColor(white: 0.5, alpha: 0.75)
-            ]
-            let text = watermarkText as NSString
-            let textSize = text.size(withAttributes: attributes)
-            let cgContext = context.cgContext
-            cgContext.saveGState()
-            cgContext.translateBy(x: size.width / 2, y: size.height / 2)
-            cgContext.rotate(by: .pi / 4)
-            text.draw(
-                at: CGPoint(x: -textSize.width / 2, y: -textSize.height / 2),
-                withAttributes: attributes
-            )
-            cgContext.restoreGState()
-        }
+    private struct PickedEmojiImage {
+        let data: Data
+        let contentType: String
+        let isGIF: Bool
     }
 
-    private static func pickedImageData(
+    private struct EmojiUploadPayload {
+        let data: Data
+        let contentType: String
+        let width: Int
+        let height: Int
+    }
+
+    private static func prepareUploadPayload(image: UIImage, picked: PickedEmojiImage) -> EmojiUploadPayload? {
+        if picked.isGIF {
+            return EmojiUploadPayload(
+                data: picked.data,
+                contentType: "image/gif",
+                width: Int(image.size.width),
+                height: Int(image.size.height)
+            )
+        }
+        let dimensions = ClanGraphicImageUtils.uploadDimensions(for: image)
+        if let webpData = ClanGraphicImageUtils.resizedWebPData(from: image) {
+            return EmojiUploadPayload(
+                data: webpData,
+                contentType: "image/webp",
+                width: dimensions.width,
+                height: dimensions.height
+            )
+        }
+        guard let jpegData = ClanGraphicImageUtils.resizedJPEGData(from: image) else { return nil }
+        return EmojiUploadPayload(
+            data: jpegData,
+            contentType: "image/jpeg",
+            width: dimensions.width,
+            height: dimensions.height
+        )
+    }
+
+    private static func pickedEmojiImage(
         image: UIImage,
         info: [UIImagePickerController.InfoKey: Any]
-    ) -> Data? {
+    ) -> PickedEmojiImage? {
         if info[.editedImage] != nil {
-            return image.jpegData(compressionQuality: 1.0)
+            guard let data = image.jpegData(compressionQuality: 1.0) else { return nil }
+            return PickedEmojiImage(data: data, contentType: "image/jpeg", isGIF: false)
         }
-        if let url = info[.imageURL] as? URL {
-            return try? Data(contentsOf: url)
+        if let url = info[.imageURL] as? URL,
+           let data = try? Data(contentsOf: url),
+           !data.isEmpty {
+            if ClanGraphicImageUtils.isGIF(data: data) {
+                return PickedEmojiImage(data: data, contentType: "image/gif", isGIF: true)
+            }
+            let ext = fileExtension(for: url.pathExtension, data: data)
+            return PickedEmojiImage(data: data, contentType: mimeType(for: ext), isGIF: false)
         }
-        return image.jpegData(compressionQuality: 1.0)
+        guard let data = image.jpegData(compressionQuality: 1.0) else { return nil }
+        return PickedEmojiImage(data: data, contentType: "image/jpeg", isGIF: false)
     }
 
-}
-
-private extension UIImage {
-    func applyingGaussianBlur(radius: CGFloat) -> UIImage? {
-        guard let ciImage = CIImage(image: self) else { return nil }
-        let filter = CIFilter(name: "CIGaussianBlur")
-        filter?.setValue(ciImage, forKey: kCIInputImageKey)
-        filter?.setValue(radius, forKey: kCIInputRadiusKey)
-        guard let output = filter?.outputImage else { return nil }
-
-        let context = CIContext(options: nil)
-        let extent = ciImage.extent
-        guard let cgImage = context.createCGImage(output, from: extent) else { return nil }
-        return UIImage(cgImage: cgImage, scale: scale, orientation: imageOrientation)
+    private static func fileExtension(for urlExt: String, data: Data) -> String {
+        let normalized = urlExt.lowercased()
+        if !normalized.isEmpty, mimeType(for: normalized) != "application/octet-stream" {
+            return normalized == "jpeg" ? "jpg" : normalized
+        }
+        return inferredExtension(from: data) ?? "jpg"
     }
+
+    private static func mimeType(for ext: String) -> String {
+        switch ext.lowercased() {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "png": return "image/png"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "heic", "heif": return "image/heic"
+        default: return "application/octet-stream"
+        }
+    }
+
+    private static func inferredExtension(from data: Data) -> String? {
+        guard data.count >= 12 else { return nil }
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "jpg" }
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "png" }
+        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "gif" }
+        if bytes.starts(with: [0x52, 0x49, 0x46, 0x46]),
+           bytes.count >= 12,
+           bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 {
+            return "webp"
+        }
+        if bytes.count >= 12, bytes[4] == 0x66, bytes[5] == 0x74, bytes[6] == 0x79, bytes[7] == 0x70 {
+            let brand = String(bytes: bytes[8..<12], encoding: .ascii) ?? ""
+            switch brand {
+            case "heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs": return "heic"
+            case "mif1", "msf1": return "heif"
+            default: break
+            }
+        }
+        return nil
+    }
+
 }

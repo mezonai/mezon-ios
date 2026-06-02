@@ -396,6 +396,7 @@
 		B480EC16F711CD9D565AD59E /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE4AFCAFC81E709D0F8E5E0A /* Color.swift */; };
 		B4C7FE062A636293AD75E4B0 /* Multicast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EB2999E4CD60069A40CC551 /* Multicast.swift */; };
 		B56D71650BC2514F98F46C79 /* ClanStickersViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13579A2D9FBB3BF6B5719F5 /* ClanStickersViewController.swift */; };
+		CGU001A1B2C3D4E5F6A7B8C9 /* ClanGraphicImageUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = CGU002A1B2C3D4E5F6A7B8C9 /* ClanGraphicImageUtils.swift */; };
 		CEV001A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEV002A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift */; };
 		CSP001A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSP002A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift */; };
 		CEP001A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEP002A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift */; };
@@ -965,6 +966,7 @@
 		9F48F4F61C640B1ABD2CEFA6 /* Font.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Font.swift; sourceTree = "<group>"; };
 		9FEED0BA4DDB22AD23961161 /* UniversalVideoPlayerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalVideoPlayerNode.swift; sourceTree = "<group>"; };
 		A13579A2D9FBB3BF6B5719F5 /* ClanStickersViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanStickersViewController.swift; sourceTree = "<group>"; };
+		CGU002A1B2C3D4E5F6A7B8C9 /* ClanGraphicImageUtils.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanGraphicImageUtils.swift; sourceTree = "<group>"; };
 		CEV002A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanEmojisViewController.swift; sourceTree = "<group>"; };
 		CSP002A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanStickerPreviewViewController.swift; sourceTree = "<group>"; };
 		CEP002A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClanEmojiPreviewViewController.swift; sourceTree = "<group>"; };
@@ -1743,6 +1745,7 @@
 				AFEE13650E2C37137836C834 /* ClanRolesViewController.swift */,
 				EDE7CCB9B329B5B272B60B9C /* ClanSettingsContainerNode.swift */,
 				CF025D4E3B004CE1CDF5835B /* ClanSettingsViewController.swift */,
+				CGU002A1B2C3D4E5F6A7B8C9 /* ClanGraphicImageUtils.swift */,
 				FB993C3FCC88C691C1FA9FD8 /* Roles */,
 				DBC453C51106AF7894F19252 /* Stickers */,
 				EMG001A1B2C3D4E5F6A7B8C9 /* Emojis */,
@@ -3467,6 +3470,7 @@
 				6EF64F645123DB53A6B48763 /* StickersRepository.swift in Sources */,
 				ERE001A1B2C3D4E5F6A7B8C9 /* EmojisRepository.swift in Sources */,
 				B56D71650BC2514F98F46C79 /* ClanStickersViewController.swift in Sources */,
+				CGU001A1B2C3D4E5F6A7B8C9 /* ClanGraphicImageUtils.swift in Sources */,
 				CEV001A1B2C3D4E5F6A7B8C9 /* ClanEmojisViewController.swift in Sources */,
 				CSP001A1B2C3D4E5F6A7B8C9 /* ClanStickerPreviewViewController.swift in Sources */,
 				CEP001A1B2C3D4E5F6A7B8C9 /* ClanEmojiPreviewViewController.swift in Sources */,
