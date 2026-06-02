@@ -54,7 +54,7 @@ final class ImageUploadSession {
     var hasSent = false
     var aborted = false
     var finished = false
-    var lastFlushCompletedCount = 0
+    var lastSentAttachmentCount = 0
 
     init(params: ImageSendParams) {
         self.params = params
@@ -265,13 +265,13 @@ final class AttachmentUploadCoordinator {
                 if allResolved { finalizeAllFailed(session, context: context) }
                 return
             }
-            session.lastFlushCompletedCount = completedCount
+            session.lastSentAttachmentCount = ready.count
             await doFirstSend(session, context: context, token: token, attachments: ready)
         } else if session.serverMessageId != 0 {
-            let newlyCompleted = completedCount - session.lastFlushCompletedCount
-            let shouldUpdate = forceFlush || newlyCompleted >= Self.editBatchSize || (allResolved && newlyCompleted > 0)
+            let pendingNew = ready.count - session.lastSentAttachmentCount
+            let shouldUpdate = pendingNew > 0 && (forceFlush || pendingNew >= Self.editBatchSize || allResolved)
             guard shouldUpdate else { return }
-            session.lastFlushCompletedCount = completedCount
+            session.lastSentAttachmentCount = ready.count
             await doUpdate(session, context: context, token: token, attachments: ready)
         }
 
