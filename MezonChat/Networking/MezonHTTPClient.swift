@@ -1450,6 +1450,81 @@ final class MezonHTTPClient {
         }
     }
 
+    func multipartUploadAttachmentFileStart(
+        filename: String,
+        filetype: String,
+        size: Int,
+        width: Int = 0,
+        height: Int = 0,
+        partCount: Int,
+        token: String
+    ) async throws -> Mezon_Api_MultipartUploadAttachment {
+        var req = Mezon_Api_UploadAttachmentRequest()
+        req.filename = filename
+        req.filetype = filetype
+        req.size = Int32(size)
+        req.width = Int32(width)
+        req.height = Int32(height)
+        req.partCount = Int32(partCount)
+        req.parts = (1...max(1, partCount)).map { index in
+            var part = Mezon_Api_MultipartUploadAttachmentPart()
+            part.partNumber = Int32(index)
+            return part
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/MultipartUploadAttachmentFileStart",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func multipartUploadAttachmentFileFinish(
+        uploadId: String,
+        parts: [(partNumber: Int, eTag: String)],
+        filename: String,
+        token: String
+    ) async throws -> Mezon_Api_UploadAttachment {
+        var req = Mezon_Api_MultipartUploadAttachmentFinishRequest()
+        req.uploadID = uploadId
+        req.filename = filename
+        req.parts = parts.map { entry in
+            var part = Mezon_Api_MultipartUploadAttachmentPart()
+            part.partNumber = Int32(entry.partNumber)
+            part.eTag = entry.eTag
+            return part
+        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/MultipartUploadAttachmentFileFinish",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func uploadPartToMinIO(url: String, data: Data, contentType: String) async throws -> String {
+        guard let uploadURL = URL(string: url) else {
+            throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
+        }
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("\(data.count)", forHTTPHeaderField: "Content-Length")
+        request.httpBody = data
+
+        let (_, response) = try await uploadHTTPData(request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO part upload failed")
+        }
+        let raw = http.value(forHTTPHeaderField: "Etag") ?? http.value(forHTTPHeaderField: "ETag")
+        let etag = raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard let etag, !etag.isEmpty else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: "MinIO part upload missing ETag")
+        }
+        return etag
+    }
+
     func uploadToMinIO(url: String, fileURL: URL, contentType: String) async throws {
         guard let uploadURL = URL(string: url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
@@ -1887,7 +1962,7 @@ final class MezonHTTPClient {
     }
 
     private static let httpOnlyApiNames: Set<String> = [
-        "SessionRefresh"
+        "SessionRefresh",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
 

@@ -25,6 +25,8 @@ struct ParsedAttachment: Equatable {
     var localImage: UIImage?
     var isUploading: Bool = false
     var uploadFailed: Bool = false
+    var uploadProgress: Double = 0
+    var uploadProgressKey: String = ""
 
     var isImage: Bool {
         filetype.hasPrefix("image/") || filetype == "sticker"
@@ -62,6 +64,7 @@ struct ParsedAttachment: Equatable {
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
             && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
+            && lhs.uploadProgress == rhs.uploadProgress
     }
 
     private static let maxPendingCacheEntries = 50
@@ -453,6 +456,8 @@ final class ChatViewController: ViewController {
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
     private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
+    private var attachmentProgressReloadWorkItem: DispatchWorkItem?
+    private static let attachmentProgressReloadInterval: TimeInterval = 0.25
 
     private struct RemoteTyperState {
         var displayName: String
@@ -865,6 +870,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
@@ -1332,6 +1338,24 @@ final class ChatViewController: ViewController {
         let t = UIColor.theme
         remoteTypingStripView.backgroundColor = t.primaryGradient
         remoteTypingLabel.textColor = t.textDisabled
+    }
+
+    @objc private func handleAttachmentUploadProgress(_ notification: Notification) {
+        guard let key = notification.userInfo?["key"] as? String, !key.isEmpty else { return }
+        let isRelevant = ParsedAttachment.pendingDocumentPlaceholders.values
+            .contains { docs in docs.contains { $0.uploadProgressKey == key } }
+            || AttachmentUploadCoordinator.shared.hasActiveProgressKey(key)
+        guard isRelevant else { return }
+        guard attachmentProgressReloadWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.attachmentProgressReloadWorkItem = nil
+            self.reloadDisplaysForPendingSendingFeedback()
+            self.needsReloadPipe.putNext(())
+        }
+        attachmentProgressReloadWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.attachmentProgressReloadInterval, execute: workItem)
     }
 
     @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
@@ -2391,7 +2415,7 @@ final class ChatViewController: ViewController {
     private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
+            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
         let pollHash: String
@@ -2658,7 +2682,11 @@ final class ChatViewController: ViewController {
                                 height: doc.height,
                                 durationSeconds: doc.durationSeconds,
                                 localImage: doc.localImage,
-                                isUploading: stillUploading
+                                isUploading: stillUploading,
+                                uploadProgress: doc.uploadProgressKey.isEmpty
+                                    ? doc.uploadProgress
+                                    : AttachmentUploadProgressStore.shared.progress(forKey: doc.uploadProgressKey),
+                                uploadProgressKey: doc.uploadProgressKey
                             )
                         })
                     }

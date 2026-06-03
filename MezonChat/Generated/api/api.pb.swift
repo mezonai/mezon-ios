@@ -4693,6 +4693,12 @@ struct Mezon_Api_UploadAttachmentRequest: Sendable {
   /// Height
   var height: Int32 = 0
 
+  /// part count
+  var partCount: Int32 = 0
+
+  /// parts (only part_number is set at start; e_tag filled at finish)
+  var parts: [Mezon_Api_MultipartUploadAttachmentPart] = []
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -4774,6 +4780,8 @@ struct Mezon_Api_MultipartUploadAttachmentFinishRequest: Sendable {
   var uploadID: String = String()
 
   var parts: [Mezon_Api_MultipartUploadAttachmentPart] = []
+
+  var filename: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -17293,7 +17301,7 @@ extension Mezon_Api_PermissionUpdate: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UploadAttachmentRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0\u{1}parts\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17306,6 +17314,8 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
       case 3: try { try decoder.decodeSingularInt32Field(value: &self.size) }()
       case 4: try { try decoder.decodeSingularInt32Field(value: &self.width) }()
       case 5: try { try decoder.decodeSingularInt32Field(value: &self.height) }()
+      case 6: try { try decoder.decodeSingularInt32Field(value: &self.partCount) }()
+      case 7: try { try decoder.decodeRepeatedMessageField(value: &self.parts) }()
       default: break
       }
     }
@@ -17327,6 +17337,12 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if self.height != 0 {
       try visitor.visitSingularInt32Field(value: self.height, fieldNumber: 5)
     }
+    if self.partCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.partCount, fieldNumber: 6)
+    }
+    if !self.parts.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.parts, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -17336,6 +17352,8 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if lhs.size != rhs.size {return false}
     if lhs.width != rhs.width {return false}
     if lhs.height != rhs.height {return false}
+    if lhs.partCount != rhs.partCount {return false}
+    if lhs.parts != rhs.parts {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -17493,7 +17511,7 @@ extension Mezon_Api_MultipartUploadAttachmentPart: SwiftProtobuf.Message, SwiftP
 
 extension Mezon_Api_MultipartUploadAttachmentFinishRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MultipartUploadAttachmentFinishRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{1}parts\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_id\0\u{1}parts\0\u{1}filename\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17503,6 +17521,7 @@ extension Mezon_Api_MultipartUploadAttachmentFinishRequest: SwiftProtobuf.Messag
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.uploadID) }()
       case 2: try { try decoder.decodeRepeatedMessageField(value: &self.parts) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.filename) }()
       default: break
       }
     }
@@ -17515,12 +17534,16 @@ extension Mezon_Api_MultipartUploadAttachmentFinishRequest: SwiftProtobuf.Messag
     if !self.parts.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.parts, fieldNumber: 2)
     }
+    if !self.filename.isEmpty {
+      try visitor.visitSingularStringField(value: self.filename, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_MultipartUploadAttachmentFinishRequest, rhs: Mezon_Api_MultipartUploadAttachmentFinishRequest) -> Bool {
     if lhs.uploadID != rhs.uploadID {return false}
     if lhs.parts != rhs.parts {return false}
+    if lhs.filename != rhs.filename {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

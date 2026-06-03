@@ -80,12 +80,14 @@ final class MessageReplyNode: ASDisplayNode {
         )
 
         let isAnonymous = ref.messageSenderID == MezonConstants.anonymousUserId
+        let isSystemSender = Self.isSystemSender(ref)
 
         if isAnonymous {
             hasAvatar = true
             avatarPlaceholderNode.isHidden = true
             avatarImageNode.isHidden = false
             avatarImageNode.url = nil
+            avatarImageNode.contentMode = .scaleAspectFit
             avatarImageNode.backgroundColor = UIColor.theme.tertiary
             
             if let raw = UIImage(named: "Chat/AnonymousIcon") {
@@ -107,11 +109,24 @@ final class MessageReplyNode: ASDisplayNode {
             avatarContainerNode.removeFromSupernode()
             avatarPlaceholderNode.removeFromSupernode()
             if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
+        } else if isSystemSender, let logo = Self.systemAvatarImage() {
+            hasAvatar = true
+            avatarPlaceholderNode.isHidden = true
+            avatarImageNode.isHidden = false
+            avatarImageNode.url = nil
+            avatarImageNode.image = logo
+            avatarImageNode.contentMode = .scaleAspectFit
+            avatarImageNode.backgroundColor = .clear
+            avatarContainerNode.removeFromSupernode()
+            avatarPlaceholderNode.removeFromSupernode()
+            if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
         } else if !ref.messageSenderAvatar.isEmpty, let url = URL(string: ref.messageSenderAvatar) {
             hasAvatar = true
             avatarPlaceholderNode.isHidden = true
             avatarImageNode.isHidden = false
+            avatarImageNode.image = nil
             avatarImageNode.url = url
+            avatarImageNode.contentMode = .scaleAspectFill
             avatarImageNode.backgroundColor = UIColor.theme.primary
             avatarContainerNode.removeFromSupernode()
             avatarPlaceholderNode.removeFromSupernode()
@@ -221,6 +236,25 @@ final class MessageReplyNode: ASDisplayNode {
 
     private static func isShareContactValue(_ value: String) -> Bool {
         value == MezonConstants.shareContactKey || value == "share_contact_key"
+    }
+
+    private static func isSystemSender(_ ref: Mezon_Api_MessageRef) -> Bool {
+        guard ref.messageSenderID == 0 else { return false }
+        let senderNames = [
+            ref.messageSenderUsername,
+            ref.messageSenderDisplayName,
+            ref.messageSenderClanNick
+        ]
+        return senderNames.contains { name in
+            name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare("System") == .orderedSame
+        }
+    }
+
+    private static func systemAvatarImage() -> UIImage? {
+        UIImage(named: "NewMezonLogo")
+            ?? UIImage(named: "Setting/LogoMezon")
+            ?? UIImage(named: "MezonLogo")
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
