@@ -7,7 +7,7 @@ final class ChangeCategoryViewController: BaseViewController {
     private let clanId: Int64
     private let channelId: Int64
     private let currentCategoryId: Int64
-    private let currentCategoryName: String
+    private var currentCategoryName: String
     private let channelLabel: String
     private let channelTopic: String
     private var categories: [Mezon_Api_CategoryDesc] = []
@@ -105,12 +105,11 @@ final class ChangeCategoryViewController: BaseViewController {
 
         headerLabel.font = .systemFont(ofSize: 12.sf, weight: .semibold)
         headerLabel.textColor = t.textDisabled
-        headerLabel.text = L(L10n.ChannelSetting.changeCategoryMoveFrom)
-            .replacingOccurrences(of: "%@", with: currentCategoryName)
-            .uppercased()
         headerLabel.numberOfLines = 0
         stackView.addArrangedSubview(headerLabel)
         stackView.setCustomSpacing(10.sh, after: headerLabel)
+
+        updateHeaderLabel()
 
         activityIndicator = UIActivityIndicatorView(style: .medium)
         activityIndicator.color = t.textDisabled
@@ -121,14 +120,28 @@ final class ChangeCategoryViewController: BaseViewController {
         fetchCategories()
     }
 
+    private func updateHeaderLabel() {
+        headerLabel.text = L(L10n.ChannelSetting.changeCategoryMoveFrom)
+            .replacingOccurrences(of: "%@", with: currentCategoryName)
+            .uppercased()
+    }
+
+    private func processCategories(_ list: [Mezon_Api_CategoryDesc]) {
+        if let cat = list.first(where: { $0.categoryID == self.currentCategoryId }) {
+            self.currentCategoryName = cat.categoryName
+            self.updateHeaderLabel()
+        }
+        categories = list.filter { $0.categoryID != currentCategoryId }
+        activityIndicator.stopAnimating()
+        buildCategoryRows()
+    }
+
     private func fetchCategories() {
         let postbox = context.account.postbox
         let key = PreferencesKeys.channelListMeta(clanId: clanId)
         if let data = postbox.getPreferenceData(key: key) {
             if let meta = ChannelListMetaCodec.decode(data)?.categoryDescs, !meta.isEmpty {
-                categories = meta.filter { $0.categoryID != currentCategoryId }
-                activityIndicator.stopAnimating()
-                buildCategoryRows()
+                processCategories(meta)
                 return
             }
         }
@@ -147,9 +160,7 @@ final class ChangeCategoryViewController: BaseViewController {
                 result.append(cat)
             }
             if !result.isEmpty {
-                categories = result.filter { $0.categoryID != currentCategoryId }
-                activityIndicator.stopAnimating()
-                buildCategoryRows()
+                processCategories(result)
                 return
             }
         }
@@ -169,9 +180,7 @@ final class ChangeCategoryViewController: BaseViewController {
                 let allCategories = try await MezonHTTPClient.shared.listCategoryDescs(
                     clanId: self.clanId, token: token
                 )
-                self.categories = allCategories.filter { $0.categoryID != self.currentCategoryId }
-                self.activityIndicator.stopAnimating()
-                self.buildCategoryRows()
+                self.processCategories(allCategories)
             } catch {
                 self.activityIndicator.stopAnimating()
                 self.showEmptyState()

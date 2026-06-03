@@ -42,6 +42,11 @@ extension MezonEngine {
                 token: token
             )
 
+            let prevCh = self.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
+            let prevCatName = prevCh?.categoryName ?? ""
+            let newCatName = categoryId == 0 ? "" : (result.categoryName.isEmpty ? prevCatName : result.categoryName)
+
+
             self.postbox.write { tx in
                 tx.updateChannelDescription(
                     clanId: clanId,
@@ -50,7 +55,7 @@ extension MezonEngine {
                     topic: topic,
                     channelAvatar: channelAvatar,
                     categoryId: categoryId,
-                    categoryName: categoryId == 0 ? "" : result.categoryName
+                    categoryName: newCatName
                 )
             }
             
@@ -61,7 +66,7 @@ extension MezonEngine {
                     if let topic { arr[idx].topic = topic }
                     if let categoryId {
                         arr[idx].categoryID = categoryId
-                        arr[idx].categoryName = categoryId == 0 ? "" : result.categoryName
+                        arr[idx].categoryName = newCatName
                     }
                     if let data = ChannelPreferenceListCodec.encode(arr) {
                         self.postbox.setPreferenceDataSync(
@@ -77,7 +82,7 @@ extension MezonEngine {
                     if let topic { list.channeldesc[idx].topic = topic }
                     if let categoryId {
                         list.channeldesc[idx].categoryID = categoryId
-                        list.channeldesc[idx].categoryName = categoryId == 0 ? "" : result.categoryName
+                        list.channeldesc[idx].categoryName = newCatName
                     }
                     if let data = try? list.serializedData() {
                         self.postbox.setPreferenceDataSync(
