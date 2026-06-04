@@ -1457,7 +1457,8 @@ final class MezonHTTPClient {
         width: Int = 0,
         height: Int = 0,
         partCount: Int,
-        token: String
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_MultipartUploadAttachment {
         var req = Mezon_Api_UploadAttachmentRequest()
         req.filename = filename
@@ -1474,7 +1475,8 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/MultipartUploadAttachmentFileStart",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
     }
 
@@ -1482,7 +1484,8 @@ final class MezonHTTPClient {
         uploadId: String,
         parts: [(partNumber: Int, eTag: String)],
         filename: String,
-        token: String
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_UploadAttachment {
         var req = Mezon_Api_MultipartUploadAttachmentFinishRequest()
         req.uploadID = uploadId
@@ -1496,7 +1499,8 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/MultipartUploadAttachmentFileFinish",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
     }
 

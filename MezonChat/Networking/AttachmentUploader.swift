@@ -37,7 +37,7 @@ final class AttachmentUploader {
     private init() {}
 
     private static let partSize = 10 * 1024 * 1024
-    private static let minMultipartFileSize = 10 * 1024 * 1024
+    private static let minMultipartFileSize = 50 * 1024 * 1024
     private static let maxParallelParts = 3
 
     private struct MultipartNotApplicable: Error {}
@@ -63,6 +63,7 @@ final class AttachmentUploader {
         height: Int = 0,
         token: String,
         progressKey: String = "",
+        preferHTTPFirst: Bool = false,
         network: MezonHTTPClient
     ) async throws -> UploadedAttachmentFile {
         reportProgress(0, forKey: progressKey)
@@ -72,7 +73,8 @@ final class AttachmentUploader {
                 return try await uploadMultipart(
                     fileURL: fileURL, filename: filename, filetype: filetype,
                     fileSize: fileSize, width: width, height: height,
-                    token: token, progressKey: progressKey, network: network)
+                    token: token, progressKey: progressKey,
+                    preferHTTPFirst: preferHTTPFirst, network: network)
             } catch is MultipartNotApplicable {
                 markMultipartUnavailable()
             } catch {
@@ -87,7 +89,8 @@ final class AttachmentUploader {
         return try await uploadSinglePut(
             fileURL: fileURL, filename: filename, filetype: filetype,
             fileSize: fileSize, width: width, height: height,
-            token: token, progressKey: progressKey, network: network)
+            token: token, progressKey: progressKey,
+            preferHTTPFirst: preferHTTPFirst, network: network)
     }
 
     private func uploadSinglePut(
@@ -99,11 +102,13 @@ final class AttachmentUploader {
         height: Int,
         token: String,
         progressKey: String,
+        preferHTTPFirst: Bool,
         network: MezonHTTPClient
     ) async throws -> UploadedAttachmentFile {
         let info = try await network.uploadAttachmentFile(
             filename: filename, filetype: filetype, size: fileSize,
-            width: width, height: height, token: token)
+            width: width, height: height, token: token,
+            preferHTTPFirst: preferHTTPFirst)
         _ = try await MinIOStreamingUploader.shared.put(
             url: info.url, fileURL: fileURL, contentType: filetype
         ) { [weak self] fraction in
@@ -124,12 +129,14 @@ final class AttachmentUploader {
         height: Int,
         token: String,
         progressKey: String,
+        preferHTTPFirst: Bool,
         network: MezonHTTPClient
     ) async throws -> UploadedAttachmentFile {
         let requestedPartCount = max(1, Int((Double(fileSize) / Double(Self.partSize)).rounded(.up)))
         let start = try await network.multipartUploadAttachmentFileStart(
             filename: filename, filetype: filetype, size: fileSize,
-            width: width, height: height, partCount: requestedPartCount, token: token)
+            width: width, height: height, partCount: requestedPartCount, token: token,
+            preferHTTPFirst: preferHTTPFirst)
         let urls = start.urls
         let uploadId = start.uploadID
 
@@ -190,7 +197,8 @@ final class AttachmentUploader {
         collected.sort { $0.partNumber < $1.partNumber }
 
         let finish = try await network.multipartUploadAttachmentFileFinish(
-            uploadId: uploadId, parts: collected, filename: start.filename, token: token)
+            uploadId: uploadId, parts: collected, filename: start.filename, token: token,
+            preferHTTPFirst: preferHTTPFirst)
         reportProgress(1, forKey: progressKey)
 
         let serverFilename: String = {

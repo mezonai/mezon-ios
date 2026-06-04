@@ -603,6 +603,7 @@ enum L10n {
         static let emptySuggestions      = "sharing.emptySuggestions"
         static let commentPlaceholder    = "sharing.commentPlaceholder"
         static let sending               = "sharing.sending"
+        static let uploading             = "sharing.uploading"
         static let filterTitle           = "sharing.filterTitle"
         static let filterAll             = "sharing.filterAll"
         static let filterUsers           = "sharing.filterUsers"
@@ -1536,6 +1537,7 @@ extension L10n {
         "sharing.emptySuggestions":         "No channels or conversations yet. Open the app and browse your servers, then try again.",
         "sharing.commentPlaceholder":       "Add a comment (optional)",
         "sharing.sending":                  "Sending…",
+        "sharing.uploading":                "Uploading",
         "sharing.filterTitle":              "Filter",
         "sharing.filterAll":                "All",
         "sharing.filterUsers":              "Users",
@@ -2524,6 +2526,7 @@ extension L10n {
         "sharing.emptySuggestions":         "Chưa có kênh hoặc cuộc trò chuyện. Mở ứng dụng và vào máy chủ của bạn, rồi thử lại.",
         "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
         "sharing.sending":                  "Đang gửi…",
+        "sharing.uploading":                "Đang tải lên",
         "sharing.filterTitle":              "Lọc",
         "sharing.filterAll":                "Tất cả",
         "sharing.filterUsers":              "Người dùng",
