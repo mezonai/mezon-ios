@@ -60,7 +60,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var cachedTotalSize: CGSize = .zero
     private var isSingleImage = false
     private var isSticker = false
-    private var isGifSticker = false
+    private var isAnimatedStandaloneImage = false
     private var isMultiple = false
     private var lastRemoteProxyURLByIndex: [Int: String] = [:]
 
@@ -191,14 +191,14 @@ final class MessageMediaContentNode: ASDisplayNode {
         cachedPositions = []
         isUploading = media.contains { $0.isUploading }
         isSticker = false
-        isGifSticker = false
+        isAnimatedStandaloneImage = false
         isSingleImage = false
         isMultiple = false
         guard !media.isEmpty else { return }
-        let isGifType = media.count == 1 && media[0].filetype == "image/gif"
-        if media.count == 1, media[0].isSticker || isGifType {
+        let isAnimatedType = media.count == 1 && Self.isAnimatedImageAttachment(media[0])
+        if media.count == 1, media[0].isSticker || isAnimatedType {
             isSticker = true
-            isGifSticker = isGifType && !media[0].isSticker
+            isAnimatedStandaloneImage = isAnimatedType && !media[0].isSticker
         } else if media.count == 1 {
             isSingleImage = true
         } else {
@@ -226,10 +226,10 @@ final class MessageMediaContentNode: ASDisplayNode {
         guard !media.isEmpty else { return }
 
 
-        let isGifType = media.count == 1 && media[0].filetype == "image/gif"
-        if media.count == 1, media[0].isSticker || isGifType {
+        let isAnimatedType = media.count == 1 && Self.isAnimatedImageAttachment(media[0])
+        if media.count == 1, media[0].isSticker || isAnimatedType {
             isSticker = true
-            isGifSticker = isGifType && !media[0].isSticker
+            isAnimatedStandaloneImage = isAnimatedType && !media[0].isSticker
             isSingleImage = false
             isMultiple = false
             let node = ASDisplayNode()
@@ -241,7 +241,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
             stickerNode = node
             addSubnode(node)
-            loadStickerImage(url: media[0].url, into: node)
+            loadStickerImage(media: media[0], into: node)
         } else if media.count == 1 {
             isSticker = false
             isSingleImage = true
@@ -264,7 +264,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 addSubnode(overlay)
             }
             if media[0].isUploading {
-                let overlay = makeUploadingOverlay()
+                let overlay = makeUploadingOverlay(progress: media[0].uploadProgress)
                 videoOverlayNodes.append(overlay)
                 addSubnode(overlay)
             }
@@ -296,7 +296,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                     videoOverlayNodes.append(overlay)
                     addSubnode(overlay)
                 } else if att.isUploading {
-                    let overlay = makeUploadingOverlay()
+                    let overlay = makeUploadingOverlay(progress: att.uploadProgress)
                     videoOverlayNodes.append(overlay)
                     addSubnode(overlay)
                 } else if att.uploadFailed {
@@ -317,7 +317,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         cachedImageFrames = []
 
         if isSticker {
-            if isGifSticker {
+            if isAnimatedStandaloneImage {
                 let att = attachments[0]
                 let hasSize = (att.width ?? 0) > 0 && (att.height ?? 0) > 0
                 if hasSize {
@@ -457,11 +457,35 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
 
-    private func loadStickerImage(url: String, into node: ASDisplayNode) {
+    private static func isAnimatedImageAttachment(_ attachment: ParsedAttachment) -> Bool {
+        let filetype = attachment.filetype
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let mime = filetype.split(separator: ";", maxSplits: 1).first
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? filetype
+        if mime == "image/gif" || mime == "image/webp" || mime == "gif" || mime == "webp" {
+            return true
+        }
+        return ["gif", "webp"].contains(pathExtension(from: attachment.filename))
+            || ["gif", "webp"].contains(pathExtension(from: attachment.url))
+    }
+
+    private static func pathExtension(from value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        if let components = URLComponents(string: trimmed), !components.path.isEmpty {
+            return (components.path as NSString).pathExtension.lowercased()
+        }
+        return (trimmed as NSString).pathExtension.lowercased()
+    }
+
+    private func loadStickerImage(media: ParsedAttachment, into node: ASDisplayNode) {
+        let url = ImgproxyURL.secureURLString(from: media.url)
         guard let imageURL = URL(string: url), !url.isEmpty else { return }
+        let isAnimatedImage = Self.isAnimatedImageAttachment(media)
 
         if let cachedData = ImageCache.shared.cachedData(forKey: url) {
-            if let animated = UIImage.animatedImage(from: cachedData) {
+            if let animated = UIImage.animatedImage(from: cachedData) ?? UIImage.decodeImage(from: cachedData) {
                 DispatchQueue.main.async {
                     (node.view as? UIImageView)?.image = animated
                 }
@@ -472,18 +496,22 @@ final class MessageMediaContentNode: ASDisplayNode {
             DispatchQueue.main.async {
                 (node.view as? UIImageView)?.image = cached
             }
-            return
+            if !isAnimatedImage || (cached.images?.count ?? 0) > 1 {
+                return
+            }
         }
 
         URLSession.shared.dataTask(with: imageURL) { data, _, error in
             if let error {
                 SentryLogger.captureMediaError(error, extras: [
-                    "where": "MessageMediaContentNode.loadImage",
+                    "where": "MessageMediaContentNode.loadStickerImage",
                     "url": url,
                 ])
             }
             guard let data else { return }
-            let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data)
+            let image = isAnimatedImage
+                ? (UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data))
+                : UIImage.decodeImage(from: data)
             if let image {
                 ImageCache.shared.setImage(image, data: data, forKey: url)
                 DispatchQueue.main.async {
@@ -560,7 +588,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         return imageNodes[index].image
     }
 
-    private func makeUploadingOverlay() -> ASDisplayNode {
+    private func makeUploadingOverlay(progress: Double = 0) -> ASDisplayNode {
         let overlay = ASDisplayNode()
         overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         overlay.cornerRadius = 8.swh
@@ -577,8 +605,28 @@ final class MessageMediaContentNode: ASDisplayNode {
         spinner.style.preferredSize = CGSize(width: 36, height: 36)
         overlay.addSubnode(spinner)
 
-        overlay.layoutSpecBlock = { _, _ in
-            ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
+        if progress > 0 {
+            let label = ASTextNode2()
+            label.attributedText = NSAttributedString(
+                string: "\(Int(progress * 100))%",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+                    .foregroundColor: UIColor.white,
+                ]
+            )
+            label.maximumNumberOfLines = 1
+            overlay.addSubnode(label)
+            overlay.layoutSpecBlock = { _, _ in
+                let stack = ASStackLayoutSpec.vertical()
+                stack.spacing = 6
+                stack.horizontalAlignment = .middle
+                stack.children = [spinner, label]
+                return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: stack)
+            }
+        } else {
+            overlay.layoutSpecBlock = { _, _ in
+                ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
+            }
         }
 
         return overlay

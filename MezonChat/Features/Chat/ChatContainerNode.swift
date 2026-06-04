@@ -556,7 +556,7 @@ final class ChatContainerNode: ASDisplayNode {
     private static func listFingerprint(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
+            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
             .joined(separator: ";")
         let grouping = [
             m.isCombine ? "1" : "0",

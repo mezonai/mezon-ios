@@ -63,10 +63,12 @@ final class FileItemNode: ASDisplayNode {
     private let nameNode = ASTextNode2()
     private let bgNode = ASDisplayNode()
     private let spinnerNode: ASDisplayNode?
+    private let progressLabelNode: ASTextNode2?
     private let showsUploadSpinner: Bool
 
     private static let spinnerSide: CGFloat = 24
     private static let spinnerLeadingGap: CGFloat = 8
+    private static let progressLabelWidth: CGFloat = 40
 
     var onTapped: (() -> Void)?
     var tag: Int = 0
@@ -77,7 +79,9 @@ final class FileItemNode: ASDisplayNode {
 
     init(attachment: ParsedAttachment) {
         let shows = attachment.isUploading
+        let progress = attachment.uploadProgress
         let spinner: ASDisplayNode?
+        let progressLabel: ASTextNode2?
         if shows {
             let s = ASDisplayNode()
             s.isUserInteractionEnabled = false
@@ -89,11 +93,28 @@ final class FileItemNode: ASDisplayNode {
             }
             s.style.preferredSize = CGSize(width: Self.spinnerSide, height: Self.spinnerSide)
             spinner = s
+
+            if progress > 0 {
+                let label = ASTextNode2()
+                label.attributedText = NSAttributedString(
+                    string: "\(Int(progress * 100))%",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: UIColor.theme.textNormal,
+                    ]
+                )
+                label.maximumNumberOfLines = 1
+                progressLabel = label
+            } else {
+                progressLabel = nil
+            }
         } else {
             spinner = nil
+            progressLabel = nil
         }
         self.showsUploadSpinner = shows
         self.spinnerNode = spinner
+        self.progressLabelNode = progressLabel
         super.init()
 
         let t = UIColor.theme
@@ -123,6 +144,9 @@ final class FileItemNode: ASDisplayNode {
         if let spinner {
             addSubnode(spinner)
         }
+        if let progressLabelNode {
+            addSubnode(progressLabelNode)
+        }
     }
 
     override func didLoad() {
@@ -141,7 +165,8 @@ final class FileItemNode: ASDisplayNode {
         let insetTrailing: CGFloat = 14
         let insetV: CGFloat = 10
         let spacing: CGFloat = 10
-        let spinnerReserve: CGFloat = showsUploadSpinner ? Self.spinnerSide + Self.spinnerLeadingGap : 0
+        let progressReserve: CGFloat = progressLabelNode != nil ? Self.progressLabelWidth + Self.spinnerLeadingGap : 0
+        let spinnerReserve: CGFloat = showsUploadSpinner ? Self.spinnerSide + Self.spinnerLeadingGap + progressReserve : 0
         let nameMaxW = maxWidth * 0.7 - cachedIconSize.width - spacing - insetLeading - insetTrailing - spinnerReserve
 
         cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: .greatestFiniteMagnitude))
@@ -168,13 +193,20 @@ final class FileItemNode: ASDisplayNode {
         let nameX = iconX + cachedIconSize.width + spacing
         let spinnerW: CGFloat = showsUploadSpinner ? Self.spinnerSide : 0
         let gap: CGFloat = showsUploadSpinner ? Self.spinnerLeadingGap : 0
-        let nameAvailableW = bounds.width - nameX - insetTrailing - gap - spinnerW
+        let progressW: CGFloat = progressLabelNode != nil ? Self.progressLabelWidth : 0
+        let progressGap: CGFloat = progressLabelNode != nil ? Self.spinnerLeadingGap : 0
+        let nameAvailableW = bounds.width - nameX - insetTrailing - gap - spinnerW - progressGap - progressW
         let nameW = min(cachedNameSize.width, max(0, nameAvailableW))
         nameNode.frame = CGRect(x: nameX, y: centerY - cachedNameSize.height / 2, width: nameW, height: cachedNameSize.height)
 
         if let spinnerNode, showsUploadSpinner {
             let sx = bounds.width - insetTrailing - spinnerW
             spinnerNode.frame = CGRect(x: sx, y: centerY - spinnerW / 2, width: spinnerW, height: spinnerW)
+
+            if let progressLabelNode {
+                let px = sx - progressGap - progressW
+                progressLabelNode.frame = CGRect(x: px, y: centerY - 9, width: progressW, height: 18)
+            }
         }
     }
 

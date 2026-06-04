@@ -211,13 +211,8 @@ final class PeerWebRTCCallSession: NSObject {
         self.pendingOfferCompressed = initialCompressedOffer
         self.signalingDestinationUserId = peerUserId
         super.init()
-        print("[DMCall:INIT] direction=\(direction) ch=\(channelId) my=\(myUserId) peer=\(peerUserId) wantsVideo=\(wantsVideo) hasOffer=\(initialCompressedOffer?.isEmpty == false)")
     }
 
-    private func callLog(_ msg: String) {
-        let dir = direction == .outgoing ? "OUT" : "IN"
-        print("[DMCall:\(dir)] ch=\(channelId) my=\(myUserId) peer=\(peerUserId) | \(msg)")
-    }
 
     private func setPreWarmingNoSignal(_ value: Bool) {
         isPreWarmingNoSignal = value
@@ -256,9 +251,7 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func sendRealtimePeerSignaling(receiverId: Int64, dataType: Int32, jsonData: String) {
-        callLog("sendRealtimePeerSignaling dataType=\(dataType) to=\(receiverId) isPreWarming=\(isPreWarmingNoSignal)")
         if isPreWarmingNoSignal && dataType != WebRTCSignalingDataType.sdpQuit {
-            callLog("sendRealtimePeerSignaling deferred (preWarming) dataType=\(dataType)")
             deferredOutgoingSignaling.append((receiverId, dataType, jsonData))
             return
         }
@@ -286,7 +279,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func beginOutgoingCall() {
-        callLog("beginOutgoingCall wantsVideo=\(wantsVideo)")
         onStatusLabel?(direction == .outgoing ? PeerCallLocalizedStrings.statusRinging : "")
         beginOutgoingCallTask?.cancel()
         beginOutgoingCallTask = Task { @MainActor [weak self] in
@@ -393,7 +385,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func answerIncomingCall() {
-        callLog("answerIncomingCall incomingAnswerFlowStarted=\(incomingAnswerFlowStarted) isAnswerPrepared=\(isAnswerPrepared) hasOffer=\(pendingOfferCompressed?.isEmpty == false)")
         guard !incomingAnswerFlowStarted else { return }
         incomingAnswerFlowStarted = true
         cancelIncomingRingTimer()
@@ -435,12 +426,10 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func prepareIncomingAnswerInBackground() async throws {
-        callLog("prepareIncomingAnswerInBackground ended=\(ended) isAnswerPrepared=\(isAnswerPrepared) hasPc=\(peerConnection != nil) preWarmInFlight=\(preWarmInFlight) hasOffer=\(pendingOfferCompressed?.isEmpty == false)")
         guard !ended, !isAnswerPrepared, peerConnection == nil, !preWarmInFlight else { return }
         guard direction == .incoming else { return }
         guard let offerCompressed = pendingOfferCompressed?.trimmingCharacters(in: .whitespacesAndNewlines),
               !offerCompressed.isEmpty else {
-            callLog("prepareIncomingAnswerInBackground skipped: no offer")
             return
         }
 
@@ -449,10 +438,8 @@ final class PeerWebRTCCallSession: NSObject {
         do {
             try await performPreWarmBuild(offerCompressed: offerCompressed)
             preWarmInFlight = false
-            callLog("prepareIncomingAnswerInBackground done isAnswerPrepared=\(isAnswerPrepared)")
         } catch {
             preWarmInFlight = false
-            callLog("prepareIncomingAnswerInBackground failed: \(error)")
             resetAfterFailedPreWarm()
             throw error
         }
@@ -540,7 +527,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func sendPreparedAnswerAndGoActive() throws {
-        callLog("sendPreparedAnswerAndGoActive hasPc=\(peerConnection != nil) hasPreparedAnswer=\(preparedAnswerCompressed != nil)")
         try ensureCallStillActive()
         guard let pc = peerConnection else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
@@ -613,7 +599,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func declineIncoming() {
-        callLog("declineIncoming")
         cancelIncomingRingTimer()
         PeerCallSoundPlayer.shared.stopRinging()
         finishCall(sendQuit: true)
@@ -621,14 +606,11 @@ final class PeerWebRTCCallSession: NSObject {
 
     func handleIncomingSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd) {
         guard msg.channelID == channelId else {
-            callLog("handleIncomingSignaling ignored: channelId mismatch msg.ch=\(msg.channelID)")
             return
         }
         guard signalingMessageTargetsThisSession(msg) else {
-            callLog("handleIncomingSignaling ignored: not targeting this session caller=\(msg.callerID) receiver=\(msg.receiverID)")
             return
         }
-        callLog("handleIncomingSignaling dataType=\(msg.dataType) from=\(msg.callerID) phase=\(phase)")
 
         switch msg.dataType {
         case WebRTCSignalingDataType.sdpOffer:
@@ -638,54 +620,43 @@ final class PeerWebRTCCallSession: NSObject {
                     let next = msg.jsonData.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !next.isEmpty {
                         pendingOfferCompressed = next
-                        callLog("handleIncomingSignaling sdpOffer stored (ringing)")
                     }
-                } else {
-                    callLog("handleIncomingSignaling sdpOffer ignored: already have offer (ringing)")
                 }
                 return
             }
-            callLog("handleIncomingSignaling sdpOffer -> renegotiation")
             Task {
                 await handleRenegotiationOffer(msg.jsonData)
             }
         case WebRTCSignalingDataType.sdpAnswer:
-            callLog("handleIncomingSignaling sdpAnswer received")
             Task {
                 await applyCompressedAnswer(msg.jsonData)
             }
         case WebRTCSignalingDataType.iceCandidate:
-            callLog("handleIncomingSignaling iceCandidate hasPc=\(peerConnection != nil)")
             Task {
                 await queueOrApplyIce(msg.jsonData)
             }
         case WebRTCSignalingDataType.sdpStatusRemoteMedia:
             guard msg.callerID == peerUserId else { return }
-            callLog("handleIncomingSignaling sdpStatusRemoteMedia json=\(msg.jsonData)")
             applyRemoteMediaWire(msg.jsonData)
         case WebRTCSignalingDataType.sdpJoinedOtherCall:
-            callLog("handleIncomingSignaling sdpJoinedOtherCall -> finishCall")
             if !didEstablishMediaConnection {
                 remoteQuitBeforeConnect = true
                 onStatusLabel?(PeerCallLocalizedStrings.statusBusyOnAnotherCall)
             }
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.sdpNotAvailable:
-            callLog("handleIncomingSignaling sdpNotAvailable -> finishCall")
             if !didEstablishMediaConnection {
                 remoteQuitBeforeConnect = true
                 onStatusLabel?(PeerCallLocalizedStrings.statusUserOffline)
             }
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.sdpTimeout:
-            callLog("handleIncomingSignaling sdpTimeout -> finishCall")
             if !didEstablishMediaConnection {
                 ringTimeoutFired = true
                 onStatusLabel?(PeerCallLocalizedStrings.statusNoAnswer)
             }
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.sdpQuit:
-            callLog("handleIncomingSignaling sdpQuit didEstablishMedia=\(didEstablishMediaConnection) -> finishCall")
             if !didEstablishMediaConnection {
                 remoteQuitBeforeConnect = true
                 onStatusLabel?(PeerCallLocalizedStrings.statusRemoteDeclined)
@@ -694,16 +665,13 @@ final class PeerWebRTCCallSession: NSObject {
             }
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.clearCall:
-            callLog("handleIncomingSignaling clearCall -> finishCall")
             finishCall(sendQuit: false)
         default:
-            callLog("handleIncomingSignaling unhandled dataType=\(msg.dataType)")
             break
         }
     }
 
     func hangUp() {
-        callLog("hangUp ended=\(ended)")
         finishCall(sendQuit: true)
     }
 
@@ -796,7 +764,6 @@ final class PeerWebRTCCallSession: NSObject {
                 }
             }
         } catch {
-            callLog("enableCameraMidCall FAILED error=\(error)")
             videoCapturer?.stopCapture(completionHandler: {})
             localVideoTrack?.isEnabled = false
             localCameraEnabled = false
@@ -846,7 +813,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func finishCall(sendQuit: Bool) {
-        callLog("finishCall sendQuit=\(sendQuit) alreadyEnded=\(ended) direction=\(direction) didEstablishMedia=\(didEstablishMediaConnection) remoteQuitBeforeConnect=\(remoteQuitBeforeConnect) ringTimeoutFired=\(ringTimeoutFired) connectTimeoutFired=\(connectTimeoutFired)")
         guard !ended else { return }
         ended = true
         clearPreWarmDeferralPipeline()
@@ -898,7 +864,6 @@ final class PeerWebRTCCallSession: NSObject {
             ]
             if let data = try? JSONSerialization.data(withJSONObject: body),
                let s = String(data: data, encoding: .utf8) {
-                print("[CallKitDebug] finishCall sending CANCEL_CALL push receiverId=\(peerUserId) callerId=\(myUserId) channelId=\(channelId)")
                 MezonSocket.shared.makeCallPush(
                     receiverId: peerUserId,
                     jsonData: s,
@@ -1234,7 +1199,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func startOutgoingPeerConnection() async throws {
-        callLog("startOutgoingPeerConnection wantsVideo=\(wantsVideo)")
         try ensureCallStillActive()
         Self.ensureSSL()
         let factory = Self.makePeerConnectionFactory()
@@ -1311,7 +1275,6 @@ final class PeerWebRTCCallSession: NSObject {
             throw PeerWebRTCCallSessionError.encodingFailed
         }
 
-        callLog("startOutgoingPeerConnection offer+push sent to peer=\(peerUserId)")
         MezonSocket.shared.makeCallPush(
             receiverId: peerUserId,
             jsonData: pushJson,
@@ -1335,10 +1298,8 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func buildIncomingPeerConnectionAndAnswer() async throws {
-        callLog("buildIncomingPeerConnectionAndAnswer start hasOffer=\(pendingOfferCompressed?.isEmpty == false)")
         try ensureCallStillActive()
         guard let offerCompressed = pendingOfferCompressed, !offerCompressed.isEmpty else {
-            callLog("buildIncomingPeerConnectionAndAnswer failed: no offer")
             throw PeerWebRTCCallSessionError.missingSDP
         }
 
@@ -1398,7 +1359,6 @@ final class PeerWebRTCCallSession: NSObject {
         let answerJson = try answerJSONString(from: localSDP)
         let compressedAnswer = try PeerWebRTCStringCompression.gzipCompressUtf8(answerJson)
 
-        callLog("buildIncomingPeerConnectionAndAnswer sending answer offerHasVideo=\(offerHasVideo)")
         sendRealtimePeerSignaling(
             receiverId: peerUserId,
             dataType: WebRTCSignalingDataType.sdpAnswer,
@@ -1416,7 +1376,6 @@ final class PeerWebRTCCallSession: NSObject {
         scanTransceiversForRemoteVideo()
         scheduleDeferredRemoteVideoScan()
         scheduleRemoteVideoPostConnectWork()
-        callLog("buildIncomingPeerConnectionAndAnswer done -> phase=active")
     }
 
     private func offerJSONString(from sd: LKRTCSessionDescription) throws -> String {
@@ -1669,7 +1628,6 @@ final class PeerWebRTCCallSession: NSObject {
         guard let data = try? JSONSerialization.data(withJSONObject: body),
               let jsonData = String(data: data, encoding: .utf8)
         else { return }
-        callLog("makeCallPush CANCEL_CALL isConnected=true receiverId=\(peerUserId) callerId=\(myUserId) channelId=\(channelId)")
         MezonSocket.shared.makeCallPush(
             receiverId: peerUserId,
             jsonData: jsonData,
@@ -1681,7 +1639,6 @@ final class PeerWebRTCCallSession: NSObject {
     private func postConnectedStatusToUIIfNeeded() {
         guard !didPostConnectedStatusToUI else { return }
         guard !ended else { return }
-        callLog("postConnectedStatusToUIIfNeeded -> posting connected")
         didPostConnectedStatusToUI = true
         let mediaConnectedAt = Date()
         onCallMediaConnectedAt?(mediaConnectedAt)
@@ -2036,16 +1993,15 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCPeerConnectionState) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
-            callLog("peerConnection didChange PeerConnectionState=\(state.rawValue)")
             switch state {
             case .connected:
                 peerConnectionReportedConnectedForUI = true
+                sendConnectedOutgoingCallerCancelPushIfNeeded()
                 tryPresentFullyConnectedCallUI()
                 scanTransceiversForRemoteVideo()
                 scheduleDeferredRemoteVideoScan()
                 scheduleRemoteVideoPostConnectWork()
             case .failed:
-                callLog("peerConnection PeerConnectionState=failed direction=\(direction) didEstablishMedia=\(didEstablishMediaConnection)")
                 if direction == .outgoing && !didEstablishMediaConnection {
                     onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
                     return
@@ -2060,7 +2016,6 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
-            callLog("peerConnection didChange IceConnectionState=\(state.rawValue)")
             switch state {
             case .connected, .completed:
                 disconnectRecoveryTask?.cancel()
@@ -2088,15 +2043,12 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
                 scheduleDeferredRemoteVideoScan()
                 scheduleRemoteVideoPostConnectWork()
             case .checking:
-                callLog("peerConnection IceConnectionState=checking")
                 PeerCallSoundPlayer.shared.stopDialTone()
                 onNetworkBanner?(PeerCallLocalizedStrings.statusConnecting)
             case .disconnected:
-                callLog("peerConnection IceConnectionState=disconnected -> scheduleDisconnectRecovery")
                 onNetworkBanner?(PeerCallLocalizedStrings.bannerWeakNetwork)
                 scheduleDisconnectRecoveryIfNeeded()
             case .failed:
-                callLog("peerConnection IceConnectionState=failed direction=\(direction) didEstablishMedia=\(didEstablishMediaConnection)")
                 if direction == .outgoing && !didEstablishMediaConnection {
                     onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
                     return

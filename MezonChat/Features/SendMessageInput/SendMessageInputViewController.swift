@@ -4536,7 +4536,6 @@ final class SendMessageInputViewController: UIViewController {
 
         for (index, image) in images.enumerated() {
             guard let fileURL = fileURLs[index] else { continue }
-            guard let fileData = try? Data(contentsOf: fileURL) else { continue }
 
             let originalFilename = fileURL.lastPathComponent
             let ext = fileURL.pathExtension.lowercased()
@@ -4546,6 +4545,37 @@ final class SendMessageInputViewController: UIViewController {
             let height = Int(image.size.height)
 
             let sanitizedFilename = originalFilename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+
+            if filetype.hasPrefix("video/") {
+                let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.intValue ?? 0
+                guard size > 0 else { continue }
+                let progressKey = fileURL.path
+                let uploaded = try await AttachmentUploader.shared.uploadFile(
+                    fileURL: fileURL,
+                    filename: sanitizedFilename,
+                    filetype: filetype,
+                    fileSize: size,
+                    width: width,
+                    height: height,
+                    token: token,
+                    progressKey: progressKey,
+                    network: context.account.network)
+                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
+
+                var att = Mezon_Api_MessageAttachment()
+                att.filename = originalFilename
+                att.url = uploaded.cdnURL
+                att.filetype = filetype
+                att.size = Int32(size)
+                att.width = Int32(width)
+                att.height = Int32(height)
+                attachments.append(att)
+
+                try? FileManager.default.removeItem(at: fileURL)
+                continue
+            }
+
+            guard let fileData = try? Data(contentsOf: fileURL) else { continue }
 
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: sanitizedFilename,
@@ -4564,9 +4594,7 @@ final class SendMessageInputViewController: UIViewController {
 
             let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
 
-            if !filetype.hasPrefix("video/") {
-                ImageCache.shared.setImage(image, data: fileData, forKey: cdnURL)
-            }
+            ImageCache.shared.setImage(image, data: fileData, forKey: cdnURL)
 
             var att = Mezon_Api_MessageAttachment()
             att.filename = originalFilename
@@ -4587,32 +4615,30 @@ final class SendMessageInputViewController: UIViewController {
         var attachments: [Mezon_Api_MessageAttachment] = []
 
         for file in files {
-            guard let fileData = try? Data(contentsOf: file.url) else { continue }
+            let size: Int = {
+                if file.filesize > 0 { return file.filesize }
+                return (try? FileManager.default.attributesOfItem(atPath: file.url.path)[.size] as? NSNumber)?.intValue ?? 0
+            }()
+            guard size > 0 else { continue }
 
             let sanitizedFilename = file.filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+            let progressKey = file.url.path
 
-            let uploadInfo = try await context.account.network.uploadAttachmentFile(
+            let uploaded = try await AttachmentUploader.shared.uploadFile(
+                fileURL: file.url,
                 filename: sanitizedFilename,
                 filetype: file.filetype,
-                size: fileData.count,
-                width: 0,
-                height: 0,
-                token: token
-            )
-
-            try await context.account.network.uploadToMinIO(
-                url: uploadInfo.url,
-                data: fileData,
-                contentType: file.filetype
-            )
-
-            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                fileSize: size,
+                token: token,
+                progressKey: progressKey,
+                network: context.account.network)
+            AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
 
             var att = Mezon_Api_MessageAttachment()
             att.filename = file.filename
-            att.url = cdnURL
+            att.url = uploaded.cdnURL
             att.filetype = file.filetype
-            att.size = Int32(fileData.count)
+            att.size = Int32(size)
             attachments.append(att)
 
             try? FileManager.default.removeItem(at: file.url)
@@ -4911,7 +4937,8 @@ final class SendMessageInputViewController: UIViewController {
                     height: nil,
                     durationSeconds: nil,
                     localImage: nil,
-                    isUploading: true
+                    isUploading: true,
+                    uploadProgressKey: file.url.path
                 )
             }
         }
@@ -4980,7 +5007,8 @@ final class SendMessageInputViewController: UIViewController {
                         height: nil,
                         durationSeconds: nil,
                         localImage: nil,
-                        isUploading: true
+                        isUploading: true,
+                        uploadProgressKey: file.url.path
                     )
                 }
             }
@@ -5460,7 +5488,9 @@ final class SendMessageInputViewController: UIViewController {
         ref.messageSenderID = Int64(display.message.senderId) ?? 0
         ref.messageSenderUsername = display.senderUsername
         ref.messageSenderDisplayName = display.senderDisplayName
-        ref.messageSenderAvatar = display.avatarURL ?? ""
+        ref.messageSenderAvatar = display.isSystemMessage
+            ? MezonConstants.waveSenderAvatarURL
+            : (display.avatarURL ?? "")
         ref.hasAttachment_p = !display.attachments.isEmpty
         if display.shareContactData != nil {
             ref.content = display.replyRefSourceContent
@@ -5918,14 +5948,39 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
             let filename = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             let filetype = Self.mimeType(for: ext)
-            let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
 
-            let fileInfo = PickedFileInfo(url: url, filename: filename, filesize: fileSize, filetype: filetype)
+            guard let stableURL = Self.copyPickedFileToStableLocation(from: url, ext: ext) else { continue }
+            let fileSize = (try? FileManager.default.attributesOfItem(atPath: stableURL.path)[.size] as? Int) ?? 0
+
+            let fileInfo = PickedFileInfo(url: stableURL, filename: filename, filesize: fileSize, filetype: filetype)
             pickedFiles.append(fileInfo)
             attachmentPreviewView.addFile(fileInfo)
         }
         if didHitLimit { notifyAttachmentLimitReached() }
         updatePreviewVisibility()
+    }
+
+    static func copyPickedFileToStableLocation(from url: URL, ext: String) -> URL? {
+        let didScope = url.startAccessingSecurityScopedResource()
+        defer { if didScope { url.stopAccessingSecurityScopedResource() } }
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mezon-uploads", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            var dest = dir.appendingPathComponent(UUID().uuidString)
+            if !ext.isEmpty { dest.appendPathExtension(ext) }
+            if FileManager.default.fileExists(atPath: dest.path) {
+                try? FileManager.default.removeItem(at: dest)
+            }
+            try FileManager.default.copyItem(at: url, to: dest)
+            return dest
+        } catch {
+            SentryLogger.capture(error, extras: [
+                "where": "SendMessageInputViewController.copyPickedFileToStableLocation",
+                "filename": url.lastPathComponent,
+            ])
+            return nil
+        }
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {

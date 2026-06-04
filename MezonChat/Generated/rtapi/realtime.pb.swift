@@ -908,6 +908,24 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     set {_uniqueStorage()._message = .refreshSessionEvent(newValue)}
   }
 
+  /// Channel archive / unarchive event
+  var channelArchiveEvent: Mezon_Realtime_ChannelArchiveEvent {
+    get {
+      if case .channelArchiveEvent(let v)? = _storage._message {return v}
+      return Mezon_Realtime_ChannelArchiveEvent()
+    }
+    set {_uniqueStorage()._message = .channelArchiveEvent(newValue)}
+  }
+
+  /// Topic in message event
+  var topicInMessageEvent: Mezon_Realtime_TopicInMessageEvent {
+    get {
+      if case .topicInMessageEvent(let v)? = _storage._message {return v}
+      return Mezon_Realtime_TopicInMessageEvent()
+    }
+    set {_uniqueStorage()._message = .topicInMessageEvent(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum OneOf_Message: Equatable, Sendable {
@@ -1100,12 +1118,32 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     case listChannelUsersBannedEvent(Mezon_Realtime_ListChannelUsersBannedEvent)
     /// Refresh session event
     case refreshSessionEvent(Mezon_Api_Session)
+    /// Channel archive / unarchive event
+    case channelArchiveEvent(Mezon_Realtime_ChannelArchiveEvent)
+    /// Topic in message event
+    case topicInMessageEvent(Mezon_Realtime_TopicInMessageEvent)
 
   }
 
   init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+struct Mezon_Realtime_TopicInMessageEvent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var messageID: Int64 = 0
+
+  var rpl: Int32 = 0
+
+  var lsnt: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
 }
 
 struct Mezon_Realtime_ApiRequestEvent: Sendable {
@@ -1612,27 +1650,40 @@ struct Mezon_Realtime_EphemeralMessageSend: Sendable {
   fileprivate var _message: Mezon_Realtime_ChannelMessageSend? = nil
 }
 
-struct Mezon_Realtime_QuickMenuDataEvent: Sendable {
+struct Mezon_Realtime_QuickMenuDataEvent: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var menuName: String = String()
+  var menuName: String {
+    get {_storage._menuName}
+    set {_uniqueStorage()._menuName = newValue}
+  }
 
   var message: Mezon_Realtime_ChannelMessageSend {
-    get {_message ?? Mezon_Realtime_ChannelMessageSend()}
-    set {_message = newValue}
+    get {_storage._message ?? Mezon_Realtime_ChannelMessageSend()}
+    set {_uniqueStorage()._message = newValue}
   }
   /// Returns true if `message` has been explicitly set.
-  var hasMessage: Bool {self._message != nil}
+  var hasMessage: Bool {_storage._message != nil}
   /// Clears the value of `message`. Subsequent reads from it will return its default value.
-  mutating func clearMessage() {self._message = nil}
+  mutating func clearMessage() {_uniqueStorage()._message = nil}
+
+  var senderID: Int64 {
+    get {_storage._senderID}
+    set {_uniqueStorage()._senderID = newValue}
+  }
+
+  var messageSenderID: Int64 {
+    get {_storage._messageSenderID}
+    set {_uniqueStorage()._messageSenderID = newValue}
+  }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
 
-  fileprivate var _message: Mezon_Realtime_ChannelMessageSend? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 struct Mezon_Realtime_VoiceReactionSend: Sendable {
@@ -2701,6 +2752,137 @@ struct Mezon_Realtime_ChannelUpdatedEvent: @unchecked Sendable {
     set {_uniqueStorage()._ageRestricted = newValue}
   }
 
+  var active: Int32 {
+    get {_storage._active}
+    set {_uniqueStorage()._active = newValue}
+  }
+
+  /// count message unread
+  var countMessUnread: Int32 {
+    get {_storage._countMessUnread}
+    set {_uniqueStorage()._countMessUnread = newValue}
+  }
+
+  /// The users to add.
+  var userIds: [Int64] {
+    get {_storage._userIds}
+    set {_uniqueStorage()._userIds = newValue}
+  }
+
+  /// This is the role that needs to be added to the channel
+  var roleIds: [Int64] {
+    get {_storage._roleIds}
+    set {_uniqueStorage()._roleIds = newValue}
+  }
+
+  var channelAvatar: String {
+    get {_storage._channelAvatar}
+    set {_uniqueStorage()._channelAvatar = newValue}
+  }
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+
+  fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// Emitted when a channel/thread is archived or activated from archive.
+struct Mezon_Realtime_ChannelArchiveEvent: @unchecked Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// clan id
+  var clanID: Int64 {
+    get {_storage._clanID}
+    set {_uniqueStorage()._clanID = newValue}
+  }
+
+  /// category
+  var categoryID: Int64 {
+    get {_storage._categoryID}
+    set {_uniqueStorage()._categoryID = newValue}
+  }
+
+  /// creator
+  var creatorID: Int64 {
+    get {_storage._creatorID}
+    set {_uniqueStorage()._creatorID = newValue}
+  }
+
+  /// parent id
+  var parentID: Int64 {
+    get {_storage._parentID}
+    set {_uniqueStorage()._parentID = newValue}
+  }
+
+  /// channel id
+  var channelID: Int64 {
+    get {_storage._channelID}
+    set {_uniqueStorage()._channelID = newValue}
+  }
+
+  /// channel label
+  var channelLabel: String {
+    get {_storage._channelLabel}
+    set {_uniqueStorage()._channelLabel = newValue}
+  }
+
+  /// channel type
+  var channelType: Int32 {
+    get {_storage._channelType}
+    set {_uniqueStorage()._channelType = newValue}
+  }
+
+  /// status
+  var status: Int32 {
+    get {_storage._status}
+    set {_uniqueStorage()._status = newValue}
+  }
+
+  /// meeting code
+  var meetingCode: String {
+    get {_storage._meetingCode}
+    set {_uniqueStorage()._meetingCode = newValue}
+  }
+
+  /// error
+  var isError: Bool {
+    get {_storage._isError}
+    set {_uniqueStorage()._isError = newValue}
+  }
+
+  /// channel private
+  var channelPrivate: Bool {
+    get {_storage._channelPrivate}
+    set {_uniqueStorage()._channelPrivate = newValue}
+  }
+
+  /// app url
+  var appID: Int64 {
+    get {_storage._appID}
+    set {_uniqueStorage()._appID = newValue}
+  }
+
+  /// e2ee
+  var e2Ee: Int32 {
+    get {_storage._e2Ee}
+    set {_uniqueStorage()._e2Ee = newValue}
+  }
+
+  /// topic
+  var topic: String {
+    get {_storage._topic}
+    set {_uniqueStorage()._topic = newValue}
+  }
+
+  var ageRestricted: Int32 {
+    get {_storage._ageRestricted}
+    set {_uniqueStorage()._ageRestricted = newValue}
+  }
+
+  /// 0 = archived, 1 = active
   var active: Int32 {
     get {_storage._active}
     set {_uniqueStorage()._active = newValue}
@@ -3825,7 +4007,7 @@ fileprivate let _protobuf_package = "mezon.realtime"
 
 extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Envelope"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cid\0\u{1}channel\0\u{3}clan_join\0\u{3}channel_join\0\u{3}channel_leave\0\u{3}channel_message\0\u{3}channel_message_ack\0\u{3}channel_message_send\0\u{3}channel_message_update\0\u{3}channel_message_remove\0\u{3}channel_presence_event\0\u{1}error\0\u{1}notifications\0\u{1}rpc\0\u{1}status\0\u{3}status_follow\0\u{3}status_presence_event\0\u{3}status_unfollow\0\u{3}status_update\0\u{3}stream_data\0\u{3}stream_presence_event\0\u{1}ping\0\u{1}pong\0\u{3}message_typing_event\0\u{3}last_seen_message_event\0\u{3}message_reaction_event\0\u{3}voice_joined_event\0\u{3}voice_leaved_event\0\u{3}voice_started_event\0\u{3}voice_ended_event\0\u{3}channel_created_event\0\u{3}channel_deleted_event\0\u{3}channel_updated_event\0\u{3}last_pin_message_event\0\u{3}custom_status_event\0\u{3}user_channel_added_event\0\u{3}user_channel_removed_event\0\u{3}user_clan_removed_event\0\u{3}clan_updated_event\0\u{3}clan_profile_updated_event\0\u{3}check_name_existed_event\0\u{3}user_profile_updated_event\0\u{3}add_clan_user_event\0\u{3}clan_event_created\0\u{3}role_assign_event\0\u{3}clan_deleted_event\0\u{3}give_coffee_event\0\u{3}sticker_create_event\0\u{3}sticker_update_event\0\u{3}sticker_delete_event\0\u{3}role_event\0\u{3}event_emoji\0\u{3}streaming_joined_event\0\u{3}streaming_leaved_event\0\u{3}streaming_started_event\0\u{3}streaming_ended_event\0\u{3}permission_set_event\0\u{3}permission_changed_event\0\u{3}token_sent_event\0\u{3}message_button_clicked\0\u{3}unmute_event\0\u{3}webrtc_signaling_fwd\0\u{3}list_activity\0\u{3}dropdown_box_selected\0\u{3}incoming_call_push\0\u{3}sd_topic_event\0\u{3}follow_event\0\u{3}channel_app_event\0\u{3}user_status_event\0\u{3}remove_friend\0\u{3}webhook_event\0\u{3}noti_user_channel\0\u{3}join_channel_app_data\0\u{3}canvas_event\0\u{3}unpin_message_event\0\u{3}category_event\0\u{3}handle_participant_meet_state_event\0\u{3}delete_account_event\0\u{3}ephemeral_message_send\0\u{3}block_friend\0\u{3}voice_reaction_send\0\u{3}mark_as_read\0\u{3}list_data_socket\0\u{3}quick_menu_event\0\u{3}un_block_friend\0\u{3}meet_participant_event\0\u{3}transfer_ownership_event\0\u{3}add_friend\0\u{3}ban_user_event\0\u{3}active_archived_thread\0\u{3}allow_anonymous_event\0\u{3}api_request_event\0\u{3}clan_created_event\0\u{3}aiagent_enabled_event\0\u{3}list_channel_users_banned_event\0\u{3}refresh_session_event\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cid\0\u{1}channel\0\u{3}clan_join\0\u{3}channel_join\0\u{3}channel_leave\0\u{3}channel_message\0\u{3}channel_message_ack\0\u{3}channel_message_send\0\u{3}channel_message_update\0\u{3}channel_message_remove\0\u{3}channel_presence_event\0\u{1}error\0\u{1}notifications\0\u{1}rpc\0\u{1}status\0\u{3}status_follow\0\u{3}status_presence_event\0\u{3}status_unfollow\0\u{3}status_update\0\u{3}stream_data\0\u{3}stream_presence_event\0\u{1}ping\0\u{1}pong\0\u{3}message_typing_event\0\u{3}last_seen_message_event\0\u{3}message_reaction_event\0\u{3}voice_joined_event\0\u{3}voice_leaved_event\0\u{3}voice_started_event\0\u{3}voice_ended_event\0\u{3}channel_created_event\0\u{3}channel_deleted_event\0\u{3}channel_updated_event\0\u{3}last_pin_message_event\0\u{3}custom_status_event\0\u{3}user_channel_added_event\0\u{3}user_channel_removed_event\0\u{3}user_clan_removed_event\0\u{3}clan_updated_event\0\u{3}clan_profile_updated_event\0\u{3}check_name_existed_event\0\u{3}user_profile_updated_event\0\u{3}add_clan_user_event\0\u{3}clan_event_created\0\u{3}role_assign_event\0\u{3}clan_deleted_event\0\u{3}give_coffee_event\0\u{3}sticker_create_event\0\u{3}sticker_update_event\0\u{3}sticker_delete_event\0\u{3}role_event\0\u{3}event_emoji\0\u{3}streaming_joined_event\0\u{3}streaming_leaved_event\0\u{3}streaming_started_event\0\u{3}streaming_ended_event\0\u{3}permission_set_event\0\u{3}permission_changed_event\0\u{3}token_sent_event\0\u{3}message_button_clicked\0\u{3}unmute_event\0\u{3}webrtc_signaling_fwd\0\u{3}list_activity\0\u{3}dropdown_box_selected\0\u{3}incoming_call_push\0\u{3}sd_topic_event\0\u{3}follow_event\0\u{3}channel_app_event\0\u{3}user_status_event\0\u{3}remove_friend\0\u{3}webhook_event\0\u{3}noti_user_channel\0\u{3}join_channel_app_data\0\u{3}canvas_event\0\u{3}unpin_message_event\0\u{3}category_event\0\u{3}handle_participant_meet_state_event\0\u{3}delete_account_event\0\u{3}ephemeral_message_send\0\u{3}block_friend\0\u{3}voice_reaction_send\0\u{3}mark_as_read\0\u{3}list_data_socket\0\u{3}quick_menu_event\0\u{3}un_block_friend\0\u{3}meet_participant_event\0\u{3}transfer_ownership_event\0\u{3}add_friend\0\u{3}ban_user_event\0\u{3}active_archived_thread\0\u{3}allow_anonymous_event\0\u{3}api_request_event\0\u{3}clan_created_event\0\u{3}aiagent_enabled_event\0\u{3}list_channel_users_banned_event\0\u{3}refresh_session_event\0\u{3}channel_archive_event\0\u{3}topic_in_message_event\0")
 
   fileprivate class _StorageClass {
     var _cid: Int32 = 0
@@ -5096,6 +5278,32 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
             _storage._message = .refreshSessionEvent(v)
           }
         }()
+        case 97: try {
+          var v: Mezon_Realtime_ChannelArchiveEvent?
+          var hadOneofValue = false
+          if let current = _storage._message {
+            hadOneofValue = true
+            if case .channelArchiveEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._message = .channelArchiveEvent(v)
+          }
+        }()
+        case 98: try {
+          var v: Mezon_Realtime_TopicInMessageEvent?
+          var hadOneofValue = false
+          if let current = _storage._message {
+            hadOneofValue = true
+            if case .topicInMessageEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._message = .topicInMessageEvent(v)
+          }
+        }()
         default: break
         }
       }
@@ -5492,6 +5700,14 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
         guard case .refreshSessionEvent(let v)? = _storage._message else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 96)
       }()
+      case .channelArchiveEvent?: try {
+        guard case .channelArchiveEvent(let v)? = _storage._message else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 97)
+      }()
+      case .topicInMessageEvent?: try {
+        guard case .topicInMessageEvent(let v)? = _storage._message else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 98)
+      }()
       case nil: break
       }
     }
@@ -5509,6 +5725,46 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_TopicInMessageEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TopicInMessageEvent"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}message_id\0\u{1}rpl\0\u{1}lsnt\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.messageID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.rpl) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.lsnt) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.messageID != 0 {
+      try visitor.visitSingularInt64Field(value: self.messageID, fieldNumber: 1)
+    }
+    if self.rpl != 0 {
+      try visitor.visitSingularInt32Field(value: self.rpl, fieldNumber: 2)
+    }
+    if self.lsnt != 0 {
+      try visitor.visitSingularInt64Field(value: self.lsnt, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_TopicInMessageEvent, rhs: Mezon_Realtime_TopicInMessageEvent) -> Bool {
+    if lhs.messageID != rhs.messageID {return false}
+    if lhs.rpl != rhs.rpl {return false}
+    if lhs.lsnt != rhs.lsnt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -6490,38 +6746,90 @@ extension Mezon_Realtime_EphemeralMessageSend: SwiftProtobuf.Message, SwiftProto
 
 extension Mezon_Realtime_QuickMenuDataEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".QuickMenuDataEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}menu_name\0\u{1}message\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}menu_name\0\u{1}message\0\u{3}sender_id\0\u{3}message_sender_id\0")
+
+  fileprivate class _StorageClass {
+    var _menuName: String = String()
+    var _message: Mezon_Realtime_ChannelMessageSend? = nil
+    var _senderID: Int64 = 0
+    var _messageSenderID: Int64 = 0
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _menuName = source._menuName
+      _message = source._message
+      _senderID = source._senderID
+      _messageSenderID = source._messageSenderID
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.menuName) }()
-      case 2: try { try decoder.decodeSingularMessageField(value: &self._message) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularStringField(value: &_storage._menuName) }()
+        case 2: try { try decoder.decodeSingularMessageField(value: &_storage._message) }()
+        case 3: try { try decoder.decodeSingularInt64Field(value: &_storage._senderID) }()
+        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._messageSenderID) }()
+        default: break
+        }
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    if !self.menuName.isEmpty {
-      try visitor.visitSingularStringField(value: self.menuName, fieldNumber: 1)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      if !_storage._menuName.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._menuName, fieldNumber: 1)
+      }
+      try { if let v = _storage._message {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+      } }()
+      if _storage._senderID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._senderID, fieldNumber: 3)
+      }
+      if _storage._messageSenderID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._messageSenderID, fieldNumber: 4)
+      }
     }
-    try { if let v = self._message {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Realtime_QuickMenuDataEvent, rhs: Mezon_Realtime_QuickMenuDataEvent) -> Bool {
-    if lhs.menuName != rhs.menuName {return false}
-    if lhs._message != rhs._message {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._menuName != rhs_storage._menuName {return false}
+        if _storage._message != rhs_storage._message {return false}
+        if _storage._senderID != rhs_storage._senderID {return false}
+        if _storage._messageSenderID != rhs_storage._messageSenderID {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -8464,6 +8772,205 @@ extension Mezon_Realtime_ChannelUpdatedEvent: SwiftProtobuf.Message, SwiftProtob
   }
 
   static func ==(lhs: Mezon_Realtime_ChannelUpdatedEvent, rhs: Mezon_Realtime_ChannelUpdatedEvent) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._clanID != rhs_storage._clanID {return false}
+        if _storage._categoryID != rhs_storage._categoryID {return false}
+        if _storage._creatorID != rhs_storage._creatorID {return false}
+        if _storage._parentID != rhs_storage._parentID {return false}
+        if _storage._channelID != rhs_storage._channelID {return false}
+        if _storage._channelLabel != rhs_storage._channelLabel {return false}
+        if _storage._channelType != rhs_storage._channelType {return false}
+        if _storage._status != rhs_storage._status {return false}
+        if _storage._meetingCode != rhs_storage._meetingCode {return false}
+        if _storage._isError != rhs_storage._isError {return false}
+        if _storage._channelPrivate != rhs_storage._channelPrivate {return false}
+        if _storage._appID != rhs_storage._appID {return false}
+        if _storage._e2Ee != rhs_storage._e2Ee {return false}
+        if _storage._topic != rhs_storage._topic {return false}
+        if _storage._ageRestricted != rhs_storage._ageRestricted {return false}
+        if _storage._active != rhs_storage._active {return false}
+        if _storage._countMessUnread != rhs_storage._countMessUnread {return false}
+        if _storage._userIds != rhs_storage._userIds {return false}
+        if _storage._roleIds != rhs_storage._roleIds {return false}
+        if _storage._channelAvatar != rhs_storage._channelAvatar {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_ChannelArchiveEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".ChannelArchiveEvent"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}category_id\0\u{3}creator_id\0\u{3}parent_id\0\u{3}channel_id\0\u{3}channel_label\0\u{3}channel_type\0\u{1}status\0\u{3}meeting_code\0\u{3}is_error\0\u{3}channel_private\0\u{3}app_id\0\u{1}e2ee\0\u{1}topic\0\u{3}age_restricted\0\u{1}active\0\u{3}count_mess_unread\0\u{3}user_ids\0\u{3}role_ids\0\u{3}channel_avatar\0")
+
+  fileprivate class _StorageClass {
+    var _clanID: Int64 = 0
+    var _categoryID: Int64 = 0
+    var _creatorID: Int64 = 0
+    var _parentID: Int64 = 0
+    var _channelID: Int64 = 0
+    var _channelLabel: String = String()
+    var _channelType: Int32 = 0
+    var _status: Int32 = 0
+    var _meetingCode: String = String()
+    var _isError: Bool = false
+    var _channelPrivate: Bool = false
+    var _appID: Int64 = 0
+    var _e2Ee: Int32 = 0
+    var _topic: String = String()
+    var _ageRestricted: Int32 = 0
+    var _active: Int32 = 0
+    var _countMessUnread: Int32 = 0
+    var _userIds: [Int64] = []
+    var _roleIds: [Int64] = []
+    var _channelAvatar: String = String()
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _clanID = source._clanID
+      _categoryID = source._categoryID
+      _creatorID = source._creatorID
+      _parentID = source._parentID
+      _channelID = source._channelID
+      _channelLabel = source._channelLabel
+      _channelType = source._channelType
+      _status = source._status
+      _meetingCode = source._meetingCode
+      _isError = source._isError
+      _channelPrivate = source._channelPrivate
+      _appID = source._appID
+      _e2Ee = source._e2Ee
+      _topic = source._topic
+      _ageRestricted = source._ageRestricted
+      _active = source._active
+      _countMessUnread = source._countMessUnread
+      _userIds = source._userIds
+      _roleIds = source._roleIds
+      _channelAvatar = source._channelAvatar
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularInt64Field(value: &_storage._clanID) }()
+        case 2: try { try decoder.decodeSingularInt64Field(value: &_storage._categoryID) }()
+        case 3: try { try decoder.decodeSingularInt64Field(value: &_storage._creatorID) }()
+        case 4: try { try decoder.decodeSingularInt64Field(value: &_storage._parentID) }()
+        case 5: try { try decoder.decodeSingularInt64Field(value: &_storage._channelID) }()
+        case 6: try { try decoder.decodeSingularStringField(value: &_storage._channelLabel) }()
+        case 7: try { try decoder.decodeSingularInt32Field(value: &_storage._channelType) }()
+        case 8: try { try decoder.decodeSingularInt32Field(value: &_storage._status) }()
+        case 9: try { try decoder.decodeSingularStringField(value: &_storage._meetingCode) }()
+        case 10: try { try decoder.decodeSingularBoolField(value: &_storage._isError) }()
+        case 11: try { try decoder.decodeSingularBoolField(value: &_storage._channelPrivate) }()
+        case 12: try { try decoder.decodeSingularInt64Field(value: &_storage._appID) }()
+        case 13: try { try decoder.decodeSingularInt32Field(value: &_storage._e2Ee) }()
+        case 14: try { try decoder.decodeSingularStringField(value: &_storage._topic) }()
+        case 15: try { try decoder.decodeSingularInt32Field(value: &_storage._ageRestricted) }()
+        case 16: try { try decoder.decodeSingularInt32Field(value: &_storage._active) }()
+        case 17: try { try decoder.decodeSingularInt32Field(value: &_storage._countMessUnread) }()
+        case 18: try { try decoder.decodeRepeatedInt64Field(value: &_storage._userIds) }()
+        case 19: try { try decoder.decodeRepeatedInt64Field(value: &_storage._roleIds) }()
+        case 20: try { try decoder.decodeSingularStringField(value: &_storage._channelAvatar) }()
+        default: break
+        }
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      if _storage._clanID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._clanID, fieldNumber: 1)
+      }
+      if _storage._categoryID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._categoryID, fieldNumber: 2)
+      }
+      if _storage._creatorID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._creatorID, fieldNumber: 3)
+      }
+      if _storage._parentID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._parentID, fieldNumber: 4)
+      }
+      if _storage._channelID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._channelID, fieldNumber: 5)
+      }
+      if !_storage._channelLabel.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._channelLabel, fieldNumber: 6)
+      }
+      if _storage._channelType != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._channelType, fieldNumber: 7)
+      }
+      if _storage._status != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._status, fieldNumber: 8)
+      }
+      if !_storage._meetingCode.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._meetingCode, fieldNumber: 9)
+      }
+      if _storage._isError != false {
+        try visitor.visitSingularBoolField(value: _storage._isError, fieldNumber: 10)
+      }
+      if _storage._channelPrivate != false {
+        try visitor.visitSingularBoolField(value: _storage._channelPrivate, fieldNumber: 11)
+      }
+      if _storage._appID != 0 {
+        try visitor.visitSingularInt64Field(value: _storage._appID, fieldNumber: 12)
+      }
+      if _storage._e2Ee != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._e2Ee, fieldNumber: 13)
+      }
+      if !_storage._topic.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._topic, fieldNumber: 14)
+      }
+      if _storage._ageRestricted != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._ageRestricted, fieldNumber: 15)
+      }
+      if _storage._active != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._active, fieldNumber: 16)
+      }
+      if _storage._countMessUnread != 0 {
+        try visitor.visitSingularInt32Field(value: _storage._countMessUnread, fieldNumber: 17)
+      }
+      if !_storage._userIds.isEmpty {
+        try visitor.visitPackedInt64Field(value: _storage._userIds, fieldNumber: 18)
+      }
+      if !_storage._roleIds.isEmpty {
+        try visitor.visitPackedInt64Field(value: _storage._roleIds, fieldNumber: 19)
+      }
+      if !_storage._channelAvatar.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._channelAvatar, fieldNumber: 20)
+      }
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_ChannelArchiveEvent, rhs: Mezon_Realtime_ChannelArchiveEvent) -> Bool {
     if lhs._storage !== rhs._storage {
       let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
