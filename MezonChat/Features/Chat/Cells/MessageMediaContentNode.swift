@@ -616,11 +616,18 @@ final class MessageMediaContentNode: ASDisplayNode {
             )
             label.maximumNumberOfLines = 1
             overlay.addSubnode(label)
+            let bar = UploadProgressBarNode(
+                progress: progress,
+                width: 90,
+                height: 4,
+                trackColor: UIColor.white.withAlphaComponent(0.3),
+                fillColor: .white)
+            overlay.addSubnode(bar)
             overlay.layoutSpecBlock = { _, _ in
                 let stack = ASStackLayoutSpec.vertical()
                 stack.spacing = 6
                 stack.horizontalAlignment = .middle
-                stack.children = [spinner, label]
+                stack.children = [spinner, label, bar]
                 return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: stack)
             }
         } else {

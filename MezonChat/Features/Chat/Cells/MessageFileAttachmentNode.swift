@@ -1,6 +1,38 @@
 import UIKit
 import AsyncDisplayKit
 
+final class UploadProgressBarNode: ASDisplayNode {
+
+    private let fillNode = ASDisplayNode()
+    private let progress: CGFloat
+
+    init(
+        progress: Double,
+        width: CGFloat,
+        height: CGFloat = 4,
+        trackColor: UIColor,
+        fillColor: UIColor
+    ) {
+        self.progress = CGFloat(min(max(progress, 0), 1))
+        super.init()
+        isUserInteractionEnabled = false
+        backgroundColor = trackColor
+        cornerRadius = height / 2
+        clipsToBounds = true
+        if width > 0 {
+            style.preferredSize = CGSize(width: width, height: height)
+        }
+        fillNode.backgroundColor = fillColor
+        fillNode.cornerRadius = height / 2
+        addSubnode(fillNode)
+    }
+
+    override func layout() {
+        super.layout()
+        fillNode.frame = CGRect(x: 0, y: 0, width: bounds.width * progress, height: bounds.height)
+    }
+}
+
 final class MessageFileAttachmentNode: ASDisplayNode {
 
     private var fileNodes: [FileItemNode] = []
@@ -64,11 +96,13 @@ final class FileItemNode: ASDisplayNode {
     private let bgNode = ASDisplayNode()
     private let spinnerNode: ASDisplayNode?
     private let progressLabelNode: ASTextNode2?
+    private let progressBarNode: UploadProgressBarNode?
     private let showsUploadSpinner: Bool
 
     private static let spinnerSide: CGFloat = 24
     private static let spinnerLeadingGap: CGFloat = 8
     private static let progressLabelWidth: CGFloat = 40
+    private static let progressBarHeight: CGFloat = 3
 
     var onTapped: (() -> Void)?
     var tag: Int = 0
@@ -82,6 +116,7 @@ final class FileItemNode: ASDisplayNode {
         let progress = attachment.uploadProgress
         let spinner: ASDisplayNode?
         let progressLabel: ASTextNode2?
+        let progressBar: UploadProgressBarNode?
         if shows {
             let s = ASDisplayNode()
             s.isUserInteractionEnabled = false
@@ -105,16 +140,25 @@ final class FileItemNode: ASDisplayNode {
                 )
                 label.maximumNumberOfLines = 1
                 progressLabel = label
+                progressBar = UploadProgressBarNode(
+                    progress: progress,
+                    width: 0,
+                    height: Self.progressBarHeight,
+                    trackColor: UIColor.theme.borderDim,
+                    fillColor: UIColor.theme.textLink)
             } else {
                 progressLabel = nil
+                progressBar = nil
             }
         } else {
             spinner = nil
             progressLabel = nil
+            progressBar = nil
         }
         self.showsUploadSpinner = shows
         self.spinnerNode = spinner
         self.progressLabelNode = progressLabel
+        self.progressBarNode = progressBar
         super.init()
 
         let t = UIColor.theme
@@ -146,6 +190,9 @@ final class FileItemNode: ASDisplayNode {
         }
         if let progressLabelNode {
             addSubnode(progressLabelNode)
+        }
+        if let progressBarNode {
+            addSubnode(progressBarNode)
         }
     }
 
@@ -207,6 +254,16 @@ final class FileItemNode: ASDisplayNode {
                 let px = sx - progressGap - progressW
                 progressLabelNode.frame = CGRect(x: px, y: centerY - 9, width: progressW, height: 18)
             }
+        }
+
+        if let progressBarNode {
+            let barInset: CGFloat = 12
+            let barY = bounds.height - Self.progressBarHeight - 6
+            progressBarNode.frame = CGRect(
+                x: barInset,
+                y: barY,
+                width: max(0, bounds.width - barInset * 2),
+                height: Self.progressBarHeight)
         }
     }
 
