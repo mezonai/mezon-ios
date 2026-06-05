@@ -1428,7 +1428,7 @@ final class SendMessageInputViewController: UIViewController {
                     return
                 }
                 do {
-                    _ = try await self.context.account.network.sendChannelMessage(
+                    let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
                         mode: mode,
@@ -1444,6 +1444,7 @@ final class SendMessageInputViewController: UIViewController {
                         code: 17,
                         token: token
                     )
+                    self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack)
                 } catch {
                     SentryLogger.capture(error, extras: [
                         "where": "sendWaveMessage",
@@ -1496,7 +1497,7 @@ final class SendMessageInputViewController: UIViewController {
                     return
                 }
                 do {
-                    _ = try await self.context.account.network.sendChannelMessage(
+                    let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
                         mode: mode,
@@ -1512,6 +1513,7 @@ final class SendMessageInputViewController: UIViewController {
                         code: MezonConstants.MessageCode.buzz.rawValue,
                         token: token
                     )
+                    self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack)
                 } catch {
                     SentryLogger.capture(error, extras: [
                         "where": "sendBuzzMessage",
@@ -1604,6 +1606,7 @@ final class SendMessageInputViewController: UIViewController {
                     ack: ack,
                     fallbackContent: contentStr
                 )
+                self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack)
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "sendShareContact",
@@ -1643,6 +1646,15 @@ final class SendMessageInputViewController: UIViewController {
                 "clanId": Int64(0),
                 "channelId": channel.channelID,
             ]
+        )
+    }
+
+    private func markOnboardingWelcomeMessageSentIfNeeded(ack: Mezon_Realtime_ChannelMessageAck) {
+        ClanOnboardingChannelCache.markCreatorSentWelcomeMessageIfNeeded(
+            postbox: context.account.postbox,
+            clanId: clanId,
+            channelId: channel.channelID,
+            messageId: ack.messageID
         )
     }
 
@@ -5298,8 +5310,14 @@ final class SendMessageInputViewController: UIViewController {
                                 mentionsJSON: pending?.mentionsJSON ?? mentionsPayload
                             )
                             tx.replaceMessage(pendingId: localId, with: merged)
+                            ClanOnboardingChannelCache.markCreatorSentWelcomeMessageIfNeeded(
+                                transaction: tx,
+                                clanId: self.clanId,
+                                channelId: channel.channelID
+                            )
                         }
                         if ack.messageID != 0 {
+                            self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack)
                             ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                             ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                         }
@@ -5424,7 +5442,7 @@ final class SendMessageInputViewController: UIViewController {
                 return
             }
             do {
-                _ = try await self.context.account.network.sendChannelMessage(
+                let ack = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
                     mode: mode,
@@ -5439,6 +5457,7 @@ final class SendMessageInputViewController: UIViewController {
                     topicId: self.topicId,
                     token: token
                 )
+                self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack)
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "sendChannelMessageWithAttachments",

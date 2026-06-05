@@ -312,6 +312,12 @@ final class AttachmentUploadCoordinator {
                     tx.markMessageSent(id: p.localId)
                 }
             }
+            ClanOnboardingChannelCache.markCreatorSentWelcomeMessageIfNeeded(
+                postbox: context.account.postbox,
+                clanId: p.clanId,
+                channelId: p.channelId,
+                messageId: ack.messageID
+            )
             nudge(session, context: context)
         } catch {
             session.aborted = true
