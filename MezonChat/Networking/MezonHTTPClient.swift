@@ -1609,6 +1609,27 @@ final class MezonHTTPClient {
         return response.channelApps
     }
 
+    func getApp(appId: Int64, token: String) async throws -> Mezon_Api_App {
+        var req = Mezon_Api_App()
+        req.id = appId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetApp",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func addAppToClan(appId: Int64, clanId: Int64, token: String) async throws {
+        var req = Mezon_Api_AppClan()
+        req.appID = appId
+        req.clanID = clanId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/AddAppToClan",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func generateChannelAppHash(appId: Int64, token: String) async throws -> String {
         var req = Mezon_Api_GenerateHashChannelAppsRequest()
         req.appID = appId

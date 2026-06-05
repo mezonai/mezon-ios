@@ -160,6 +160,10 @@ targets:
           - CFBundleURLSchemes:
               - "mezon.mobile.sharing"
             CFBundleURLName: "mezon.mobile.sharing"
+          - CFBundleURLSchemes:
+              - "mezon"
+              - "mezon.ai"
+            CFBundleURLName: "ai.mezon.deeplink"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

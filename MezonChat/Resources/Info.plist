@@ -28,6 +28,15 @@
 				<string>mezon.mobile.sharing</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>ai.mezon.deeplink</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>mezon</string>
+				<string>mezon.ai</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
