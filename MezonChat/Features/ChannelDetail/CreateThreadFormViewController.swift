@@ -73,6 +73,9 @@ final class CreateThreadFormViewController: UIViewController {
     private var advancePanelBottomConstraint: NSLayoutConstraint?
     private var advancePanelCollapsedHeight: CGFloat = 0
 
+    private static let minThreadNameLength = 4
+    private static let maxThreadNameLength = 64
+
     private let locationManager = CLLocationManager()
     private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
 
@@ -136,13 +139,6 @@ final class CreateThreadFormViewController: UIViewController {
             target: self,
             action: #selector(cancelTapped)
         )
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L(L10n.ThreadList.createThreadSubmit),
-            style: .done,
-            target: self,
-            action: #selector(submitTapped)
-        )
-
         contextLabel.text = String(format: L(L10n.ThreadList.createThreadInChannel), parentChannelLabel)
         nameCaptionLabel.text = L(L10n.ThreadList.createThreadNameLabel)
 
@@ -458,14 +454,15 @@ final class CreateThreadFormViewController: UIViewController {
         dismiss(animated: true)
     }
 
-    @objc private func submitTapped() {
-        performCreateThreadSubmission()
+    private func isValidThreadName(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count >= Self.minThreadNameLength && trimmed.count <= Self.maxThreadNameLength
     }
 
     private func performCreateThreadSubmission() {
         guard !pendingThreadSubmission else { return }
         let trimmed = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 1, trimmed.count <= 64 else {
+        guard isValidThreadName(trimmed) else {
             let msg = L(L10n.ThreadList.createThreadNameInvalid)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -482,7 +479,6 @@ final class CreateThreadFormViewController: UIViewController {
         }
 
         pendingThreadSubmission = true
-        navigationItem.rightBarButtonItem?.isEnabled = false
         navigationItem.leftBarButtonItem?.isEnabled = false
         activityIndicator.startAnimating()
 
@@ -490,7 +486,6 @@ final class CreateThreadFormViewController: UIViewController {
             guard let token = await context.getToken() else {
                 pendingThreadSubmission = false
                 activityIndicator.stopAnimating()
-                navigationItem.rightBarButtonItem?.isEnabled = true
                 navigationItem.leftBarButtonItem?.isEnabled = true
                 Toast.error(L(L10n.ThreadList.createThreadFailed))
                 return
@@ -517,7 +512,6 @@ final class CreateThreadFormViewController: UIViewController {
                         self.sendInputVC.onError = nil
                         self.pendingThreadSubmission = false
                         self.activityIndicator.stopAnimating()
-                        self.navigationItem.rightBarButtonItem?.isEnabled = true
                         self.navigationItem.leftBarButtonItem?.isEnabled = true
                         self.finishCreateSuccess(created: created)
                     }
@@ -527,7 +521,6 @@ final class CreateThreadFormViewController: UIViewController {
                         self.sendInputVC.onError = nil
                         self.pendingThreadSubmission = false
                         self.activityIndicator.stopAnimating()
-                        self.navigationItem.rightBarButtonItem?.isEnabled = true
                         self.navigationItem.leftBarButtonItem?.isEnabled = true
                         let trimmedMsg = message.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmedMsg.isEmpty {
@@ -541,14 +534,12 @@ final class CreateThreadFormViewController: UIViewController {
                 } else {
                     pendingThreadSubmission = false
                     activityIndicator.stopAnimating()
-                    navigationItem.rightBarButtonItem?.isEnabled = true
                     navigationItem.leftBarButtonItem?.isEnabled = true
                     finishCreateSuccess(created: created)
                 }
             } catch {
                 pendingThreadSubmission = false
                 activityIndicator.stopAnimating()
-                navigationItem.rightBarButtonItem?.isEnabled = true
                 navigationItem.leftBarButtonItem?.isEnabled = true
                 Toast.error(L(L10n.ThreadList.createThreadFailed))
             }
@@ -798,6 +789,7 @@ extension CreateThreadFormViewController: UITextFieldDelegate {
     ) -> Bool {
         let next =
             ((textField.text ?? "") as NSString).replacingCharacters(in: range, with: string) as String
-        return next.count <= 64
+        guard next.count <= Self.maxThreadNameLength else { return false }
+        return true
     }
 }

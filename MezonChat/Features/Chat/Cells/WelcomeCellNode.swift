@@ -4,7 +4,7 @@ import UIKit
 final class WelcomeCellNode: ASDisplayNode {
 
     private enum Mode {
-        case clan(channelType: Int32, isPrivate: Bool, isAgeRestricted: Bool, isMediaChannel: Bool)
+        case clan(channelType: Int32, isPrivate: Bool, isAgeRestricted: Bool, isMediaChannel: Bool, threadCreatorName: String)
         case dmOneToOne(label: String, username: String, priorityName: String, avatarURL: String, placeholderLetter: String)
         case dmGroup(label: String, groupAvatarURL: String?)
     }
@@ -48,7 +48,8 @@ final class WelcomeCellNode: ASDisplayNode {
         dmPeerUsername: String,
         dmPeerDisplayName: String,
         dmAvatarURL: String,
-        dmGroupAvatarURL: String
+        dmGroupAvatarURL: String,
+        threadCreatorName: String
     ) {
         let isGroupDM = channelType == MezonConstants.ChannelType.group.rawValue
         let isMediaChannel: Bool = {
@@ -86,7 +87,8 @@ final class WelcomeCellNode: ASDisplayNode {
                 channelType: channelType,
                 isPrivate: isPrivate,
                 isAgeRestricted: isAgeRestricted,
-                isMediaChannel: isMediaChannel
+                isMediaChannel: isMediaChannel,
+                threadCreatorName: threadCreatorName.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             showsUsernameRow = false
         }
@@ -101,7 +103,7 @@ final class WelcomeCellNode: ASDisplayNode {
         let name = channelLabel
 
         switch resolvedMode {
-        case let .clan(channelType, isPrivate, isAgeRestricted, isMediaChannel):
+        case let .clan(channelType, isPrivate, isAgeRestricted, isMediaChannel, threadCreatorName):
             iconContainerNode.backgroundColor = t.secondaryLight
             iconContainerNode.cornerRadius = Self.clanIconSize / 2
             iconContainerNode.clipsToBounds = true
@@ -129,6 +131,7 @@ final class WelcomeCellNode: ASDisplayNode {
                 }
             default: iconName = "Channel/channel"
             }
+            let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
             let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
             iconImageNode.image = image?.withRenderingMode(.alwaysTemplate)
             iconImageNode.tintColor = t.textStrong
@@ -137,14 +140,22 @@ final class WelcomeCellNode: ASDisplayNode {
 
             let privateWord = (isPrivate && !isMediaChannel) ? L(L10n.ChatWelcome.privateChannel) : ""
             titleNode.attributedText = NSAttributedString(
-                string: String(format: L(L10n.ChatWelcome.welcomeToChannel), name),
+                string: isThread ? name : String(format: L(L10n.ChatWelcome.welcomeToChannel), name),
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 22.sf, weight: .semibold),
                     .foregroundColor: t.textStrong,
                 ]
             )
+            let subtitle: String = {
+                if isThread {
+                    return threadCreatorName.isEmpty
+                        ? ""
+                        : String(format: L(L10n.ChatWelcome.threadStartedBy), threadCreatorName)
+                }
+                return String(format: L(L10n.ChatWelcome.startOfChannel), name, privateWord)
+            }()
             subtitleNode.attributedText = NSAttributedString(
-                string: String(format: L(L10n.ChatWelcome.startOfChannel), name, privateWord),
+                string: subtitle,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 12.sf),
                     .foregroundColor: t.text,

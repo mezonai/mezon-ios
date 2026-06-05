@@ -299,6 +299,7 @@ struct ChatState {
     var dmPeerDisplayName: String
     var dmAvatarURL: String
     var dmGroupAvatarURL: String
+    var threadCreatorName: String
     var hasMoreOlder: Bool
     var hasMoreNewer: Bool
     var isLoadingMore: Bool
@@ -313,6 +314,7 @@ struct ChatState {
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
         isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
+        threadCreatorName: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -1587,6 +1589,7 @@ final class ChatViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
     private var hasCompletedInitialFetch = false
+    private var didApplyBadgeLastSeen = false
     private static let initialEmptyMessageRetryDelaysNanoseconds: [UInt64] = [
         600_000_000,
         1_200_000_000
@@ -1665,6 +1668,8 @@ final class ChatViewController: ViewController {
         )
         ensureParentChannelMetaSubscription()
 
+        startBadgeCountLastSeenRefresh()
+
         let shouldSkipInitialRemoteFetchForEmptyTopic = skipInitialRemoteFetchForEmptyTopic
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1714,6 +1719,59 @@ final class ChatViewController: ViewController {
             self.fetchChannelMembers(token: token)
             self.checkBanStatus(token: token)
             self.resolveChannelLabelFromNetwork(token: token)
+        }
+    }
+
+    private func startBadgeCountLastSeenRefresh() {
+        guard channel.channelID != 0, !didApplyBadgeLastSeen else { return }
+
+        if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID),
+           cached.hasLastSeenMessage, cached.lastSeenMessage.id != 0 {
+            didApplyBadgeLastSeen = true
+            applyLastSeen(from: cached)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var token: String? = {
+                if let t = self.context.session?.token, !t.isEmpty { return t }
+                if let t = SessionStore.load()?.token, !t.isEmpty { return t }
+                return nil
+            }()
+            if token == nil {
+                token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
+            }
+            guard let token else { return }
+            await self.applyLastSeenFromBadgeCountNetwork(token: token)
+        }
+    }
+
+    @MainActor
+    private func applyLastSeenFromBadgeCountNetwork(token: String) async {
+        guard !didApplyBadgeLastSeen else { return }
+        guard channel.channelID != 0 else { return }
+        do {
+            let response = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
+            guard let desc = response.channeldesc.first(where: { $0.channelID == channel.channelID }) else {
+                return
+            }
+            didApplyBadgeLastSeen = true
+            applyLastSeen(from: desc)
+        } catch {
+        }
+    }
+
+    @MainActor
+    private func applyLastSeen(from desc: Mezon_Api_ChannelDescription) {
+        guard desc.hasLastSeenMessage, desc.lastSeenMessage.id != 0 else { return }
+        let newSeenId = "\(desc.lastSeenMessage.id)"
+        guard newSeenId != self.lastSeenMessageId else { return }
+        self.lastSeenMessageId = newSeenId
+        if self.hasPerformedInitialUnreadScroll {
+            self.scrollToUnreadLine(lastSeenId: newSeenId)
+        } else {
+            self.shouldScrollToBottom = false
         }
     }
 
@@ -2243,22 +2301,8 @@ final class ChatViewController: ViewController {
     }
 
     private func fetchChannelPermissions(token: String? = nil) {
-        let channelId = channel.channelID
-        Task { @MainActor in
-            let resolvedToken: String
-            if let token { resolvedToken = token } else if let t = await self.context.getTokenPreferringCachedSkipSessionReadyWait() { resolvedToken = t } else { return }
-            let token = resolvedToken
-            do {
-                let response = try await self.context.account.network.listUserPermissionInChannel(clanId: clanId, channelId: channelId, token: token)
-                let permissions = response.permissions.permissions
-                let records = permissions.map { PermissionRecord(from: $0) }
-                self.context.account.postbox.write { tx in
-                    tx.updateChannelPermissions(records, channelId: channelId)
-                }
-                self.context.rolePermissions.applyChannelPermissions(channelId: channelId, permissions: permissions)
-            } catch {
-            }
-        }
+        guard clanId != 0 else { return }
+        context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: channel.channelID)
     }
 
     private func fetchChannelMembers(token: String? = nil) {
@@ -2382,6 +2426,38 @@ final class ChatViewController: ViewController {
         return context.engine.friendsData.blockedUserIds().contains(peerId)
     }
 
+    private func resolvedThreadCreatorName() -> String {
+        guard channel.type == MezonConstants.ChannelType.thread.rawValue else { return "" }
+        let creatorId = channel.creatorID
+        if creatorId != 0 {
+            let userId = String(creatorId)
+            if let member = context.account.postbox.read({ tx in
+                tx.getClanMembers(clanId: clanId).first(where: { $0.userId == creatorId })
+            }) {
+                let clanNick = member.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !clanNick.isEmpty { return clanNick }
+                let displayName = member.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !displayName.isEmpty { return displayName }
+                let username = member.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !username.isEmpty { return username }
+            }
+            if let currentUser = context.currentUser, currentUser.id == userId {
+                let displayName = currentUser.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !displayName.isEmpty { return displayName }
+                let username = currentUser.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !username.isEmpty { return username }
+            }
+            if let profile = context.account.postbox.read({ $0.getProfile(userId: userId) }) {
+                if let displayName = profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !displayName.isEmpty {
+                    return displayName
+                }
+                let username = profile.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !username.isEmpty { return username }
+            }
+        }
+        return channel.creatorName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var currentState: ChatState {
         let labelFromMeta = parentChannelMeta?.label
         let resolvedParentName =
@@ -2399,6 +2475,7 @@ final class ChatViewController: ViewController {
             dmPeerDisplayName: channel.displayNames.first ?? "",
             dmAvatarURL: channel.avatars.first ?? "",
             dmGroupAvatarURL: channel.channelAvatar,
+            threadCreatorName: resolvedThreadCreatorName(),
             hasMoreOlder: hasMoreOlder,
             hasMoreNewer: hasMoreNewer,
             isLoadingMore: isLoadingMore,
