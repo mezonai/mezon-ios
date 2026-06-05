@@ -10,6 +10,7 @@ final class MessageSystemNode: ASDisplayNode {
     private var cachedTextSize: CGSize = .zero
     private var cachedTimeSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
+    private var inlineTimeInText = false
 
     private static let iconSize: CGFloat = 20
     private static let welcomeIconSize: CGFloat = 24
@@ -32,6 +33,25 @@ final class MessageSystemNode: ASDisplayNode {
 
         let parsed = display.parsedContent
         let messageText = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let messageCode = MezonConstants.MessageCode(rawValue: display.messageCode)
+        let timeText = Self.formatDate(display.message.createdAt)
+
+        let style = RichTextBuilder.Style(
+            bodyFont: .systemFont(ofSize: 13.sf),
+            bodyColor: t.text,
+            mentionFont: .systemFont(ofSize: 13.sf, weight: .semibold),
+            mentionColor: t.textLink,
+            mentionBgColor: t.midnightBlue,
+            roleMentionColor: t.textRoleLink,
+            roleMentionBgColor: t.darkMossGreen,
+            linkColor: t.textLink,
+            codeBgColor: t.tertiary,
+            codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular),
+            boldFont: .systemFont(ofSize: 13.sf, weight: .bold),
+            headingFonts: [],
+            emojiSize: 16.sf,
+            emojiImgproxyFitSide: 40
+        )
 
         if messageText.isEmpty {
             let fallback = systemDefaultText(code: display.messageCode)
@@ -42,23 +62,16 @@ final class MessageSystemNode: ASDisplayNode {
                     .foregroundColor: t.text,
                 ]
             )
+        } else if messageCode == .createThread,
+                  let threadText = Self.createThreadSystemText(
+                    display: display,
+                    style: style,
+                    theme: t,
+                    timeText: timeText
+                  ) {
+            textNode.attributedText = threadText
+            inlineTimeInText = true
         } else {
-            let style = RichTextBuilder.Style(
-                bodyFont: .systemFont(ofSize: 13.sf),
-                bodyColor: t.text,
-                mentionFont: .systemFont(ofSize: 13.sf, weight: .semibold),
-                mentionColor: t.textLink,
-                mentionBgColor: t.midnightBlue,
-                roleMentionColor: t.textRoleLink,
-                roleMentionBgColor: t.darkMossGreen,
-                linkColor: t.textLink,
-                codeBgColor: t.tertiary,
-                codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular),
-                boldFont: .systemFont(ofSize: 13.sf, weight: .bold),
-                headingFonts: [],
-                emojiSize: 16.sf,
-                emojiImgproxyFitSide: 40
-            )
             let built = RichTextBuilder.build(from: parsed, style: style)
             let decorated = Self.decoratedSystemTapText(
                 display: display,
@@ -71,14 +84,18 @@ final class MessageSystemNode: ASDisplayNode {
         textNode.maximumNumberOfLines = 0
         textNode.isUserInteractionEnabled = false
 
-        let timeText = Self.formatDate(display.message.createdAt)
-        timeNode.attributedText = NSAttributedString(
-            string: timeText,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 11.sf),
-                .foregroundColor: t.textDisabled,
-            ]
-        )
+        if inlineTimeInText {
+            timeNode.attributedText = nil
+            timeNode.isHidden = true
+        } else {
+            timeNode.attributedText = NSAttributedString(
+                string: timeText,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 11.sf),
+                    .foregroundColor: t.textDisabled,
+                ]
+            )
+        }
         timeNode.maximumNumberOfLines = 1
 
         addSubnode(iconNode)
@@ -152,9 +169,11 @@ final class MessageSystemNode: ASDisplayNode {
         let iconW = iconColumnWidth()
         let contentW = width - Self.hPadding * 2 - iconW - Self.iconTextGap
         cachedTextSize = textNode.measure(CGSize(width: contentW, height: .greatestFiniteMagnitude))
-        cachedTimeSize = timeNode.measure(CGSize(width: contentW, height: 20))
+        cachedTimeSize = inlineTimeInText ? .zero : timeNode.measure(CGSize(width: contentW, height: 20))
 
-        let textBlockH = cachedTextSize.height + Self.timeGap + cachedTimeSize.height
+        let textBlockH = inlineTimeInText
+            ? cachedTextSize.height
+            : cachedTextSize.height + Self.timeGap + cachedTimeSize.height
         let minH = max(textBlockH, iconW)
         let totalH = Self.vPadding + minH + Self.vPadding
         cachedTotalSize = CGSize(width: width, height: totalH)
@@ -176,7 +195,11 @@ final class MessageSystemNode: ASDisplayNode {
 
         let textContentW = bounds.width - textX - Self.hPadding
         textNode.frame = CGRect(x: textX, y: topY, width: textContentW, height: cachedTextSize.height)
-        timeNode.frame = CGRect(x: textX, y: topY + cachedTextSize.height + Self.timeGap, width: cachedTimeSize.width, height: cachedTimeSize.height)
+        if inlineTimeInText {
+            timeNode.frame = .zero
+        } else {
+            timeNode.frame = CGRect(x: textX, y: topY + cachedTextSize.height + Self.timeGap, width: cachedTimeSize.width, height: cachedTimeSize.height)
+        }
     }
 
     private func configureIcon(code: Int32, theme: ThemeAttributes) {
@@ -192,7 +215,8 @@ final class MessageSystemNode: ASDisplayNode {
                 ?? UIImage(systemName: "arrow.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
             iconColor = theme.textSuccess
         case .createThread:
-            iconImage = UIImage(systemName: "number", withConfiguration: config)
+            iconImage = UIImage(named: "Channel/channelThread")
+                ?? UIImage(systemName: "text.bubble.fill", withConfiguration: config)
             iconColor = theme.text
         case .createPin:
             iconImage = UIImage(systemName: "pin.fill", withConfiguration: config)
@@ -292,6 +316,119 @@ final class MessageSystemNode: ASDisplayNode {
         return base
     }
 
+    private static func createThreadSystemText(
+        display: ChatMessageDisplay,
+        style: RichTextBuilder.Style,
+        theme: ThemeAttributes,
+        timeText: String
+    ) -> NSAttributedString? {
+        let source = display.parsedContent.text
+        guard let threadInfo = parseThreadParenLabelId(source), !threadInfo.label.isEmpty else {
+            return nil
+        }
+
+        let result = NSMutableAttributedString()
+
+        if let mention = firstMention(in: display.parsedContent, before: threadInfo.matchRange) {
+            result.append(NSAttributedString(string: mention.text, attributes: mentionAttributes(mention: mention, style: style)))
+            result.append(NSAttributedString(string: " ", attributes: bodyAttributes(style: style)))
+        }
+
+        result.append(NSAttributedString(
+            string: L(L10n.ChatSystem.startedThread) + " ",
+            attributes: bodyAttributes(style: style)
+        ))
+
+        let threadRangeStart = result.length
+        result.append(NSAttributedString(
+            string: threadInfo.label,
+            attributes: [
+                .font: style.mentionFont,
+                .foregroundColor: theme.textLink,
+                .mezonSystemAction: ("thread:" + threadInfo.id) as NSString,
+            ]
+        ))
+
+        if !threadInfo.content.isEmpty {
+            result.append(NSAttributedString(string: threadInfo.content, attributes: bodyAttributes(style: style)))
+        }
+
+        result.append(NSAttributedString(
+            string: ". " + L(L10n.ChatSystem.seeAllThreads) + " ",
+            attributes: bodyAttributes(style: style)
+        ))
+
+        result.append(NSAttributedString(
+            string: L(L10n.ChatSystem.allThreadsAnchor),
+            attributes: [
+                .font: style.mentionFont,
+                .foregroundColor: theme.textLink,
+                .mezonSystemAction: "threads" as NSString,
+            ]
+        ))
+        result.append(NSAttributedString(string: ".", attributes: bodyAttributes(style: style)))
+        result.append(NSAttributedString(
+            string: "   " + timeText,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 11.sf),
+                .foregroundColor: theme.textDisabled,
+            ]
+        ))
+
+        if threadRangeStart >= result.length {
+            return nil
+        }
+        return result
+    }
+
+    private static func bodyAttributes(style: RichTextBuilder.Style) -> [NSAttributedString.Key: Any] {
+        [
+            .font: style.bodyFont,
+            .foregroundColor: style.bodyColor,
+        ]
+    }
+
+    private static func mentionAttributes(
+        mention: (text: String, userId: String?, roleId: String?),
+        style: RichTextBuilder.Style
+    ) -> [NSAttributedString.Key: Any] {
+        let isRoleMention = mention.roleId != nil && mention.userId == nil
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: style.mentionFont,
+            .foregroundColor: isRoleMention ? style.roleMentionColor : style.mentionColor,
+            .backgroundColor: isRoleMention ? style.roleMentionBgColor : style.mentionBgColor,
+        ]
+        if isRoleMention, let roleId = mention.roleId, !roleId.isEmpty {
+            attrs[.mezonRoleMention] = roleId as NSString
+        } else if let userId = mention.userId, !userId.isEmpty {
+            attrs[.mezonMention] = userId as NSString
+        }
+        return attrs
+    }
+
+    private static func firstMention(
+        in parsed: ParsedContent,
+        before threadRange: NSRange
+    ) -> (text: String, userId: String?, roleId: String?)? {
+        for token in parsed.tokens.sorted(by: { $0.start < $1.start }) {
+            guard case .mention(let userId, let roleId, _) = token.kind else { continue }
+            guard token.start < threadRange.location else { continue }
+            let raw = parsed.text.mezon_utf16Substring(from: token.start, to: token.end)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { continue }
+            return (raw, userId, roleId)
+        }
+        let prefix = (parsed.text as NSString).substring(to: min(threadRange.location, (parsed.text as NSString).length))
+        if let regex = try? NSRegularExpression(pattern: "@[^\\s()]+"),
+           let match = regex.firstMatch(in: prefix, range: NSRange(location: 0, length: (prefix as NSString).length)) {
+            let raw = (prefix as NSString).substring(with: match.range)
+            if !raw.isEmpty {
+                return (raw, nil, nil)
+            }
+        }
+        return nil
+    }
+
     private static func threadNavigationTitle(display: ChatMessageDisplay, threadChannelId: Int64) -> String? {
         let target = "\(threadChannelId)"
         let haystack = display.parsedContent.text
@@ -310,14 +447,18 @@ final class MessageSystemNode: ASDisplayNode {
         return nil
     }
 
-    private static func parseThreadParenLabelId(_ content: String) -> (label: String, id: String)? {
+    private static func parseThreadParenLabelId(_ content: String) -> (label: String, id: String, content: String, matchRange: NSRange)? {
         guard let regex = try? NSRegularExpression(pattern: "\\(([^,]+),\\s*([^)]+)\\)"),
               let m = regex.firstMatch(in: content, range: NSRange(location: 0, length: (content as NSString).length)),
               m.numberOfRanges >= 3 else { return nil }
         let ns = content as NSString
         let label = ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
         let id = ns.substring(with: m.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (label, id)
+        let suffixStart = NSMaxRange(m.range)
+        let suffix = suffixStart < ns.length
+            ? ns.substring(from: suffixStart).trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+        return (label, id, suffix, m.range)
     }
 
     private static func nsRanges(of needle: String, in haystack: String, caseInsensitive: Bool) -> [NSRange] {

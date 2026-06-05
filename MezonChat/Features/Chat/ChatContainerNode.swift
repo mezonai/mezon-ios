@@ -354,7 +354,8 @@ final class ChatContainerNode: ASDisplayNode {
                         dmPeerUsername: state.dmPeerUsername,
                         dmPeerDisplayName: state.dmPeerDisplayName,
                         dmAvatarURL: state.dmAvatarURL,
-                        dmGroupAvatarURL: state.dmGroupAvatarURL
+                        dmGroupAvatarURL: state.dmGroupAvatarURL,
+                        threadCreatorName: state.threadCreatorName
                     ))
                     didInsertWelcomeHero = true
                 } else {
@@ -608,6 +609,7 @@ final class ChatContainerNode: ASDisplayNode {
             state.dmPeerDisplayName,
             state.dmAvatarURL,
             state.dmGroupAvatarURL,
+            state.threadCreatorName,
         ].joined(separator: "|")
     }
 

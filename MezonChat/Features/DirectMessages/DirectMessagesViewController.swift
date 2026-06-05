@@ -776,9 +776,12 @@ final class DirectMessagesViewController: ViewController {
     private let fetchDirectMessagesCooldown: TimeInterval = 2.0
 
     private func listDirectAndGroupMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
-        var channels = try await context.account.network.listDirectMessageChannels(token: token)
+        async let directChannelsTask = context.account.network.listDirectMessageChannels(token: token)
+        async let groupChannelsTask = context.account.network.listGroupMessageChannels(token: token)
+
+        var channels = try await directChannelsTask
         do {
-            let groupChannels = try await context.account.network.listGroupMessageChannels(token: token)
+            let groupChannels = try await groupChannelsTask
             var existingIds = Set(channels.map(\.channelID))
             for channel in groupChannels where !existingIds.contains(channel.channelID) {
                 channels.append(channel)

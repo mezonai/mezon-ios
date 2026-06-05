@@ -12,6 +12,7 @@ final class ChatWelcomeItem: ListViewItem {
     let dmPeerDisplayName: String
     let dmAvatarURL: String
     let dmGroupAvatarURL: String
+    let threadCreatorName: String
 
     var selectable: Bool { false }
     var approximateHeight: CGFloat { 128 }
@@ -25,7 +26,8 @@ final class ChatWelcomeItem: ListViewItem {
         dmPeerUsername: String,
         dmPeerDisplayName: String,
         dmAvatarURL: String,
-        dmGroupAvatarURL: String
+        dmGroupAvatarURL: String,
+        threadCreatorName: String
     ) {
         self.channelLabel = channelLabel
         self.channelType = channelType
@@ -36,6 +38,7 @@ final class ChatWelcomeItem: ListViewItem {
         self.dmPeerDisplayName = dmPeerDisplayName
         self.dmAvatarURL = dmAvatarURL
         self.dmGroupAvatarURL = dmGroupAvatarURL
+        self.threadCreatorName = threadCreatorName
     }
 
     func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
@@ -101,7 +104,8 @@ final class ChatWelcomeItemNode: ListViewItemNode {
                 dmPeerUsername: item.dmPeerUsername,
                 dmPeerDisplayName: item.dmPeerDisplayName,
                 dmAvatarURL: item.dmAvatarURL,
-                dmGroupAvatarURL: item.dmGroupAvatarURL
+                dmGroupAvatarURL: item.dmGroupAvatarURL,
+                threadCreatorName: item.threadCreatorName
             )
 
             let measuredSize = node.measureSize(width: width)

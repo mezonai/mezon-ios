@@ -894,7 +894,8 @@ final class SendMessageInputViewController: UIViewController {
                 })
         )
         refreshSendPermissionAvailability()
-        if channelStreamMode == MezonConstants.ChannelStreamMode.dm.rawValue {
+        if channelStreamMode == MezonConstants.ChannelStreamMode.dm.rawValue,
+           context.engine.friendsData.allFriends().isEmpty {
             Task { [weak self] in
                 guard let self, let token = await self.context.getToken() else { return }
                 await self.context.engine.friendsData.refreshFromNetwork(token: token)
