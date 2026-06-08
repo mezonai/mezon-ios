@@ -218,32 +218,29 @@ final class ChannelDetailViewController: ViewController {
         context.currentUser.flatMap { Int64($0.id) }
     }
 
-    private func estimatedGroupMemberCount() -> Int {
-        if channel.memberCount > 0 {
-            return Int(channel.memberCount)
-        }
-        var ids = Set(channel.userIds)
-        if let myId = currentUserNumericId {
-            ids.insert(myId)
-        }
-        return max(ids.count, 1)
+    private var isCurrentGroupCreator: Bool {
+        guard isGroupDirectMessage,
+              channel.creatorID != 0,
+              let myId = currentUserNumericId else { return false }
+        return myId == channel.creatorID
     }
 
     private func showGroupDMOptions() {
         guard isGroupDirectMessage else { return }
 
-        let deleteByEstimate = estimatedGroupMemberCount() <= 1
-        let leaveTitle = deleteByEstimate ? L(L10n.ChannelDetail.deleteGroup) : L(L10n.ChannelDetail.leaveGroup)
         let sheet = GroupDMOptionsSheetViewController(
             customizeTitle: L(L10n.ChannelDetail.customizeGroup),
-            leaveTitle: leaveTitle,
-            isDeleteAction: deleteByEstimate,
+            leaveTitle: L(L10n.ChannelDetail.leaveGroup),
+            deleteTitle: isCurrentGroupCreator ? L(L10n.ChannelDetail.deleteGroup) : nil,
             onCustomize: { [weak self] in
                 self?.presentCustomizeGroup()
             },
-            onLeaveOrDelete: { [weak self] in
-                self?.confirmLeaveOrDeleteGroup()
-            }
+            onLeave: { [weak self] in
+                self?.confirmLeaveGroup()
+            },
+            onDelete: isCurrentGroupCreator ? { [weak self] in
+                self?.confirmDeleteGroup()
+            } : nil
         )
         sheet.modalPresentationStyle = .overFullScreen
         sheet.modalTransitionStyle = .crossDissolve
@@ -273,40 +270,39 @@ final class ChannelDetailViewController: ViewController {
         )
     }
 
-    private func confirmLeaveOrDeleteGroup() {
-        let deleteByEstimate = estimatedGroupMemberCount() <= 1
-        let title = deleteByEstimate
-            ? L(L10n.ChannelDetail.deleteGroupConfirmTitle)
-            : L(L10n.ChannelDetail.leaveGroupConfirmTitle)
-        let message = deleteByEstimate
-            ? L(L10n.ChannelDetail.deleteGroupConfirmBody)
-            : L(L10n.ChannelDetail.leaveGroupConfirmBody)
-        let actionTitle = deleteByEstimate ? L(L10n.ChannelDetail.deleteGroup) : L(L10n.ChannelDetail.leaveGroup)
+    private func confirmLeaveGroup() {
+        presentLeaveOrDeleteConfirmation(
+            title: L(L10n.ChannelDetail.leaveGroupConfirmTitle),
+            message: L(L10n.ChannelDetail.leaveGroupConfirmBody),
+            actionTitle: L(L10n.ChannelDetail.leaveGroup),
+            userConfirmedDelete: false
+        )
+    }
 
+    private func confirmDeleteGroup() {
+        presentLeaveOrDeleteConfirmation(
+            title: L(L10n.ChannelDetail.deleteGroupConfirmTitle),
+            message: L(L10n.ChannelDetail.deleteGroupConfirmBody),
+            actionTitle: L(L10n.ChannelDetail.deleteGroup),
+            userConfirmedDelete: true
+        )
+    }
+
+    private func presentLeaveOrDeleteConfirmation(
+        title: String,
+        message: String,
+        actionTitle: String,
+        userConfirmedDelete: Bool
+    ) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
         alert.addAction(UIAlertAction(title: actionTitle, style: .destructive) { [weak self] _ in
-            self?.performLeaveOrDeleteGroup()
+            self?.performLeaveOrDeleteGroup(userConfirmedDelete: userConfirmedDelete)
         })
         present(alert, animated: true)
     }
 
-    private func shouldDeleteGroup(token: String) async -> Bool {
-        do {
-            let response = try await context.account.network.listChannelUsersUC(
-                channelId: channel.channelID,
-                limit: 500,
-                token: token
-            )
-            if !response.userIds.isEmpty {
-                return Set(response.userIds).count <= 1
-            }
-        } catch {
-        }
-        return estimatedGroupMemberCount() <= 1
-    }
-
-    private func performLeaveOrDeleteGroup() {
+    private func performLeaveOrDeleteGroup(userConfirmedDelete: Bool) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
@@ -318,8 +314,9 @@ final class ChannelDetailViewController: ViewController {
                 return
             }
 
+            let deleteGroup = userConfirmedDelete && self.isCurrentGroupCreator
+
             do {
-                let deleteGroup = await self.shouldDeleteGroup(token: token)
                 if deleteGroup {
                     try await self.context.account.network.deleteChannelDesc(
                         channelId: self.channel.channelID,
@@ -380,9 +377,10 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
 
     private let customizeTitle: String
     private let leaveTitle: String
-    private let isDeleteAction: Bool
+    private let deleteTitle: String?
     private let onCustomize: () -> Void
-    private let onLeaveOrDelete: () -> Void
+    private let onLeave: () -> Void
+    private let onDelete: (() -> Void)?
 
     private let dimView = UIView()
     private let containerView = UIView()
@@ -391,15 +389,17 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
     init(
         customizeTitle: String,
         leaveTitle: String,
-        isDeleteAction: Bool,
+        deleteTitle: String?,
         onCustomize: @escaping () -> Void,
-        onLeaveOrDelete: @escaping () -> Void
+        onLeave: @escaping () -> Void,
+        onDelete: (() -> Void)?
     ) {
         self.customizeTitle = customizeTitle
         self.leaveTitle = leaveTitle
-        self.isDeleteAction = isDeleteAction
+        self.deleteTitle = deleteTitle
         self.onCustomize = onCustomize
-        self.onLeaveOrDelete = onLeaveOrDelete
+        self.onLeave = onLeave
+        self.onDelete = onDelete
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -432,19 +432,29 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
 
         let customizeButton = makeActionButton(
             title: customizeTitle,
-            symbolName: "pencil",
             titleColor: UIColor.theme.textStrong
         )
         customizeButton.addTarget(self, action: #selector(customizePressed), for: .touchUpInside)
 
         let leaveButton = makeActionButton(
             title: leaveTitle,
-            symbolName: isDeleteAction ? "trash.fill" : "rectangle.and.arrow.right",
             titleColor: UIColor.systemRed
         )
         leaveButton.addTarget(self, action: #selector(leavePressed), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [customizeButton, leaveButton])
+        var arrangedSubviews: [UIView] = [customizeButton, leaveButton]
+        var deleteButton: UIButton?
+        if let deleteTitle, onDelete != nil {
+            let button = makeActionButton(
+                title: deleteTitle,
+                titleColor: UIColor.systemRed
+            )
+            button.addTarget(self, action: #selector(deletePressed), for: .touchUpInside)
+            deleteButton = button
+            arrangedSubviews.append(button)
+        }
+
+        let stack = UIStackView(arrangedSubviews: arrangedSubviews)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.alignment = .fill
@@ -472,9 +482,12 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
             customizeButton.heightAnchor.constraint(equalToConstant: 52.sh),
             leaveButton.heightAnchor.constraint(equalToConstant: 52.sh)
         ])
+        if let deleteButton {
+            deleteButton.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
+        }
     }
 
-    private func makeActionButton(title: String, symbolName: String, titleColor: UIColor) -> UIButton {
+    private func makeActionButton(title: String, titleColor: UIColor) -> UIButton {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = UIColor.theme.secondary
@@ -482,12 +495,8 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
         button.setTitle(title, for: .normal)
         button.setTitleColor(titleColor, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
-        button.contentHorizontalAlignment = .leading
+        button.contentHorizontalAlignment = .center
         button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 18.sw, bottom: 0, right: 18.sw)
-        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 10.sw)
-        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 10.sw, bottom: 0, right: -10.sw)
-        button.tintColor = titleColor
-        button.setImage(UIImage(systemName: symbolName), for: .normal)
         return button
     }
 
@@ -518,7 +527,11 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
     }
 
     @objc private func leavePressed() {
-        dismissSheet(completion: onLeaveOrDelete)
+        dismissSheet(completion: onLeave)
+    }
+
+    @objc private func deletePressed() {
+        dismissSheet(completion: onDelete)
     }
 }
 

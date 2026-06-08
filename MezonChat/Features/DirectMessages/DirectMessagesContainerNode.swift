@@ -30,6 +30,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     private let refreshControl = UIRefreshControl()
     private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
+    private var appliedActivityHeaderSize: CGSize?
 
     init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction) {
         tableView = UITableView(frame: .zero, style: .plain)
@@ -68,15 +69,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 
                 if directMessagesChanged || avatarURLCacheChanged {
                     self.prefetchAvatarImages(for: Array(newState.directMessages.prefix(16)))
-                    if self.tableView.frame.width > 0 {
-                        if Self.channelIdOrder(previousState.directMessages) == Self.channelIdOrder(newState.directMessages) {
-                            self.reconfigureVisibleCells()
-                        } else {
-                            self.tableView.reloadData()
-                        }
-                    } else {
-                        self.needsReloadOnLayout = true
-                    }
+                    self.applyDirectMessageUpdates(
+                        previous: previousState.directMessages,
+                        new: newState.directMessages
+                    )
                 }
             })
         )
@@ -260,16 +256,24 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private func syncActivityTableHeader(width: CGFloat) {
         let stripH: CGFloat = state.messageActivityRows.isEmpty ? 0 : (50.sh + 8.sh)
         guard stripH > 0.5, width > 0.5 else {
-            tableView.tableHeaderView = nil
+            if tableView.tableHeaderView != nil {
+                tableView.tableHeaderView = nil
+            }
+            appliedActivityHeaderSize = nil
             return
         }
         if activityStrip.superview !== activityTableHeaderWrapper {
             activityTableHeaderWrapper.addSubview(activityStrip)
         }
+        let targetSize = CGSize(width: width, height: stripH)
+        if appliedActivityHeaderSize == targetSize,
+           tableView.tableHeaderView === activityTableHeaderWrapper {
+            return
+        }
         activityTableHeaderWrapper.frame = CGRect(x: 0, y: 0, width: width, height: stripH)
         activityStrip.frame = activityTableHeaderWrapper.bounds
         tableView.tableHeaderView = activityTableHeaderWrapper
-        tableView.tableHeaderView = activityTableHeaderWrapper
+        appliedActivityHeaderSize = targetSize
     }
 
     func applyTheme() {
@@ -352,6 +356,48 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     private static func channelIdOrder(_ channels: [Mezon_Api_ChannelDescription]) -> [Int64] {
         channels.map(\.channelID)
+    }
+
+    private func applyDirectMessageUpdates(
+        previous: [Mezon_Api_ChannelDescription],
+        new: [Mezon_Api_ChannelDescription]
+    ) {
+        guard tableView.frame.width > 0 else {
+            needsReloadOnLayout = true
+            return
+        }
+
+        let oldOrder = Self.channelIdOrder(previous)
+        let newOrder = Self.channelIdOrder(new)
+
+        if oldOrder == newOrder {
+            reconfigureVisibleCells()
+            return
+        }
+
+        if oldOrder.count == newOrder.count, Set(oldOrder) == Set(newOrder) {
+            var oldIndexById: [Int64: Int] = [:]
+            oldIndexById.reserveCapacity(oldOrder.count)
+            for (index, id) in oldOrder.enumerated() {
+                oldIndexById[id] = index
+            }
+            UIView.performWithoutAnimation {
+                tableView.performBatchUpdates({
+                    for (newIndex, id) in newOrder.enumerated() {
+                        guard let oldIndex = oldIndexById[id], oldIndex != newIndex else { continue }
+                        tableView.moveRow(
+                            at: IndexPath(row: oldIndex, section: 0),
+                            to: IndexPath(row: newIndex, section: 0)
+                        )
+                    }
+                }, completion: { [weak self] _ in
+                    self?.reconfigureVisibleCells()
+                })
+            }
+            return
+        }
+
+        tableView.reloadData()
     }
 
     private func reconfigureVisibleCells() {
