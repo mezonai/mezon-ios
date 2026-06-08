@@ -29,6 +29,11 @@ final class SharingViewController: UIViewController {
     private var sendTask: Task<Void, Never>?
     private var searchDebounceTimer: Foundation.Timer?
 
+    private var uploadProgressByKey: [String: Double] = [:]
+    private var uploadSizeByKey: [String: Int] = [:]
+    private var uploadTotalBytes: Int = 0
+    private var showsUploadProgress = false
+
     private var diffableDataSource: UITableViewDiffableDataSource<Section, SharingSuggestionItem>!
 
     private var sharedMediaFiles: [SharingManager.SharedMediaFile] = []
@@ -217,6 +222,14 @@ final class SharingViewController: UIViewController {
         return b
     }()
 
+    private let blockingBackdrop: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.25)
+        v.isHidden = true
+        return v
+    }()
+
     private let loadingOverlay: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -240,6 +253,14 @@ final class SharingViewController: UIViewController {
         l.font = .systemFont(ofSize: 13, weight: .medium)
         l.textAlignment = .center
         return l
+    }()
+
+    private let uploadProgressView: UIProgressView = {
+        let p = UIProgressView(progressViewStyle: .default)
+        p.translatesAutoresizingMaskIntoConstraints = false
+        p.progress = 0
+        p.isHidden = true
+        return p
     }()
 
     private var bottomAreaBottomConstraint: NSLayoutConstraint?
@@ -268,6 +289,23 @@ final class SharingViewController: UIViewController {
             self, selector: #selector(handleLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
+    }
+
+    @objc private func handleUploadProgress(_ note: Notification) {
+        guard isUploading, showsUploadProgress, uploadTotalBytes > 0 else { return }
+        guard let info = note.userInfo,
+              let key = info["key"] as? String,
+              uploadSizeByKey[key] != nil,
+              let progress = info["progress"] as? Double else { return }
+        uploadProgressByKey[key] = min(max(progress, 0), 1)
+        let uploadedBytes = uploadSizeByKey.reduce(0.0) { acc, entry in
+            acc + (uploadProgressByKey[entry.key] ?? 0) * Double(entry.value)
+        }
+        let fraction = min(max(uploadedBytes / Double(uploadTotalBytes), 0), 1)
+        uploadProgressView.setProgress(Float(fraction), animated: true)
+        loadingLabel.text = "\(L(L10n.Sharing.uploading)) \(Int(fraction * 100))%"
     }
 
     @objc private func handleThemeChange() {
@@ -358,9 +396,11 @@ final class SharingViewController: UIViewController {
         inputPill.addSubview(textField)
         inputRow.addSubview(sendButton)
 
+        view.addSubview(blockingBackdrop)
         view.addSubview(loadingOverlay)
         loadingOverlay.addSubview(activityIndicator)
         loadingOverlay.addSubview(loadingLabel)
+        loadingOverlay.addSubview(uploadProgressView)
 
         let safeArea = view.safeAreaLayoutGuide
 
@@ -488,16 +528,27 @@ final class SharingViewController: UIViewController {
         ])
 
         NSLayoutConstraint.activate([
+            blockingBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+            blockingBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            blockingBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            blockingBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+
             loadingOverlay.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingOverlay.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            loadingOverlay.widthAnchor.constraint(equalToConstant: 140),
-            loadingOverlay.heightAnchor.constraint(equalToConstant: 100),
+            loadingOverlay.widthAnchor.constraint(equalToConstant: 220),
+            loadingOverlay.heightAnchor.constraint(equalToConstant: 110),
 
             activityIndicator.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
-            activityIndicator.centerYAnchor.constraint(equalTo: loadingOverlay.centerYAnchor, constant: -10),
+            activityIndicator.topAnchor.constraint(equalTo: loadingOverlay.topAnchor, constant: 20),
 
             loadingLabel.topAnchor.constraint(equalTo: activityIndicator.bottomAnchor, constant: 8),
             loadingLabel.centerXAnchor.constraint(equalTo: loadingOverlay.centerXAnchor),
+            loadingLabel.leadingAnchor.constraint(equalTo: loadingOverlay.leadingAnchor, constant: 20),
+            loadingLabel.trailingAnchor.constraint(equalTo: loadingOverlay.trailingAnchor, constant: -20),
+
+            uploadProgressView.topAnchor.constraint(equalTo: loadingLabel.bottomAnchor, constant: 10),
+            uploadProgressView.leadingAnchor.constraint(equalTo: loadingOverlay.leadingAnchor, constant: 20),
+            uploadProgressView.trailingAnchor.constraint(equalTo: loadingOverlay.trailingAnchor, constant: -20),
         ])
 
         if !sharedMediaFiles.isEmpty {
@@ -977,8 +1028,13 @@ final class SharingViewController: UIViewController {
 
         suggestionsTitle.textColor = t.textDisabled
         emptySuggestionsLabel.textColor = t.textDisabled
+        loadingOverlay.backgroundColor = t.secondary
+        loadingOverlay.layer.borderColor = t.border.cgColor
+        loadingOverlay.layer.borderWidth = 1
         loadingLabel.textColor = t.textStrong
-        activityIndicator.color = t.iconSecondary
+        activityIndicator.color = t.textLink
+        uploadProgressView.progressTintColor = t.textLink
+        uploadProgressView.trackTintColor = t.borderDim
 
         inputPill.backgroundColor = t.charcoal
         textField.textColor = t.textStrong
@@ -1320,12 +1376,69 @@ final class SharingViewController: UIViewController {
         }
     }
 
+    private func uploadSharedVideoThumbnail(
+        thumbnailURL: URL,
+        videoFilename: String,
+        token: String
+    ) async -> String {
+        guard let rawData = try? Data(contentsOf: thumbnailURL),
+              let image = UIImage(data: rawData) else { return "" }
+        let jpegData = image.jpegData(compressionQuality: 0.7) ?? rawData
+
+        let baseName = (videoFilename as NSString).deletingPathExtension
+        let thumbFilename = "\(baseName.isEmpty ? "video" : baseName)_thumb.jpg"
+        let width = Int(image.size.width)
+        let height = Int(image.size.height)
+
+        do {
+            let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                filename: thumbFilename, filetype: "image/jpeg", size: jpegData.count,
+                width: width, height: height, token: token, preferHTTPFirst: true)
+            try await context.account.network.uploadToMinIO(
+                url: uploadInfo.url, data: jpegData, contentType: "image/jpeg")
+            return "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+        } catch {
+            SentryLogger.capture(error, extras: [
+                "where": "Sharing.uploadSharedVideoThumbnail",
+                "filename": thumbFilename,
+            ])
+            return ""
+        }
+    }
+
+    private static let chunkUploadThreshold = 50 * 1024 * 1024
+
+    private func prepareUploadProgress() {
+        uploadProgressByKey.removeAll()
+        uploadSizeByKey.removeAll()
+        uploadTotalBytes = 0
+        showsUploadProgress = false
+
+        var hasLargeFile = false
+        for file in sharedMediaFiles {
+            guard let fileURL = SharingManager.shared.localFileURL(from: file.path),
+                  let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                  let size = (attrs[.size] as? NSNumber)?.intValue, size > 0 else { continue }
+            uploadSizeByKey[fileURL.path] = size
+            uploadTotalBytes += size
+            if size >= Self.chunkUploadThreshold { hasLargeFile = true }
+        }
+        showsUploadProgress = hasLargeFile && uploadTotalBytes > 0
+    }
+
     private func performSend(to channel: Mezon_Api_ChannelDescription) {
         sendTask?.cancel()
+        prepareUploadProgress()
         isUploading = true
         closeButton.isEnabled = false
+        blockingBackdrop.isHidden = false
         loadingOverlay.isHidden = false
         activityIndicator.startAnimating()
+        uploadProgressView.isHidden = !showsUploadProgress
+        uploadProgressView.progress = 0
+        loadingLabel.text = showsUploadProgress
+            ? "\(L(L10n.Sharing.uploading)) 0%"
+            : L(L10n.Sharing.sending)
         updateSendButton()
 
         sendTask = Task { @MainActor [weak self] in
@@ -1347,8 +1460,14 @@ final class SharingViewController: UIViewController {
             func finishUploadingUI() {
                 self.isUploading = false
                 self.closeButton.isEnabled = true
+                self.blockingBackdrop.isHidden = true
                 self.loadingOverlay.isHidden = true
                 self.activityIndicator.stopAnimating()
+                self.uploadProgressView.isHidden = true
+                self.uploadProgressView.progress = 0
+                self.showsUploadProgress = false
+                self.uploadProgressByKey.removeAll()
+                self.loadingLabel.text = L(L10n.Sharing.sending)
                 self.updateSendButton()
                 self.sendTask = nil
             }
@@ -1404,31 +1523,33 @@ final class SharingViewController: UIViewController {
 
                     let sanitized = filename.replacingOccurrences(of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
 
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                    let uploaded = try await AttachmentUploader.shared.uploadFile(
+                        fileURL: fileURL,
                         filename: sanitized,
                         filetype: filetype,
-                        size: fileSize,
+                        fileSize: fileSize,
                         width: width,
                         height: height,
                         token: token,
-                        preferHTTPFirst: true
+                        progressKey: fileURL.path,
+                        preferHTTPFirst: true,
+                        network: self.context.account.network
                     )
 
-                    try await self.uploadToMinIORetrying(
-                        url: uploadInfo.url,
-                        fileURL: fileURL,
-                        contentType: filetype
-                    )
-
-                    let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                     var att = Mezon_Api_MessageAttachment()
                     att.filename = filename
-                    att.url = cdnURL
+                    att.url = uploaded.cdnURL
                     att.filetype = filetype
                     att.size = Int32(fileSize)
                     if width > 0 { att.width = Int32(width) }
                     if height > 0 { att.height = Int32(height) }
                     if let duration = file.duration { att.duration = Int32(duration / 1000) }
+                    if file.type == .video,
+                       let thumbPath = file.thumbnail,
+                       let thumbURL = SharingManager.shared.localFileURL(from: thumbPath) {
+                        att.thumbnail = await self.uploadSharedVideoThumbnail(
+                            thumbnailURL: thumbURL, videoFilename: sanitized, token: token)
+                    }
                     uploadedAttachments.append(att)
                 }
 
@@ -1508,16 +1629,6 @@ final class SharingViewController: UIViewController {
                 finishUploadingUI()
                 self.showError(self.userFacingShareError(error))
             }
-        }
-    }
-
-    private func uploadToMinIORetrying(url: String, fileURL: URL, contentType: String) async throws {
-        do {
-            try await context.account.network.uploadToMinIO(url: url, fileURL: fileURL, contentType: contentType)
-        } catch let error as URLError where error.code == .cancelled {
-            try Task.checkCancellation()
-            try await Task.sleep(nanoseconds: 400_000_000)
-            try await context.account.network.uploadToMinIO(url: url, fileURL: fileURL, contentType: contentType)
         }
     }
 

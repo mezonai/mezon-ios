@@ -378,7 +378,14 @@ final class DmListItemCell: UITableViewCell {
             return (Self.previewWhenNoMessageBody(), time)
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
-        return (body.utf8.count >= 31 ? body + "..." : body, time)
+        return (Self.appendPreviewEllipsisIfTruncated(body), time)
+    }
+
+    private static func appendPreviewEllipsisIfTruncated(_ body: String) -> String {
+        let serverLimit = 32
+        let maxUTF8CharWidth = 4
+        let truncationThreshold = serverLimit - maxUTF8CharWidth
+        return body.utf8.count >= truncationThreshold ? body + "..." : body
     }
 
     private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]

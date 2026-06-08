@@ -97,6 +97,18 @@ final class AttachmentUploadCoordinator {
         return Set(sessionsByKey.keys)
     }
 
+    /// True if any active upload session has an item whose file is the given
+    /// progress key, so the chat view knows a progress notification for that
+    /// key should trigger a reload.
+    func hasActiveProgressKey(_ key: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        for session in sessionsByKey.values {
+            if session.items.contains(where: { $0.fileURL?.path == key }) { return true }
+            if session.params.files.contains(where: { $0.url.path == key }) { return true }
+        }
+        return false
+    }
+
     func pruneSessions(keepingMessageIds keep: Set<String>) {
         lock.lock(); defer { lock.unlock() }
         sessionsByKey = sessionsByKey.filter { keep.contains($0.key) }
@@ -130,7 +142,11 @@ final class AttachmentUploadCoordinator {
                     durationSeconds: nil,
                     localImage: item.image,
                     isUploading: true,
-                    uploadFailed: false
+                    uploadFailed: false,
+                    uploadProgress: item.fileURL.map {
+                        AttachmentUploadProgressStore.shared.progress(forKey: $0.path)
+                    } ?? 0,
+                    uploadProgressKey: item.fileURL?.path ?? ""
                 )
             case .failed:
                 return ParsedAttachment(
@@ -439,24 +455,41 @@ final class AttachmentUploadCoordinator {
     @MainActor
     private func uploadFiles(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         for file in session.params.files {
-            guard let size = await Self.fileSize(of: file.url) else { continue }
+            guard FileManager.default.fileExists(atPath: file.url.path),
+                  let size = await Self.fileSize(of: file.url) else {
+                AttachmentUploadProgressStore.shared.clear(forKey: file.url.path)
+                SentryLogger.capture(
+                    NSError(domain: "AttachmentUpload", code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Picked file missing before upload"]),
+                    extras: [
+                        "where": "AttachmentUploadCoordinator.uploadFiles.missingFile",
+                        "filename": file.filename,
+                        "path": file.url.path,
+                    ])
+                continue
+            }
             let sanitized = file.filename.replacingOccurrences(
                 of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
+            let progressKey = file.url.path
             do {
-                let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: sanitized, filetype: file.filetype, size: size,
-                    width: 0, height: 0, token: token)
-                try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, fileURL: file.url, contentType: file.filetype)
-                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let uploaded = try await AttachmentUploader.shared.uploadFile(
+                    fileURL: file.url,
+                    filename: sanitized,
+                    filetype: file.filetype,
+                    fileSize: size,
+                    token: token,
+                    progressKey: progressKey,
+                    network: context.account.network)
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = file.filename
-                att.url = cdnURL
+                att.url = uploaded.cdnURL
                 att.filetype = file.filetype
                 att.size = Int32(size)
                 session.fileAttachments.append(att)
+                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
                 try? FileManager.default.removeItem(at: file.url)
             } catch {
+                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
                 SentryLogger.capture(error, extras: [
                     "where": "AttachmentUploadCoordinator.uploadFiles",
                     "filename": file.filename,
@@ -492,12 +525,19 @@ final class AttachmentUploadCoordinator {
 
             if isVideo {
                 guard let size = await Self.fileSize(of: fileURL) else { return nil }
-                let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: sanitized, filetype: filetype, size: size,
-                    width: width, height: height, token: token)
-                try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, fileURL: fileURL, contentType: filetype)
-                att.url = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let progressKey = fileURL.path
+                let uploaded = try await AttachmentUploader.shared.uploadFile(
+                    fileURL: fileURL,
+                    filename: sanitized,
+                    filetype: filetype,
+                    fileSize: size,
+                    width: width,
+                    height: height,
+                    token: token,
+                    progressKey: progressKey,
+                    network: context.account.network)
+                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
+                att.url = uploaded.cdnURL
                 att.size = Int32(size)
                 att.thumbnail = await uploadVideoThumbnail(
                     image, originalFilename: sanitized, context: context, token: token)

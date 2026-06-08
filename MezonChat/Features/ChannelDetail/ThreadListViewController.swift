@@ -73,11 +73,15 @@ final class ThreadListViewController: ViewController {
         tableView.keyboardDismissMode = .onDrag
         tableView.backgroundColor = UIColor.theme.primary
         tableView.separatorStyle = .none
+        tableView.separatorColor = .clear
+        tableView.showsVerticalScrollIndicator = false
+        tableView.showsHorizontalScrollIndicator = false
+        tableView.tableFooterView = UIView(frame: .zero)
         if #available(iOS 15.0, *) { tableView.sectionHeaderTopPadding = 0 }
         tableView.estimatedRowHeight = 76
         tableView.rowHeight = UITableView.automaticDimension
         tableView.register(ThreadListItemCell.self, forCellReuseIdentifier: ThreadListItemCell.reuseId)
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "emptyCell")
+        tableView.register(ThreadListEmptyCell.self, forCellReuseIdentifier: ThreadListEmptyCell.reuseId)
         refreshControl.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
         tableView.refreshControl = refreshControl
         view.addSubview(tableView)
@@ -97,6 +101,9 @@ final class ThreadListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleThemeChange),
             name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleChannelDescriptionDidUpdate(_:)),
+            name: .mezonChannelDescriptionDidUpdate, object: nil)
 
         applyCachedThreadsIfAny()
         rebuildSections()
@@ -105,7 +112,7 @@ final class ThreadListViewController: ViewController {
     }
 
     deinit {
-        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self)
     }
 
     @objc private func handleThemeChange() {
@@ -113,6 +120,48 @@ final class ThreadListViewController: ViewController {
         tableView.backgroundColor = UIColor.theme.primary
         applyNavHeaderTheme()
         applySearchBarTheme()
+        tableView.reloadData()
+    }
+
+    private static func int64UserInfo(_ value: Any?) -> Int64? {
+        if let n = value as? Int64 { return n }
+        if let n = value as? Int { return Int64(n) }
+        if let n = value as? NSNumber { return n.int64Value }
+        return nil
+    }
+
+    @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
+        guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
+              updatedClanId == clanId,
+              let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+              channelId != 0 else {
+            return
+        }
+
+        let candidates = cachedThreadChannelsFromChannelCaches()
+        guard var updated = candidates.first(where: { $0.channelID == channelId })
+                ?? context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) else {
+            return
+        }
+
+        let existing = allThreads.first(where: { $0.channelID == channelId })
+        if updated.parentID == 0, let existing {
+            updated.parentID = existing.parentID
+        }
+        guard updated.parentID == parentChannelId || existing != nil else { return }
+
+        allThreads = Self.filterPrivateThreads(Self.mergeThreads([updated], withFallback: allThreads))
+        if !searchText.isEmpty {
+            searchResults = Self.sortedByLastActivity(
+                allThreads.filter {
+                    $0.channelLabel.lowercased().contains(searchText)
+                }
+            )
+        }
+        cachedClanMembersList = nil
+        persistThreadsCache()
+        rebuildSections()
+        tableView.reloadData()
     }
 
     private func setupNavHeader() {
@@ -157,6 +206,7 @@ final class ThreadListViewController: ViewController {
 
     private func applyNavHeaderTheme() {
         let t = UIColor.theme
+        headerBar.backgroundColor = t.primary
         titleLabel.textColor = t.textStrong
         backButton.tintColor = t.textStrong
         addButton.tintColor = t.textStrong
@@ -186,11 +236,11 @@ final class ThreadListViewController: ViewController {
     }
 
     private func configureSearchHeader() {
-        let header = UIView(frame: CGRect(x: 0, y: 0, width: view.bounds.width, height: 66))
+        let header = UIView(frame: CGRect(x: 0, y: 0, width: view.bounds.width, height: 78))
         header.backgroundColor = .clear
 
         searchBarContainer.translatesAutoresizingMaskIntoConstraints = false
-        searchBarContainer.layer.cornerRadius = 8
+        searchBarContainer.layer.cornerRadius = 12
         searchBarContainer.clipsToBounds = true
         header.addSubview(searchBarContainer)
 
@@ -201,7 +251,7 @@ final class ThreadListViewController: ViewController {
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
         searchField.returnKeyType = .search
-        searchField.font = .systemFont(ofSize: 15)
+        searchField.font = .systemFont(ofSize: 16)
         searchField.delegate = self
         searchField.addTarget(self, action: #selector(searchTextChanged), for: .editingChanged)
         searchBarContainer.addSubview(searchField)
@@ -218,10 +268,10 @@ final class ThreadListViewController: ViewController {
         NSLayoutConstraint.activate([
             searchBarContainer.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             searchBarContainer.trailingAnchor.constraint(equalTo: header.trailingAnchor),
-            searchBarContainer.topAnchor.constraint(equalTo: header.topAnchor, constant: 8),
+            searchBarContainer.topAnchor.constraint(equalTo: header.topAnchor, constant: 18),
             searchBarContainer.heightAnchor.constraint(equalToConstant: 50),
 
-            searchField.leadingAnchor.constraint(equalTo: searchBarContainer.leadingAnchor, constant: 12),
+            searchField.leadingAnchor.constraint(equalTo: searchBarContainer.leadingAnchor, constant: 14),
             searchField.trailingAnchor.constraint(equalTo: searchClearButton.leadingAnchor, constant: -4),
             searchField.topAnchor.constraint(equalTo: searchBarContainer.topAnchor),
             searchField.bottomAnchor.constraint(equalTo: searchBarContainer.bottomAnchor),
@@ -232,7 +282,7 @@ final class ThreadListViewController: ViewController {
             searchClearButton.heightAnchor.constraint(equalToConstant: 32),
         ])
 
-        header.frame.size.height = 66
+        header.frame.size.height = 78
         tableView.tableHeaderView = header
         applySearchBarTheme()
     }
@@ -349,8 +399,8 @@ final class ThreadListViewController: ViewController {
             cachedThreads = decoded.channels
         }
         let merged = Self.mergeThreads(
-            cachedThreads,
-            withFallback: cachedThreadChannelsFromChannelCaches()
+            cachedThreadChannelsFromChannelCaches(),
+            withFallback: cachedThreads
         )
         if !merged.isEmpty {
             allThreads = Self.filterPrivateThreads(merged)
@@ -701,6 +751,143 @@ private enum ThreadCardPosition {
     }
 }
 
+private final class ThreadListEmptyCell: UITableViewCell {
+
+    static let reuseId = "ThreadListEmptyCell"
+
+    private let stackView = UIStackView()
+    private let iconCircleView = UIView()
+    private let iconImageView = UIImageView()
+    private let iconSlashOne = UIView()
+    private let iconSlashTwo = UIView()
+    private let titleLabel = UILabel()
+    private let descriptionLabel = UILabel()
+    private let createButton = UIButton(type: .system)
+
+    var onCreateThread: (() -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        separatorInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: .greatestFiniteMagnitude)
+        layoutMargins = .zero
+        preservesSuperviewLayoutMargins = false
+        selectionStyle = .none
+
+        stackView.axis = .vertical
+        stackView.alignment = .center
+        stackView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(stackView)
+
+        iconCircleView.translatesAutoresizingMaskIntoConstraints = false
+        iconCircleView.layer.cornerRadius = 28
+        iconCircleView.clipsToBounds = true
+
+        iconImageView.translatesAutoresizingMaskIntoConstraints = false
+        iconImageView.contentMode = .scaleAspectFit
+        iconCircleView.addSubview(iconImageView)
+
+        [iconSlashOne, iconSlashTwo].forEach { slash in
+            slash.translatesAutoresizingMaskIntoConstraints = false
+            slash.layer.cornerRadius = 1.5
+            slash.transform = CGAffineTransform(rotationAngle: -.pi / 7)
+            iconCircleView.addSubview(slash)
+        }
+
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+        titleLabel.adjustsFontForContentSizeCategory = true
+
+        descriptionLabel.textAlignment = .center
+        descriptionLabel.numberOfLines = 0
+        descriptionLabel.adjustsFontForContentSizeCategory = true
+
+        createButton.translatesAutoresizingMaskIntoConstraints = false
+        createButton.layer.cornerRadius = 26
+        createButton.clipsToBounds = true
+        createButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .bold)
+        createButton.addTarget(self, action: #selector(createTapped), for: .touchUpInside)
+
+        stackView.addArrangedSubview(iconCircleView)
+        stackView.setCustomSpacing(22, after: iconCircleView)
+        stackView.addArrangedSubview(titleLabel)
+        stackView.setCustomSpacing(10, after: titleLabel)
+        stackView.addArrangedSubview(descriptionLabel)
+        stackView.setCustomSpacing(32, after: descriptionLabel)
+        stackView.addArrangedSubview(createButton)
+
+        let top = stackView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 126)
+        top.priority = .defaultHigh
+
+        NSLayoutConstraint.activate([
+            stackView.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 24),
+            stackView.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -24),
+            stackView.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 32),
+            stackView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -32),
+            top,
+
+            iconCircleView.widthAnchor.constraint(equalToConstant: 56),
+            iconCircleView.heightAnchor.constraint(equalToConstant: 56),
+
+            iconImageView.centerXAnchor.constraint(equalTo: iconCircleView.centerXAnchor),
+            iconImageView.centerYAnchor.constraint(equalTo: iconCircleView.centerYAnchor),
+            iconImageView.widthAnchor.constraint(equalToConstant: 28),
+            iconImageView.heightAnchor.constraint(equalToConstant: 28),
+
+            iconSlashOne.centerXAnchor.constraint(equalTo: iconCircleView.centerXAnchor, constant: -4),
+            iconSlashOne.centerYAnchor.constraint(equalTo: iconCircleView.centerYAnchor, constant: -1),
+            iconSlashOne.widthAnchor.constraint(equalToConstant: 3.5),
+            iconSlashOne.heightAnchor.constraint(equalToConstant: 15),
+
+            iconSlashTwo.centerXAnchor.constraint(equalTo: iconCircleView.centerXAnchor, constant: 5),
+            iconSlashTwo.centerYAnchor.constraint(equalTo: iconCircleView.centerYAnchor, constant: -1),
+            iconSlashTwo.widthAnchor.constraint(equalToConstant: 3.5),
+            iconSlashTwo.heightAnchor.constraint(equalToConstant: 15),
+
+            descriptionLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 330),
+
+            createButton.widthAnchor.constraint(equalToConstant: 156),
+            createButton.heightAnchor.constraint(equalToConstant: 52),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onCreateThread = nil
+    }
+
+    func configure() {
+        let t = UIColor.theme
+        iconCircleView.backgroundColor = t.iconPrimary.withAlphaComponent(0.14)
+        iconImageView.image = UIImage(systemName: "bubble.left.fill")?.withConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
+        )
+        iconImageView.tintColor = t.textDisabled
+        iconSlashOne.backgroundColor = .white
+        iconSlashTwo.backgroundColor = .white
+
+        titleLabel.text = L(L10n.ThreadList.emptyTitle)
+        titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
+        titleLabel.textColor = t.textStrong
+
+        descriptionLabel.text = L(L10n.ThreadList.emptyDescription)
+        descriptionLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        descriptionLabel.textColor = t.textDisabled
+
+        createButton.setTitle(L(L10n.ThreadList.createThreadButton), for: .normal)
+        createButton.backgroundColor = t.iconPrimary
+        createButton.setTitleColor(.white, for: .normal)
+    }
+
+    @objc private func createTapped() {
+        onCreateThread?()
+    }
+}
+
 private final class ThreadListItemCell: UITableViewCell {
 
     static let reuseId = "ThreadListItemCell"
@@ -895,6 +1082,12 @@ extension ThreadListViewController: UITableViewDataSource, UITableViewDelegate {
         40
     }
 
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard displaySections.isEmpty else { return UITableView.automaticDimension }
+        let headerHeight = tableView.tableHeaderView?.bounds.height ?? 0
+        return max(420, tableView.bounds.height - headerHeight)
+    }
+
     func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
         guard !displaySections.isEmpty else { return nil }
         let v = UIView()
@@ -903,18 +1096,21 @@ extension ThreadListViewController: UITableViewDataSource, UITableViewDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        displaySections.isEmpty ? 0.01 : 10
+        displaySections.isEmpty ? 0 : 10
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard !displaySections.isEmpty, indexPath.section < displaySections.count else {
-            let cell = tableView.dequeueReusableCell(withIdentifier: "emptyCell", for: indexPath)
-            cell.backgroundColor = .clear
-            cell.textLabel?.text = L(L10n.ThreadList.empty)
-            cell.textLabel?.textColor = UIColor.theme.textDisabled
-            cell.textLabel?.textAlignment = .center
-            cell.textLabel?.font = .systemFont(ofSize: 15, weight: .medium)
-            cell.selectionStyle = .none
+            guard let cell = tableView.dequeueReusableCell(
+                withIdentifier: ThreadListEmptyCell.reuseId,
+                for: indexPath
+            ) as? ThreadListEmptyCell else {
+                return UITableViewCell()
+            }
+            cell.configure()
+            cell.onCreateThread = { [weak self] in
+                self?.createThreadTapped()
+            }
             return cell
         }
 

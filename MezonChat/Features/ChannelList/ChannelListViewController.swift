@@ -304,6 +304,7 @@ final class ChannelListViewController: ViewController {
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
+    private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
 
     private func indexOfChannelInAllChannels(_ channelId: Int64) -> Int? {
         allChannels.firstIndex { $0.channelID == channelId }
@@ -343,6 +344,74 @@ final class ChannelListViewController: ViewController {
         return false
     }
 
+    private func pendingMentionUnreadFloor(clanId: Int64, channelId: Int64) -> Int32 {
+        pendingMentionUnreadFloorByClanId[clanId]?[channelId] ?? 0
+    }
+
+    private func setPendingMentionUnreadFloor(clanId: Int64, channelId: Int64, count: Int32) {
+        guard clanId != 0, channelId != 0, count > 0 else { return }
+        var floors = pendingMentionUnreadFloorByClanId[clanId] ?? [:]
+        floors[channelId] = max(floors[channelId] ?? 0, count)
+        pendingMentionUnreadFloorByClanId[clanId] = floors
+    }
+
+    private func clearPendingMentionUnreadFloor(clanId: Int64, channelId: Int64) {
+        guard clanId != 0, channelId != 0 else { return }
+        pendingMentionUnreadFloorByClanId[clanId]?[channelId] = nil
+        if pendingMentionUnreadFloorByClanId[clanId]?.isEmpty == true {
+            pendingMentionUnreadFloorByClanId[clanId] = nil
+        }
+    }
+
+    @discardableResult
+    private func bumpMentionUnread(clanId: Int64, channelId: Int64) -> Bool {
+        guard clanId != 0, channelId != 0 else { return false }
+        if let index = indexOfChannelInAllChannels(channelId) {
+            allChannels[index].countMessUnread += 1
+            setPendingMentionUnreadFloor(
+                clanId: clanId,
+                channelId: channelId,
+                count: allChannels[index].countMessUnread
+            )
+            return true
+        }
+        let currentFloor = pendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
+        let nextFloor = currentFloor == Int32.max ? currentFloor : currentFloor + 1
+        setPendingMentionUnreadFloor(clanId: clanId, channelId: channelId, count: nextFloor)
+        return false
+    }
+
+    private func preservePendingMentionUnread(
+        in channels: [Mezon_Api_ChannelDescription],
+        clanId: Int64
+    ) -> [Mezon_Api_ChannelDescription] {
+        guard clanId != 0,
+              let floors = pendingMentionUnreadFloorByClanId[clanId],
+              !floors.isEmpty else {
+            return channels
+        }
+
+        var result = channels
+        var existingById: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for channel in allChannels where channel.clanID == 0 || channel.clanID == clanId {
+            existingById[channel.channelID] = channel
+        }
+        for index in result.indices {
+            let channelId = result[index].channelID
+            guard let floor = floors[channelId], floor > 0 else { continue }
+            if result[index].countMessUnread < floor {
+                result[index].countMessUnread = floor
+            }
+            if let existing = existingById[channelId],
+               existing.hasLastSentMessage,
+               (!result[index].hasLastSentMessage
+                || existing.lastSentMessage.timestampSeconds > result[index].lastSentMessage.timestampSeconds) {
+                result[index].lastSentMessage = existing.lastSentMessage
+            }
+        }
+        return result
+    }
+
     @discardableResult
     private func applyMentionEventUnreadIfNeeded(
         clanId: Int64,
@@ -352,24 +421,28 @@ final class ChannelListViewController: ViewController {
         ts: UInt32? = nil
     ) -> Bool {
         guard clanId != 0, messageId != 0, parentChannelId != 0 else { return false }
-        let ekey = "m:\(clanId)_\(messageId)"
-        if processedBadgeKeys.contains(ekey) { return false }
-        processedBadgeKeys.insert(ekey)
+        let targetChannelIds = [parentChannelId, threadChannelId ?? 0]
+            .filter { $0 != 0 }
+            .reduce(into: [Int64]()) { result, channelId in
+                if !result.contains(channelId) {
+                    result.append(channelId)
+                }
+            }
         recordTimestampSentinelForMention(
             clanId: clanId,
-            channelIds: [parentChannelId, threadChannelId ?? 0],
+            channelIds: targetChannelIds,
             ts: ts
         )
-        if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
         var didChange = false
-        if let ip = indexOfChannelInAllChannels(parentChannelId) {
-            allChannels[ip].countMessUnread += 1
-            didChange = true
+        for channelId in targetChannelIds {
+            let ekey = "m:\(clanId)_\(messageId)_\(channelId)"
+            if processedBadgeKeys.contains(ekey) { continue }
+            processedBadgeKeys.insert(ekey)
+            if bumpMentionUnread(clanId: clanId, channelId: channelId) {
+                didChange = true
+            }
         }
-        if let t = threadChannelId, t != 0, t != parentChannelId, let it = indexOfChannelInAllChannels(t) {
-            allChannels[it].countMessUnread += 1
-            didChange = true
-        }
+        if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
         return didChange
     }
 
@@ -644,20 +717,20 @@ final class ChannelListViewController: ViewController {
             let rows = await inflight.value
             guard isCurrentSessionAlive else { return base }
             guard clanId == self.clanId else { return base }
-            guard !rows.isEmpty else { return base }
+            guard !rows.isEmpty else { return preservePendingMentionUnread(in: base, clanId: clanId) }
             var merged = base
             ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &merged, badgeRows: rows)
-            return merged
+            return preservePendingMentionUnread(in: merged, clanId: clanId)
         }
 
         if let last = lastBadgeCountFetchAtByClanId[clanId],
            Date().timeIntervalSince(last) < badgeCountFetchCooldown {
-            return base
+            return preservePendingMentionUnread(in: base, clanId: clanId)
         }
 
         let token = await context.getTokenPreferringCachedSkipSessionReadyWait()
         guard clanId == self.clanId else { return base }
-        guard let token else { return base }
+        guard let token else { return preservePendingMentionUnread(in: base, clanId: clanId) }
 
         let task: Task<[Mezon_Api_ChannelDescription], Never> = Task.detached(priority: .utility) {
             do {
@@ -673,10 +746,10 @@ final class ChannelListViewController: ViewController {
 
         guard isCurrentSessionAlive else { return base }
         guard clanId == self.clanId else { return base }
-        guard !rows.isEmpty else { return base }
+        guard !rows.isEmpty else { return preservePendingMentionUnread(in: base, clanId: clanId) }
         var merged = base
         ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &merged, badgeRows: rows)
-        return merged
+        return preservePendingMentionUnread(in: merged, clanId: clanId)
     }
 
     @MainActor
@@ -1330,6 +1403,7 @@ final class ChannelListViewController: ViewController {
     }
 
     private func removeChannelLocally(channelId: Int64) {
+        clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
         allChannels.removeAll { $0.channelID == channelId }
         
         let built = buildChannelCategories(
@@ -1500,7 +1574,7 @@ final class ChannelListViewController: ViewController {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
               let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
         guard clanId == self.clanId, clanId != 0 else { return }
-        if notification.userInfo?["isParentOfTopic"] as? Bool == true { return }
+        let isParentOfTopic = notification.userInfo?["isParentOfTopic"] as? Bool == true
         let messageId = notification.userInfo?["messageId"] as? String ?? ""
         let ts = notification.userInfo?["timestampSeconds"]
         let tsU32: UInt32? = {
@@ -1510,13 +1584,12 @@ final class ChannelListViewController: ViewController {
             return nil
         }()
         if !messageId.isEmpty, messageId != "0", let mid = Int64(messageId), mid != 0 {
-            if processedBadgeKeys.contains("m:\(clanId)_\(mid)") { return }
             var updated = false
             let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
             if topicFromNoti != 0 {
-                let parentId = parentChannelIdForThreadBadge(
-                    topicId: topicFromNoti, messageChannelId: channelId
-                )
+                let parentId = isParentOfTopic
+                    ? channelId
+                    : parentChannelIdForThreadBadge(topicId: topicFromNoti, messageChannelId: channelId)
                 if applyMentionEventUnreadIfNeeded(
                     clanId: clanId, messageId: mid, parentChannelId: parentId, threadChannelId: topicFromNoti, ts: tsU32
                 ) { updated = true }
@@ -1538,8 +1611,7 @@ final class ChannelListViewController: ViewController {
         guard !processedBadgeKeys.contains(dedupKey) else { return }
         processedBadgeKeys.insert(dedupKey)
         if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
-        if let i = indexOfChannelInAllChannels(channelId) {
-            allChannels[i].countMessUnread += 1
+        if bumpMentionUnread(clanId: clanId, channelId: channelId) {
             rebuildAndReload()
         }
     }
@@ -1588,7 +1660,10 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
-        guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
+        let notificationClanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? clanId
+        guard notificationClanId == 0 || notificationClanId == clanId else { return }
+        clearPendingMentionUnreadFloor(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
         let now = UInt32(Date().timeIntervalSince1970)
         for i in 0..<allChannels.count {
             if allChannels[i].channelID == channelId {
@@ -1656,7 +1731,8 @@ final class ChannelListViewController: ViewController {
             clanId != 0 ? readChannelCachePayloadIfAvailable(clanId: clanId) : nil
 
         if clanId != 0, let cache = pendingCache {
-            allChannels = cache.channels
+            let cachedChannels = preservePendingMentionUnread(in: cache.channels, clanId: clanId)
+            allChannels = cachedChannels
             if let meta = cache.meta {
                 channelListCategoryDescs = meta.categoryDescs
                 channelListFavoriteIds = meta.favoriteIds
@@ -1666,8 +1742,8 @@ final class ChannelListViewController: ViewController {
             }
             if let blob = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelListCategories(clanId: clanId)),
                let snap = decodeCategoriesSnapshot(blob),
-               categoriesSnapshotConsistentWithChannels(snap, authoritative: cache.channels) {
-                categories = mergeChannelProtosIntoCategoriesSnapshot(snap, authoritative: cache.channels)
+               categoriesSnapshotConsistentWithChannels(snap, authoritative: cachedChannels) {
+                categories = mergeChannelProtosIntoCategoriesSnapshot(snap, authoritative: cachedChannels)
                 channelsLoadedPromise.set(true)
                 categoriesPipe.putNext(categories)
                 syncSelectedChannelFromStoredPreferences()
@@ -1675,7 +1751,7 @@ final class ChannelListViewController: ViewController {
             } else {
                 let storedCollapsed = loadCollapsedCategoryIds()
                 let built = buildChannelCategories(
-                    cache.channels,
+                    cachedChannels,
                     categoryDescs: channelListCategoryDescs,
                     favoriteChannelIds: channelListFavoriteIds,
                     collapsedIds: storedCollapsed
@@ -2179,10 +2255,11 @@ final class ChannelListViewController: ViewController {
         } else {
             resolvedChannels = channels
         }
-        allChannels = resolvedChannels
+        let visibleChannels = preservePendingMentionUnread(in: resolvedChannels, clanId: clanId)
+        allChannels = visibleChannels
         let storedCollapsed = loadCollapsedCategoryIds()
         let built = buildChannelCategories(
-            resolvedChannels,
+            visibleChannels,
             categoryDescs: channelListCategoryDescs,
             favoriteChannelIds: channelListFavoriteIds,
             collapsedIds: storedCollapsed
@@ -2574,7 +2651,8 @@ final class ChannelListViewController: ViewController {
     }
 
     private func applyChannelCachePayload(channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?) {
-        allChannels = channels
+        let resolvedChannels = preservePendingMentionUnread(in: channels, clanId: clanId)
+        allChannels = resolvedChannels
         if let meta {
             channelListCategoryDescs = meta.categoryDescs
             channelListFavoriteIds = meta.favoriteIds
@@ -2584,7 +2662,7 @@ final class ChannelListViewController: ViewController {
         }
         let storedCollapsed = loadCollapsedCategoryIds()
         let built = buildChannelCategories(
-            channels,
+            resolvedChannels,
             categoryDescs: channelListCategoryDescs,
             favoriteChannelIds: channelListFavoriteIds,
             collapsedIds: storedCollapsed

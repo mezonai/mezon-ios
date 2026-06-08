@@ -839,7 +839,7 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: -1))?.friends else { return }
+            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: 0))?.friends else { return }
             let cached = allFriends()
 
             guard !fetched.isEmpty || cached.isEmpty else { return }

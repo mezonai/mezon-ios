@@ -603,6 +603,7 @@ enum L10n {
         static let emptySuggestions      = "sharing.emptySuggestions"
         static let commentPlaceholder    = "sharing.commentPlaceholder"
         static let sending               = "sharing.sending"
+        static let uploading             = "sharing.uploading"
         static let filterTitle           = "sharing.filterTitle"
         static let filterAll             = "sharing.filterAll"
         static let filterUsers           = "sharing.filterUsers"
@@ -664,6 +665,8 @@ enum L10n {
     enum ThreadList {
         static let searchPlaceholder = "threadList.searchPlaceholder"
         static let empty = "threadList.empty"
+        static let emptyTitle = "threadList.emptyTitle"
+        static let emptyDescription = "threadList.emptyDescription"
         static let joinedThread = "threadList.joinedThread"
         static let joinedThreads = "threadList.joinedThreads"
         static let otherActiveThread = "threadList.otherActiveThread"
@@ -673,6 +676,7 @@ enum L10n {
         static let searchThread = "threadList.searchThread"
         static let searchThreads = "threadList.searchThreads"
         static let createThreadSoon = "threadList.createThreadSoon"
+        static let createThreadButton = "threadList.createThreadButton"
         static let createThreadTitle = "threadList.createThreadTitle"
         static let createThreadNameLabel = "threadList.createThreadNameLabel"
         static let createThreadNamePlaceholder = "threadList.createThreadNamePlaceholder"
@@ -695,6 +699,8 @@ enum L10n {
     enum ChatSystem {
         static let pinMessageAnchor = "chat.system.pinMessageAnchor"
         static let allThreadsAnchor = "chat.system.allThreadsAnchor"
+        static let startedThread = "chat.system.startedThread"
+        static let seeAllThreads = "chat.system.seeAllThreads"
     }
 
     enum Channel {
@@ -811,6 +817,7 @@ enum L10n {
         static let welcomeToChannel = "chatWelcome.welcomeToChannel"
         static let startOfChannel = "chatWelcome.startOfChannel"
         static let privateChannel = "chatWelcome.privateChannel"
+        static let threadStartedBy = "chatWelcome.threadStartedBy"
         static let beginningOfDM = "chatWelcome.beginningOfDM"
         static let welcomeToGroup = "chatWelcome.welcomeToGroup"
     }
@@ -1556,6 +1563,7 @@ extension L10n {
         "sharing.emptySuggestions":         "No channels or conversations yet. Open the app and browse your servers, then try again.",
         "sharing.commentPlaceholder":       "Add a comment (optional)",
         "sharing.sending":                  "Sending…",
+        "sharing.uploading":                "Uploading",
         "sharing.filterTitle":              "Filter",
         "sharing.filterAll":                "All",
         "sharing.filterUsers":              "Users",
@@ -1600,8 +1608,10 @@ extension L10n {
         "onboardingMember.mission.visit":       "Visit a channel",
         "onboardingMember.mission.doSomething": "Do anything you want",
 
-        "threadList.searchPlaceholder": "Search for Thread Name",
+        "threadList.searchPlaceholder": "Search Threads",
         "threadList.empty": "No threads yet",
+        "threadList.emptyTitle": "There are no threads",
+        "threadList.emptyDescription": "Stay focus on conversation with a thread\n- a temporary text channel.",
         "threadList.joinedThread": "joined thread",
         "threadList.joinedThreads": "joined threads",
         "threadList.otherActiveThread": "other active thread",
@@ -1611,6 +1621,7 @@ extension L10n {
         "threadList.searchThread": "search result",
         "threadList.searchThreads": "search results",
         "threadList.createThreadSoon": "Create thread is not available here yet.",
+        "threadList.createThreadButton": "Create Thread",
         "threadList.createThreadTitle": "New thread",
         "threadList.createThreadNameLabel": "Thread name",
         "threadList.createThreadNamePlaceholder": "New thread",
@@ -1618,7 +1629,7 @@ extension L10n {
         "threadList.createThreadPrivateSubtitle": "Only people you invite can access this thread.",
         "threadList.createThreadSubmit": "Create",
         "threadList.createThreadCancel": "Cancel",
-        "threadList.createThreadNameInvalid": "Enter a name up to 64 characters.",
+        "threadList.createThreadNameInvalid": "Enter a name from 4 to 64 characters.",
         "threadList.createThreadFailed": "Could not create thread.",
         "threadList.createThreadSuccess": "Thread created.",
         "threadList.createThreadInChannel": "In #%@",
@@ -1633,6 +1644,8 @@ extension L10n {
         "channel.thread": "Threads",
         "chat.system.pinMessageAnchor": "a message",
         "chat.system.allThreadsAnchor": "all threads",
+        "chat.system.startedThread": "started a thread:",
+        "chat.system.seeAllThreads": "See",
         "channel.settings": "Channel Settings",
         "channel.threadSettings": "Thread Settings",
         "channel.name":   "Channel Name",
@@ -1822,6 +1835,7 @@ extension L10n {
         "chatWelcome.welcomeToChannel": "Welcome to #%@",
         "chatWelcome.startOfChannel": "This is the start of the #%@ %@ channel",
         "chatWelcome.privateChannel": "private",
+        "chatWelcome.threadStartedBy": "Started by %@",
         "chatWelcome.beginningOfDM": "This is the very beginning of your legendary conversation with %@",
         "chatWelcome.welcomeToGroup": "Welcome to the beginning of the %@ group.",
 
@@ -2559,6 +2573,7 @@ extension L10n {
         "sharing.emptySuggestions":         "Chưa có kênh hoặc cuộc trò chuyện. Mở ứng dụng và vào máy chủ của bạn, rồi thử lại.",
         "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
         "sharing.sending":                  "Đang gửi…",
+        "sharing.uploading":                "Đang tải lên",
         "sharing.filterTitle":              "Lọc",
         "sharing.filterAll":                "Tất cả",
         "sharing.filterUsers":              "Người dùng",
@@ -2602,8 +2617,10 @@ extension L10n {
         "onboardingMember.mission.visit":       "Truy cập kênh",
         "onboardingMember.mission.doSomething": "Làm bất cứ điều gì bạn muốn",
 
-        "threadList.searchPlaceholder": "Tìm theo tên chủ đề",
+        "threadList.searchPlaceholder": "Tìm chủ đề",
         "threadList.empty": "Chưa có chủ đề",
+        "threadList.emptyTitle": "Chưa có chủ đề",
+        "threadList.emptyDescription": "Tập trung vào cuộc trò chuyện bằng một chủ đề\n- một kênh văn bản tạm thời.",
         "threadList.joinedThread": "chủ đề đã tham gia",
         "threadList.joinedThreads": "chủ đề đã tham gia",
         "threadList.otherActiveThread": "chủ đề hoạt động khác",
@@ -2613,6 +2630,7 @@ extension L10n {
         "threadList.searchThread": "kết quả",
         "threadList.searchThreads": "kết quả",
         "threadList.createThreadSoon": "Tạo chủ đề từ đây sẽ có trong bản cập nhật sau.",
+        "threadList.createThreadButton": "Tạo chủ đề",
         "threadList.createThreadTitle": "Chủ đề mới",
         "threadList.createThreadNameLabel": "Tên chủ đề",
         "threadList.createThreadNamePlaceholder": "Chủ đề mới",
@@ -2620,7 +2638,7 @@ extension L10n {
         "threadList.createThreadPrivateSubtitle": "Chỉ những người được mời mới vào được chủ đề này.",
         "threadList.createThreadSubmit": "Tạo",
         "threadList.createThreadCancel": "Hủy",
-        "threadList.createThreadNameInvalid": "Nhập tên không quá 64 ký tự.",
+        "threadList.createThreadNameInvalid": "Nhập tên từ 4 đến 64 ký tự.",
         "threadList.createThreadFailed": "Không tạo được chủ đề.",
         "threadList.createThreadSuccess": "Đã tạo chủ đề.",
         "threadList.createThreadInChannel": "Trong #%@",
@@ -2635,6 +2653,8 @@ extension L10n {
         "channel.thread": "Chủ đề",
         "chat.system.pinMessageAnchor": "một tin nhắn",
         "chat.system.allThreadsAnchor": "tất cả chủ đề",
+        "chat.system.startedThread": "đã tạo một chủ đề:",
+        "chat.system.seeAllThreads": "Xem",
         "channel.settings": "Cài đặt kênh",
         "channel.threadSettings": "Cài đặt chủ đề",
         "channel.name":   "Tên kênh",
@@ -2825,6 +2845,7 @@ extension L10n {
         "chatWelcome.welcomeToChannel": "Chào mừng đến với #%@",
         "chatWelcome.startOfChannel": "Đây là nơi bắt đầu của kênh #%@ %@",
         "chatWelcome.privateChannel": "riêng tư",
+        "chatWelcome.threadStartedBy": "Được tạo bởi %@",
         "chatWelcome.beginningOfDM": "Đây là nơi bắt đầu cuộc trò chuyện của bạn và %@",
         "chatWelcome.welcomeToGroup": "Chào mừng bạn đến với nhóm %@.",
 

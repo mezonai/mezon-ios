@@ -1,6 +1,38 @@
 import UIKit
 import AsyncDisplayKit
 
+final class UploadProgressBarNode: ASDisplayNode {
+
+    private let fillNode = ASDisplayNode()
+    private let progress: CGFloat
+
+    init(
+        progress: Double,
+        width: CGFloat,
+        height: CGFloat = 4,
+        trackColor: UIColor,
+        fillColor: UIColor
+    ) {
+        self.progress = CGFloat(min(max(progress, 0), 1))
+        super.init()
+        isUserInteractionEnabled = false
+        backgroundColor = trackColor
+        cornerRadius = height / 2
+        clipsToBounds = true
+        if width > 0 {
+            style.preferredSize = CGSize(width: width, height: height)
+        }
+        fillNode.backgroundColor = fillColor
+        fillNode.cornerRadius = height / 2
+        addSubnode(fillNode)
+    }
+
+    override func layout() {
+        super.layout()
+        fillNode.frame = CGRect(x: 0, y: 0, width: bounds.width * progress, height: bounds.height)
+    }
+}
+
 final class MessageFileAttachmentNode: ASDisplayNode {
 
     private var fileNodes: [FileItemNode] = []
@@ -63,10 +95,14 @@ final class FileItemNode: ASDisplayNode {
     private let nameNode = ASTextNode2()
     private let bgNode = ASDisplayNode()
     private let spinnerNode: ASDisplayNode?
+    private let progressLabelNode: ASTextNode2?
+    private let progressBarNode: UploadProgressBarNode?
     private let showsUploadSpinner: Bool
 
     private static let spinnerSide: CGFloat = 24
     private static let spinnerLeadingGap: CGFloat = 8
+    private static let progressLabelWidth: CGFloat = 40
+    private static let progressBarHeight: CGFloat = 3
 
     var onTapped: (() -> Void)?
     var tag: Int = 0
@@ -77,7 +113,10 @@ final class FileItemNode: ASDisplayNode {
 
     init(attachment: ParsedAttachment) {
         let shows = attachment.isUploading
+        let progress = attachment.uploadProgress
         let spinner: ASDisplayNode?
+        let progressLabel: ASTextNode2?
+        let progressBar: UploadProgressBarNode?
         if shows {
             let s = ASDisplayNode()
             s.isUserInteractionEnabled = false
@@ -89,11 +128,37 @@ final class FileItemNode: ASDisplayNode {
             }
             s.style.preferredSize = CGSize(width: Self.spinnerSide, height: Self.spinnerSide)
             spinner = s
+
+            if progress > 0 {
+                let label = ASTextNode2()
+                label.attributedText = NSAttributedString(
+                    string: "\(Int(progress * 100))%",
+                    attributes: [
+                        .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: UIColor.theme.textNormal,
+                    ]
+                )
+                label.maximumNumberOfLines = 1
+                progressLabel = label
+                progressBar = UploadProgressBarNode(
+                    progress: progress,
+                    width: 0,
+                    height: Self.progressBarHeight,
+                    trackColor: UIColor.theme.borderDim,
+                    fillColor: UIColor.theme.textLink)
+            } else {
+                progressLabel = nil
+                progressBar = nil
+            }
         } else {
             spinner = nil
+            progressLabel = nil
+            progressBar = nil
         }
         self.showsUploadSpinner = shows
         self.spinnerNode = spinner
+        self.progressLabelNode = progressLabel
+        self.progressBarNode = progressBar
         super.init()
 
         let t = UIColor.theme
@@ -123,6 +188,12 @@ final class FileItemNode: ASDisplayNode {
         if let spinner {
             addSubnode(spinner)
         }
+        if let progressLabelNode {
+            addSubnode(progressLabelNode)
+        }
+        if let progressBarNode {
+            addSubnode(progressBarNode)
+        }
     }
 
     override func didLoad() {
@@ -141,7 +212,8 @@ final class FileItemNode: ASDisplayNode {
         let insetTrailing: CGFloat = 14
         let insetV: CGFloat = 10
         let spacing: CGFloat = 10
-        let spinnerReserve: CGFloat = showsUploadSpinner ? Self.spinnerSide + Self.spinnerLeadingGap : 0
+        let progressReserve: CGFloat = progressLabelNode != nil ? Self.progressLabelWidth + Self.spinnerLeadingGap : 0
+        let spinnerReserve: CGFloat = showsUploadSpinner ? Self.spinnerSide + Self.spinnerLeadingGap + progressReserve : 0
         let nameMaxW = maxWidth * 0.7 - cachedIconSize.width - spacing - insetLeading - insetTrailing - spinnerReserve
 
         cachedNameSize = nameNode.measure(CGSize(width: max(nameMaxW, 50), height: .greatestFiniteMagnitude))
@@ -168,13 +240,30 @@ final class FileItemNode: ASDisplayNode {
         let nameX = iconX + cachedIconSize.width + spacing
         let spinnerW: CGFloat = showsUploadSpinner ? Self.spinnerSide : 0
         let gap: CGFloat = showsUploadSpinner ? Self.spinnerLeadingGap : 0
-        let nameAvailableW = bounds.width - nameX - insetTrailing - gap - spinnerW
+        let progressW: CGFloat = progressLabelNode != nil ? Self.progressLabelWidth : 0
+        let progressGap: CGFloat = progressLabelNode != nil ? Self.spinnerLeadingGap : 0
+        let nameAvailableW = bounds.width - nameX - insetTrailing - gap - spinnerW - progressGap - progressW
         let nameW = min(cachedNameSize.width, max(0, nameAvailableW))
         nameNode.frame = CGRect(x: nameX, y: centerY - cachedNameSize.height / 2, width: nameW, height: cachedNameSize.height)
 
         if let spinnerNode, showsUploadSpinner {
             let sx = bounds.width - insetTrailing - spinnerW
             spinnerNode.frame = CGRect(x: sx, y: centerY - spinnerW / 2, width: spinnerW, height: spinnerW)
+
+            if let progressLabelNode {
+                let px = sx - progressGap - progressW
+                progressLabelNode.frame = CGRect(x: px, y: centerY - 9, width: progressW, height: 18)
+            }
+        }
+
+        if let progressBarNode {
+            let barInset: CGFloat = 12
+            let barY = bounds.height - Self.progressBarHeight - 6
+            progressBarNode.frame = CGRect(
+                x: barInset,
+                y: barY,
+                width: max(0, bounds.width - barInset * 2),
+                height: Self.progressBarHeight)
         }
     }
 

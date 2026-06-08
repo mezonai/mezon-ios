@@ -25,6 +25,8 @@ struct ParsedAttachment: Equatable {
     var localImage: UIImage?
     var isUploading: Bool = false
     var uploadFailed: Bool = false
+    var uploadProgress: Double = 0
+    var uploadProgressKey: String = ""
 
     var isImage: Bool {
         filetype.hasPrefix("image/") || filetype == "sticker"
@@ -62,6 +64,7 @@ struct ParsedAttachment: Equatable {
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
             && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
+            && lhs.uploadProgress == rhs.uploadProgress
     }
 
     private static let maxPendingCacheEntries = 50
@@ -296,6 +299,7 @@ struct ChatState {
     var dmPeerDisplayName: String
     var dmAvatarURL: String
     var dmGroupAvatarURL: String
+    var threadCreatorName: String
     var hasMoreOlder: Bool
     var hasMoreNewer: Bool
     var isLoadingMore: Bool
@@ -310,6 +314,7 @@ struct ChatState {
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
         isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
+        threadCreatorName: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
@@ -453,6 +458,8 @@ final class ChatViewController: ViewController {
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
     private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
+    private var attachmentProgressReloadWorkItem: DispatchWorkItem?
+    private static let attachmentProgressReloadInterval: TimeInterval = 0.25
 
     private struct RemoteTyperState {
         var displayName: String
@@ -886,6 +893,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleMessageTypingReceived(_:)), name: .mezonMessageTypingReceived, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
@@ -1360,6 +1368,24 @@ final class ChatViewController: ViewController {
         remoteTypingLabel.textColor = t.textDisabled
     }
 
+    @objc private func handleAttachmentUploadProgress(_ notification: Notification) {
+        guard let key = notification.userInfo?["key"] as? String, !key.isEmpty else { return }
+        let isRelevant = ParsedAttachment.pendingDocumentPlaceholders.values
+            .contains { docs in docs.contains { $0.uploadProgressKey == key } }
+            || AttachmentUploadCoordinator.shared.hasActiveProgressKey(key)
+        guard isRelevant else { return }
+        guard attachmentProgressReloadWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.attachmentProgressReloadWorkItem = nil
+            self.reloadDisplaysForPendingSendingFeedback()
+            self.needsReloadPipe.putNext(())
+        }
+        attachmentProgressReloadWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.attachmentProgressReloadInterval, execute: workItem)
+    }
+
     @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
         let eventClan = Self.int64FromTypingUserInfo(notification.userInfo?["clanId"]) ?? 0
         let eventChannel = Self.int64FromTypingUserInfo(notification.userInfo?["channelId"]) ?? 0
@@ -1589,6 +1615,7 @@ final class ChatViewController: ViewController {
     private func setErrorMessage(_ v: String?) { errorMessage = v; metadataOnlyPipe.putNext(()) }
 
     private var hasCompletedInitialFetch = false
+    private var didApplyBadgeLastSeen = false
     private static let initialEmptyMessageRetryDelaysNanoseconds: [UInt64] = [
         600_000_000,
         1_200_000_000
@@ -1667,6 +1694,8 @@ final class ChatViewController: ViewController {
         )
         ensureParentChannelMetaSubscription()
 
+        startBadgeCountLastSeenRefresh()
+
         let shouldSkipInitialRemoteFetchForEmptyTopic = skipInitialRemoteFetchForEmptyTopic
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1716,6 +1745,59 @@ final class ChatViewController: ViewController {
             self.fetchChannelMembers(token: token)
             self.checkBanStatus(token: token)
             self.resolveChannelLabelFromNetwork(token: token)
+        }
+    }
+
+    private func startBadgeCountLastSeenRefresh() {
+        guard channel.channelID != 0, !didApplyBadgeLastSeen else { return }
+
+        if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID),
+           cached.hasLastSeenMessage, cached.lastSeenMessage.id != 0 {
+            didApplyBadgeLastSeen = true
+            applyLastSeen(from: cached)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var token: String? = {
+                if let t = self.context.session?.token, !t.isEmpty { return t }
+                if let t = SessionStore.load()?.token, !t.isEmpty { return t }
+                return nil
+            }()
+            if token == nil {
+                token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
+            }
+            guard let token else { return }
+            await self.applyLastSeenFromBadgeCountNetwork(token: token)
+        }
+    }
+
+    @MainActor
+    private func applyLastSeenFromBadgeCountNetwork(token: String) async {
+        guard !didApplyBadgeLastSeen else { return }
+        guard channel.channelID != 0 else { return }
+        do {
+            let response = try await context.account.network.listChannelBadgeCount(clanId: clanId, token: token)
+            guard let desc = response.channeldesc.first(where: { $0.channelID == channel.channelID }) else {
+                return
+            }
+            didApplyBadgeLastSeen = true
+            applyLastSeen(from: desc)
+        } catch {
+        }
+    }
+
+    @MainActor
+    private func applyLastSeen(from desc: Mezon_Api_ChannelDescription) {
+        guard desc.hasLastSeenMessage, desc.lastSeenMessage.id != 0 else { return }
+        let newSeenId = "\(desc.lastSeenMessage.id)"
+        guard newSeenId != self.lastSeenMessageId else { return }
+        self.lastSeenMessageId = newSeenId
+        if self.hasPerformedInitialUnreadScroll {
+            self.scrollToUnreadLine(lastSeenId: newSeenId)
+        } else {
+            self.shouldScrollToBottom = false
         }
     }
 
@@ -2245,22 +2327,8 @@ final class ChatViewController: ViewController {
     }
 
     private func fetchChannelPermissions(token: String? = nil) {
-        let channelId = channel.channelID
-        Task { @MainActor in
-            let resolvedToken: String
-            if let token { resolvedToken = token } else if let t = await self.context.getTokenPreferringCachedSkipSessionReadyWait() { resolvedToken = t } else { return }
-            let token = resolvedToken
-            do {
-                let response = try await self.context.account.network.listUserPermissionInChannel(clanId: clanId, channelId: channelId, token: token)
-                let permissions = response.permissions.permissions
-                let records = permissions.map { PermissionRecord(from: $0) }
-                self.context.account.postbox.write { tx in
-                    tx.updateChannelPermissions(records, channelId: channelId)
-                }
-                self.context.rolePermissions.applyChannelPermissions(channelId: channelId, permissions: permissions)
-            } catch {
-            }
-        }
+        guard clanId != 0 else { return }
+        context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: channel.channelID)
     }
 
     private func fetchChannelMembers(token: String? = nil) {
@@ -2384,6 +2452,38 @@ final class ChatViewController: ViewController {
         return context.engine.friendsData.blockedUserIds().contains(peerId)
     }
 
+    private func resolvedThreadCreatorName() -> String {
+        guard channel.type == MezonConstants.ChannelType.thread.rawValue else { return "" }
+        let creatorId = channel.creatorID
+        if creatorId != 0 {
+            let userId = String(creatorId)
+            if let member = context.account.postbox.read({ tx in
+                tx.getClanMembers(clanId: clanId).first(where: { $0.userId == creatorId })
+            }) {
+                let clanNick = member.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !clanNick.isEmpty { return clanNick }
+                let displayName = member.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !displayName.isEmpty { return displayName }
+                let username = member.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !username.isEmpty { return username }
+            }
+            if let currentUser = context.currentUser, currentUser.id == userId {
+                let displayName = currentUser.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !displayName.isEmpty { return displayName }
+                let username = currentUser.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !username.isEmpty { return username }
+            }
+            if let profile = context.account.postbox.read({ $0.getProfile(userId: userId) }) {
+                if let displayName = profile.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !displayName.isEmpty {
+                    return displayName
+                }
+                let username = profile.username.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !username.isEmpty { return username }
+            }
+        }
+        return channel.creatorName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var currentState: ChatState {
         let labelFromMeta = parentChannelMeta?.label
         let resolvedParentName =
@@ -2401,6 +2501,7 @@ final class ChatViewController: ViewController {
             dmPeerDisplayName: channel.displayNames.first ?? "",
             dmAvatarURL: channel.avatars.first ?? "",
             dmGroupAvatarURL: channel.channelAvatar,
+            threadCreatorName: resolvedThreadCreatorName(),
             hasMoreOlder: hasMoreOlder,
             hasMoreNewer: hasMoreNewer,
             isLoadingMore: isLoadingMore,
@@ -2417,7 +2518,7 @@ final class ChatViewController: ViewController {
     private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)" }
+            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
         let pollHash: String
@@ -2684,7 +2785,11 @@ final class ChatViewController: ViewController {
                                 height: doc.height,
                                 durationSeconds: doc.durationSeconds,
                                 localImage: doc.localImage,
-                                isUploading: stillUploading
+                                isUploading: stillUploading,
+                                uploadProgress: doc.uploadProgressKey.isEmpty
+                                    ? doc.uploadProgress
+                                    : AttachmentUploadProgressStore.shared.progress(forKey: doc.uploadProgressKey),
+                                uploadProgressKey: doc.uploadProgressKey
                             )
                         })
                     }
