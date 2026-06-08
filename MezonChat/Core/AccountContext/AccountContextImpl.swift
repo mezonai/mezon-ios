@@ -1049,6 +1049,18 @@ final class AccountContextImpl: AccountContext {
 
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
+            let joinedIds = e.joins.map(\.userID).filter { $0 != 0 }
+            let clanId = currentClanId
+            if clanId != 0, !joinedIds.isEmpty {
+                Task { @MainActor [weak self] in
+                    guard let self, let token = await self.getToken() else { return }
+                    self.engine.clanData.maybeRefreshClanMembersAfterPresenceJoins(
+                        clanId: clanId,
+                        joinedUserIds: joinedIds,
+                        token: token
+                    )
+                }
+            }
 
         case .lastPin(let e):
             ChannelPinnedStatePersistence.applyPinMessage(
@@ -1098,6 +1110,16 @@ final class AccountContextImpl: AccountContext {
             if let desc = engine.clanData.applyUserChannelAddedFromSocket(ev, currentUserNumericId: myId) {
                 subscribeSocketRoomsForMergedChannel(desc)
             }
+            engine.clanData.applyClanMembersFromUserChannelAddedForObservers(
+                ev,
+                observingClanId: currentClanId
+            )
+
+        case .userClanAdded(let ev):
+            engine.clanData.applyClanUserAddedFromSocket(ev)
+
+        case .userClanRemoved(let ev):
+            engine.clanData.applyClanUserRemovedFromSocket(ev)
 
         case .channelUpdated(let ev):
             guard ev.clanID != 0, ev.channelID != 0 else { break }

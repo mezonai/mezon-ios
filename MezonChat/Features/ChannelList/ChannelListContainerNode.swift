@@ -75,6 +75,10 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var isClanSwitching = false
     private var deferOnboardingTableUpdates = false
     private var clanSwitchTableRefreshDone = false
+
+    private var shouldDeferLeadingSectionTableMutations: Bool {
+        isClanSwitching || deferOnboardingTableUpdates
+    }
     private var nodeIsVisible = false
     private var pendingVisibleReconcile = false
 
@@ -86,7 +90,9 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
     private var onboardingState: ClanOnboardingViewState = .hidden
-    private var onboardingBannerVisible: Bool { onboardingState.isVisible }
+    private var memberOnboardingState: MemberOnboardingViewState = .hidden
+    private var onboardingBannerVisible: Bool { onboardingState.isVisible || memberOnboardingState.isVisible }
+    private var showsCreatorOnboardingBanner: Bool { onboardingState.isVisible }
 
     private var leadingTableSectionsCount: Int {
         (onboardingBannerVisible ? 1 : 0) + (channelAppsStripeVisible ? 1 : 0)
@@ -1104,6 +1110,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         let afterHad = channelAppsStripeVisible
         cachedRows = [:]
         cachedHeaders = [:]
+        guard !shouldDeferLeadingSectionTableMutations else { return }
         if !beforeHad && afterHad {
             let section = self.channelAppsTableSection
             CATransaction.begin()
@@ -1117,7 +1124,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
-            let section = onboardingBannerVisible ? 1 : 0
+            let section = channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
@@ -1194,6 +1201,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         clanSwitchTableRefreshDone = false
         memberCount = 0
         onboardingState = .hidden
+        memberOnboardingState = .hidden
         headerUIView.clearMemberSubtitleStaleText()
     }
 
@@ -1207,11 +1215,12 @@ final class ChannelListContainerNode: ASDisplayNode {
             committedSectionCount = totalSections
             return
         }
+        guard !shouldDeferLeadingSectionTableMutations else { return }
         guard tableNode.numberOfSections > 0 else {
             committedSectionCount = totalSections
             return
         }
-        let section = onboardingBannerVisible ? 1 : 0
+        let section = channelAppsTableSection
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -1226,6 +1235,63 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard state != onboardingState else { return }
         let beforeVisible = onboardingBannerVisible
         onboardingState = state
+        if state.isVisible, memberOnboardingState.isVisible {
+            memberOnboardingState = .hidden
+        }
+        let afterVisible = onboardingBannerVisible
+
+        guard !deferOnboardingTableUpdates else { return }
+
+        cachedRows = [:]
+        cachedHeaders = [:]
+
+        if !beforeVisible && afterVisible {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.insertSections(IndexSet(integer: self.onboardingTableSection), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+            }
+            CATransaction.commit()
+        } else if beforeVisible && !afterVisible {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.deleteSections(IndexSet(integer: self.onboardingTableSection), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+            }
+            CATransaction.commit()
+        } else if beforeVisible && afterVisible {
+            let section = onboardingTableSection
+            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0 {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                UIView.performWithoutAnimation {
+                    self.tableNode.reloadRows(at: [IndexPath(row: 0, section: section)], with: .none)
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+                CATransaction.commit()
+            } else {
+                scheduleReload()
+            }
+        }
+        committedSectionCount = totalSections
+    }
+
+    func updateMemberOnboardingState(_ state: MemberOnboardingViewState) {
+        guard onboardingState.isVisible == false else {
+            if memberOnboardingState.isVisible {
+                memberOnboardingState = .hidden
+            }
+            return
+        }
+        guard state != memberOnboardingState else { return }
+        let beforeVisible = onboardingBannerVisible
+        memberOnboardingState = state
         let afterVisible = onboardingBannerVisible
 
         guard !deferOnboardingTableUpdates else { return }
@@ -1326,6 +1392,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         cachedRows = [:]
         cachedHeaders = [:]
 
+        guard !shouldDeferLeadingSectionTableMutations else { return }
         if !beforeHad && afterHad {
             let section = self.channelAppsTableSection
             CATransaction.begin()
@@ -1339,7 +1406,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
-            let section = onboardingBannerVisible ? 1 : 0
+            let section = channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
@@ -1584,12 +1651,23 @@ extension ChannelListContainerNode: ASTableDataSource {
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
         if isOnboardingTableSection(indexPath.section) {
-            let title = L(L10n.OnboardingClan.title)
-            let subtitle = L(
-                L10n.OnboardingClan.description,
-                onboardingState.currentDisplayStep,
-                ClanOnboardingViewState.totalSteps
-            )
+            let title: String
+            let subtitle: String
+            if showsCreatorOnboardingBanner {
+                title = L(L10n.OnboardingClan.title)
+                subtitle = L(
+                    L10n.OnboardingClan.description,
+                    onboardingState.currentDisplayStep,
+                    ClanOnboardingViewState.totalSteps
+                )
+            } else {
+                title = L(L10n.OnboardingMember.title)
+                subtitle = L(
+                    L10n.OnboardingMember.description,
+                    memberOnboardingState.currentDisplayStep,
+                    max(memberOnboardingState.missions.count, 1)
+                )
+            }
             return { [weak self] in
                 let node = ChannelOnboardingBannerCellNode(title: title, subtitle: subtitle)
                 node.onTap = { [weak self] in

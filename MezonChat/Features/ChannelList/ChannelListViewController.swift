@@ -411,6 +411,8 @@ final class ChannelListViewController: ViewController {
     private var lastOnboardingMemberFetchAt: Date?
     private let onboardingMemberFetchCooldown: TimeInterval = 3.0
     private var lastOnboardingState: ClanOnboardingViewState = .hidden
+    private var lastMemberOnboardingState: MemberOnboardingViewState = .hidden
+    private var memberOnboardingFetchInFlight = false
 
     private var pendingSkeletonRevealItem: DispatchWorkItem?
     private let skeletonRevealDelay: TimeInterval = 0.4
@@ -493,6 +495,19 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMemberOnboardingDidUpdate(_:)), name: .mezonMemberOnboardingDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAccountCurrentUserDidChangeForOnboarding(_:)), name: .mezonAccountCurrentUserDidChange, object: nil)
+    }
+
+    @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
+        guard clanId != 0 else { return }
+        scheduleMemberOnboardingDataFetch()
+    }
+
+    @objc private func handleMemberOnboardingDidUpdate(_ notification: Notification) {
+        guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
+        guard gid == clanId, clanId != 0 else { return }
+        refreshMemberOnboardingState()
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
@@ -503,6 +518,7 @@ final class ChannelListViewController: ViewController {
             needsReloadPipe.putNext(())
         }
         refreshOnboardingState()
+        scheduleMemberOnboardingDataFetch()
     }
 
     @objc private func handleChannelDeletedLocally(_ notification: Notification) {
@@ -724,6 +740,10 @@ final class ChannelListViewController: ViewController {
         setSelectedChannel(nil)
         channelListNode.markClanSwitching()
         lastOnboardingState = .hidden
+        lastMemberOnboardingState = .hidden
+        if previousClanId != 0 {
+            MemberOnboardingProgress.clearClanData(clanId: previousClanId)
+        }
         channelListNode.clearChannelApps()
         if clanId != 0 {
             restoreCachedChannelApps(clanId: clanId)
@@ -754,20 +774,52 @@ final class ChannelListViewController: ViewController {
         channelListNode.updateOnboardingState(state)
         if state.isVisible && !state.inviteCompleted {
             scheduleOnboardingMemberCountRefresh()
+        } else if !state.isVisible {
+            scheduleMemberOnboardingDataFetch()
+            refreshMemberOnboardingState()
         }
     }
 
     private func refreshOnboardingState() {
         guard clanId != 0 else { return }
-        if lastOnboardingState == .hidden,
-           !ClanOnboardingProgress.isEligible(context: context, clanId: clanId) {
+        if !(lastOnboardingState == .hidden && !ClanOnboardingProgress.isEligible(context: context, clanId: clanId)) {
+            let state = currentOnboardingState()
+            if state != lastOnboardingState {
+                lastOnboardingState = state
+                channelListNode.updateOnboardingState(state)
+                if state.isVisible && !state.inviteCompleted {
+                    scheduleOnboardingMemberCountRefresh()
+                }
+            }
+        }
+
+        guard !lastOnboardingState.isVisible else {
+            if lastMemberOnboardingState.isVisible {
+                lastMemberOnboardingState = .hidden
+                channelListNode.updateMemberOnboardingState(.hidden)
+            }
             return
         }
-        let state = currentOnboardingState()
-        lastOnboardingState = state
-        channelListNode.updateOnboardingState(state)
-        if state.isVisible && !state.inviteCompleted {
-            scheduleOnboardingMemberCountRefresh()
+        refreshMemberOnboardingState()
+    }
+
+    private func refreshMemberOnboardingState() {
+        guard clanId != 0, !lastOnboardingState.isVisible else { return }
+        let state = MemberOnboardingProgress.compute(context: context, clanId: clanId)
+        guard state != lastMemberOnboardingState else { return }
+        lastMemberOnboardingState = state
+        channelListNode.updateMemberOnboardingState(state)
+    }
+
+    private func scheduleMemberOnboardingDataFetch() {
+        guard clanId != 0, !memberOnboardingFetchInFlight else { return }
+        memberOnboardingFetchInFlight = true
+        let clanId = self.clanId
+        Task { @MainActor [weak self] in
+            defer { self?.memberOnboardingFetchInFlight = false }
+            guard let self, self.clanId == clanId else { return }
+            await MemberOnboardingProgress.fetchData(context: self.context, clanId: clanId)
+            self.refreshMemberOnboardingState()
         }
     }
 
@@ -780,7 +832,11 @@ final class ChannelListViewController: ViewController {
         onboardingMemberFetchInFlight = true
         Task { @MainActor [weak self] in
             defer { self?.onboardingMemberFetchInFlight = false }
-            guard let self, let token = await self.context.getToken() else { return }
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
             do {
                 let response = try await self.context.account.network.listClanUsers(
                     clanId: self.clanId,
@@ -797,6 +853,14 @@ final class ChannelListViewController: ViewController {
 
     private func presentOnboardingBottomSheet() {
         refreshOnboardingState()
+        if lastOnboardingState.isVisible {
+            presentCreatorOnboardingBottomSheet()
+            return
+        }
+        presentMemberOnboardingBottomSheet()
+    }
+
+    private func presentCreatorOnboardingBottomSheet() {
         let onboardingState = lastOnboardingState
         guard onboardingState.isVisible else { return }
 
@@ -837,6 +901,70 @@ final class ChannelListViewController: ViewController {
         present(vc, animated: true)
     }
 
+    private func presentMemberOnboardingBottomSheet() {
+        let state = lastMemberOnboardingState
+        guard state.isVisible else { return }
+
+        let rows = state.missions.enumerated().map { index, mission in
+            let channelLabel = MemberOnboardingProgress.resolveChannelLabel(
+                channelId: mission.channelId,
+                context: context,
+                clanId: clanId,
+                channels: allChannels
+            )
+            return MemberOnboardingMissionRow(
+                title: mission.title,
+                subtitle: MemberOnboardingProgress.missionActionSubtitle(
+                    taskType: mission.taskType,
+                    channelLabel: channelLabel
+                ),
+                isCompleted: index < state.completedSteps,
+                isActionable: index == state.completedSteps,
+                onPress: { [weak self] in
+                    guard let self else { return }
+                    self.handleMemberOnboardingMission(
+                        mission,
+                        at: index,
+                        completedSteps: self.lastMemberOnboardingState.completedSteps
+                    )
+                }
+            )
+        }
+
+        present(MemberOnboardingBottomSheetViewController(
+            finishedStep: state.completedSteps,
+            totalSteps: state.missions.count,
+            missions: rows
+        ), animated: true)
+    }
+
+    private func handleMemberOnboardingMission(
+        _ mission: MemberOnboardingMission,
+        at index: Int,
+        completedSteps: Int
+    ) {
+        MemberOnboardingProgress.performMission(
+            mission,
+            at: index,
+            completedSteps: completedSteps,
+            context: context,
+            clanId: clanId,
+            channels: allChannels,
+            navigation: memberOnboardingChannelNavigation()
+        )
+    }
+
+    private func memberOnboardingChannelNavigation() -> MemberOnboardingChannelNavigation {
+        MemberOnboardingChannelNavigation(
+            openChat: { [weak self] channel in
+                self?.openChannelForOnboarding(channel)
+            },
+            presentVoice: { [weak self] channel in
+                self?.presentJoinVoiceSheet(for: channel)
+            }
+        )
+    }
+
     private func handleOnboardingCreateChannel(categoryId: Int64) {
         guard clanId != 0 else { return }
         let resolvedCategoryId: Int64 = {
@@ -857,19 +985,34 @@ final class ChannelListViewController: ViewController {
     private func handleOnboardingSendMessage(welcomeChannelId: Int64) {
         guard welcomeChannelId != 0 else { return }
         if let channel = allChannels.first(where: { $0.channelID == welcomeChannelId }) {
-            select(channel: channel)
+            openChannelForOnboarding(channel)
             return
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
             do {
                 let channels = try await MezonHTTPClient.shared.listChannelDescs(clanId: self.clanId, token: token)
                 if let channel = channels.first(where: { $0.channelID == welcomeChannelId }) {
-                    self.select(channel: channel)
+                    self.openChannelForOnboarding(channel)
                 }
             } catch {}
         }
+    }
+
+    private func openChannelForOnboarding(_ channel: Mezon_Api_ChannelDescription) {
+        if let home = parent as? HomeViewController {
+            home.openChannelForOnboarding(channel)
+            return
+        }
+        if let home = (enclosingNavigationController as? MezonRootController)?.homeController {
+            home.openChannelForOnboarding(channel)
+            return
+        }
+        select(channel: channel)
     }
 
     private func presentSettings() {
@@ -1567,6 +1710,7 @@ final class ChannelListViewController: ViewController {
         if NetworkMonitor.shared.isConnected {
             fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
         }
+        scheduleMemberOnboardingDataFetch()
     }
 
     private var inflightChannelFetchClanId: Int64 = 0
@@ -1801,9 +1945,23 @@ final class ChannelListViewController: ViewController {
     private func handleChannelTap(_ channel: Mezon_Api_ChannelDescription) {
         if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
             presentJoinVoiceSheet(for: channel)
+            if lastMemberOnboardingState.isVisible {
+                MemberOnboardingProgress.completeVisitMissionIfNeeded(
+                    context: context,
+                    clanId: clanId,
+                    channelId: channel.channelID
+                )
+            }
             return
         }
         select(channel: channel)
+        if lastMemberOnboardingState.isVisible {
+            MemberOnboardingProgress.completeVisitMissionIfNeeded(
+                context: context,
+                clanId: clanId,
+                channelId: channel.channelID
+            )
+        }
     }
 
     private func presentationWindowHostForChannelApp() -> WindowHost? {
@@ -1961,16 +2119,6 @@ final class ChannelListViewController: ViewController {
 
     private func pushChatViewController(for channel: Mezon_Api_ChannelDescription) {
         select(channel: channel)
-        guard let nav = enclosingNavigationController else { return }
-        var parentName: String?
-        if channel.parentID != 0 {
-            parentName = allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
-        }
-        let chatVC = ChatViewController(
-            clanId: clanId, channel: channel, context: context, parentName: parentName)
-        nav.pushViewController(
-            chatVC, animated: true,
-            stackPushAnimationDuration: NavigationController.channelListToChatPushAnimationDuration)
     }
 
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {

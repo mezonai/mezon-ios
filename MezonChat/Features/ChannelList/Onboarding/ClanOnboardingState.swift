@@ -103,13 +103,14 @@ enum ClanOnboardingProgress {
             return true
         }
 
-        let hasUserMessageInPostbox = postbox.read { tx in
-            ClanOnboardingChannelCache.welcomeChannelSendMessageComplete(
+        let hasCreatorMessageInPostbox = postbox.read { tx in
+            ClanOnboardingChannelCache.welcomeChannelHasCreatorChatMessage(
                 transaction: tx,
-                welcomeChannelId: welcomeChannelId
+                welcomeChannelId: welcomeChannelId,
+                creatorId: currentUserId
             )
         }
-        if hasUserMessageInPostbox {
+        if hasCreatorMessageInPostbox {
             ClanOnboardingChannelCache.markCreatorSentWelcomeMessage(postbox: postbox, clanId: clanId)
             return true
         }
@@ -120,6 +121,43 @@ enum ClanOnboardingProgress {
 enum ClanOnboardingChannelCache {
     private static let creatorSentMessageValue = Data([1])
     private static let userDefaultsKeyPrefix = "mezon.onboardingCreatorSentMessage."
+
+    static func isEphemeralMessageCode(_ code: Int32) -> Bool {
+        switch code {
+        case MezonConstants.MessageCode.ephemeral.rawValue,
+             MezonConstants.MessageCode.updateEphemeral.rawValue,
+             MezonConstants.MessageCode.deleteEphemeral.rawValue:
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    static func markSendMessageOnboardingProgressIfNeeded(
+        context: AccountContext,
+        postbox: Postbox,
+        clanId: Int64,
+        channelId: Int64,
+        messageId: Int64,
+        messageCode: Int32,
+        anonymous: Bool
+    ) {
+        guard !anonymous else { return }
+        guard !isEphemeralMessageCode(messageCode) else { return }
+        guard messageId != 0 else { return }
+        markCreatorSentWelcomeMessageIfNeeded(
+            postbox: postbox,
+            clanId: clanId,
+            channelId: channelId,
+            messageId: messageId
+        )
+        MemberOnboardingProgress.completeSendMessageMissionIfNeeded(
+            context: context,
+            clanId: clanId,
+            channelId: channelId
+        )
+    }
 
     private static func userDefaultsKey(clanId: Int64) -> String {
         "\(userDefaultsKeyPrefix)\(clanId)"
@@ -196,18 +234,19 @@ enum ClanOnboardingChannelCache {
         markCreatorSentWelcomeMessage(transaction: tx, clanId: clanId)
     }
 
-    /// Matches RN onboarding: step 3 is done once the latest welcome-channel message is not the bootstrap indicator (code 4).
-    static func welcomeChannelSendMessageComplete(
+    static func welcomeChannelHasCreatorChatMessage(
         transaction tx: PostboxTransaction,
-        welcomeChannelId: Int64
+        welcomeChannelId: Int64,
+        creatorId: Int64
     ) -> Bool {
-        guard welcomeChannelId != 0 else { return false }
+        guard welcomeChannelId != 0, creatorId != 0 else { return false }
         let channelId = String(welcomeChannelId)
-        guard let lastMessage = tx.getRecentMessages(channelId: channelId, limit: 1).first,
-              !lastMessage.isDeleted else {
-            return false
+        let creatorSenderId = "\(creatorId)"
+        return tx.getRecentMessages(channelId: channelId, limit: 50).contains { message in
+            !message.isDeleted
+                && message.senderId == creatorSenderId
+                && !isEphemeralMessageCode(message.code)
         }
-        return lastMessage.code != MezonConstants.MessageCode.firstMessage.rawValue
     }
 
     static func welcomeChannelId(postbox: Postbox, clanId: Int64) -> Int64 {

@@ -1,29 +1,34 @@
 import UIKit
 
-struct ClanOnboardingActionItem {
+struct MemberOnboardingMissionRow {
     let title: String
-    let iconName: String
-    let iconBackgroundColor: UIColor
+    let subtitle: String
     let isCompleted: Bool
+    let isActionable: Bool
     let onPress: () -> Void
 }
 
-final class ClanOnboardingBottomSheetViewController: UIViewController {
+final class MemberOnboardingBottomSheetViewController: UIViewController {
 
     @available(iOS 15.0, *)
-    private static let seventyPercentDetentId = UISheetPresentationController.Detent.Identifier("mezon.onboarding.seventyPercent")
+    private static let seventyPercentDetentId = UISheetPresentationController.Detent.Identifier("mezon.memberOnboarding.seventyPercent")
+
+    private static let missionIconName = "ClanSetting/InstallAppIcon"
+    private static let missionIconBackground = UIColor(red: 0.93, green: 0.28, blue: 0.60, alpha: 1)
 
     private let finishedStep: Int
-    private let actionItems: [ClanOnboardingActionItem]
+    private let totalSteps: Int
+    private let missions: [MemberOnboardingMissionRow]
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let headerGradientView = UIView()
     private var headerGradientLayer: CAGradientLayer?
 
-    init(finishedStep: Int, actionItems: [ClanOnboardingActionItem]) {
+    init(finishedStep: Int, totalSteps: Int, missions: [MemberOnboardingMissionRow]) {
         self.finishedStep = finishedStep
-        self.actionItems = actionItems
+        self.totalSteps = totalSteps
+        self.missions = missions
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
     }
@@ -99,8 +104,8 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
         ])
 
         contentStack.addArrangedSubview(makeHeaderSection())
-        for item in actionItems {
-            contentStack.addArrangedSubview(makeActionRow(item))
+        for mission in missions {
+            contentStack.addArrangedSubview(makeMissionRow(mission))
         }
     }
 
@@ -138,7 +143,7 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
         heroContainer.addSubview(heroIcon)
 
         let titleLabel = UILabel()
-        titleLabel.text = L(L10n.OnboardingClan.actionTitle)
+        titleLabel.text = L(L10n.OnboardingMember.actionTitle)
         titleLabel.font = .systemFont(ofSize: 24.sf, weight: .bold)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.textAlignment = .center
@@ -147,9 +152,9 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
 
         let descLabel = UILabel()
         descLabel.text = L(
-            L10n.OnboardingClan.actionDescription,
+            L10n.OnboardingMember.actionDescription,
             finishedStep,
-            ClanOnboardingViewState.totalSteps
+            totalSteps
         )
         descLabel.font = .systemFont(ofSize: 14.sf, weight: .medium)
         descLabel.textColor = UIColor.theme.textDisabled
@@ -195,54 +200,67 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
         return wrapper
     }
 
-    private func makeActionRow(_ item: ClanOnboardingActionItem) -> UIView {
-        let row = OnboardingActionControl()
+    private func makeMissionRow(_ mission: MemberOnboardingMissionRow) -> UIView {
+        let row = MemberOnboardingActionControl()
         row.translatesAutoresizingMaskIntoConstraints = false
         row.backgroundColor = UIColor.theme.secondary
         row.layer.cornerRadius = 20.swh
         row.layer.borderWidth = 1
         row.layer.borderColor = UIColor.theme.border.cgColor
+        row.isUserInteractionEnabled = mission.isActionable
+        row.alpha = mission.isActionable ? 1 : 0.55
         row.onPress = { [weak self] in
+            guard mission.isActionable else { return }
             self?.dismiss(animated: true) {
-                item.onPress()
+                mission.onPress()
             }
         }
 
         let iconWrap = UIView()
-        iconWrap.backgroundColor = item.iconBackgroundColor
+        iconWrap.backgroundColor = Self.missionIconBackground
         iconWrap.layer.cornerRadius = 14.swh
         iconWrap.translatesAutoresizingMaskIntoConstraints = false
         iconWrap.isUserInteractionEnabled = false
 
-        let iconView = UIImageView()
-        if item.iconName.contains("/") {
-            iconView.image = UIImage(named: item.iconName)?.withRenderingMode(.alwaysOriginal)
-        } else {
-            iconView.image = UIImage(
-                systemName: item.iconName,
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold)
-            )?.withRenderingMode(.alwaysTemplate)
-            iconView.tintColor = .white
-        }
+        let iconView = UIImageView(
+            image: UIImage(named: Self.missionIconName)?.withRenderingMode(.alwaysOriginal)
+        )
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
         iconWrap.addSubview(iconView)
 
         let titleLabel = UILabel()
-        titleLabel.text = item.title
+        titleLabel.text = mission.title
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .medium)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.isUserInteractionEnabled = false
 
-        let trailingAccessory = Self.makeTrailingAccessory(isCompleted: item.isCompleted, showsArrow: !item.isCompleted)
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = mission.subtitle
+        subtitleLabel.font = .systemFont(ofSize: 11.sf, weight: .regular)
+        subtitleLabel.textColor = UIColor.theme.text
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.isUserInteractionEnabled = false
+        subtitleLabel.numberOfLines = 2
+
+        let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        textStack.axis = .vertical
+        textStack.spacing = 2
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        textStack.isUserInteractionEnabled = false
+
+        let trailingAccessory = Self.makeTrailingAccessory(
+            isCompleted: mission.isCompleted,
+            showsArrow: mission.isActionable && !mission.isCompleted
+        )
 
         row.addSubview(iconWrap)
-        row.addSubview(titleLabel)
+        row.addSubview(textStack)
         row.addSubview(trailingAccessory)
 
         NSLayoutConstraint.activate([
-            row.heightAnchor.constraint(equalToConstant: 60.sh),
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 60.sh),
 
             iconWrap.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16.sw),
             iconWrap.centerYAnchor.constraint(equalTo: row.centerYAnchor),
@@ -254,9 +272,11 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
             iconView.widthAnchor.constraint(equalToConstant: 18.swh),
             iconView.heightAnchor.constraint(equalToConstant: 18.swh),
 
-            titleLabel.leadingAnchor.constraint(equalTo: iconWrap.trailingAnchor, constant: 8.sw),
-            titleLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAccessory.leadingAnchor, constant: -8.sw),
+            textStack.leadingAnchor.constraint(equalTo: iconWrap.trailingAnchor, constant: 8.sw),
+            textStack.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            textStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAccessory.leadingAnchor, constant: -8.sw),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: 10.sh),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: row.bottomAnchor, constant: -10.sh),
 
             trailingAccessory.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16.sw),
             trailingAccessory.centerYAnchor.constraint(equalTo: row.centerYAnchor),
@@ -352,7 +372,7 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
     }
 }
 
-private final class OnboardingActionControl: UIControl {
+private final class MemberOnboardingActionControl: UIControl {
     var onPress: (() -> Void)?
 
     override init(frame: CGRect) {

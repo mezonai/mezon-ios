@@ -641,6 +641,26 @@ enum L10n {
         static let unknownClan          = "clan.inviteSheet.unknownClan"
     }
 
+    enum OnboardingClan {
+        static let title              = "onboardingClan.title"
+        static let description        = "onboardingClan.description"
+        static let actionTitle        = "onboardingClan.action.title"
+        static let actionDescription  = "onboardingClan.action.description"
+        static let createChannel      = "onboardingClan.action.createChannel"
+        static let invite             = "onboardingClan.action.invite"
+        static let sendMessage        = "onboardingClan.action.sendMessage"
+    }
+
+    enum OnboardingMember {
+        static let title              = "onboardingMember.title"
+        static let description        = "onboardingMember.description"
+        static let actionTitle        = "onboardingMember.action.title"
+        static let actionDescription  = "onboardingMember.action.description"
+        static let missionSendMessage = "onboardingMember.mission.sendMessage"
+        static let missionVisit       = "onboardingMember.mission.visit"
+        static let missionDoSomething = "onboardingMember.mission.doSomething"
+    }
+
     enum ThreadList {
         static let searchPlaceholder = "threadList.searchPlaceholder"
         static let empty = "threadList.empty"
@@ -1564,6 +1584,21 @@ extension L10n {
         "clan.inviteSheet.invite":          "Invite",
         "clan.inviteSheet.invited":         "Invited",
         "clan.inviteSheet.unknownClan":     "Unknown Clan",
+
+        "onboardingClan.title":                 "Complete the guide",
+        "onboardingClan.description":           "Step %d of %d",
+        "onboardingClan.action.title":          "Finish onboarding your clan",
+        "onboardingClan.action.description":    "Completed %d of %d steps",
+        "onboardingClan.action.createChannel":  "Create your channel",
+        "onboardingClan.action.invite":         "Invite some friends",
+        "onboardingClan.action.sendMessage":    "Send your first message",
+        "onboardingMember.title":               "Get Started",
+        "onboardingMember.description":         "Step %d of %d",
+        "onboardingMember.action.title":        "Get Started",
+        "onboardingMember.action.description":  "Completed %d of %d steps",
+        "onboardingMember.mission.sendMessage": "Send a message in",
+        "onboardingMember.mission.visit":       "Visit a channel",
+        "onboardingMember.mission.doSomething": "Do anything you want",
 
         "threadList.searchPlaceholder": "Search for Thread Name",
         "threadList.empty": "No threads yet",
@@ -2551,6 +2586,21 @@ extension L10n {
         "clan.inviteSheet.invite":          "Mời",
         "clan.inviteSheet.invited":         "Đã mời",
         "clan.inviteSheet.unknownClan":     "Clan không xác định",
+
+        "onboardingClan.title":                 "Hoàn thành hướng dẫn",
+        "onboardingClan.description":           "Bước %d trên %d",
+        "onboardingClan.action.title":          "Hoàn thành hướng dẫn cho clan của bạn",
+        "onboardingClan.action.description":    "Đã hoàn thành %d trên %d bước",
+        "onboardingClan.action.createChannel":  "Tạo kênh của bạn",
+        "onboardingClan.action.invite":         "Mời một vài người bạn",
+        "onboardingClan.action.sendMessage":    "Gửi tin nhắn đầu tiên",
+        "onboardingMember.title":               "Bắt đầu nào",
+        "onboardingMember.description":         "Bước %d trên %d",
+        "onboardingMember.action.title":        "Bắt đầu nào",
+        "onboardingMember.action.description":  "Đã hoàn thành %d trên %d bước",
+        "onboardingMember.mission.sendMessage": "Gửi tin nhắn trong",
+        "onboardingMember.mission.visit":       "Truy cập kênh",
+        "onboardingMember.mission.doSomething": "Làm bất cứ điều gì bạn muốn",
 
         "threadList.searchPlaceholder": "Tìm theo tên chủ đề",
         "threadList.empty": "Chưa có chủ đề",
