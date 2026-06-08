@@ -112,8 +112,9 @@ final class FileItemNode: ASDisplayNode {
     private var cachedNameSize: CGSize = .zero
 
     init(attachment: ParsedAttachment) {
-        let shows = attachment.isUploading
+        let shows = attachment.isUploading || attachment.isPresignPending
         let progress = attachment.uploadProgress
+        let showsDeterminateProgress = attachment.isUploading
         let spinner: ASDisplayNode?
         let progressLabel: ASTextNode2?
         let progressBar: UploadProgressBarNode?
@@ -129,7 +130,7 @@ final class FileItemNode: ASDisplayNode {
             s.style.preferredSize = CGSize(width: Self.spinnerSide, height: Self.spinnerSide)
             spinner = s
 
-            if progress > 0 {
+            if showsDeterminateProgress {
                 let label = ASTextNode2()
                 label.attributedText = NSAttributedString(
                     string: "\(Int(progress * 100))%",

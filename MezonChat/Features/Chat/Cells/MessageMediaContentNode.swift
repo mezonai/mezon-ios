@@ -1,27 +1,31 @@
 import UIKit
 import AsyncDisplayKit
 
-private final class ShimmerPlaceholderNode: ASDisplayNode {
+private final class MediaSkeletonNode: ASDisplayNode {
     private let gradientLayer = CAGradientLayer()
+    private let skeletonCornerRadius: CGFloat
 
-    override init() {
+    init(cornerRadius: CGFloat) {
+        self.skeletonCornerRadius = cornerRadius
         super.init()
         isLayerBacked = true
-        cornerRadius = 8
+        self.cornerRadius = skeletonCornerRadius
         clipsToBounds = true
     }
 
     override func didLoad() {
         super.didLoad()
-        backgroundColor = UIColor.theme.secondary
+        let t = UIColor.theme
+        backgroundColor = t.secondaryLight
         gradientLayer.colors = [
-            UIColor.theme.secondary.cgColor,
-            UIColor.theme.secondaryLight.cgColor,
-            UIColor.theme.secondary.cgColor,
+            t.secondaryLight.cgColor,
+            t.tertiary.cgColor,
+            t.secondaryLight.cgColor,
         ]
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)
         gradientLayer.endPoint = CGPoint(x: 1, y: 0.5)
         gradientLayer.locations = [0, 0.5, 1]
+        gradientLayer.cornerRadius = skeletonCornerRadius
         layer.addSublayer(gradientLayer)
         startAnimation()
     }
@@ -29,6 +33,7 @@ private final class ShimmerPlaceholderNode: ASDisplayNode {
     override func layout() {
         super.layout()
         gradientLayer.frame = CGRect(x: -bounds.width, y: 0, width: bounds.width * 3, height: bounds.height)
+        gradientLayer.cornerRadius = skeletonCornerRadius
     }
 
     private func startAnimation() {
@@ -38,7 +43,127 @@ private final class ShimmerPlaceholderNode: ASDisplayNode {
         anim.duration = 1.2
         anim.repeatCount = .infinity
         anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        gradientLayer.add(anim, forKey: "shimmer")
+        gradientLayer.add(anim, forKey: "mediaSkeleton")
+    }
+}
+
+private final class MediaUploadingOverlayNode: ASDisplayNode {
+    private let spinnerHost = ASDisplayNode()
+    private let percentLabel = ASTextNode2()
+    private let barNode: UploadProgressBarNode
+
+    init(progress: Double) {
+        barNode = UploadProgressBarNode(
+            progress: progress,
+            width: 0,
+            height: 3,
+            trackColor: UIColor.white.withAlphaComponent(0.3),
+            fillColor: .white)
+        super.init()
+        isLayerBacked = false
+        backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+        spinnerHost.setViewBlock {
+            let container = UIView()
+            container.backgroundColor = .clear
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.color = .white
+            indicator.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(indicator)
+            NSLayoutConstraint.activate([
+                indicator.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                indicator.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            ])
+            indicator.startAnimating()
+            return container
+        }
+        percentLabel.maximumNumberOfLines = 1
+        percentLabel.truncationMode = .byTruncatingTail
+        updatePercentText(progress)
+        addSubnode(spinnerHost)
+        addSubnode(percentLabel)
+        addSubnode(barNode)
+    }
+
+    private func updatePercentText(_ progress: Double) {
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        percentLabel.attributedText = NSAttributedString(
+            string: "\(Int(min(max(progress, 0), 1) * 100))%",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: UIColor.white,
+                .paragraphStyle: para,
+            ])
+    }
+
+    override func layout() {
+        super.layout()
+        let w = bounds.width
+        let h = bounds.height
+        cornerRadius = min(8.swh, min(w, h) * 0.12)
+
+        let compact = min(w, h) < 88
+        let horizontalPad: CGFloat = 8
+        let spinnerSide: CGFloat = compact ? 24 : 32
+        let labelHeight: CGFloat = 14
+        let barHeight: CGFloat = compact ? 0 : 3
+        let spacing: CGFloat = 5
+
+        let stackHeight = spinnerSide + spacing + labelHeight + (barHeight > 0 ? spacing + barHeight : 0)
+        var y = max(0, (h - stackHeight) * 0.5)
+
+        spinnerHost.frame = CGRect(
+            x: (w - spinnerSide) * 0.5,
+            y: y,
+            width: spinnerSide,
+            height: spinnerSide)
+        y += spinnerSide + spacing
+
+        let labelMaxWidth = max(0, min(w - horizontalPad * 2, 56))
+        let measuredLabel = percentLabel.measure(CGSize(width: labelMaxWidth, height: labelHeight))
+        let labelWidth = min(labelMaxWidth, max(measuredLabel.width, 1))
+        percentLabel.frame = CGRect(
+            x: (w - labelWidth) * 0.5,
+            y: y,
+            width: labelWidth,
+            height: labelHeight)
+        y += labelHeight
+
+        if barHeight > 0 {
+            y += spacing
+            let barWidth = max(0, min(w - horizontalPad * 2, 72))
+            barNode.frame = CGRect(
+                x: (w - barWidth) * 0.5,
+                y: y,
+                width: barWidth,
+                height: barHeight)
+        } else {
+            barNode.frame = .zero
+        }
+    }
+}
+
+private final class MediaPlaceholderNode: ASDisplayNode {
+    private let iconNode = ASImageNode()
+
+    override init() {
+        super.init()
+        isLayerBacked = false
+        cornerRadius = 0
+        clipsToBounds = true
+        backgroundColor = UIColor(white: 0.18, alpha: 1)
+        automaticallyManagesSubnodes = true
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .thin)
+        iconNode.image = UIImage(systemName: "photo", withConfiguration: symbolConfig)?
+            .withTintColor(UIColor(white: 0.55, alpha: 1), renderingMode: .alwaysOriginal)
+        iconNode.contentMode = .scaleAspectFit
+        iconNode.style.preferredSize = CGSize(width: 36, height: 36)
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: iconNode)
     }
 }
 
@@ -46,7 +171,8 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private var imageNodes: [TransformImageNode] = []
     private var videoOverlayNodes: [ASDisplayNode] = []
-    private var shimmerNodes: [ShimmerPlaceholderNode] = []
+    private var skeletonNodesByIndex: [Int: MediaSkeletonNode] = [:]
+    private var placeholderNodes: [MediaPlaceholderNode] = []
     private var stickerNode: ASDisplayNode?
     private var attachments: [ParsedAttachment] = []
     private(set) var isUploading: Bool = false
@@ -214,8 +340,10 @@ final class MessageMediaContentNode: ASDisplayNode {
         imageNodes.removeAll()
         videoOverlayNodes.forEach { $0.removeFromSupernode() }
         videoOverlayNodes.removeAll()
-        shimmerNodes.forEach { $0.removeFromSupernode() }
-        shimmerNodes.removeAll()
+        skeletonNodesByIndex.values.forEach { $0.removeFromSupernode() }
+        skeletonNodesByIndex.removeAll()
+        placeholderNodes.forEach { $0.removeFromSupernode() }
+        placeholderNodes.removeAll()
         stickerNode?.removeFromSupernode()
         stickerNode = nil
         attachments = media
@@ -248,21 +376,20 @@ final class MessageMediaContentNode: ASDisplayNode {
             isSticker = false
             isSingleImage = true
             isMultiple = false
-            let shimmer = ShimmerPlaceholderNode()
-            shimmer.isUserInteractionEnabled = false
-            shimmerNodes.append(shimmer)
-            addSubnode(shimmer)
+            let att = media[0]
+            let placeholder = makeMediaPlaceholderNode(for: att)
+            placeholderNodes.append(placeholder)
+            addSubnode(placeholder)
+            let skeleton = addSkeletonNode(at: 0, cornerRadius: 8.swh, for: att)
             let node = TransformImageNode()
             node.isUserInteractionEnabled = false
             node.contentAnimations = [.firstUpdate]
-            node.imageUpdated = { [weak shimmer] _ in
-                shimmer?.removeFromSupernode()
-            }
+            wireImageLoadCallbacks(index: 0, node: node, skeleton: skeleton, placeholder: placeholder)
             imageNodes.append(node)
             addSubnode(node)
-            loadImage(at: 0, into: node, media: media[0], isMultiple: false, measuredPtSize: nil)
+            loadImage(at: 0, into: node, media: att, isMultiple: false, measuredPtSize: nil)
 
-            if media[0].isVideo {
+            if media[0].isVideo, !media[0].isPresignPending, !media[0].isUploading {
                 let overlay = makePlayOverlayNode()
                 videoOverlayNodes.append(overlay)
                 addSubnode(overlay)
@@ -283,21 +410,19 @@ final class MessageMediaContentNode: ASDisplayNode {
             isMultiple = true
             let items = media
             for (i, att) in items.enumerated() {
-                let shimmer = ShimmerPlaceholderNode()
-                shimmer.isUserInteractionEnabled = false
-                shimmerNodes.append(shimmer)
-                addSubnode(shimmer)
+                let placeholder = makeMediaPlaceholderNode(for: att)
+                placeholderNodes.append(placeholder)
+                addSubnode(placeholder)
+                let skeleton = addSkeletonNode(at: i, cornerRadius: 0, for: att)
                 let node = TransformImageNode()
                 node.isUserInteractionEnabled = false
                 node.contentAnimations = [.firstUpdate]
-                node.imageUpdated = { [weak shimmer] _ in
-                    shimmer?.removeFromSupernode()
-                }
+                wireImageLoadCallbacks(index: i, node: node, skeleton: skeleton, placeholder: placeholder)
                 imageNodes.append(node)
                 addSubnode(node)
                 loadImage(at: i, into: node, media: att, isMultiple: true, measuredPtSize: nil)
 
-                if att.isVideo {
+                if att.isVideo, !att.isPresignPending, !att.isUploading {
                     let overlay = makePlayOverlayNode()
                     videoOverlayNodes.append(overlay)
                     addSubnode(overlay)
@@ -430,9 +555,9 @@ final class MessageMediaContentNode: ASDisplayNode {
         for (i, node) in imageNodes.enumerated() {
             guard i < cachedImageFrames.count else { break }
             node.frame = cachedImageFrames[i]
-            if i < shimmerNodes.count {
-                let shimmer = shimmerNodes[i]
-                shimmer.frame = cachedImageFrames[i]
+            skeletonNodesByIndex[i]?.frame = cachedImageFrames[i]
+            if i < placeholderNodes.count {
+                placeholderNodes[i].frame = cachedImageFrames[i]
             }
         }
 
@@ -460,7 +585,6 @@ final class MessageMediaContentNode: ASDisplayNode {
                     overlay.frame = CGRect(x: imgFrame.midX - sz / 2, y: imgFrame.midY - sz / 2, width: sz, height: sz)
                 } else if i < attachments.count, attachments[i].isUploading || attachments[i].uploadFailed {
                     overlay.frame = imgFrame
-                    overlay.cornerRadius = 0
                 }
             }
         }
@@ -547,6 +671,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
         guard media.localImage == nil else { return }
+        guard !media.isPresignPending else { return }
         let sourceURL: String
         if media.isVideo {
             guard !media.thumbnail.isEmpty else { return }
@@ -569,12 +694,10 @@ final class MessageMediaContentNode: ASDisplayNode {
         if lastRemoteProxyURLByIndex[index] == proxyURL, node.image != nil { return }
         lastRemoteProxyURLByIndex[index] = proxyURL
         node.reset()
-        if index < shimmerNodes.count {
-            let sh = shimmerNodes[index]
-            if sh.supernode == nil {
-                insertSubnode(sh, belowSubnode: node)
-            }
+        if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
+            insertSubnode(skeleton, belowSubnode: node)
         }
+        skeletonNodesByIndex[index]?.isHidden = false
         let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
             || ImageCache.shared.memoryImage(forKey: sourceURL) != nil
         node.setSignal(
@@ -584,6 +707,9 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {
+        if media.isPresignPending {
+            return
+        }
         if let localImage = media.localImage {
             node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
         } else if media.isVideo && media.thumbnail.isEmpty {
@@ -627,54 +753,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func makeUploadingOverlay(progress: Double = 0) -> ASDisplayNode {
-        let overlay = ASDisplayNode()
-        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)
-        overlay.cornerRadius = 8.swh
-        overlay.clipsToBounds = true
-        overlay.isUserInteractionEnabled = false
-
-        let spinner = ASDisplayNode()
-        spinner.setViewBlock {
-            let indicator = UIActivityIndicatorView(style: .medium)
-            indicator.color = .white
-            indicator.startAnimating()
-            return indicator
-        }
-        spinner.style.preferredSize = CGSize(width: 36, height: 36)
-        overlay.addSubnode(spinner)
-
-        if progress > 0 {
-            let label = ASTextNode2()
-            label.attributedText = NSAttributedString(
-                string: "\(Int(progress * 100))%",
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                    .foregroundColor: UIColor.white,
-                ]
-            )
-            label.maximumNumberOfLines = 1
-            overlay.addSubnode(label)
-            let bar = UploadProgressBarNode(
-                progress: progress,
-                width: 90,
-                height: 4,
-                trackColor: UIColor.white.withAlphaComponent(0.3),
-                fillColor: .white)
-            overlay.addSubnode(bar)
-            overlay.layoutSpecBlock = { _, _ in
-                let stack = ASStackLayoutSpec.vertical()
-                stack.spacing = 6
-                stack.horizontalAlignment = .middle
-                stack.children = [spinner, label, bar]
-                return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: stack)
-            }
-        } else {
-            overlay.layoutSpecBlock = { _, _ in
-                ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: spinner)
-            }
-        }
-
-        return overlay
+        MediaUploadingOverlayNode(progress: progress)
     }
 
     private func makeFailedOverlay() -> ASDisplayNode {
@@ -727,5 +806,58 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
 
         return container
+    }
+
+    private static func shouldShowLoadingSkeleton(for media: ParsedAttachment) -> Bool {
+        if media.uploadFailed { return false }
+        if media.localImage != nil { return false }
+        if media.isPresignPending { return false }
+        return true
+    }
+
+    private static func shouldShowStaticPlaceholder(for media: ParsedAttachment) -> Bool {
+        media.isPresignPending || media.uploadFailed
+    }
+
+    @discardableResult
+    private func addSkeletonNode(at index: Int, cornerRadius: CGFloat, for media: ParsedAttachment) -> MediaSkeletonNode? {
+        guard Self.shouldShowLoadingSkeleton(for: media) else { return nil }
+        let skeleton = MediaSkeletonNode(cornerRadius: cornerRadius)
+        skeleton.isUserInteractionEnabled = false
+        skeletonNodesByIndex[index] = skeleton
+        addSubnode(skeleton)
+        return skeleton
+    }
+
+    private func wireImageLoadCallbacks(
+        index: Int,
+        node: TransformImageNode,
+        skeleton: MediaSkeletonNode?,
+        placeholder: MediaPlaceholderNode
+    ) {
+        node.imageUpdated = { [weak self, weak node, weak skeleton, weak placeholder] _ in
+            guard let self, let node else { return }
+            if node.image != nil {
+                skeleton?.removeFromSupernode()
+                self.skeletonNodesByIndex.removeValue(forKey: index)
+                placeholder?.isHidden = true
+            } else if index < self.attachments.count {
+                let media = self.attachments[index]
+                if Self.shouldShowStaticPlaceholder(for: media) {
+                    skeleton?.isHidden = true
+                    placeholder?.isHidden = false
+                } else if Self.shouldShowLoadingSkeleton(for: media) {
+                    skeleton?.isHidden = false
+                    placeholder?.isHidden = true
+                }
+            }
+        }
+    }
+
+    private func makeMediaPlaceholderNode(for media: ParsedAttachment) -> MediaPlaceholderNode {
+        let node = MediaPlaceholderNode()
+        node.isHidden = !Self.shouldShowStaticPlaceholder(for: media)
+        node.isUserInteractionEnabled = false
+        return node
     }
 }

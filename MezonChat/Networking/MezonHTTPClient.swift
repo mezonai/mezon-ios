@@ -948,7 +948,8 @@ final class MezonHTTPClient {
         hideEditted: Bool = false,
         topicId: Int64 = 0,
         isUpdateMsgTopic: Bool = false,
-        token: String
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
         var req = Mezon_Realtime_ChannelMessageUpdate()
         req.clanID = clanId
@@ -966,7 +967,8 @@ final class MezonHTTPClient {
         let ack: Mezon_Realtime_ChannelMessageAck = try await postProto(
             path: "/mezon.api.Mezon/UpdateChannelMessage",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
         return ack
     }

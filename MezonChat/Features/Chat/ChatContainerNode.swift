@@ -556,8 +556,11 @@ final class ChatContainerNode: ASDisplayNode {
 
     private static func listFingerprint(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
+            .map {
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)|\(Int($0.uploadProgress * 100))"
+            }
             .joined(separator: ";")
         let grouping = [
             m.isCombine ? "1" : "0",
@@ -595,7 +598,7 @@ final class ChatContainerNode: ASDisplayNode {
             return "\(topic.topicId)|\(topic.creatorId)|\(topic.replyCount)"
         }()
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
     private static func welcomeFingerprint(_ state: ChatState) -> String {

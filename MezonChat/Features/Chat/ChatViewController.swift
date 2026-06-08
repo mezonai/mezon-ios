@@ -25,6 +25,7 @@ struct ParsedAttachment: Equatable {
     var localImage: UIImage?
     var isUploading: Bool = false
     var uploadFailed: Bool = false
+    var isPresignPending: Bool = false
     var uploadProgress: Double = 0
     var uploadProgressKey: String = ""
 
@@ -64,6 +65,7 @@ struct ParsedAttachment: Equatable {
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
             && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
+            && lhs.isPresignPending == rhs.isPresignPending
             && lhs.uploadProgress == rhs.uploadProgress
     }
 
@@ -2491,8 +2493,11 @@ final class ChatViewController: ViewController {
 
     private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
+            .map {
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)|\(Int($0.uploadProgress * 100))"
+            }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
         let pollHash: String
@@ -2523,7 +2528,7 @@ final class ChatViewController: ViewController {
         }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -2720,15 +2725,20 @@ final class ChatViewController: ViewController {
             let showsSendingFeedback = record.sendingState == .pending
                 && now.timeIntervalSince(sendingFeedbackBeganAt) >= Self.pendingSendFeedbackDelay
 
-            var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id) {
-                let nonMedia = attachments.filter { !$0.isMedia }
-                if nonMedia.isEmpty {
-                    let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
-                    attachments = overlayMedia + localDocs
-                } else {
-                    attachments = overlayMedia + nonMedia
+            var attachments = Self.applyPresignFinishState(
+                to: Self.parseAttachments(record.attachmentsJSON),
+                contentData: record.content
+            )
+            let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id)
+            let overlayFiles = AttachmentUploadCoordinator.shared.fileOverlay(for: record.id)
+            if overlayMedia != nil || overlayFiles != nil {
+                let audio = attachments.filter(\.isAudio)
+                var media = attachments.filter(\.isMedia)
+                if let overlayMedia {
+                    media = overlayMedia
                 }
+                let files = overlayFiles ?? attachments.filter { !$0.isMedia && !$0.isAudio }
+                attachments = media + audio + files
             } else if record.sendingState == .pending {
                 let stillUploading = true
                 let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
@@ -3052,6 +3062,19 @@ final class ChatViewController: ViewController {
             }
         }
         return []
+    }
+
+    private static func applyPresignFinishState(
+        to attachments: [ParsedAttachment],
+        contentData: Data
+    ) -> [ParsedAttachment] {
+        guard let keys = PresignFinishContent.parseKeys(from: contentData) else { return attachments }
+        return attachments.map { att in
+            guard !att.url.isEmpty, !att.isUploading, att.localImage == nil, !att.uploadFailed else { return att }
+            var copy = att
+            copy.isPresignPending = !PresignFinishContent.isAttachmentReady(url: att.url, presignFinish: keys)
+            return copy
+        }
     }
 
     private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {
