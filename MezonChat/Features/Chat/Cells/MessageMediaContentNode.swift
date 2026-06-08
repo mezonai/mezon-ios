@@ -64,8 +64,11 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var isMultiple = false
     private var lastRemoteProxyURLByIndex: [Int: String] = [:]
 
+    private var mediaTapGesture: UITapGestureRecognizer?
+
     override init() {
         super.init()
+        isUserInteractionEnabled = true
     }
 
     private static func mosaicItemSize(for att: ParsedAttachment) -> CGSize {
@@ -195,10 +198,10 @@ final class MessageMediaContentNode: ASDisplayNode {
         isSingleImage = false
         isMultiple = false
         guard !media.isEmpty else { return }
-        let isAnimatedType = media.count == 1 && Self.isAnimatedImageAttachment(media[0])
-        if media.count == 1, media[0].isSticker || isAnimatedType {
+        let isGifType = media.count == 1 && Self.isGifImageAttachment(media[0])
+        if media.count == 1, media[0].isSticker || isGifType {
             isSticker = true
-            isAnimatedStandaloneImage = isAnimatedType && !media[0].isSticker
+            isAnimatedStandaloneImage = isGifType && !media[0].isSticker
         } else if media.count == 1 {
             isSingleImage = true
         } else {
@@ -207,7 +210,6 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     func configure(media: [ParsedAttachment]) {
-
         imageNodes.forEach { $0.removeFromSupernode(); $0.reset() }
         imageNodes.removeAll()
         videoOverlayNodes.forEach { $0.removeFromSupernode() }
@@ -226,10 +228,10 @@ final class MessageMediaContentNode: ASDisplayNode {
         guard !media.isEmpty else { return }
 
 
-        let isAnimatedType = media.count == 1 && Self.isAnimatedImageAttachment(media[0])
-        if media.count == 1, media[0].isSticker || isAnimatedType {
+        let isGifType = media.count == 1 && Self.isGifImageAttachment(media[0])
+        if media.count == 1, media[0].isSticker || isGifType {
             isSticker = true
-            isAnimatedStandaloneImage = isAnimatedType && !media[0].isSticker
+            isAnimatedStandaloneImage = isGifType && !media[0].isSticker
             isSingleImage = false
             isMultiple = false
             let node = ASDisplayNode()
@@ -247,9 +249,11 @@ final class MessageMediaContentNode: ASDisplayNode {
             isSingleImage = true
             isMultiple = false
             let shimmer = ShimmerPlaceholderNode()
+            shimmer.isUserInteractionEnabled = false
             shimmerNodes.append(shimmer)
             addSubnode(shimmer)
             let node = TransformImageNode()
+            node.isUserInteractionEnabled = false
             node.contentAnimations = [.firstUpdate]
             node.imageUpdated = { [weak shimmer] _ in
                 shimmer?.removeFromSupernode()
@@ -280,9 +284,11 @@ final class MessageMediaContentNode: ASDisplayNode {
             let items = media
             for (i, att) in items.enumerated() {
                 let shimmer = ShimmerPlaceholderNode()
+                shimmer.isUserInteractionEnabled = false
                 shimmerNodes.append(shimmer)
                 addSubnode(shimmer)
                 let node = TransformImageNode()
+                node.isUserInteractionEnabled = false
                 node.contentAnimations = [.firstUpdate]
                 node.imageUpdated = { [weak shimmer] _ in
                     shimmer?.removeFromSupernode()
@@ -309,6 +315,10 @@ final class MessageMediaContentNode: ASDisplayNode {
                     videoOverlayNodes.append(placeholder)
                 }
             }
+        }
+
+        if isNodeLoaded {
+            attachMediaTapGesture()
         }
     }
 
@@ -457,17 +467,31 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
 
-    private static func isAnimatedImageAttachment(_ attachment: ParsedAttachment) -> Bool {
+    private static func isGifImageAttachment(_ attachment: ParsedAttachment) -> Bool {
         let filetype = attachment.filetype
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         let mime = filetype.split(separator: ";", maxSplits: 1).first
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? filetype
-        if mime == "image/gif" || mime == "image/webp" || mime == "gif" || mime == "webp" {
+        if mime == "image/gif" || mime == "gif" {
             return true
         }
-        return ["gif", "webp"].contains(pathExtension(from: attachment.filename))
-            || ["gif", "webp"].contains(pathExtension(from: attachment.url))
+        return ["gif"].contains(pathExtension(from: attachment.filename))
+            || ["gif"].contains(pathExtension(from: attachment.url))
+    }
+
+    private static func isAnimatedImageAttachment(_ attachment: ParsedAttachment) -> Bool {
+        if isGifImageAttachment(attachment) { return true }
+        let filetype = attachment.filetype
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let mime = filetype.split(separator: ";", maxSplits: 1).first
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? filetype
+        if mime == "image/webp" || mime == "webp" {
+            return true
+        }
+        return ["webp"].contains(pathExtension(from: attachment.filename))
+            || ["webp"].contains(pathExtension(from: attachment.url))
     }
 
     private static func pathExtension(from value: String) -> String {
@@ -530,6 +554,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         } else {
             sourceURL = media.url
         }
+        guard !sourceURL.isEmpty else { return }
         guard index < imageNodes.count else { return }
         let node = imageNodes[index]
         let w = 400
@@ -568,19 +593,32 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
     }
 
-    override func didLoad() {
-        super.didLoad()
-        for (i, node) in imageNodes.enumerated() {
-            node.view.isUserInteractionEnabled = true
-            node.view.tag = i
-            let tap = UITapGestureRecognizer(target: self, action: #selector(handleImageTap(_:)))
-            node.view.addGestureRecognizer(tap)
-        }
+    private func attachMediaTapGesture() {
+        guard isNodeLoaded else { return }
+        isUserInteractionEnabled = true
+        view.isUserInteractionEnabled = true
+        guard mediaTapGesture == nil else { return }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleMediaTap(_:)))
+        view.addGestureRecognizer(tap)
+        mediaTapGesture = tap
     }
 
-    @objc private func handleImageTap(_ gesture: UITapGestureRecognizer) {
-        guard let view = gesture.view else { return }
-        onImageTapped?(view.tag)
+    override func didLoad() {
+        super.didLoad()
+        attachMediaTapGesture()
+    }
+
+    @objc private func handleMediaTap(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: view)
+        let index: Int?
+        if isSticker {
+            let bounds = CGRect(origin: .zero, size: cachedTotalSize)
+            index = bounds.contains(point) ? 0 : nil
+        } else {
+            index = cachedImageFrames.enumerated().first(where: { $1.contains(point) })?.offset
+        }
+        guard let index else { return }
+        onImageTapped?(index)
     }
 
     func currentImage(at index: Int) -> UIImage? {

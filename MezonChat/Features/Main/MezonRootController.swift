@@ -104,6 +104,7 @@ final class MezonRootController: NavigationController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRSelectClanRoot(_:)), name: .mezonQRSelectClan, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSharedContent(_:)), name: .mezonDidReceiveSharedContent, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDeepLink), name: .mezonHandleDeepLink, object: nil)
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleIncomingPeerCall(_:)), name: .mezonIncomingPeerCall, object: nil)
 
@@ -111,6 +112,7 @@ final class MezonRootController: NavigationController {
 
         bootstrapGlobalFriendState()
         processPendingNavigation()
+        processPendingDeepLink()
         checkPendingSharedContentOnLaunch()
 
         DispatchQueue.main.async { [weak self] in
@@ -682,6 +684,182 @@ final class MezonRootController: NavigationController {
             }
             topVC.present(sharingVC, animated: true)
         }
+    }
+
+    // MARK: - Deep links
+
+    private func processPendingDeepLink() {
+        guard let route = DeepLinkRouter.consumePending() else { return }
+        scheduleDeepLink(route)
+    }
+
+    @objc private func handleDeepLink() {
+        guard let route = DeepLinkRouter.consumePending() else { return }
+        scheduleDeepLink(route)
+    }
+
+    private func scheduleDeepLink(_ route: DeepLinkRoute) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await self.context.waitForSessionReady()
+                }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                }
+                _ = await group.next()
+                group.cancelAll()
+            }
+            self.performDeepLink(route)
+        }
+    }
+
+    private func performDeepLink(_ route: DeepLinkRoute) {
+        switch route {
+        case let .channelApp(channelId, clanId, _, _):
+            handleDeepLinkChannelApp(channelId: channelId, clanId: clanId)
+        case let .invite(code):
+            handleDeepLinkInvite(code: code)
+        case let .chat(username, data):
+            handleDeepLinkChat(username: username, data: data)
+        case let .botInstall(appId):
+            handleDeepLinkBotInstall(appId: appId)
+        }
+    }
+
+    private func handleDeepLinkBotInstall(appId: String) {
+        guard let appIdInt = Int64(appId) else { return }
+        let clans = homeController?.clanListVC.clans ?? []
+        let vc = InstallClanViewController(context: context, appId: appIdInt, clans: clans)
+        presentDeepLinkOverlay(vc)
+    }
+
+    private func presentDeepLinkOverlay(_ controller: UIViewController) {
+        let presenter: UIViewController
+        if let root = view.window?.rootViewController {
+            var top = root
+            while let presented = top.presentedViewController {
+                top = presented
+            }
+            presenter = top
+        } else {
+            presenter = self
+        }
+        guard presenter.presentedViewController == nil,
+              !presenter.isBeingPresented,
+              !presenter.isBeingDismissed else { return }
+        if presenter is InstallClanViewController || presenter is DeepLinkNodeOverlayController { return }
+        presenter.present(controller, animated: true)
+    }
+
+    private func handleDeepLinkChannelApp(channelId: String, clanId: String?) {
+        guard let channelIdInt = Int64(channelId) else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error("Session unavailable")
+                return
+            }
+            let clanIdInt = clanId.flatMap { Int64($0) } ?? self.context.currentClanId
+            guard clanIdInt != 0 else {
+                Toast.error("App unavailable")
+                return
+            }
+            do {
+                let apps = try await self.context.account.network.listChannelApps(clanId: clanIdInt, token: token)
+                guard let app = apps.first(where: { $0.channelID == channelIdInt }) else {
+                    Toast.error("App unavailable")
+                    return
+                }
+                let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
+                guard !webAppData.isEmpty, let url = app.channelAppWebPageURL(webAppData: webAppData) else {
+                    Toast.error("App unavailable")
+                    return
+                }
+                let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                let vc = ChannelAppWebViewController(pageURL: url, appTitle: title.isEmpty ? "App" : title)
+                self.presentOverlay(controller: vc, inGlobal: true)
+                DispatchQueue.main.async { [weak self] in
+                    self?.requestLayout(transition: .immediate)
+                }
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleDeepLinkInvite(code: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var token = self.context.session?.token ?? ""
+            if token.isEmpty {
+                token = await self.context.getToken() ?? ""
+            }
+            do {
+                let inviteInfo = try await self.context.engine.clanData.getInviteInfo(code: code, token: token)
+                let theme = self.context.sharedContext.currentPresentationTheme.attributes
+                let node = QRClanInviteNode(theme: theme, inviteInfo: inviteInfo)
+                let overlay = DeepLinkNodeOverlayController(node: node)
+                node.onCancel = { [weak overlay] in
+                    overlay?.dismissOverlay()
+                }
+                node.onJoin = { [weak self, weak overlay] in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        do {
+                            let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
+                            overlay?.dismissOverlay {
+                                self.rootTabController?.selectedIndex = 0
+                                self.popToTabBarController()
+                                NotificationCenter.default.post(
+                                    name: .mezonQRSelectClan,
+                                    object: nil,
+                                    userInfo: ["clanId": "\(response.clanID)"]
+                                )
+                            }
+                        } catch {
+                            Toast.error(error.localizedDescription)
+                        }
+                    }
+                }
+                self.presentDeepLinkOverlay(overlay)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleDeepLinkChat(username: String, data: String?) {
+        guard let data, let profile = DeepLinkRouter.decodeProfileData(data) else {
+            return
+        }
+        let theme = context.sharedContext.currentPresentationTheme.attributes
+        let node = QRUserProfileNode(profile: profile, theme: theme)
+        let overlay = DeepLinkNodeOverlayController(node: node)
+        node.onClose = { [weak overlay] in
+            overlay?.dismissOverlay()
+        }
+        node.onMessage = { [weak self, weak overlay] in
+            guard let self else { return }
+            Task { @MainActor in
+                do {
+                    guard let userId = Int64(profile.id) else { return }
+                    let token = await self.context.getToken() ?? ""
+                    let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
+                    overlay?.dismissOverlay {
+                        NotificationCenter.default.post(
+                            name: .mezonQRNavigateToDM,
+                            object: nil,
+                            userInfo: ["channelId": "\(channel.channelID)", "title": profile.name]
+                        )
+                    }
+                } catch {
+                    Toast.error(error.localizedDescription)
+                }
+            }
+        }
+        presentDeepLinkOverlay(overlay)
     }
 
     deinit {

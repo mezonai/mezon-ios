@@ -222,62 +222,108 @@ struct VoiceMemberDisplay {
     let avatarURL: String?
 }
 
-private func makeVoiceAvatarNodes(member m: VoiceMemberDisplay, size s: CGFloat) -> (wrapper: ASDisplayNode, img: ASNetworkImageNode, initLabel: ASTextNode2) {
-    let imgNode = ASNetworkImageNode()
-    imgNode.style.preferredSize = CGSize(width: s, height: s)
-    imgNode.cornerRadius = s / 2
-    imgNode.clipsToBounds = true
-    imgNode.contentMode = .scaleAspectFill
+final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
-    let initNode = ASTextNode2()
-    initNode.maximumNumberOfLines = 1
+    private let imgNode = ASNetworkImageNode()
+    private let initNode = ASTextNode2()
+    private let proxiedURL: URL?
 
-    let wrapper = ASDisplayNode()
-    wrapper.automaticallyManagesSubnodes = true
-    wrapper.style.preferredSize = CGSize(width: s, height: s)
-    wrapper.cornerRadius = s / 2
-    wrapper.clipsToBounds = true
+    private var didLoadImage = false
+    private var retryCount = 0
+    private static let maxRetries = 4
 
-    if let av = m.avatarURL, !av.isEmpty {
-        wrapper.backgroundColor = .clear
-        let proxy = ImgproxyURL.create(from: av, width: 150, height: 150)
-        imgNode.url = URL(string: proxy)
-        initNode.isHidden = true
-    } else {
-        wrapper.backgroundColor = UIColor.avatarColor(for: m.username)
-        imgNode.isHidden = true
+    init(member m: VoiceMemberDisplay, size s: CGFloat) {
+        if let av = m.avatarURL, !av.isEmpty {
+            proxiedURL = URL(string: ImgproxyURL.create(from: av, width: 20, height: 20))
+        } else {
+            proxiedURL = nil
+        }
+        super.init()
+        automaticallyManagesSubnodes = true
+        style.preferredSize = CGSize(width: s, height: s)
+        cornerRadius = s / 2
+        clipsToBounds = true
+        backgroundColor = UIColor.avatarColor(for: m.username)
+
         let initial = String(m.username.prefix(1)).uppercased()
         let fontSize: CGFloat = s < 22 ? 9 : 11
+        initNode.maximumNumberOfLines = 1
         initNode.attributedText = NSAttributedString(
             string: initial,
             attributes: [
                 .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
                 .foregroundColor: UIColor.white,
             ])
+
+        imgNode.style.preferredSize = CGSize(width: s, height: s)
+        imgNode.cornerRadius = s / 2
+        imgNode.clipsToBounds = true
+        imgNode.contentMode = .scaleAspectFill
+        imgNode.delegate = self
+
+        if let proxiedURL {
+            imgNode.url = proxiedURL
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleNetworkStatusChanged(_:)),
+                name: NetworkMonitor.statusDidChangeNotification,
+                object: nil
+            )
+        } else {
+            imgNode.isHidden = true
+        }
     }
 
-    wrapper.layoutSpecBlock = { _, _ in
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: initNode)
         return ASOverlayLayoutSpec(child: center, overlay: imgNode)
     }
 
-    return (wrapper, imgNode, initNode)
+    private func reloadAvatar() {
+        guard let proxiedURL, !didLoadImage else { return }
+        imgNode.url = nil
+        imgNode.url = proxiedURL
+    }
+
+    @objc private func handleNetworkStatusChanged(_ notification: Notification) {
+        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+        guard connected, !didLoadImage else { return }
+        retryCount = 0
+        DispatchQueue.main.async { [weak self] in
+            self?.reloadAvatar()
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        guard imageNode === imgNode else { return }
+        if image.size.width >= 0.5, image.size.height >= 0.5 {
+            didLoadImage = true
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode === imgNode, !didLoadImage, retryCount < Self.maxRetries else { return }
+        retryCount += 1
+        let delay = Double(retryCount) * 1.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.reloadAvatar()
+        }
+    }
 }
 
 final class VoiceMemberExpandedCellNode: ASCellNode {
 
     private static let avatarSize: CGFloat = 22
 
-    private let avatarWrapper: ASDisplayNode
-    private let avatarImg: ASNetworkImageNode
-    private let avatarInit: ASTextNode2
+    private let avatarNode: VoiceAvatarNode
     private let nameNode = ASTextNode2()
 
     init(member: VoiceMemberDisplay) {
-        let nodes = makeVoiceAvatarNodes(member: member, size: Self.avatarSize)
-        avatarWrapper = nodes.wrapper
-        avatarImg = nodes.img
-        avatarInit = nodes.initLabel
+        avatarNode = VoiceAvatarNode(member: member, size: Self.avatarSize)
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
@@ -304,7 +350,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
             spacing: 10,
             justifyContent: .start,
             alignItems: .center,
-            children: [avatarWrapper, nameNode]
+            children: [avatarNode, nameNode]
         )
         return ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 2, left: 40, bottom: 2, right: 12),
@@ -330,8 +376,7 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
 
         let visible = Array(members.prefix(Self.maxVisible))
         for m in visible {
-            let nodes = makeVoiceAvatarNodes(member: m, size: Self.avatarSize)
-            avatarNodes.append(nodes.wrapper)
+            avatarNodes.append(VoiceAvatarNode(member: m, size: Self.avatarSize))
         }
 
         if totalCount > Self.maxVisible {

@@ -166,6 +166,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             }
             Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
         }
+
+        for urlContext in connectionOptions.urlContexts {
+            if !DeepLinkRouter.handle(urlContext.url) {
+                handleShareURL(urlContext.url)
+            }
+        }
+        for activity in connectionOptions.userActivities {
+            if DeepLinkRouter.handle(userActivity: activity) { break }
+        }
     }
 
     private func startAuthFlow(context: AccountContext) {
@@ -308,8 +317,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         for context in URLContexts {
+            if DeepLinkRouter.handle(context.url) { continue }
             handleShareURL(context.url)
         }
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        DeepLinkRouter.handle(userActivity: userActivity)
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {

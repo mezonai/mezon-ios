@@ -376,39 +376,60 @@ final class DirectMessagesViewController: ViewController {
         return max(layout.safeInsets.top, layout.statusBarHeight ?? 0, viewSafeTop)
     }
 
+    private var stateUpdateDepth = 0
+    private var pendingReloadNotification = false
+
+    private func notifyStateChanged() {
+        if stateUpdateDepth > 0 {
+            pendingReloadNotification = true
+        } else {
+            needsReloadPipe.putNext(())
+        }
+    }
+
+    private func performBatchStateUpdate(_ body: () -> Void) {
+        stateUpdateDepth += 1
+        body()
+        stateUpdateDepth -= 1
+        if stateUpdateDepth == 0, pendingReloadNotification {
+            pendingReloadNotification = false
+            needsReloadPipe.putNext(())
+        }
+    }
+
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
         guard directMessages != v else { return }
         directMessages = v
         directMessagesPipe.putNext(v)
-        needsReloadPipe.putNext(())
+        notifyStateChanged()
     }
 
     private func setIsEmpty(_ v: Bool) {
         guard isEmpty != v else { return }
         isEmpty = v
         isEmptyPipe.putNext(v)
-        needsReloadPipe.putNext(())
+        notifyStateChanged()
     }
 
     private func setIsLoading(_ v: Bool) {
         guard isLoading != v else { return }
         isLoading = v
         isLoadingPipe.putNext(v)
-        needsReloadPipe.putNext(())
+        notifyStateChanged()
     }
 
     private func setErrorMessage(_ v: String?) {
         guard errorMessage != v else { return }
         errorMessage = v
         errorMessagePipe.putNext(v)
-        needsReloadPipe.putNext(())
+        notifyStateChanged()
     }
 
     private func setIncomingFriendRequestCount(_ v: Int) {
         let changed = incomingFriendRequestCount != v
         incomingFriendRequestCount = v
         if changed {
-            needsReloadPipe.putNext(())
+            notifyStateChanged()
         }
     }
 
@@ -431,8 +452,10 @@ final class DirectMessagesViewController: ViewController {
             next.insert(channel, at: 0)
         }
         let sorted = Self.sortDmChannels(next)
-        setDirectMessages(sorted)
-        setIsEmpty(sorted.isEmpty)
+        performBatchStateUpdate {
+            setDirectMessages(sorted)
+            setIsEmpty(sorted.isEmpty)
+        }
         persistDmChannelListToPostbox()
     }
 
@@ -766,9 +789,11 @@ final class DirectMessagesViewController: ViewController {
         let cached = context.account.postbox.getCachedDMChannelList()
         guard !cached.isEmpty else { return }
         let sorted = Self.sortDmChannels(cached)
-        setDirectMessages(sorted)
-        setIsEmpty(sorted.isEmpty)
-        setErrorMessage(nil)
+        performBatchStateUpdate {
+            setDirectMessages(sorted)
+            setIsEmpty(sorted.isEmpty)
+            setErrorMessage(nil)
+        }
     }
 
     private var fetchDirectMessagesTask: Task<Void, Never>?
@@ -813,11 +838,13 @@ final class DirectMessagesViewController: ViewController {
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.setIsLoading(false)
                 self.fetchDirectMessagesTask = nil
                 self.lastFetchDirectMessagesAt = Date()
             }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
+                self.setIsLoading(false)
+                return
+            }
             await self.fetchUserActivities(token: token)
             do {
                 let cachedRows = self.directMessages
@@ -832,14 +859,20 @@ final class DirectMessagesViewController: ViewController {
                 } catch {
                 }
                 let sorted = Self.sortDmChannels(channels)
-                self.setDirectMessages(sorted)
-                self.setIsEmpty(sorted.isEmpty)
+                self.performBatchStateUpdate {
+                    self.setIsLoading(false)
+                    self.setDirectMessages(sorted)
+                    self.setIsEmpty(sorted.isEmpty)
+                    self.setErrorMessage(nil)
+                }
                 self.persistDmChannelListToPostbox()
-                self.setErrorMessage(nil)
             } catch {
-                self.applyDmListFromCache()
-                if self.directMessages.isEmpty {
-                    self.setErrorMessage(error.localizedDescription)
+                self.performBatchStateUpdate {
+                    self.setIsLoading(false)
+                    self.applyDmListFromCache()
+                    if self.directMessages.isEmpty {
+                        self.setErrorMessage(error.localizedDescription)
+                    }
                 }
             }
         }
@@ -867,8 +900,10 @@ final class DirectMessagesViewController: ViewController {
                 } catch {
                 }
                 let sorted = Self.sortDmChannels(channels)
-                self.setDirectMessages(sorted)
-                self.setIsEmpty(sorted.isEmpty)
+                self.performBatchStateUpdate {
+                    self.setDirectMessages(sorted)
+                    self.setIsEmpty(sorted.isEmpty)
+                }
                 self.persistDmChannelListToPostbox()
             } catch {
                 self.applyDmListFromCache()
