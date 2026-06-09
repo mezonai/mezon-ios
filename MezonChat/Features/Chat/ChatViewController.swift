@@ -69,6 +69,20 @@ struct ParsedAttachment: Equatable {
             && lhs.uploadProgress == rhs.uploadProgress
     }
 
+    static func attachmentsStructurallyEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.url != r.url || l.filename != r.filename || l.filetype != r.filetype
+                || l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds
+                || l.thumbnail != r.thumbnail
+                || l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed
+                || l.isPresignPending != r.isPresignPending {
+                return false
+            }
+        }
+        return true
+    }
+
     private static let maxPendingCacheEntries = 50
     private static let pendingCacheLock = NSLock()
 
@@ -460,8 +474,6 @@ final class ChatViewController: ViewController {
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
     private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
-    private var attachmentProgressReloadWorkItem: DispatchWorkItem?
-    private static let attachmentProgressReloadInterval: TimeInterval = 0.25
 
     private struct RemoteTyperState {
         var displayName: String
@@ -875,6 +887,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadSlotStateChanged(_:)), name: .mezonAttachmentUploadSlotStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
@@ -1346,20 +1359,42 @@ final class ChatViewController: ViewController {
 
     @objc private func handleAttachmentUploadProgress(_ notification: Notification) {
         guard let key = notification.userInfo?["key"] as? String, !key.isEmpty else { return }
+        let progress = (notification.userInfo?["progress"] as? Double) ?? 0
         let isRelevant = ParsedAttachment.pendingDocumentPlaceholders.values
             .contains { docs in docs.contains { $0.uploadProgressKey == key } }
             || AttachmentUploadCoordinator.shared.hasActiveProgressKey(key)
         guard isRelevant else { return }
-        guard attachmentProgressReloadWorkItem == nil else { return }
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.attachmentProgressReloadWorkItem = nil
-            self.reloadDisplaysForPendingSendingFeedback()
-            self.needsReloadPipe.putNext(())
+        guard isViewLoaded else { return }
+        messagesNode.updateUploadProgress(progressKey: key, progress: progress)
+    }
+
+    @objc private func handleAttachmentUploadSlotStateChanged(_ notification: Notification) {
+        guard let messageId = notification.userInfo?["messageId"] as? String, !messageId.isEmpty else { return }
+        refreshUploadingMessageDisplay(messageId: messageId)
+    }
+
+    private func refreshUploadingMessageDisplay(messageId: String) {
+        let channelIdStr = storageChannelId
+        guard let record = context.account.postbox.read({ tx in
+            tx.getMessageById(messageId, channelId: channelIdStr) ?? tx.getMessageById(messageId)
+        }) else { return }
+        let updated = buildDisplayMessages(from: [record]).first(where: { $0.id == messageId })
+        guard let updated else { return }
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        let old = messages[idx]
+        guard !ParsedAttachment.attachmentsStructurallyEqual(old.attachments, updated.attachments) else { return }
+
+        if let pIdx = persistentMessages.firstIndex(where: { $0.id == messageId }) {
+            var patched = persistentMessages
+            patched[pIdx] = updated
+            persistentMessages = patched
         }
-        attachmentProgressReloadWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.attachmentProgressReloadInterval, execute: workItem)
+        var patchedMessages = messages
+        patchedMessages[idx] = updated
+        messages = patchedMessages
+
+        guard isViewLoaded else { return }
+        messagesNode.applySingleMessagePatch(updated)
     }
 
     @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
@@ -2496,7 +2531,7 @@ final class ChatViewController: ViewController {
         let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
             .map {
-                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)|\(Int($0.uploadProgress * 100))"
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)"
             }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"

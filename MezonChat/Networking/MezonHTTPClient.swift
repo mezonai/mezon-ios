@@ -942,12 +942,13 @@ final class MezonHTTPClient {
         mode: Int32,
         isPublic: Bool,
         messageId: Int64,
-        content: String,
-        mentions: [Mezon_Api_MessageMention] = [],
-        attachments: [Mezon_Api_MessageAttachment] = [],
+        content: String? = nil,
+        mentions: [Mezon_Api_MessageMention]? = nil,
+        attachments: [Mezon_Api_MessageAttachment]? = nil,
         hideEditted: Bool = false,
-        topicId: Int64 = 0,
+        topicId: Int64? = nil,
         isUpdateMsgTopic: Bool = false,
+        createTimeSeconds: UInt32? = nil,
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
@@ -955,14 +956,25 @@ final class MezonHTTPClient {
         req.clanID = clanId
         req.channelID = channelId
         req.messageID = messageId
-        req.content = content
-        req.mentions = mentions
-        req.attachments = attachments
         req.mode = mode
         req.isPublic = isPublic
         req.hideEditted = hideEditted
-        req.topicID = topicId
         req.isUpdateMsgTopic = isUpdateMsgTopic
+        if let topicId, topicId != 0 {
+            req.topicID = topicId
+        }
+        if let content, !content.isEmpty {
+            req.content = content
+        }
+        if let mentions, !mentions.isEmpty {
+            req.mentions = mentions
+        }
+        if let attachments, !attachments.isEmpty {
+            req.attachments = attachments
+        }
+        if let createTimeSeconds, createTimeSeconds != 0 {
+            req.createTimeSeconds = createTimeSeconds
+        }
 
         let ack: Mezon_Realtime_ChannelMessageAck = try await postProto(
             path: "/mezon.api.Mezon/UpdateChannelMessage",
@@ -1469,11 +1481,6 @@ final class MezonHTTPClient {
         req.width = Int32(width)
         req.height = Int32(height)
         req.partCount = Int32(partCount)
-        req.parts = (1...max(1, partCount)).map { index in
-            var part = Mezon_Api_MultipartUploadAttachmentPart()
-            part.partNumber = Int32(index)
-            return part
-        }
         return try await postProto(
             path: "/mezon.api.Mezon/MultipartUploadAttachmentFileStart",
             message: req,

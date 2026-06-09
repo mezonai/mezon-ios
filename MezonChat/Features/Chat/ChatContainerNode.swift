@@ -559,7 +559,7 @@ final class ChatContainerNode: ASDisplayNode {
         let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
             .map {
-                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)|\(Int($0.uploadProgress * 100))"
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)"
             }
             .joined(separator: ";")
         let grouping = [
@@ -737,6 +737,26 @@ final class ChatContainerNode: ASDisplayNode {
     override func layout() {
         super.layout()
         applyFrameLayout(transition: .immediate)
+    }
+
+    func updateUploadProgress(progressKey: String, progress: Double) {
+        guard !progressKey.isEmpty else { return }
+        listView.forEachItemNode { node in
+            guard let itemNode = node as? ChatMessageItemNode,
+                  let bubble = self.findBubble(in: itemNode) else { return }
+            bubble.updateUploadProgress(progressKey: progressKey, progress: progress)
+        }
+    }
+
+    func applySingleMessagePatch(_ updated: ChatMessageDisplay) {
+        guard let idx = state.messages.firstIndex(where: { $0.id == updated.id }) else { return }
+        let oldState = state
+        var newMessages = state.messages
+        newMessages[idx] = updated
+        var newState = state
+        newState.messages = newMessages
+        state = newState
+        applyInPlaceUpdates(old: oldState, new: newState, newIds: buildIds(from: newState))
     }
 
     func forceUpdateItem(id: String) {

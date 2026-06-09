@@ -4,7 +4,7 @@ import AsyncDisplayKit
 final class UploadProgressBarNode: ASDisplayNode {
 
     private let fillNode = ASDisplayNode()
-    private let progress: CGFloat
+    private var progress: CGFloat
 
     init(
         progress: Double,
@@ -25,6 +25,11 @@ final class UploadProgressBarNode: ASDisplayNode {
         fillNode.backgroundColor = fillColor
         fillNode.cornerRadius = height / 2
         addSubnode(fillNode)
+    }
+
+    func updateProgress(_ value: Double) {
+        progress = CGFloat(min(max(value, 0), 1))
+        setNeedsLayout()
     }
 
     override func layout() {
@@ -54,6 +59,17 @@ final class MessageFileAttachmentNode: ASDisplayNode {
             fileNodes.append(node)
             addSubnode(node)
         }
+    }
+
+    @discardableResult
+    func updateUploadProgress(progressKey: String, progress: Double) -> Bool {
+        guard !progressKey.isEmpty else { return false }
+        for node in fileNodes {
+            if node.updateUploadProgress(progressKey: progressKey, progress: progress) {
+                return true
+            }
+        }
+        return false
     }
 
     static func estimatedMeasureSize(files: [ParsedAttachment], maxWidth: CGFloat) -> CGSize {
@@ -98,6 +114,7 @@ final class FileItemNode: ASDisplayNode {
     private let progressLabelNode: ASTextNode2?
     private let progressBarNode: UploadProgressBarNode?
     private let showsUploadSpinner: Bool
+    private let uploadProgressKey: String
 
     private static let spinnerSide: CGFloat = 24
     private static let spinnerLeadingGap: CGFloat = 8
@@ -157,6 +174,7 @@ final class FileItemNode: ASDisplayNode {
             progressBar = nil
         }
         self.showsUploadSpinner = shows
+        self.uploadProgressKey = attachment.uploadProgressKey
         self.spinnerNode = spinner
         self.progressLabelNode = progressLabel
         self.progressBarNode = progressBar
@@ -206,6 +224,20 @@ final class FileItemNode: ASDisplayNode {
     @objc private func handleTap() {
         guard !showsUploadSpinner else { return }
         onTapped?()
+    }
+
+    @discardableResult
+    func updateUploadProgress(progressKey: String, progress: Double) -> Bool {
+        guard uploadProgressKey == progressKey, showsUploadSpinner else { return false }
+        progressLabelNode?.attributedText = NSAttributedString(
+            string: "\(Int(min(max(progress, 0), 1) * 100))%",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .semibold),
+                .foregroundColor: UIColor.theme.textNormal,
+            ]
+        )
+        progressBarNode?.updateProgress(progress)
+        return true
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {

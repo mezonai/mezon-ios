@@ -98,6 +98,12 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
             ])
     }
 
+    func setProgress(_ value: Double) {
+        updatePercentText(value)
+        barNode.updateProgress(value)
+        setNeedsLayout()
+    }
+
     override func layout() {
         super.layout()
         let w = bounds.width
@@ -189,6 +195,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var isAnimatedStandaloneImage = false
     private var isMultiple = false
     private var lastRemoteProxyURLByIndex: [Int: String] = [:]
+    private var uploadingOverlayByProgressKey: [String: MediaUploadingOverlayNode] = [:]
 
     private var mediaTapGesture: UITapGestureRecognizer?
 
@@ -348,6 +355,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         stickerNode = nil
         attachments = media
         lastRemoteProxyURLByIndex.removeAll()
+        uploadingOverlayByProgressKey.removeAll()
         cachedImageFrames = []
         cachedPositions = []
 
@@ -395,7 +403,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 addSubnode(overlay)
             }
             if media[0].isUploading {
-                let overlay = makeUploadingOverlay(progress: media[0].uploadProgress)
+                let overlay = addUploadingOverlay(for: media[0])
                 videoOverlayNodes.append(overlay)
                 addSubnode(overlay)
             }
@@ -427,7 +435,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                     videoOverlayNodes.append(overlay)
                     addSubnode(overlay)
                 } else if att.isUploading {
-                    let overlay = makeUploadingOverlay(progress: att.uploadProgress)
+                    let overlay = addUploadingOverlay(for: att)
                     videoOverlayNodes.append(overlay)
                     addSubnode(overlay)
                 } else if att.uploadFailed {
@@ -752,8 +760,20 @@ final class MessageMediaContentNode: ASDisplayNode {
         return imageNodes[index].image
     }
 
-    private func makeUploadingOverlay(progress: Double = 0) -> ASDisplayNode {
-        MediaUploadingOverlayNode(progress: progress)
+    @discardableResult
+    func updateUploadProgress(progressKey: String, progress: Double) -> Bool {
+        guard !progressKey.isEmpty, let overlay = uploadingOverlayByProgressKey[progressKey] else { return false }
+        overlay.setProgress(progress)
+        return true
+    }
+
+    private func addUploadingOverlay(for attachment: ParsedAttachment) -> MediaUploadingOverlayNode {
+        let overlay = MediaUploadingOverlayNode(progress: attachment.uploadProgress)
+        let key = attachment.uploadProgressKey
+        if !key.isEmpty {
+            uploadingOverlayByProgressKey[key] = overlay
+        }
+        return overlay
     }
 
     private func makeFailedOverlay() -> ASDisplayNode {

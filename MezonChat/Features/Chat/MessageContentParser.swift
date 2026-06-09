@@ -657,6 +657,21 @@ enum PresignFinishContent {
         injectPresignFinish(into: contentData, keys: [])
     }
 
+    static func presignFinishOnlyContent(keys: [String]) -> Data {
+        injectPresignFinish(into: Data(), keys: keys)
+    }
+
+    static func presignFinishOnlyString(keys: [String]) -> String {
+        String(data: presignFinishOnlyContent(keys: keys), encoding: .utf8) ?? "{\"presign_finish\":[]}"
+    }
+
+    static func isPresignOnlyPayload(_ contentData: Data) -> Bool {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
+              json[fieldKey] != nil else { return false }
+        return json.keys.allSatisfy { $0 == fieldKey }
+    }
+
     static func hasPresignFinishField(in contentData: Data) -> Bool {
         guard !contentData.isEmpty,
               let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] else { return false }
@@ -688,9 +703,14 @@ enum PresignFinishContent {
             }
             mergedKeys = keys
         }
-        let base = !server.isEmpty
-            ? contentBaseWithoutPresign(server)
-            : contentBaseWithoutPresign(local)
+        let base: Data
+        if isPresignOnlyPayload(server), !local.isEmpty {
+            base = contentBaseWithoutPresign(local)
+        } else if !server.isEmpty {
+            base = contentBaseWithoutPresign(server)
+        } else {
+            base = contentBaseWithoutPresign(local)
+        }
         return injectPresignFinish(into: base, keys: mergedKeys)
     }
 

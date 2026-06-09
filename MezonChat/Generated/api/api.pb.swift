@@ -4673,6 +4673,30 @@ struct Mezon_Api_PermissionUpdate: Sendable {
   init() {}
 }
 
+struct Mezon_Api_UploadBatchAttachmentRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var uploadFiles: [Mezon_Api_UploadAttachmentRequest] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_UploadAttachmentBatch: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var uploadedFiles: [Mezon_Api_UploadAttachment] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 struct Mezon_Api_UploadAttachmentRequest: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -4695,9 +4719,6 @@ struct Mezon_Api_UploadAttachmentRequest: Sendable {
 
   /// part count
   var partCount: Int32 = 0
-
-  /// parts (only part_number is set at start; e_tag filled at finish)
-  var parts: [Mezon_Api_MultipartUploadAttachmentPart] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -17299,9 +17320,69 @@ extension Mezon_Api_PermissionUpdate: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
+extension Mezon_Api_UploadBatchAttachmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".UploadBatchAttachmentRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}upload_files\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.uploadFiles) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.uploadFiles.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.uploadFiles, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_UploadBatchAttachmentRequest, rhs: Mezon_Api_UploadBatchAttachmentRequest) -> Bool {
+    if lhs.uploadFiles != rhs.uploadFiles {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_UploadAttachmentBatch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".UploadAttachmentBatch"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}uploaded_files\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.uploadedFiles) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.uploadedFiles.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.uploadedFiles, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_UploadAttachmentBatch, rhs: Mezon_Api_UploadAttachmentBatch) -> Bool {
+    if lhs.uploadedFiles != rhs.uploadedFiles {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UploadAttachmentRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0\u{1}parts\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17315,7 +17396,6 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularInt32Field(value: &self.width) }()
       case 5: try { try decoder.decodeSingularInt32Field(value: &self.height) }()
       case 6: try { try decoder.decodeSingularInt32Field(value: &self.partCount) }()
-      case 7: try { try decoder.decodeRepeatedMessageField(value: &self.parts) }()
       default: break
       }
     }
@@ -17340,9 +17420,6 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if self.partCount != 0 {
       try visitor.visitSingularInt32Field(value: self.partCount, fieldNumber: 6)
     }
-    if !self.parts.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.parts, fieldNumber: 7)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -17353,7 +17430,6 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if lhs.width != rhs.width {return false}
     if lhs.height != rhs.height {return false}
     if lhs.partCount != rhs.partCount {return false}
-    if lhs.parts != rhs.parts {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

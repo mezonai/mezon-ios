@@ -529,6 +529,17 @@ final class MessageBubbleNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    @discardableResult
+    func updateUploadProgress(progressKey: String, progress: Double) -> Bool {
+        if mediaContentNode?.updateUploadProgress(progressKey: progressKey, progress: progress) == true {
+            return true
+        }
+        if fileAttachmentNode?.updateUploadProgress(progressKey: progressKey, progress: progress) == true {
+            return true
+        }
+        return false
+    }
+
     func updateDisplay(_ newDisplay: ChatMessageDisplay) {
         let oldDisplay = self.display
         let oldFailed = self.isFailed
@@ -762,7 +773,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let newMediaAttachments = newDisplay.attachments.filter(\.isMedia)
         let oldMediaAttachments = oldDisplay.attachments.filter(\.isMedia)
-        let mediaChanged = oldMediaAttachments != newMediaAttachments
+        let mediaChanged = !ParsedAttachment.attachmentsStructurallyEqual(oldMediaAttachments, newMediaAttachments)
         if mediaChanged {
             if let mcn = mediaContentNode {
                 mcn.configure(media: newMediaAttachments)
@@ -774,7 +785,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         let newFileAttachments = newDisplay.attachments.filter(fileFilter)
         let oldFileAttachments = oldDisplay.attachments.filter(fileFilter)
-        let filesChanged = oldFileAttachments != newFileAttachments
+        let filesChanged = !ParsedAttachment.attachmentsStructurallyEqual(oldFileAttachments, newFileAttachments)
         if filesChanged {
             fileAttachmentNode?.configure(files: newFileAttachments)
         }

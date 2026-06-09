@@ -5112,6 +5112,19 @@ final class SendMessageInputViewController: UIViewController {
             return editingRemoteImageAttachments + editingRemoteFileAttachments
         }()
 
+        let capturedEditCreateTimeSeconds: UInt32? = {
+            guard isEdit else { return nil }
+            if let createdAt = editingDisplay?.message.createdAt {
+                let seconds = UInt32(createdAt.timeIntervalSince1970)
+                if seconds > 0 { return seconds }
+            }
+            if editingMessageId > 0 {
+                let seconds = UInt32(truncatingIfNeeded: (editingMessageId >> 22) / 1000)
+                if seconds > 0 { return seconds }
+            }
+            return nil
+        }()
+
         applyOptimisticSendComposerReset()
 
         let contentStr: String = {
@@ -5211,6 +5224,10 @@ final class SendMessageInputViewController: UIViewController {
 
                 if isEdit {
                     let hideEditted = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
+                    let hasNewAttachments = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
+                    let editCreateTimeSeconds: UInt32? = hasNewAttachments
+                        ? capturedEditCreateTimeSeconds
+                        : nil
                     let ack = try await self.context.account.network.updateChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
@@ -5218,11 +5235,13 @@ final class SendMessageInputViewController: UIViewController {
                         isPublic: isPublic,
                         messageId: editingMessageId,
                         content: contentStr,
-                        mentions: mentionList,
-                        attachments: uploadedAttachments,
+                        mentions: mentionList.isEmpty ? nil : mentionList,
+                        attachments: hasNewAttachments && !uploadedAttachments.isEmpty
+                            ? uploadedAttachments
+                            : nil,
                         hideEditted: hideEditted,
-                        topicId: self.topicId,
-                        isUpdateMsgTopic: false,
+                        topicId: self.topicId != 0 ? self.topicId : nil,
+                        createTimeSeconds: editCreateTimeSeconds,
                         token: token
                     )
                     self.context.account.postbox.write { tx in

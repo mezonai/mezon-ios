@@ -103,6 +103,7 @@ final class AttachmentUploadCoordinator {
 
     private static let maxConcurrentUploads = 4
     private static let presignEditBatchSize = 4
+    private static let progressNotificationBucketCount = 20
 
     private let lock = NSLock()
     private var sessionsByKey: [String: ImageUploadSession] = [:]
@@ -281,14 +282,14 @@ final class AttachmentUploadCoordinator {
 
         session.items[itemIndex].state = .uploading
         session.finished = false
-        nudge(session, context: context)
+        Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
 
         Task { @MainActor in
             let item = session.items[itemIndex]
             let success = await self.executeImageUpload(item, context: context)
             session.items[itemIndex].state = success ? .uploaded(item.reservedAttachment!) : .failed
             if success { self.markPresignFinished(session, key: item.presignKey) }
-            self.nudge(session, context: context)
+            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
             if success, let token = await context.getToken() {
                 await self.maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
             }
@@ -407,8 +408,10 @@ final class AttachmentUploadCoordinator {
         let anyFailed = session.items.contains { $0.state.isFailed }
             || session.fileTracks.contains { $0.state.isFailed }
         if !anyFailed, session.serverMessageId != 0 {
+            let messageId = "\(session.serverMessageId)"
             clearDocumentPlaceholders(session)
             remove(session)
+            Self.postUploadSlotStateChanged(messageId: messageId)
         } else {
             session.finished = true
             nudge(session, context: context)
@@ -525,11 +528,11 @@ final class AttachmentUploadCoordinator {
     ) async {
         let p = session.params
         let keysSnapshot = session.presignFinishedKeys
-        let contentData = PresignFinishContent.injectPresignFinish(
+        let localContentData = PresignFinishContent.injectPresignFinish(
             into: p.outgoingContentData,
             keys: keysSnapshot
         )
-        let contentStr = String(data: contentData, encoding: .utf8) ?? p.contentStr
+        let presignOnlyPayload = PresignFinishContent.presignFinishOnlyString(keys: keysSnapshot)
         let maxAttempts = isFinal ? 2 : 1
         for attempt in 1...maxAttempts {
             do {
@@ -539,15 +542,12 @@ final class AttachmentUploadCoordinator {
                     mode: p.mode,
                     isPublic: p.isPublic,
                     messageId: session.serverMessageId,
-                    content: contentStr,
-                    mentions: p.mentionList,
-                    attachments: readyAttachments(session),
+                    content: presignOnlyPayload,
                     hideEditted: true,
-                    topicId: p.topicId,
-                    isUpdateMsgTopic: false,
+                    topicId: p.topicId != 0 ? p.topicId : nil,
                     token: token
                 )
-                writeMessageContent(session, context: context, contentData: contentData)
+                writeMessageContent(session, context: context, contentData: localContentData)
                 session.lastSyncedPresignCount = keysSnapshot.count
                 nudge(session, context: context)
                 return
@@ -775,7 +775,7 @@ final class AttachmentUploadCoordinator {
                 try? FileManager.default.removeItem(at: track.file.url)
             } else {
             }
-            nudge(session, context: context)
+            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
             let pendingNew = session.presignFinishedKeys.count - session.lastSyncedPresignCount
             if pendingNew >= Self.presignEditBatchSize {
                 await maybeSyncPresignFinish(session, context: context, token: token)
@@ -810,7 +810,7 @@ final class AttachmentUploadCoordinator {
                     markPresignFinished(session, key: item.presignKey)
                 } else {
                 }
-                nudge(session, context: context)
+                Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
                 let pendingNew = session.presignFinishedKeys.count - session.lastSyncedPresignCount
                 if pendingNew >= Self.presignEditBatchSize {
                     await maybeSyncPresignFinish(session, context: context, token: token)
@@ -840,7 +840,7 @@ final class AttachmentUploadCoordinator {
         let progressKey = pending.progressKey
         if !progressKey.isEmpty {
             AttachmentUploadProgressStore.shared.setProgress(0, forKey: progressKey)
-            Self.postUploadProgress(key: progressKey, progress: 0)
+            Self.postUploadProgress(key: progressKey, progress: 0, previousBucket: -1)
         }
         do {
             switch pending.body {
@@ -856,8 +856,12 @@ final class AttachmentUploadCoordinator {
                 ) { fraction in
                     guard !progressKey.isEmpty else { return }
                     let clamped = min(max(fraction, 0), 1)
+                    let previous = AttachmentUploadProgressStore.shared.progress(forKey: progressKey)
                     AttachmentUploadProgressStore.shared.setProgress(clamped, forKey: progressKey)
-                    Self.postUploadProgress(key: progressKey, progress: clamped)
+                    Self.postUploadProgress(
+                        key: progressKey,
+                        progress: clamped,
+                        previousBucket: Self.progressBucket(for: previous))
                 }
                 if !progressKey.isEmpty {
                     AttachmentUploadProgressStore.shared.setProgress(1, forKey: progressKey)
@@ -917,12 +921,33 @@ final class AttachmentUploadCoordinator {
 
     // MARK: - Helpers
 
-    private static func postUploadProgress(key: String, progress: Double) {
+    private static func progressBucket(for value: Double) -> Int {
+        Int(min(max(value, 0), 1) * Double(progressNotificationBucketCount))
+    }
+
+    private static func postUploadProgress(key: String, progress: Double, previousBucket: Int) {
+        let clamped = min(max(progress, 0), 1)
+        let newBucket = progressBucket(for: clamped)
+        guard newBucket != previousBucket || clamped >= 1 else { return }
         DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .mezonAttachmentUploadProgress,
                 object: nil,
-                userInfo: ["key": key, "progress": progress])
+                userInfo: ["key": key, "progress": clamped])
+        }
+    }
+
+    private static func sessionMessageId(_ session: ImageUploadSession) -> String {
+        session.serverMessageId != 0 ? "\(session.serverMessageId)" : session.params.localId
+    }
+
+    private static func postUploadSlotStateChanged(messageId: String) {
+        guard !messageId.isEmpty else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .mezonAttachmentUploadSlotStateChanged,
+                object: nil,
+                userInfo: ["messageId": messageId])
         }
     }
 

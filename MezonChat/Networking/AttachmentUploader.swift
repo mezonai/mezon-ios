@@ -233,8 +233,8 @@ final class AttachmentUploader {
         let clamped = min(max(value, 0), 1)
         AttachmentUploadProgressStore.shared.setProgress(clamped, forKey: key)
 
-        let previousBucket = Int(previous * 100)
-        let newBucket = Int(clamped * 100)
+        let previousBucket = Int(previous * 20)
+        let newBucket = Int(clamped * 20)
         guard newBucket != previousBucket || clamped >= 1 else { return }
 
         DispatchQueue.main.async {
@@ -248,6 +248,7 @@ final class AttachmentUploader {
 
 extension Notification.Name {
     static let mezonAttachmentUploadProgress = Notification.Name("mezon.attachment.uploadProgress")
+    static let mezonAttachmentUploadSlotStateChanged = Notification.Name("mezon.attachment.uploadSlotStateChanged")
 }
 
 final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
