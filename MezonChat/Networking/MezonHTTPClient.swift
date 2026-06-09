@@ -1735,6 +1735,39 @@ final class MezonHTTPClient {
         )
     }
 
+    func blockFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
+        var req = Mezon_Api_BlockFriendsRequest()
+        req.ids = ids
+        req.usernames = usernames
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/BlockFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func unblockFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
+        var req = Mezon_Api_DeleteFriendsRequest()
+        req.ids = ids
+        req.usernames = usernames
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/UnblockFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func closeDirectMessage(channelId: Int64, token: String) async throws {
+        var req = Mezon_Api_DeleteChannelDescRequest()
+        req.channelID = channelId
+        req.clanID = 0
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/CloseDirectMess",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func getListEmojisByUserId(token: String) async throws -> Mezon_Api_EmojiListedResponse {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(

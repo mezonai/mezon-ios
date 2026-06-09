@@ -48,6 +48,9 @@ final class DirectMessagesViewController: ViewController {
                 let vc = ChatViewController(clanId: 0, channel: ch, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(vc, animated: true)
             },
+            onLongPressDirectMessage: { [weak self] ch in
+                self?.presentDmActionSheet(ch)
+            },
             onAddFriendTapped: { [weak self] in
                 guard let self else { return }
                 let vc = FriendRequestViewController(context: self.context)
@@ -374,6 +377,351 @@ final class DirectMessagesViewController: ViewController {
     private func resolvedSafeTop(for layout: ContainerViewLayout) -> CGFloat {
         let viewSafeTop = isViewLoaded ? view.safeAreaInsets.top : 0
         return max(layout.safeInsets.top, layout.statusBarHeight ?? 0, viewSafeTop)
+    }
+
+    private func presentDmActionSheet(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            var groupMemberUserIds: [Int64] = []
+            if channel.type == MezonConstants.ChannelType.group.rawValue {
+                if let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait(),
+                   let response = try? await self.context.account.network.listChannelUsersUC(
+                    channelId: channel.channelID,
+                    limit: 500,
+                    token: token
+                   ) {
+                    groupMemberUserIds = response.userIds
+                }
+                if groupMemberUserIds.isEmpty {
+                    groupMemberUserIds = channel.userIds
+                }
+            }
+
+            let menuContext = self.buildDmMenuContext(
+                channel: channel,
+                groupMemberUserIds: groupMemberUserIds
+            )
+            let actionSheet = DmActionSheetController(menuContext: menuContext) { [weak self] action in
+                self?.handleDmAction(action, channel: channel, menuContext: menuContext)
+            }
+
+            if let window = self.view.window as? WindowHost {
+                window.present(actionSheet, on: .root, blockInteraction: false, completion: {})
+            } else {
+                self.presentInGlobalOverlay(actionSheet)
+            }
+            self.fetchNotificationSettingForDmBottomsheet(channelId: channel.channelID)
+        }
+    }
+
+    private func buildDmMenuContext(
+        channel: Mezon_Api_ChannelDescription,
+        groupMemberUserIds: [Int64]
+    ) -> DmMenuContext {
+        let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
+        let displayName = Self.dmDisplayName(for: channel)
+        let avatarURL = currentState.resolvedAvatarURLByChannelId[channel.channelID] ?? ""
+        let peerId = channel.userIds.first
+        let friend = peerId.flatMap { userId in
+            context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == userId }
+        }
+        let notificationRecord = context.account.postbox.read { tx in
+            tx.getNotificationSetting(entityId: channel.channelID)
+        }
+
+        return DmMenuContext(
+            channel: channel,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            friend: friend,
+            currentUserId: currentUserId,
+            isMuted: DmMenuContext.isConversationMuted(record: notificationRecord),
+            groupMemberUserIds: groupMemberUserIds
+        )
+    }
+
+    private func fetchNotificationSettingForDmBottomsheet(channelId: Int64) {
+        Task { @MainActor in
+            let startEpoch = context.sessionEpoch
+            guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            do {
+                let noti = try await MezonHTTPClient.shared.getNotificationChannel(channelId: channelId, token: token)
+                guard context.isStillCurrentSession(epoch: startEpoch) else { return }
+                let record = NotificationSettingRecord(
+                    id: noti.id,
+                    entityId: channelId,
+                    scope: .channel,
+                    notificationSettingType: noti.notificationSettingType,
+                    timeMuteSeconds: UInt32(bitPattern: noti.timeMuteSeconds),
+                    active: noti.active
+                )
+                context.account.postbox.write { tx in
+                    tx.updateNotificationSetting(record)
+                }
+                NotificationCenter.default.post(
+                    name: .mezonNotificationSettingDidUpdate,
+                    object: nil,
+                    userInfo: ["channelId": channelId, "record": record]
+                )
+            } catch {
+            }
+        }
+    }
+
+    private func handleDmAction(_ action: DmAction, channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
+        switch action {
+        case .leaveOrDeleteGroup(let isDelete):
+            presentLeaveOrDeleteGroupConfirm(channel: channel, isDelete: isDelete)
+        case .closeDm:
+            handleCloseDm(channel)
+        case .addFriend:
+            handleAddFriend(channel: channel, menuContext: menuContext)
+        case .removeFriend:
+            handleRemoveFriend(channel: channel, menuContext: menuContext)
+        case .blockUser:
+            handleBlockUser(channel: channel, menuContext: menuContext)
+        case .unblockUser:
+            handleUnblockUser(channel: channel, menuContext: menuContext)
+        case .markAsRead:
+            handleMarkDmAsRead(channel)
+        case .muteConversation:
+            presentDmMuteDurationSheet(channel)
+        case .unmuteConversation:
+            handleUnmuteDmConversation(channel)
+        }
+    }
+
+    private func presentLeaveOrDeleteGroupConfirm(channel: Mezon_Api_ChannelDescription, isDelete: Bool) {
+        let title = isDelete
+            ? L(L10n.ChannelDetail.deleteGroupConfirmTitle)
+            : L(L10n.ChannelDetail.leaveGroupConfirmTitle)
+        let message = isDelete
+            ? L(L10n.ChannelDetail.deleteGroupConfirmBody)
+            : L(L10n.ChannelDetail.leaveGroupConfirmBody)
+        let confirmTitle = isDelete ? L(L10n.DmMenu.deleteGroup) : L(L10n.DmMenu.leaveGroup)
+
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: confirmTitle, style: .destructive, handler: { [weak self] _ in
+            self?.handleLeaveOrDeleteGroup(channel: channel, isDelete: isDelete)
+        }))
+        presentAlertFromTop(alert)
+    }
+
+    private func handleLeaveOrDeleteGroup(channel: Mezon_Api_ChannelDescription, isDelete: Bool) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            let currentUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
+            do {
+                if isDelete {
+                    try await self.context.account.network.deleteChannelDesc(
+                        channelId: channel.channelID,
+                        clanId: 0,
+                        token: token
+                    )
+                } else {
+                    try await self.context.account.network.removeChannelUsers(
+                        channelId: channel.channelID,
+                        userIds: [currentUserId],
+                        token: token
+                    )
+                }
+                self.removeDmChannelFromList(channelId: channel.channelID)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleCloseDm(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            do {
+                try await self.context.account.network.closeDirectMessage(
+                    channelId: channel.channelID,
+                    token: token
+                )
+                self.removeDmChannelFromList(channelId: channel.channelID)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleAddFriend(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
+        guard let peerId = menuContext.peerUserId else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            let username = channel.usernames.first ?? ""
+            do {
+                if peerId != 0 {
+                    try await self.context.account.network.addFriends(ids: [peerId], token: token)
+                } else if !username.isEmpty {
+                    try await self.context.account.network.addFriends(usernames: [username], token: token)
+                } else {
+                    return
+                }
+                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleRemoveFriend(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
+        guard let peerId = menuContext.peerUserId else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            let username = channel.usernames.first ?? ""
+            do {
+                if peerId != 0 {
+                    try await self.context.account.network.deleteFriends(ids: [peerId], token: token)
+                } else if !username.isEmpty {
+                    try await self.context.account.network.deleteFriends(usernames: [username], token: token)
+                } else {
+                    return
+                }
+                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func handleBlockUser(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
+        guard let peerId = menuContext.peerUserId else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            let username = channel.usernames.first ?? ""
+            do {
+                if peerId != 0 {
+                    try await self.context.account.network.blockFriends(ids: [peerId], token: token)
+                } else if !username.isEmpty {
+                    try await self.context.account.network.blockFriends(usernames: [username], token: token)
+                } else {
+                    return
+                }
+                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+                Toast.success(L(L10n.DmMenu.blockUserSuccess))
+            } catch {
+                Toast.error(L(L10n.DmMenu.blockUserError))
+            }
+        }
+    }
+
+    private func handleUnblockUser(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
+        guard let peerId = menuContext.peerUserId else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            let username = channel.usernames.first ?? ""
+            do {
+                if peerId != 0 {
+                    try await self.context.account.network.unblockFriends(ids: [peerId], token: token)
+                } else if !username.isEmpty {
+                    try await self.context.account.network.unblockFriends(usernames: [username], token: token)
+                } else {
+                    return
+                }
+                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+                Toast.success(L(L10n.DmMenu.unblockUserSuccess))
+            } catch {
+                Toast.error(L(L10n.DmMenu.unblockUserError))
+            }
+        }
+    }
+
+    private func handleMarkDmAsRead(_ channel: Mezon_Api_ChannelDescription) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            do {
+                try await self.context.account.network.markAsRead(
+                    channelId: channel.channelID,
+                    clanId: 0,
+                    categoryId: 0,
+                    token: token
+                )
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonChannelMarkedAsRead"),
+                    object: nil,
+                    userInfo: [
+                        "channelId": channel.channelID,
+                        "clanId": Int64(0),
+                        "mode": MezonConstants.ChannelStreamMode.dm.rawValue
+                    ]
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func presentDmMuteDurationSheet(_ channel: Mezon_Api_ChannelDescription) {
+        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
+        let vc = MuteDurationViewController(
+            channelName: Self.dmDisplayName(for: channel),
+            channelId: channel.channelID,
+            clanId: 0,
+            context: context,
+            isThread: false,
+            isGroupDirectMessage: isGroup
+        ) { [weak self] duration in
+            self?.handleMuteDmConversation(channel, muteTimeSeconds: duration.seconds)
+        }
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func handleMuteDmConversation(_ channel: Mezon_Api_ChannelDescription, muteTimeSeconds: Int32) {
+        ChannelMuteHelper.setMuteChannel(
+            context: context,
+            channelId: channel.channelID,
+            clanId: 0,
+            muteTimeSeconds: muteTimeSeconds
+        )
+    }
+
+    private func handleUnmuteDmConversation(_ channel: Mezon_Api_ChannelDescription) {
+        ChannelMuteHelper.setMuteChannel(
+            context: context,
+            channelId: channel.channelID,
+            clanId: 0,
+            muteTimeSeconds: 0
+        )
+    }
+
+    private func removeDmChannelFromList(channelId: Int64) {
+        NotificationCenter.default.post(
+            name: .mezonChannelDescriptionDidUpdate,
+            object: nil,
+            userInfo: ["channelId": channelId, "clanId": Int64(0), "removed": true]
+        )
+    }
+
+    private func presentAlertFromTop(_ alert: UIAlertController) {
+        guard let rootVC = view.window?.rootViewController else {
+            present(alert, animated: true)
+            return
+        }
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+        topVC.present(alert, animated: true)
+    }
+
+    private static func dmDisplayName(for channel: Mezon_Api_ChannelDescription) -> String {
+        if !channel.channelLabel.isEmpty { return channel.channelLabel }
+        if let first = channel.displayNames.first, !first.isEmpty { return first }
+        if let first = channel.usernames.first, !first.isEmpty { return first }
+        if !channel.creatorName.isEmpty { return "\(channel.creatorName)'s Group" }
+        return "Chat"
     }
 
     private var stateUpdateDepth = 0
