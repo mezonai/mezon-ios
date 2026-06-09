@@ -221,7 +221,8 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
 
             let attachmentsChanged: Bool = {
                 guard let existing = existingBubble, isSameLogicalMessage else { return false }
-                return existing.display.attachments != item.display.attachments
+                return !ParsedAttachment.attachmentsStructurallyEqual(
+                    existing.display.attachments, item.display.attachments)
             }()
 
             if let existing = existingBubble, isSameLogicalMessage, !attachmentsChanged {
@@ -232,6 +233,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                     let editedB = item.display.message.editedAt?.timeIntervalSince1970
                     let bodyUnchanged = existing.display.parsedContent.text == item.display.parsedContent.text
                         && editedA == editedB
+                        && existing.display.rawContentData == item.display.rawContentData
                         && existing.display.pollData?.totalVotes == item.display.pollData?.totalVotes
                         && existing.display.pollData?.answerCounts == item.display.pollData?.answerCounts
                         && existing.display.parsedContent.embeds == item.display.parsedContent.embeds

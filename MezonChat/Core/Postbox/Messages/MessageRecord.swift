@@ -127,6 +127,30 @@ extension MessageRecord {
         var fresh = MessageRecord(from: api, customId: customId)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
         if prev.senderId != fresh.senderId { return fresh }
+        let mergedContent = PresignFinishContent.mergePresignFinishContent(local: prev.content, server: fresh.content)
+        if mergedContent != fresh.content {
+            fresh = MessageRecord(
+                id: fresh.id,
+                channelId: fresh.channelId,
+                clanId: fresh.clanId,
+                senderId: fresh.senderId,
+                content: mergedContent,
+                createdAt: fresh.createdAt,
+                editedAt: fresh.editedAt,
+                isDeleted: fresh.isDeleted,
+                code: fresh.code,
+                senderDisplayName: fresh.senderDisplayName,
+                senderAvatarURL: fresh.senderAvatarURL,
+                sendingState: fresh.sendingState,
+                attachmentsJSON: fresh.attachmentsJSON,
+                reactionsJSON: fresh.reactionsJSON,
+                referencesData: fresh.referencesData,
+                mentionsJSON: fresh.mentionsJSON
+            )
+        }
+        if PresignFinishContent.hasPresignFinishField(in: fresh.content) {
+            fresh.editedAt = nil
+        }
         let bodyTextUnchanged = prev.content == fresh.content
             && prev.mentionsJSON == fresh.mentionsJSON
             && prev.referencesData == fresh.referencesData

@@ -529,6 +529,17 @@ final class MessageBubbleNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    @discardableResult
+    func updateUploadProgress(progressKey: String, progress: Double) -> Bool {
+        if mediaContentNode?.updateUploadProgress(progressKey: progressKey, progress: progress) == true {
+            return true
+        }
+        if fileAttachmentNode?.updateUploadProgress(progressKey: progressKey, progress: progress) == true {
+            return true
+        }
+        return false
+    }
+
     func updateDisplay(_ newDisplay: ChatMessageDisplay) {
         let oldDisplay = self.display
         let oldFailed = self.isFailed
@@ -760,6 +771,25 @@ final class MessageBubbleNode: ASDisplayNode {
             applyEditedNode(for: newDisplay)
         }
 
+        let newMediaAttachments = newDisplay.attachments.filter(\.isMedia)
+        let oldMediaAttachments = oldDisplay.attachments.filter(\.isMedia)
+        let mediaChanged = !ParsedAttachment.attachmentsStructurallyEqual(oldMediaAttachments, newMediaAttachments)
+        if mediaChanged {
+            if let mcn = mediaContentNode {
+                mcn.configure(media: newMediaAttachments)
+            }
+        }
+
+        let fileFilter: (ParsedAttachment) -> Bool = {
+            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading || $0.isPresignPending || $0.uploadFailed)
+        }
+        let newFileAttachments = newDisplay.attachments.filter(fileFilter)
+        let oldFileAttachments = oldDisplay.attachments.filter(fileFilter)
+        let filesChanged = !ParsedAttachment.attachmentsStructurallyEqual(oldFileAttachments, newFileAttachments)
+        if filesChanged {
+            fileAttachmentNode?.configure(files: newFileAttachments)
+        }
+
         syncReactionStripWithDisplay(newDisplay)
 
         if oldFailed && !newDisplay.isFailed {
@@ -814,6 +844,8 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
+            || mediaChanged
+            || filesChanged
             || mentionHighlightChanged
             || senderChanged
             || ogpPreviewChanged
@@ -876,6 +908,9 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private static func shouldShowEditedLabel(for display: ChatMessageDisplay) -> Bool {
+        if PresignFinishContent.hasPresignFinishField(in: display.rawContentData ?? Data()) {
+            return false
+        }
         guard display.message.editedAt != nil else { return false }
         if display.message.isDeleted { return false }
         if display.isCallLog { return false }

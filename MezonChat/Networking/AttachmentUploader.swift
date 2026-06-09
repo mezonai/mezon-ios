@@ -64,11 +64,12 @@ final class AttachmentUploader {
         token: String,
         progressKey: String = "",
         preferHTTPFirst: Bool = false,
+        preReserved: Mezon_Api_UploadAttachment? = nil,
         network: MezonHTTPClient
     ) async throws -> UploadedAttachmentFile {
         reportProgress(0, forKey: progressKey)
 
-        if fileSize >= Self.minMultipartFileSize, !shouldSkipMultipart {
+        if preReserved == nil, fileSize >= Self.minMultipartFileSize, !shouldSkipMultipart {
             do {
                 return try await uploadMultipart(
                     fileURL: fileURL, filename: filename, filetype: filetype,
@@ -90,7 +91,7 @@ final class AttachmentUploader {
             fileURL: fileURL, filename: filename, filetype: filetype,
             fileSize: fileSize, width: width, height: height,
             token: token, progressKey: progressKey,
-            preferHTTPFirst: preferHTTPFirst, network: network)
+            preferHTTPFirst: preferHTTPFirst, preReserved: preReserved, network: network)
     }
 
     private func uploadSinglePut(
@@ -103,12 +104,18 @@ final class AttachmentUploader {
         token: String,
         progressKey: String,
         preferHTTPFirst: Bool,
+        preReserved: Mezon_Api_UploadAttachment? = nil,
         network: MezonHTTPClient
     ) async throws -> UploadedAttachmentFile {
-        let info = try await network.uploadAttachmentFile(
-            filename: filename, filetype: filetype, size: fileSize,
-            width: width, height: height, token: token,
-            preferHTTPFirst: preferHTTPFirst)
+        let info: Mezon_Api_UploadAttachment
+        if let preReserved {
+            info = preReserved
+        } else {
+            info = try await network.uploadAttachmentFile(
+                filename: filename, filetype: filetype, size: fileSize,
+                width: width, height: height, token: token,
+                preferHTTPFirst: preferHTTPFirst)
+        }
         _ = try await MinIOStreamingUploader.shared.put(
             url: info.url, fileURL: fileURL, contentType: filetype
         ) { [weak self] fraction in
@@ -226,8 +233,8 @@ final class AttachmentUploader {
         let clamped = min(max(value, 0), 1)
         AttachmentUploadProgressStore.shared.setProgress(clamped, forKey: key)
 
-        let previousBucket = Int(previous * 100)
-        let newBucket = Int(clamped * 100)
+        let previousBucket = Int(previous * 20)
+        let newBucket = Int(clamped * 20)
         guard newBucket != previousBucket || clamped >= 1 else { return }
 
         DispatchQueue.main.async {
@@ -241,6 +248,7 @@ final class AttachmentUploader {
 
 extension Notification.Name {
     static let mezonAttachmentUploadProgress = Notification.Name("mezon.attachment.uploadProgress")
+    static let mezonAttachmentUploadSlotStateChanged = Notification.Name("mezon.attachment.uploadSlotStateChanged")
 }
 
 final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {

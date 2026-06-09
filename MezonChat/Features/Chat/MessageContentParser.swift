@@ -615,3 +615,114 @@ enum MessageContentParser {
         }
     }
 }
+
+enum PresignFinishContent {
+    static let fieldKey = "presign_finish"
+
+    static func parseKeys(from contentData: Data) -> [String]? {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
+              json[fieldKey] != nil else { return nil }
+        return json[fieldKey] as? [String] ?? []
+    }
+
+    static func presignKey(from cdnURL: String) -> String {
+        let trimmed = cdnURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let noQuery = trimmed.split(separator: "?", maxSplits: 1).first.map(String.init) ?? trimmed
+        let last = (noQuery as NSString).lastPathComponent
+        guard !last.isEmpty else { return "" }
+        let withoutExt = (last as NSString).deletingPathExtension
+        return withoutExt.isEmpty ? last : withoutExt
+    }
+
+    static func isAttachmentReady(url: String, presignFinish: [String]?) -> Bool {
+        guard let presignFinish else { return true }
+        let key = presignKey(from: url)
+        guard !key.isEmpty else { return false }
+        return presignFinish.contains(key)
+    }
+
+    static func injectPresignFinish(into contentData: Data, keys: [String]) -> Data {
+        var json: [String: Any] = [:]
+        if !contentData.isEmpty,
+           let existing = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] {
+            json = existing
+        }
+        json[fieldKey] = keys
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? contentData
+    }
+
+    static func injectEmptyPresignFinish(into contentData: Data) -> Data {
+        injectPresignFinish(into: contentData, keys: [])
+    }
+
+    static func presignFinishOnlyContent(keys: [String]) -> Data {
+        injectPresignFinish(into: Data(), keys: keys)
+    }
+
+    static func presignFinishOnlyString(keys: [String]) -> String {
+        String(data: presignFinishOnlyContent(keys: keys), encoding: .utf8) ?? "{\"presign_finish\":[]}"
+    }
+
+    static func isPresignOnlyPayload(_ contentData: Data) -> Bool {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
+              json[fieldKey] != nil else { return false }
+        return json.keys.allSatisfy { $0 == fieldKey }
+    }
+
+    static func hasPresignFinishField(in contentData: Data) -> Bool {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] else { return false }
+        return json[fieldKey] != nil
+    }
+
+    static func contentBaseWithoutPresign(_ contentData: Data) -> Data {
+        guard !contentData.isEmpty,
+              var json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] else {
+            return contentData
+        }
+        json.removeValue(forKey: fieldKey)
+        return (try? JSONSerialization.data(withJSONObject: json)) ?? contentData
+    }
+
+    static func mergePresignFinishContent(local: Data, server: Data) -> Data {
+        let localKeys = parseKeys(from: local) ?? []
+        let serverKeys = parseKeys(from: server) ?? []
+        if localKeys.isEmpty && serverKeys.isEmpty {
+            return server.isEmpty ? local : server
+        }
+        let mergedKeys: [String]
+        if serverKeys.count >= localKeys.count {
+            mergedKeys = serverKeys
+        } else {
+            var keys = localKeys
+            for key in serverKeys where !keys.contains(key) {
+                keys.append(key)
+            }
+            mergedKeys = keys
+        }
+        let base: Data
+        if isPresignOnlyPayload(server), !local.isEmpty {
+            base = contentBaseWithoutPresign(local)
+        } else if !server.isEmpty {
+            base = contentBaseWithoutPresign(server)
+        } else {
+            base = contentBaseWithoutPresign(local)
+        }
+        return injectPresignFinish(into: base, keys: mergedKeys)
+    }
+
+    static func isPresignFinishOnlyChange(newContent: Data, oldContent: Data) -> Bool {
+        guard !newContent.isEmpty, !oldContent.isEmpty,
+              let newJson = try? JSONSerialization.jsonObject(with: newContent) as? [String: Any],
+              let oldJson = try? JSONSerialization.jsonObject(with: oldContent) as? [String: Any],
+              newJson[fieldKey] != nil else { return false }
+        var newCopy = newJson
+        var oldCopy = oldJson
+        newCopy.removeValue(forKey: fieldKey)
+        oldCopy.removeValue(forKey: fieldKey)
+        return NSDictionary(dictionary: newCopy).isEqual(to: oldCopy)
+    }
+}

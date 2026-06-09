@@ -556,8 +556,11 @@ final class ChatContainerNode: ASDisplayNode {
 
     private static func listFingerprint(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
+            .map {
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)"
+            }
             .joined(separator: ";")
         let grouping = [
             m.isCombine ? "1" : "0",
@@ -595,7 +598,7 @@ final class ChatContainerNode: ASDisplayNode {
             return "\(topic.topicId)|\(topic.creatorId)|\(topic.replyCount)"
         }()
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
     private static func welcomeFingerprint(_ state: ChatState) -> String {
@@ -734,6 +737,26 @@ final class ChatContainerNode: ASDisplayNode {
     override func layout() {
         super.layout()
         applyFrameLayout(transition: .immediate)
+    }
+
+    func updateUploadProgress(progressKey: String, progress: Double) {
+        guard !progressKey.isEmpty else { return }
+        listView.forEachItemNode { node in
+            guard let itemNode = node as? ChatMessageItemNode,
+                  let bubble = self.findBubble(in: itemNode) else { return }
+            bubble.updateUploadProgress(progressKey: progressKey, progress: progress)
+        }
+    }
+
+    func applySingleMessagePatch(_ updated: ChatMessageDisplay) {
+        guard let idx = state.messages.firstIndex(where: { $0.id == updated.id }) else { return }
+        let oldState = state
+        var newMessages = state.messages
+        newMessages[idx] = updated
+        var newState = state
+        newState.messages = newMessages
+        state = newState
+        applyInPlaceUpdates(old: oldState, new: newState, newIds: buildIds(from: newState))
     }
 
     func forceUpdateItem(id: String) {

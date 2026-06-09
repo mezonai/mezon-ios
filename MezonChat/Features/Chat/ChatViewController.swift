@@ -25,6 +25,7 @@ struct ParsedAttachment: Equatable {
     var localImage: UIImage?
     var isUploading: Bool = false
     var uploadFailed: Bool = false
+    var isPresignPending: Bool = false
     var uploadProgress: Double = 0
     var uploadProgressKey: String = ""
 
@@ -64,7 +65,22 @@ struct ParsedAttachment: Equatable {
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
             && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
+            && lhs.isPresignPending == rhs.isPresignPending
             && lhs.uploadProgress == rhs.uploadProgress
+    }
+
+    static func attachmentsStructurallyEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.url != r.url || l.filename != r.filename || l.filetype != r.filetype
+                || l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds
+                || l.thumbnail != r.thumbnail
+                || l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed
+                || l.isPresignPending != r.isPresignPending {
+                return false
+            }
+        }
+        return true
     }
 
     private static let maxPendingCacheEntries = 50
@@ -458,8 +474,6 @@ final class ChatViewController: ViewController {
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
     private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
-    private var attachmentProgressReloadWorkItem: DispatchWorkItem?
-    private static let attachmentProgressReloadInterval: TimeInterval = 0.25
 
     private struct RemoteTyperState {
         var displayName: String
@@ -895,6 +909,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadSlotStateChanged(_:)), name: .mezonAttachmentUploadSlotStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
@@ -1371,20 +1386,42 @@ final class ChatViewController: ViewController {
 
     @objc private func handleAttachmentUploadProgress(_ notification: Notification) {
         guard let key = notification.userInfo?["key"] as? String, !key.isEmpty else { return }
+        let progress = (notification.userInfo?["progress"] as? Double) ?? 0
         let isRelevant = ParsedAttachment.pendingDocumentPlaceholders.values
             .contains { docs in docs.contains { $0.uploadProgressKey == key } }
             || AttachmentUploadCoordinator.shared.hasActiveProgressKey(key)
         guard isRelevant else { return }
-        guard attachmentProgressReloadWorkItem == nil else { return }
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.attachmentProgressReloadWorkItem = nil
-            self.reloadDisplaysForPendingSendingFeedback()
-            self.needsReloadPipe.putNext(())
+        guard isViewLoaded else { return }
+        messagesNode.updateUploadProgress(progressKey: key, progress: progress)
+    }
+
+    @objc private func handleAttachmentUploadSlotStateChanged(_ notification: Notification) {
+        guard let messageId = notification.userInfo?["messageId"] as? String, !messageId.isEmpty else { return }
+        refreshUploadingMessageDisplay(messageId: messageId)
+    }
+
+    private func refreshUploadingMessageDisplay(messageId: String) {
+        let channelIdStr = storageChannelId
+        guard let record = context.account.postbox.read({ tx in
+            tx.getMessageById(messageId, channelId: channelIdStr) ?? tx.getMessageById(messageId)
+        }) else { return }
+        let updated = buildDisplayMessages(from: [record]).first(where: { $0.id == messageId })
+        guard let updated else { return }
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        let old = messages[idx]
+        guard !ParsedAttachment.attachmentsStructurallyEqual(old.attachments, updated.attachments) else { return }
+
+        if let pIdx = persistentMessages.firstIndex(where: { $0.id == messageId }) {
+            var patched = persistentMessages
+            patched[pIdx] = updated
+            persistentMessages = patched
         }
-        attachmentProgressReloadWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.attachmentProgressReloadInterval, execute: workItem)
+        var patchedMessages = messages
+        patchedMessages[idx] = updated
+        messages = patchedMessages
+
+        guard isViewLoaded else { return }
+        messagesNode.applySingleMessagePatch(updated)
     }
 
     @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
@@ -2518,8 +2555,11 @@ final class ChatViewController: ViewController {
 
     private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
+            .map {
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)"
+            }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
         let pollHash: String
@@ -2550,7 +2590,7 @@ final class ChatViewController: ViewController {
         }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -2747,15 +2787,20 @@ final class ChatViewController: ViewController {
             let showsSendingFeedback = record.sendingState == .pending
                 && now.timeIntervalSince(sendingFeedbackBeganAt) >= Self.pendingSendFeedbackDelay
 
-            var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id) {
-                let nonMedia = attachments.filter { !$0.isMedia }
-                if nonMedia.isEmpty {
-                    let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
-                    attachments = overlayMedia + localDocs
-                } else {
-                    attachments = overlayMedia + nonMedia
+            var attachments = Self.applyPresignFinishState(
+                to: Self.parseAttachments(record.attachmentsJSON),
+                contentData: record.content
+            )
+            let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id)
+            let overlayFiles = AttachmentUploadCoordinator.shared.fileOverlay(for: record.id)
+            if overlayMedia != nil || overlayFiles != nil {
+                let audio = attachments.filter(\.isAudio)
+                var media = attachments.filter(\.isMedia)
+                if let overlayMedia {
+                    media = overlayMedia
                 }
+                let files = overlayFiles ?? attachments.filter { !$0.isMedia && !$0.isAudio }
+                attachments = media + audio + files
             } else if record.sendingState == .pending {
                 let stillUploading = true
                 let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
@@ -3079,6 +3124,19 @@ final class ChatViewController: ViewController {
             }
         }
         return []
+    }
+
+    private static func applyPresignFinishState(
+        to attachments: [ParsedAttachment],
+        contentData: Data
+    ) -> [ParsedAttachment] {
+        guard let keys = PresignFinishContent.parseKeys(from: contentData) else { return attachments }
+        return attachments.map { att in
+            guard !att.url.isEmpty, !att.isUploading, att.localImage == nil, !att.uploadFailed else { return att }
+            var copy = att
+            copy.isPresignPending = !PresignFinishContent.isAttachmentReady(url: att.url, presignFinish: keys)
+            return copy
+        }
     }
 
     private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {

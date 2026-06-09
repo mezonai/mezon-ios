@@ -1819,6 +1819,9 @@ struct Mezon_Realtime_ChannelMessageUpdate: Sendable {
   /// update message topic
   var isUpdateMsgTopic: Bool = false
 
+  /// original message create time (seconds)
+  var createTimeSeconds: UInt32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -7017,7 +7020,7 @@ extension Mezon_Realtime_ChannelMessageSend: SwiftProtobuf.Message, SwiftProtobu
 
 extension Mezon_Realtime_ChannelMessageUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ChannelMessageUpdate"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}channel_id\0\u{3}message_id\0\u{1}content\0\u{1}mentions\0\u{1}attachments\0\u{1}mode\0\u{3}is_public\0\u{3}hide_editted\0\u{3}topic_id\0\u{3}is_update_msg_topic\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}channel_id\0\u{3}message_id\0\u{1}content\0\u{1}mentions\0\u{1}attachments\0\u{1}mode\0\u{3}is_public\0\u{3}hide_editted\0\u{3}topic_id\0\u{3}is_update_msg_topic\0\u{3}create_time_seconds\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -7036,6 +7039,7 @@ extension Mezon_Realtime_ChannelMessageUpdate: SwiftProtobuf.Message, SwiftProto
       case 9: try { try decoder.decodeSingularBoolField(value: &self.hideEditted) }()
       case 10: try { try decoder.decodeSingularInt64Field(value: &self.topicID) }()
       case 11: try { try decoder.decodeSingularBoolField(value: &self.isUpdateMsgTopic) }()
+      case 12: try { try decoder.decodeSingularUInt32Field(value: &self.createTimeSeconds) }()
       default: break
       }
     }
@@ -7075,6 +7079,9 @@ extension Mezon_Realtime_ChannelMessageUpdate: SwiftProtobuf.Message, SwiftProto
     if self.isUpdateMsgTopic != false {
       try visitor.visitSingularBoolField(value: self.isUpdateMsgTopic, fieldNumber: 11)
     }
+    if self.createTimeSeconds != 0 {
+      try visitor.visitSingularUInt32Field(value: self.createTimeSeconds, fieldNumber: 12)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -7090,6 +7097,7 @@ extension Mezon_Realtime_ChannelMessageUpdate: SwiftProtobuf.Message, SwiftProto
     if lhs.hideEditted != rhs.hideEditted {return false}
     if lhs.topicID != rhs.topicID {return false}
     if lhs.isUpdateMsgTopic != rhs.isUpdateMsgTopic {return false}
+    if lhs.createTimeSeconds != rhs.createTimeSeconds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

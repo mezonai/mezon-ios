@@ -15,6 +15,7 @@ struct ChannelListInteraction {
     let isShowEmptyCategoriesEnabled: (() -> Bool)?
     let onToggleShowEmptyCategories: ((Bool) -> Void)?
     let onLongPressCategory: ((ChannelCategory) -> Void)?
+    let onBecameVisible: (() -> Void)?
     let onOnboardingBannerTapped: (() -> Void)?
     let onClanSwitchChannelListApplied: (() -> Void)?
 }
@@ -199,9 +200,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
             })
 
-        let switchSettled = wasClanSwitching && !newState.isLoading
-            && (!newCats.isEmpty || prevState.isLoading)
-        isClanSwitching = wasClanSwitching && !switchSettled
+        isClanSwitching = wasClanSwitching && newState.isLoading
 
         if wasClanSwitching {
             cachedHeaders = [:]
@@ -1008,6 +1007,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     override func didEnterVisibleState() {
         super.didEnterVisibleState()
         nodeIsVisible = true
+        interaction.onBecameVisible?()
         if pendingVisibleReconcile {
             pendingVisibleReconcile = false
             cachedRows = [:]

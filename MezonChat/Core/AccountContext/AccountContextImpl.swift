@@ -976,23 +976,40 @@ final class AccountContextImpl: AccountContext {
             let mid = "\(update.messageID)"
             account.postbox.write { tx in
                 guard let existing = tx.getMessageById(mid) else { return }
-                let newContentData = update.content.data(using: .utf8) ?? Data()
+                let incomingContent = update.content.data(using: .utf8) ?? Data()
+                let newContentData = PresignFinishContent.mergePresignFinishContent(
+                    local: existing.content,
+                    server: incomingContent
+                )
                 let contentChanged = !newContentData.isEmpty && newContentData != existing.content
-                guard contentChanged else { return }
+                let attachmentsChanged = !update.attachments.isEmpty
+                guard contentChanged || attachmentsChanged else { return }
+                let newAttachmentsJSON: Data = {
+                    guard !update.attachments.isEmpty else { return existing.attachmentsJSON }
+                    var list = Mezon_Api_MessageAttachmentList()
+                    list.attachments = update.attachments
+                    return (try? list.serializedData()) ?? existing.attachmentsJSON
+                }()
+                let hideEdit = update.hideEditted
+                    || (contentChanged
+                        && PresignFinishContent.isPresignFinishOnlyChange(
+                            newContent: newContentData,
+                            oldContent: existing.content
+                        ))
                 let updated = MessageRecord(
                     id: existing.id,
                     channelId: existing.channelId,
                     clanId: existing.clanId,
                     senderId: existing.senderId,
-                    content: newContentData,
+                    content: contentChanged ? newContentData : existing.content,
                     createdAt: existing.createdAt,
-                    editedAt: update.hideEditted ? existing.editedAt : Date(),
+                    editedAt: hideEdit ? nil : Date(),
                     isDeleted: existing.isDeleted,
                     code: existing.code,
                     senderDisplayName: existing.senderDisplayName,
                     senderAvatarURL: existing.senderAvatarURL,
                     sendingState: existing.sendingState,
-                    attachmentsJSON: existing.attachmentsJSON,
+                    attachmentsJSON: newAttachmentsJSON,
                     reactionsJSON: existing.reactionsJSON,
                     referencesData: existing.referencesData,
                     mentionsJSON: existing.mentionsJSON
