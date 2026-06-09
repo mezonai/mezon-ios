@@ -229,6 +229,34 @@ final class MessageTable: Table {
         return result
     }
 
+    func getRecentMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+        if let cached = cache[channelId] {
+            return cached
+                .filter { $0.channelId == channelId && !$0.isDeleted }
+                .sorted { $0.createdAt > $1.createdAt }
+                .prefix(limit)
+                .map { $0 }
+        }
+
+        let rows = db.query(
+            """
+            SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
+                   is_deleted, sender_display_name, sender_avatar_url, sending_state,
+                   attachments_json, reactions_json, references_data, mentions_json, code
+            FROM messages
+            WHERE channel_id = ? AND is_deleted = 0
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            { s in
+                sqlite3_bind_text(s, 1, channelId, -1, nil)
+                sqlite3_bind_int(s, 2, Int32(limit))
+            }
+        ) { stmt in self.readMessageRow(stmt) }
+
+        return rows.compactMap { $0 }.filter { $0.channelId == channelId }
+    }
+
     private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
         guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
         if pending.content == server.content { return true }

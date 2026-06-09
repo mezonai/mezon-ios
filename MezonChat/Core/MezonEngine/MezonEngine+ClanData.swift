@@ -123,6 +123,9 @@ extension MezonEngine {
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
         private var lastFetchAllAtByClanId: [Int64: Date] = [:]
         private let fetchAllCooldownInterval: TimeInterval = 2.0
+        private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
+        private var lastPresenceMemberRefreshAtByClanId: [Int64: Date] = [:]
+        private let presenceMemberRefreshCooldown: TimeInterval = 3.0
 
         init(engine: MezonEngine) { self.engine = engine }
 
@@ -132,6 +135,11 @@ extension MezonEngine {
             }
             inflightFetchAllByClanId.removeAll()
             lastFetchAllAtByClanId.removeAll()
+            for (_, task) in inflightForceRefreshClanUsersByClanId {
+                task.cancel()
+            }
+            inflightForceRefreshClanUsersByClanId.removeAll()
+            lastPresenceMemberRefreshAtByClanId.removeAll()
         }
 
         func fetchAllClanData(clanId: Int64, token: String) {
@@ -184,22 +192,53 @@ extension MezonEngine {
                     return
                 }
 
-                let members = response.clanUsers.map { ClanMemberRecord(from: $0) }
-
-                postbox.write { tx in
-                    for clanUser in response.clanUsers {
-                        tx.updateProfile(ProfileRecord(from: clanUser))
-                    }
-
-                    tx.updateClanMembers(members, clanId: clanId)
-                }
-                if let data = try? response.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
-                }
-
-                clanUsersUpdated.putNext(clanId)
+                persistClanUsersResponse(clanId: clanId, response: response)
             } catch {
             }
+        }
+
+        func maybeRefreshClanMembersAfterPresenceJoins(clanId: Int64, joinedUserIds: [Int64], token: String) {
+            guard clanId != 0, !joinedUserIds.isEmpty else { return }
+            if let last = lastPresenceMemberRefreshAtByClanId[clanId],
+               Date().timeIntervalSince(last) < presenceMemberRefreshCooldown {
+                return
+            }
+            let knownIds = Set(resolvedClanMembers(clanId: clanId).map(\.userId))
+            let unknownIds = joinedUserIds.filter { $0 != 0 && !knownIds.contains($0) }
+            guard !unknownIds.isEmpty else { return }
+            lastPresenceMemberRefreshAtByClanId[clanId] = Date()
+            forceRefreshClanUsers(clanId: clanId, token: token)
+        }
+
+        func forceRefreshClanUsers(clanId: Int64, token: String) {
+            guard clanId != 0 else { return }
+            if let existing = inflightForceRefreshClanUsersByClanId[clanId], !existing.isCancelled { return }
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.inflightForceRefreshClanUsersByClanId[clanId] = nil }
+                await self.fetchClanUsersForced(clanId: clanId, token: token)
+            }
+            inflightForceRefreshClanUsersByClanId[clanId] = task
+        }
+
+        private func fetchClanUsersForced(clanId: Int64, token: String) async {
+            do {
+                let response = try await network.listClanUsers(clanId: clanId, token: token)
+                persistClanUsersResponse(clanId: clanId, response: response)
+            } catch {
+            }
+        }
+
+        private func persistClanUsersResponse(clanId: Int64, response: Mezon_Api_ClanUserList) {
+            let members = response.clanUsers.map { ClanMemberRecord(from: $0) }
+            postbox.write { tx in
+                for clanUser in response.clanUsers {
+                    tx.updateProfile(ProfileRecord(from: clanUser))
+                }
+                tx.updateClanMembers(members, clanId: clanId)
+            }
+            syncClanUsersPreferenceCache(clanId: clanId, members: members)
+            clanUsersUpdated.putNext(clanId)
         }
 
         private func fetchRoles(clanId: Int64, token: String) async {
@@ -309,6 +348,119 @@ extension MezonEngine {
             list.clanID = clanId
             list.clanUsers = rows.map { $0.toClanUserListClanUser() }
             return list
+        }
+
+        func applyClanUserAddedFromSocket(_ event: Mezon_Realtime_AddClanUserEvent) {
+            let clanId = event.clanID
+            guard clanId != 0, event.hasUser else { return }
+            let user = event.user
+            guard user.userID != 0 else { return }
+
+            var members = resolvedClanMembers(clanId: clanId)
+            guard !members.contains(where: { $0.userId == user.userID }) else { return }
+
+            members.append(ClanMemberRecord(
+                userId: user.userID,
+                roleIds: [],
+                clanNick: "",
+                clanAvatar: "",
+                userAvatarURL: user.avatar,
+                clanId: clanId,
+                isOnline: user.online,
+                displayName: user.displayName,
+                username: user.username
+            ))
+
+            var apiUser = Mezon_Api_User()
+            apiUser.id = user.userID
+            apiUser.username = user.username
+            apiUser.displayName = user.displayName
+            apiUser.avatarURL = user.avatar
+            apiUser.online = user.online
+            apiUser.status = user.status
+
+            postbox.write { tx in
+                tx.updateClanMembers(members, clanId: clanId)
+                tx.updateProfile(ProfileRecord(from: apiUser))
+            }
+            syncClanUsersPreferenceCache(clanId: clanId, members: members)
+            clanUsersUpdated.putNext(clanId)
+        }
+
+        func applyClanMembersFromUserChannelAddedForObservers(
+            _ event: Mezon_Realtime_UserChannelAdded,
+            observingClanId: Int64
+        ) {
+            let clanId = event.clanID != 0 ? event.clanID : event.channelDesc.clanID
+            guard clanId != 0, clanId == observingClanId, !event.users.isEmpty else { return }
+
+            var members = resolvedClanMembers(clanId: clanId)
+            var appended: [ClanMemberRecord] = []
+            for user in event.users where user.userID != 0 {
+                guard !members.contains(where: { $0.userId == user.userID }) else { continue }
+                let member = ClanMemberRecord(
+                    userId: user.userID,
+                    roleIds: [],
+                    clanNick: "",
+                    clanAvatar: "",
+                    userAvatarURL: user.avatar,
+                    clanId: clanId,
+                    isOnline: user.online,
+                    displayName: user.displayName,
+                    username: user.username
+                )
+                members.append(member)
+                appended.append(member)
+            }
+            guard !appended.isEmpty else { return }
+
+            postbox.write { tx in
+                tx.updateClanMembers(members, clanId: clanId)
+                for user in appended {
+                    var apiUser = Mezon_Api_User()
+                    apiUser.id = user.userId
+                    apiUser.username = user.username
+                    apiUser.displayName = user.displayName
+                    apiUser.avatarURL = user.userAvatarURL
+                    apiUser.online = user.isOnline
+                    tx.updateProfile(ProfileRecord(from: apiUser))
+                }
+            }
+            syncClanUsersPreferenceCache(clanId: clanId, members: members)
+            clanUsersUpdated.putNext(clanId)
+        }
+
+        func applyClanUserRemovedFromSocket(_ event: Mezon_Realtime_UserClanRemoved) {
+            let clanId = event.clanID
+            let removeSet = Set(event.userIds)
+            guard clanId != 0, !removeSet.isEmpty else { return }
+
+            var members = resolvedClanMembers(clanId: clanId)
+            let filtered = members.filter { !removeSet.contains($0.userId) }
+            guard filtered.count != members.count else { return }
+
+            postbox.write { tx in
+                tx.updateClanMembers(filtered, clanId: clanId)
+            }
+            syncClanUsersPreferenceCache(clanId: clanId, members: filtered)
+            clanUsersUpdated.putNext(clanId)
+        }
+
+        private func resolvedClanMembers(clanId: Int64) -> [ClanMemberRecord] {
+            let rows = postbox.read { tx in tx.getClanMembers(clanId: clanId) }
+            if !rows.isEmpty { return rows }
+            if let cached = getClanUsers(clanId: clanId) {
+                return cached.clanUsers.map { ClanMemberRecord(from: $0) }
+            }
+            return []
+        }
+
+        private func syncClanUsersPreferenceCache(clanId: Int64, members: [ClanMemberRecord]) {
+            var list = Mezon_Api_ClanUserList()
+            list.clanID = clanId
+            list.clanUsers = members.map { $0.toClanUserListClanUser() }
+            guard let data = try? list.serializedData() else { return }
+            postbox.setPreferenceDataSync(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
         }
 
         func getClanRoles(clanId: Int64) -> Mezon_Api_RoleListEventResponse? {

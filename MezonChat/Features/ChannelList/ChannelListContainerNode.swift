@@ -15,6 +15,8 @@ struct ChannelListInteraction {
     let isShowEmptyCategoriesEnabled: (() -> Bool)?
     let onToggleShowEmptyCategories: ((Bool) -> Void)?
     let onLongPressCategory: ((ChannelCategory) -> Void)?
+    let onOnboardingBannerTapped: (() -> Void)?
+    let onClanSwitchChannelListApplied: (() -> Void)?
 }
 
 final class ChannelListContainerNode: ASDisplayNode {
@@ -71,6 +73,12 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let interaction: ChannelListInteraction
     private let disposables = DisposableSet()
     private var isClanSwitching = false
+    private var deferOnboardingTableUpdates = false
+    private var clanSwitchTableRefreshDone = false
+
+    private var shouldDeferLeadingSectionTableMutations: Bool {
+        isClanSwitching || deferOnboardingTableUpdates
+    }
     private var nodeIsVisible = false
     private var pendingVisibleReconcile = false
 
@@ -81,6 +89,29 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var headerClanId: Int64 = 0
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
+    private var onboardingState: ClanOnboardingViewState = .hidden
+    private var memberOnboardingState: MemberOnboardingViewState = .hidden
+    private var onboardingBannerVisible: Bool { onboardingState.isVisible || memberOnboardingState.isVisible }
+    private var showsCreatorOnboardingBanner: Bool { onboardingState.isVisible }
+
+    private var leadingTableSectionsCount: Int {
+        (onboardingBannerVisible ? 1 : 0) + (channelAppsStripeVisible ? 1 : 0)
+    }
+
+    private var onboardingTableSection: Int { 0 }
+
+    private var channelAppsTableSection: Int {
+        onboardingBannerVisible ? 1 : 0
+    }
+
+    private func isOnboardingTableSection(_ section: Int) -> Bool {
+        onboardingBannerVisible && section == onboardingTableSection
+    }
+
+    private func isChannelAppsTableSection(_ section: Int) -> Bool {
+        guard channelAppsStripeVisible else { return false }
+        return section == channelAppsTableSection
+    }
 
     private var skipNextLoadingFinishedReveal: Bool = false
 
@@ -174,11 +205,20 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         if wasClanSwitching {
             cachedHeaders = [:]
-            if nodeIsVisible {
-                applyCrossfadeReload()
-            } else {
-                pendingVisibleReconcile = true
-                safeReloadData()
+            interaction.onClanSwitchChannelListApplied?()
+            if !clanSwitchTableRefreshDone {
+                if nodeIsVisible {
+                    applyCrossfadeReload()
+                } else {
+                    pendingVisibleReconcile = true
+                    safeReloadData()
+                }
+                clanSwitchTableRefreshDone = true
+                deferOnboardingTableUpdates = false
+            } else if structureChanged {
+                applyBatchStructureUpdate(prev: prevState, new: newState)
+            } else if !newCats.isEmpty {
+                applyRowDiff(prev: prevState, new: newState)
             }
         } else if !nodeIsVisible && structureChanged {
             cachedHeaders = [:]
@@ -253,7 +293,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
 
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         let prevCatSections = committedSectionCount - sectionOffset
         let newCatSections = expectedAfter - sectionOffset
         let canPatch = prevCatSections == newCatSections
@@ -406,7 +446,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func pathsContainVoiceRow(_ paths: [IndexPath], in stateForPaths: ChannelListState) -> Bool {
         guard !paths.isEmpty else { return false }
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         for ip in paths {
             guard ip.section >= sectionOffset else { continue }
             let catIdx = ip.section - sectionOffset
@@ -434,7 +474,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard tv.bounds.height > 0 else { return nil }
         guard let visible = tv.indexPathsForVisibleRows, !visible.isEmpty else { return nil }
         let offsetY = tv.contentOffset.y
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         let sorted = visible.sorted {
             $0.section != $1.section ? $0.section < $1.section : $0.row < $1.row
         }
@@ -471,7 +511,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func restoreScrollAnchor(_ anchor: ScrollAnchor) {
         let tv = tableNode.view
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         let section = anchor.section
         guard section >= sectionOffset, section < tableNode.numberOfSections else { return }
         let catIdx = section - sectionOffset
@@ -585,7 +625,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         prev: ChannelListState,
         new: ChannelListState
     ) -> ([IndexPath], [IndexPath]) {
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         var selectionPaths: [IndexPath] = []
         var fullPaths: [IndexPath] = []
         for ip in paths {
@@ -631,7 +671,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func applyInPlaceListSelection(paths: [IndexPath], new: ChannelListState) {
         guard !paths.isEmpty else { return }
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for ip in paths {
@@ -731,7 +771,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
 
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
 
         var rowCountChanged = false
         for s in 0..<new.categories.count {
@@ -839,7 +879,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func indexPathForListChannel(channelId: Int64) -> IndexPath? {
-        let sectionOffset = channelAppsStripeVisible ? 1 : 0
+        let sectionOffset = leadingTableSectionsCount
         guard let s = firstCategoryIndexContainingListChannel(channelId) else { return nil }
         let rows = rowsForSection(s)
         guard let r = rows.firstIndex(where: { row in
@@ -1013,7 +1053,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.performBatch(animated: false) {
-                self.tableNode.reloadSections(IndexSet(integer: 0), with: .none)
+                self.tableNode.reloadSections(IndexSet(integer: self.channelAppsTableSection), with: .none)
             }
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
@@ -1037,8 +1077,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func categoryIndex(forSection section: Int) -> Int {
-        let offset = channelAppsStripeVisible ? 1 : 0
-        return section - offset
+        section - leadingTableSectionsCount
     }
 
     private var channelListLoadingPlaceholderVisible: Bool {
@@ -1046,7 +1085,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private var loadingPlaceholderTableSection: Int {
-        channelAppsStripeVisible ? 1 : 0
+        leadingTableSectionsCount
     }
 
     private func isLoadingPlaceholderTableSection(_ section: Int) -> Bool {
@@ -1054,12 +1093,12 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private var totalSections: Int {
-        let appsSections = channelAppsStripeVisible ? 1 : 0
+        let leadingSections = leadingTableSectionsCount
         if channelListLoadingPlaceholderVisible {
-            return appsSections + 1
+            return leadingSections + 1
         }
         let catSections = state.categories.count
-        return appsSections + catSections
+        return leadingSections + catSections
     }
 
     var hasDisplayedChannelApps: Bool { !channelApps.isEmpty }
@@ -1071,23 +1110,26 @@ final class ChannelListContainerNode: ASDisplayNode {
         let afterHad = channelAppsStripeVisible
         cachedRows = [:]
         cachedHeaders = [:]
+        guard !shouldDeferLeadingSectionTableMutations else { return }
         if !beforeHad && afterHad {
+            let section = self.channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
                 self.tableNode.performBatch(animated: false) {
-                    self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+                    self.tableNode.insertSections(IndexSet(integer: section), with: .none)
                 }
                 self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
+            let section = channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
                 self.tableNode.performBatch(animated: false) {
-                    self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+                    self.tableNode.deleteSections(IndexSet(integer: section), with: .none)
                 }
                 self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
@@ -1155,7 +1197,11 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func markClanSwitching() {
         isClanSwitching = true
+        deferOnboardingTableUpdates = true
+        clanSwitchTableRefreshDone = false
         memberCount = 0
+        onboardingState = .hidden
+        memberOnboardingState = .hidden
         headerUIView.clearMemberSubtitleStaleText()
     }
 
@@ -1169,17 +1215,124 @@ final class ChannelListContainerNode: ASDisplayNode {
             committedSectionCount = totalSections
             return
         }
+        guard !shouldDeferLeadingSectionTableMutations else { return }
         guard tableNode.numberOfSections > 0 else {
             committedSectionCount = totalSections
             return
         }
+        let section = channelAppsTableSection
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
-            self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+            self.tableNode.deleteSections(IndexSet(integer: section), with: .none)
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
+        committedSectionCount = totalSections
+    }
+
+    func updateOnboardingState(_ state: ClanOnboardingViewState) {
+        guard state != onboardingState else { return }
+        let beforeVisible = onboardingBannerVisible
+        onboardingState = state
+        if state.isVisible, memberOnboardingState.isVisible {
+            memberOnboardingState = .hidden
+        }
+        let afterVisible = onboardingBannerVisible
+
+        guard !deferOnboardingTableUpdates else { return }
+
+        cachedRows = [:]
+        cachedHeaders = [:]
+
+        if !beforeVisible && afterVisible {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.insertSections(IndexSet(integer: self.onboardingTableSection), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+            }
+            CATransaction.commit()
+        } else if beforeVisible && !afterVisible {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.deleteSections(IndexSet(integer: self.onboardingTableSection), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+            }
+            CATransaction.commit()
+        } else if beforeVisible && afterVisible {
+            let section = onboardingTableSection
+            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0 {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                UIView.performWithoutAnimation {
+                    self.tableNode.reloadRows(at: [IndexPath(row: 0, section: section)], with: .none)
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+                CATransaction.commit()
+            } else {
+                scheduleReload()
+            }
+        }
+        committedSectionCount = totalSections
+    }
+
+    func updateMemberOnboardingState(_ state: MemberOnboardingViewState) {
+        guard onboardingState.isVisible == false else {
+            if memberOnboardingState.isVisible {
+                memberOnboardingState = .hidden
+            }
+            return
+        }
+        guard state != memberOnboardingState else { return }
+        let beforeVisible = onboardingBannerVisible
+        memberOnboardingState = state
+        let afterVisible = onboardingBannerVisible
+
+        guard !deferOnboardingTableUpdates else { return }
+
+        cachedRows = [:]
+        cachedHeaders = [:]
+
+        if !beforeVisible && afterVisible {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.insertSections(IndexSet(integer: self.onboardingTableSection), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+            }
+            CATransaction.commit()
+        } else if beforeVisible && !afterVisible {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    self.tableNode.deleteSections(IndexSet(integer: self.onboardingTableSection), with: .none)
+                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+            }
+            CATransaction.commit()
+        } else if beforeVisible && afterVisible {
+            let section = onboardingTableSection
+            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0 {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                UIView.performWithoutAnimation {
+                    self.tableNode.reloadRows(at: [IndexPath(row: 0, section: section)], with: .none)
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+                CATransaction.commit()
+            } else {
+                scheduleReload()
+            }
+        }
         committedSectionCount = totalSections
     }
 
@@ -1239,23 +1392,26 @@ final class ChannelListContainerNode: ASDisplayNode {
         cachedRows = [:]
         cachedHeaders = [:]
 
+        guard !shouldDeferLeadingSectionTableMutations else { return }
         if !beforeHad && afterHad {
+            let section = self.channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
                 self.tableNode.performBatch(animated: false) {
-                    self.tableNode.insertSections(IndexSet(integer: 0), with: .none)
+                    self.tableNode.insertSections(IndexSet(integer: section), with: .none)
                 }
                 self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
+            let section = channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
                 self.tableNode.performBatch(animated: false) {
-                    self.tableNode.deleteSections(IndexSet(integer: 0), with: .none)
+                    self.tableNode.deleteSections(IndexSet(integer: section), with: .none)
                 }
                 self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
@@ -1328,26 +1484,27 @@ final class ChannelListContainerNode: ASDisplayNode {
         let newCount = channelAppsSectionRowCount()
         guard oldCount != newCount else { return }
         guard tableNode.numberOfSections > 0,
-            tableNode.numberOfRows(inSection: 0) == oldCount
+            tableNode.numberOfRows(inSection: channelAppsTableSection) == oldCount
         else {
             scheduleReload()
             return
         }
+        let appsSection = channelAppsTableSection
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.performBatch(animated: false) {
                 if newCount == 0 && oldCount > 0 {
-                    let paths = (0..<oldCount).map { IndexPath(row: $0, section: 0) }
+                    let paths = (0..<oldCount).map { IndexPath(row: $0, section: appsSection) }
                         .sorted { $0.row > $1.row }
                     self.tableNode.deleteRows(at: paths, with: .none)
                 } else if oldCount == 0 && newCount > 0 {
-                    let paths = (0..<newCount).map { IndexPath(row: $0, section: 0) }
+                    let paths = (0..<newCount).map { IndexPath(row: $0, section: appsSection) }
                     self.tableNode.insertRows(at: paths, with: .none)
                 } else {
-                    let del = (0..<oldCount).map { IndexPath(row: $0, section: 0) }
+                    let del = (0..<oldCount).map { IndexPath(row: $0, section: appsSection) }
                         .sorted { $0.row > $1.row }
-                    let ins = (0..<newCount).map { IndexPath(row: $0, section: 0) }
+                    let ins = (0..<newCount).map { IndexPath(row: $0, section: appsSection) }
                     self.tableNode.deleteRows(at: del, with: .none)
                     self.tableNode.insertRows(at: ins, with: .none)
                 }
@@ -1355,7 +1512,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
-        if isCompactView, let header = cachedHeaders[0] {
+        if isCompactView, let header = cachedHeaders[appsSection] {
             header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
         }
     }
@@ -1472,7 +1629,10 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
-        if channelAppsStripeVisible && section == 0 {
+        if isOnboardingTableSection(section) {
+            return 1
+        }
+        if isChannelAppsTableSection(section) {
             if channelAppsLoading && channelApps.isEmpty {
                 return isChannelAppsExpanded ? 1 : 0
             }
@@ -1490,7 +1650,33 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
-        if channelAppsStripeVisible && indexPath.section == 0 {
+        if isOnboardingTableSection(indexPath.section) {
+            let title: String
+            let subtitle: String
+            if showsCreatorOnboardingBanner {
+                title = L(L10n.OnboardingClan.title)
+                subtitle = L(
+                    L10n.OnboardingClan.description,
+                    onboardingState.currentDisplayStep,
+                    ClanOnboardingViewState.totalSteps
+                )
+            } else {
+                title = L(L10n.OnboardingMember.title)
+                subtitle = L(
+                    L10n.OnboardingMember.description,
+                    memberOnboardingState.currentDisplayStep,
+                    max(memberOnboardingState.missions.count, 1)
+                )
+            }
+            return { [weak self] in
+                let node = ChannelOnboardingBannerCellNode(title: title, subtitle: subtitle)
+                node.onTap = { [weak self] in
+                    self?.interaction.onOnboardingBannerTapped?()
+                }
+                return node
+            }
+        }
+        if isChannelAppsTableSection(indexPath.section) {
             if channelAppsLoading && channelApps.isEmpty {
                 return { ChannelAppSkeletonCellNode() }
             }
@@ -1554,7 +1740,10 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        if channelAppsStripeVisible && section == 0 {
+        if isOnboardingTableSection(section) {
+            return nil
+        }
+        if isChannelAppsTableSection(section) {
             if isCompactView {
                 let header = cachedHeaders[section] ?? CategorySectionHeaderView()
                 header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
@@ -1580,7 +1769,10 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if channelAppsStripeVisible && section == 0 {
+        if isOnboardingTableSection(section) {
+            return 0
+        }
+        if isChannelAppsTableSection(section) {
             return isCompactView ? 32.sh : 0
         }
         if isLoadingPlaceholderTableSection(section) {
@@ -1603,7 +1795,11 @@ extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: false)
-        if channelAppsStripeVisible && indexPath.section == 0 {
+        if isOnboardingTableSection(indexPath.section) {
+            interaction.onOnboardingBannerTapped?()
+            return
+        }
+        if isChannelAppsTableSection(indexPath.section) {
             guard !channelAppsLoading else { return }
             if isCompactView, indexPath.row < channelApps.count {
                 interaction.onSelectChannelApp?(channelApps[indexPath.row])

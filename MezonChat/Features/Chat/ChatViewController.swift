@@ -473,6 +473,27 @@ final class ChatViewController: ViewController {
     private static let remoteTypingStripBottomPadding: CGFloat = 2
     private static let chatFrameBottomGap: CGFloat = 6.sh
 
+    private lazy var memberOnboardingMissionBarView: MemberOnboardingChatMissionBarView = {
+        let bar = MemberOnboardingChatMissionBarView()
+        bar.isHidden = true
+        bar.onTap = { [weak self] in self?.handleMemberOnboardingMissionBarTap() }
+        return bar
+    }()
+    private var memberOnboardingMissionBarDidInitialLayout = false
+    private var memberOnboardingMissionBarVisible = false {
+        didSet {
+            guard isViewLoaded, oldValue != memberOnboardingMissionBarVisible, let layout = lastLayout else { return }
+            let transition: ContainedViewLayoutTransition
+            if memberOnboardingMissionBarVisible, !memberOnboardingMissionBarDidInitialLayout {
+                memberOnboardingMissionBarDidInitialLayout = true
+                transition = .immediate
+            } else {
+                transition = .animated(duration: 0.15, curve: .easeInOut)
+            }
+            containerLayoutUpdated(layout, transition: transition)
+        }
+    }
+
     private lazy var remoteTypingStripView: UIView = {
         let v = UIView()
         v.isUserInteractionEnabled = false
@@ -1129,31 +1150,35 @@ final class ChatViewController: ViewController {
         let showAppHotbar = shouldShowChannelAppHotbar
         let appHotbarH: CGFloat = showAppHotbar ? ChannelAppHotbarBarView.prefersFixedHeight : 0
         channelAppHotbar.isHidden = !showAppHotbar
+        let missionBarH: CGFloat = memberOnboardingMissionBarVisible ? MemberOnboardingChatMissionBarView.preferredHeight : 0
+        memberOnboardingMissionBarView.isHidden = missionBarH == 0
         let totalBottomH = appHotbarH + sendComposerH
-        let inputY = layoutToApply.size.height - bottomInset - bottomOffset - totalBottomH
+        let composerTop = layoutToApply.size.height - bottomInset - bottomOffset - totalBottomH
         let inputFrame = CGRect(
             x: 0,
-            y: inputY,
+            y: composerTop + appHotbarH,
             width: layoutToApply.size.width,
             height: sendComposerH + bottomInset
         )
         sendInputViewController.syncComposerBottomSafeInset(bottomInset)
+        if missionBarH > 0 {
+            let missionFrame = CGRect(
+                x: 0,
+                y: composerTop - missionBarH,
+                width: layoutToApply.size.width,
+                height: missionBarH
+            )
+            transition.updateFrame(view: memberOnboardingMissionBarView, frame: missionFrame, beginWithCurrentState: true)
+        }
         if showAppHotbar {
             let hotbarFrame = CGRect(
                 x: 0,
-                y: inputY,
+                y: composerTop,
                 width: layoutToApply.size.width,
                 height: appHotbarH
             )
-            let composerTop = inputY + appHotbarH
-            let composerFrame = CGRect(
-                x: 0,
-                y: composerTop,
-                width: layoutToApply.size.width,
-                height: sendComposerH + bottomInset
-            )
             transition.updateFrame(view: channelAppHotbar, frame: hotbarFrame, beginWithCurrentState: true)
-            transition.updateFrame(view: sendInputViewController.view, frame: composerFrame, beginWithCurrentState: true)
+            transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
         } else {
             transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
         }
@@ -1162,7 +1187,7 @@ final class ChatViewController: ViewController {
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
-        let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layoutToApply.size.width, height: stripH)
+        let typingFrame = CGRect(x: 0, y: composerTop - missionBarH - stripH, width: layoutToApply.size.width, height: stripH)
         transition.updateFrame(view: remoteTypingStripView, frame: typingFrame, beginWithCurrentState: true)
         remoteTypingLabel.frame = CGRect(
             x: 12,
@@ -1171,7 +1196,7 @@ final class ChatViewController: ViewController {
             height: Self.remoteTypingStripMaxHeight
         )
 
-        let totalInputArea = totalBottomH + bottomOffset
+        let totalInputArea = totalBottomH + missionBarH + bottomOffset
         if bottomOffset > 0 && currentKeyboardOffset == 0 && !emojiPicker.wasJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
             let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
             if totalInputArea > previousTotalInputArea + 20 {
@@ -1207,6 +1232,7 @@ final class ChatViewController: ViewController {
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
         }
+        refreshMemberOnboardingMissionBar()
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
             reloadDisplaysWithCurrentPins()
@@ -3516,6 +3542,7 @@ final class ChatViewController: ViewController {
     private func setupInputBar() {
         remoteTypingStripView.addSubview(remoteTypingLabel)
         view.addSubview(remoteTypingStripView)
+        view.addSubview(memberOnboardingMissionBarView)
         channelAppHotbar.onLaunch = { [weak self] in self?.openChannelAppFromHotbar() }
         channelAppHotbar.onHelp = { [weak self] in self?.openChannelAppHelpFromHotbar() }
         view.addSubview(channelAppHotbar)
@@ -3543,7 +3570,9 @@ final class ChatViewController: ViewController {
         inputBarHeight = sendInputViewController.totalHeight
         remoteTypingStripView.alpha = 0
         remoteTypingStripView.isHidden = true
+        memberOnboardingMissionBarView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
+        view.bringSubviewToFront(memberOnboardingMissionBarView)
         view.bringSubviewToFront(channelAppHotbar)
         view.bringSubviewToFront(sendInputViewController.view)
         emojiPicker.bringToFront()
@@ -3560,6 +3589,119 @@ final class ChatViewController: ViewController {
             self, selector: #selector(keyboardWillChangeFrame(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemberOnboardingDidUpdate(_:)),
+            name: .mezonMemberOnboardingDidUpdate,
+            object: nil
+        )
+    }
+
+    @objc private func handleMemberOnboardingDidUpdate(_ notification: Notification) {
+        guard let gid = notification.userInfo?["clanId"] as? Int64, gid == clanId else { return }
+        refreshMemberOnboardingMissionBar()
+    }
+
+    private func cachedClanChannelsForOnboarding() -> [Mezon_Api_ChannelDescription] {
+        var channels = [channel]
+        if let mission = MemberOnboardingProgress.currentMission(context: context, clanId: clanId),
+           mission.channelId != channel.channelID,
+           let resolved = context.account.postbox.resolvedChannelDescription(
+               clanId: clanId,
+               channelId: mission.channelId
+           ) {
+            channels.append(resolved)
+        }
+        return channels
+    }
+
+    private func refreshMemberOnboardingMissionBar() {
+        guard isViewLoaded, clanId != 0, topicId == 0 else {
+            if memberOnboardingMissionBarVisible {
+                memberOnboardingMissionBarVisible = false
+            }
+            return
+        }
+
+        let state = MemberOnboardingProgress.compute(context: context, clanId: clanId)
+        guard state.isVisible, state.completedSteps < state.missions.count else {
+            if memberOnboardingMissionBarVisible {
+                memberOnboardingMissionBarVisible = false
+            }
+            return
+        }
+
+        let mission = state.missions[state.completedSteps]
+        let channelLabel = MemberOnboardingProgress.resolveChannelLabel(
+            channelId: mission.channelId,
+            context: context,
+            clanId: clanId,
+            channels: cachedClanChannelsForOnboarding()
+        )
+        memberOnboardingMissionBarView.configure(
+            title: mission.title,
+            subtitle: MemberOnboardingProgress.missionActionSubtitle(
+                taskType: mission.taskType,
+                channelLabel: channelLabel
+            )
+        )
+        memberOnboardingMissionBarView.applyTheme()
+        memberOnboardingMissionBarVisible = true
+    }
+
+    private func handleMemberOnboardingMissionBarTap() {
+        guard clanId != 0 else { return }
+        let state = MemberOnboardingProgress.compute(context: context, clanId: clanId)
+        guard state.isVisible, state.completedSteps < state.missions.count else { return }
+        let mission = state.missions[state.completedSteps]
+        MemberOnboardingProgress.performMission(
+            mission,
+            at: state.completedSteps,
+            completedSteps: state.completedSteps,
+            context: context,
+            clanId: clanId,
+            channels: cachedClanChannelsForOnboarding(),
+            navigation: MemberOnboardingChannelNavigation(
+                openChat: { [weak self] target in
+                    self?.selectChannelForMemberOnboarding(target)
+                },
+                presentVoice: { [weak self] target in
+                    self?.presentJoinVoiceSheet(for: target)
+                }
+            )
+        )
+    }
+
+    private func selectChannelForMemberOnboarding(_ target: Mezon_Api_ChannelDescription) {
+        guard target.channelID != channel.channelID else { return }
+        if let home = (navigationController as? MezonRootController)?.homeController {
+            home.openChannelForOnboarding(target)
+            return
+        }
+        var parentName: String?
+        if target.parentID != 0 {
+            parentName = context.account.postbox.resolvedChannelDescription(
+                clanId: clanId,
+                channelId: target.parentID
+            )?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: clanId,
+            channel: target,
+            context: context,
+            parentName: parentName
+        )
+        guard let nav = navigationController else { return }
+        if let existing = nav.viewControllers
+            .compactMap({ $0 as? ChatViewController })
+            .first(where: { $0.channel.channelID == target.channelID }) {
+            nav.popToViewController(existing, animated: true)
+            return
+        }
+        var stack = nav.viewControllers
+        stack.removeAll { $0 is ChatViewController }
+        stack.append(chatVC)
+        nav.setViewControllers(stack, animated: true)
     }
 
     private func runUIViewAnimationMatchingKeyboard(

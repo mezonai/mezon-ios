@@ -102,4 +102,7 @@ enum PreferencesKeys {
     static func threadList(clanId: Int64, parentChannelId: Int64) -> String {
         "threadList_\(clanId)_\(parentChannelId)"
     }
+    static func onboardingCreatorSentMessage(clanId: Int64) -> String {
+        "onboardingCreatorSentMessage_\(clanId)"
+    }
 }

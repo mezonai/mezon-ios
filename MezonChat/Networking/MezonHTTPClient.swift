@@ -1207,6 +1207,40 @@ final class MezonHTTPClient {
         )
     }
 
+    func listOnboarding(clanId: Int64, limit: Int32 = 100, token: String) async throws -> [Mezon_Api_OnboardingItem] {
+        var req = Mezon_Api_ListOnboardingRequest()
+        req.clanID = clanId
+        req.limit = limit
+        let response: Mezon_Api_ListOnboardingResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListOnboarding",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listOnboarding
+    }
+
+    func listOnboardingStep(clanId: Int64, token: String) async throws -> [Mezon_Api_OnboardingSteps] {
+        var req = Mezon_Api_ListOnboardingStepRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListOnboardingStepResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListOnboardingStep",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listOnboardingStep
+    }
+
+    func updateOnboardingStep(clanId: Int64, onboardingStep: Int32, token: String) async throws {
+        var req = Mezon_Api_UpdateOnboardingStepRequest()
+        req.clanID = clanId
+        req.onboardingStep = onboardingStep
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateOnboardingStep",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listRoles(clanId: Int64, limit: Int32 = 500, state: Int32 = 1, token: String) async throws -> Mezon_Api_RoleListEventResponse {
         var req = Mezon_Api_RoleListEventRequest()
         req.clanID = clanId
