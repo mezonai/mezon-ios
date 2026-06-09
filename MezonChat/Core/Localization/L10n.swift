@@ -389,6 +389,7 @@ enum L10n {
         static let settings       = "clan.settings"
         static let duplicateName  = "clan.duplicateName"
         static let invalidName    = "clan.invalidName"
+        static let creationLimitReached = "clan.creationLimitReached"
     }
 
     enum Discover {
@@ -468,6 +469,7 @@ enum L10n {
             static let previewUpload = "clan.setting.emojis.previewUpload"
             static let previewLengthError = "clan.setting.emojis.previewLengthError"
             static let previewTypeEmoji = "clan.setting.emojis.previewTypeEmoji"
+            static let empty = "clan.setting.emojis.empty"
         }
 
         enum Stickers {
@@ -1351,6 +1353,7 @@ extension L10n {
         "clan.settings":    "Clan Settings",
         "clan.duplicateName": "The clan name already exists. Please enter another name.",
         "clan.invalidName": "Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).",
+        "clan.creationLimitReached": "You have reached the clan creation limit.",
 
         "discover.communityOnMezon": "Community on Mezon",
         "discover.exploreCommunities": "Explore communities",
@@ -1443,6 +1446,7 @@ extension L10n {
         "clan.setting.emojis.previewUpload": "Upload",
         "clan.setting.emojis.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
         "clan.setting.emojis.previewTypeEmoji": "Emoji",
+        "clan.setting.emojis.empty": "No emojis found",
 
         "clanRoles.title":                  "Roles",
         "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
@@ -2345,6 +2349,7 @@ extension L10n {
         "clan.settings":    "Cài đặt Clan",
         "clan.duplicateName": "Tên Clan đã tồn tại. Vui lòng nhập tên khác.",
         "clan.invalidName": "Vui lòng nhập tên clan hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "clan.creationLimitReached": "Bạn đã đạt giới hạn tạo clan.",
 
         "discover.communityOnMezon": "Cộng đồng trên Mezon",
         "discover.exploreCommunities": "Khám phá cộng đồng",
@@ -2437,6 +2442,7 @@ extension L10n {
         "clan.setting.emojis.previewUpload": "Tải lên",
         "clan.setting.emojis.previewLengthError": "Tên %@ phải từ %d đến %d ký tự, chỉ chữ, số, _ và -.",
         "clan.setting.emojis.previewTypeEmoji": "biểu cảm",
+        "clan.setting.emojis.empty": "Không tìm thấy biểu cảm nào",
 
         "clanRoles.title":                  "Vai trò",
         "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",
