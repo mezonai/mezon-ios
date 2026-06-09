@@ -677,6 +677,7 @@ final class ChatViewController: ViewController {
                     )
                     return
                 }
+                if ClanCreationLimit.showLimitToastIfNeeded(context: self.context) { return }
                 Task {
                     do {
                         let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)

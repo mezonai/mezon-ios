@@ -230,7 +230,7 @@ final class ClanEmojisViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        reloadData()
+        loadEmojiData()
         fetchClanMembersIfNeeded()
     }
 
@@ -269,18 +269,17 @@ final class ClanEmojisViewController: BaseViewController {
         }
         tableHeaderContainer.backgroundColor = UIColor.theme.primary
         applyEmojiListChrome()
-        tableView.reloadData()
+        refreshEmojiTable()
     }
 
     private func applyEmojiListChrome() {
-        let hasEmojis = !emojis.isEmpty
-        tableView.isHidden = !hasEmojis
-        if hasEmojis {
+        tableView.isHidden = false
+        if emojis.isEmpty {
+            tableView.backgroundColor = UIColor.theme.primary
+            tableView.layer.cornerRadius = 0
+        } else {
             tableView.backgroundColor = UIColor.theme.secondary
             tableView.layer.cornerRadius = 12.swh
-        } else {
-            tableView.backgroundColor = .clear
-            tableView.layer.cornerRadius = 0
         }
     }
 
@@ -304,20 +303,32 @@ final class ClanEmojisViewController: BaseViewController {
             height: tableHeaderHeight
         )
         let listTop = safeTop + headerH + tableHeaderHeight
-        let hasEmojis = !emojis.isEmpty
         applyEmojiListChrome()
         tableView.tableHeaderView = nil
         tableView.frame = CGRect(
             x: inset,
             y: listTop,
             width: contentWidth,
-            height: hasEmojis ? layout.size.height - listTop : 0
+            height: layout.size.height - listTop
         )
-        if abs(lastTableHeaderWidth - layout.size.width) > 0.5 {
+        if emojis.isEmpty {
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+            }
+        } else if abs(lastTableHeaderWidth - layout.size.width) > 0.5 {
             lastTableHeaderWidth = layout.size.width
             tableView.beginUpdates()
             tableView.endUpdates()
         }
+    }
+
+    private func emptyRowHeight(for tableView: UITableView) -> CGFloat {
+        let boundsHeight = tableView.bounds.height
+        if boundsHeight > 0 { return boundsHeight }
+        guard let layout = currentlyAppliedLayout else { return 0 }
+        let safeTop = resolvedSafeTop(for: layout)
+        let listTop = safeTop + headerBarHeight + tableHeaderHeight
+        return max(0, layout.size.height - listTop)
     }
 
     private var currentUserId: Int64 {
@@ -382,7 +393,7 @@ final class ClanEmojisViewController: BaseViewController {
         present(picker, animated: true)
     }
 
-    private func reloadData() {
+    private func loadEmojiData() {
         emojis = repository.emojis(clanId: clanId)
         let members = context.engine.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
         clanMembers = Dictionary(uniqueKeysWithValues: members.map { ($0.userId, $0) })
@@ -390,11 +401,20 @@ final class ClanEmojisViewController: BaseViewController {
         let atLimit = repository.isAtUploadLimit(clanId: clanId)
         uploadButton.isEnabled = true
         uploadButton.alpha = atLimit ? 0.5 : 1.0
-        tableView.reloadData()
         applyEmojiListChrome()
+    }
+
+    private func refreshEmojiTable() {
+        if emojis.isEmpty, currentlyAppliedLayout == nil { return }
+        tableView.reloadData()
         if let layout = currentlyAppliedLayout {
             applyChromeLayout(layout)
         }
+    }
+
+    private func reloadData() {
+        loadEmojiData()
+        refreshEmojiTable()
     }
 
     private func fetchClanMembersIfNeeded() {
@@ -498,11 +518,21 @@ final class ClanEmojisViewController: BaseViewController {
 
 extension ClanEmojisViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        emojis.count
+        emojis.isEmpty ? 1 : emojis.count
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard emojis.isEmpty else { return UITableView.automaticDimension }
+        let height = emptyRowHeight(for: tableView)
+        return height > 0 ? height : UITableView.automaticDimension
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: EmojiItemCell.reuseId, for: indexPath) as! EmojiItemCell
+        if emojis.isEmpty {
+            cell.configureEmpty(text: L(L10n.ClanSetting.Emojis.empty))
+            return cell
+        }
         let rowCount = emojis.count
         let isLast = indexPath.row == rowCount - 1
         let emoji = emojis[indexPath.row]
