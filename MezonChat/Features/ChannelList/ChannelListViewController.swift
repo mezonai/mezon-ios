@@ -537,7 +537,7 @@ final class ChannelListViewController: ViewController {
             isShowEmptyCategoriesEnabled: { [weak self] in self?.showEmptyCategoriesEnabled ?? false },
             onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) },
             onLongPressCategory: { [weak self] category in self?.presentCategoryActionSheet(category) },
-            onBecameVisible: { [weak self] in self?.reconcileChannelListDataIfNeeded() }
+            onBecameVisible: { [weak self] in self?.reconcileChannelListDataIfNeeded() },
             onOnboardingBannerTapped: { [weak self] in self?.presentOnboardingBottomSheet() },
             onClanSwitchChannelListApplied: { [weak self] in self?.prepareOnboardingStateForClanSwitch() }
         )

@@ -900,6 +900,7 @@ enum L10n {
         static let editingMessage   = "messageAction.editingMessage"
         static let editedSuffix     = "messageAction.editedSuffix"
         static let deleteMessage    = "messageAction.deleteMessage"
+        static let deleteMessageConfirm = "messageAction.deleteMessageConfirm"
         static let pinMessage       = "messageAction.pinMessage"
         static let unpinMessage     = "messageAction.unpinMessage"
         static let forward          = "messageAction.forward"
@@ -1901,6 +1902,7 @@ extension L10n {
         "messageAction.editingMessage": "Editing message",
         "messageAction.editedSuffix": "(edited)",
         "messageAction.deleteMessage": "Delete Message",
+        "messageAction.deleteMessageConfirm": "Please confirm if you would like to delete this message?",
         "messageAction.pinMessage": "Pin Message",
         "messageAction.unpinMessage": "Unpin Message",
         "messageAction.forward": "Forward",
@@ -2913,6 +2915,7 @@ extension L10n {
         "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",
         "messageAction.editedSuffix": "(đã chỉnh sửa)",
         "messageAction.deleteMessage": "Xóa tin nhắn",
+        "messageAction.deleteMessageConfirm": "Bạn có muốn xóa tin nhắn này không?",
         "messageAction.pinMessage": "Ghim tin nhắn",
         "messageAction.unpinMessage": "Bỏ ghim tin nhắn",
         "messageAction.forward": "Chuyển tiếp",
