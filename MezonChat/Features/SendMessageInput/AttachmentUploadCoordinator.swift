@@ -342,12 +342,6 @@ final class AttachmentUploadCoordinator {
         let allResolved = session.items.allSatisfy { !$0.state.isUploading }
             && session.fileTracks.allSatisfy { !$0.state.isUploading }
         guard allResolved else { return }
-
-        let ready = readyAttachments(session)
-        let successCount = session.items.filter { $0.state.uploadedAttachment != nil }.count
-            + session.fileTracks.filter { $0.state.uploadedAttachment != nil }.count
-        let failCount = session.items.filter(\.state.isFailed).count
-            + session.fileTracks.filter(\.state.isFailed).count
         finalizeSuccessIfNeeded(session, context: context)
     }
 
@@ -381,12 +375,46 @@ final class AttachmentUploadCoordinator {
             if ack.messageID != 0 {
                 register(session, key: "\(ack.messageID)")
             }
-            writeFinalAttachments(session, context: context, attachments: attachments)
-            writeMessageContent(session, context: context, contentData: contentData)
             context.account.postbox.write { tx in
-                if tx.getMessageById(p.localId) != nil {
-                    tx.markMessageSent(id: p.localId)
+                guard ack.messageID != 0 else {
+                    if tx.getMessageById(p.localId) != nil {
+                        tx.markMessageSent(id: p.localId)
+                    }
+                    return
                 }
+                let pending = tx.getMessageById(p.localId)
+                let attachmentsJSON: Data = {
+                    guard !attachments.isEmpty else { return pending?.attachmentsJSON ?? Data() }
+                    var list = Mezon_Api_MessageAttachmentList()
+                    list.attachments = attachments
+                    return (try? list.serializedData()) ?? pending?.attachmentsJSON ?? Data()
+                }()
+                let createdAt: Date = ack.createTimeSeconds > 0
+                    ? Date(timeIntervalSince1970: TimeInterval(ack.createTimeSeconds))
+                    : (pending?.createdAt ?? Date())
+                let editedAt: Date? = ack.updateTimeSeconds > ack.createTimeSeconds && ack.updateTimeSeconds > 0
+                    ? Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
+                    : nil
+                let fallbackSenderId = context.currentUser?.id ?? ""
+                let merged = MessageRecord(
+                    id: "\(ack.messageID)",
+                    channelId: pending?.channelId ?? p.channelIdStr,
+                    clanId: pending?.clanId ?? (p.clanId == 0 ? nil : "\(p.clanId)"),
+                    senderId: pending?.senderId ?? fallbackSenderId,
+                    content: contentData,
+                    createdAt: createdAt,
+                    editedAt: editedAt,
+                    isDeleted: pending?.isDeleted ?? false,
+                    code: ack.code,
+                    senderDisplayName: pending?.senderDisplayName ?? p.pendingSenderDisplayName,
+                    senderAvatarURL: pending?.senderAvatarURL ?? p.pendingSenderAvatarURL,
+                    sendingState: .sent,
+                    attachmentsJSON: attachmentsJSON,
+                    reactionsJSON: pending?.reactionsJSON ?? Data(),
+                    referencesData: pending?.referencesData ?? p.pendingReferencesData,
+                    mentionsJSON: pending?.mentionsJSON ?? p.mentionsPayload
+                )
+                tx.replaceMessage(pendingId: p.localId, with: merged)
             }
             nudge(session, context: context)
         } catch {
@@ -520,6 +548,26 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    private func originContentDataForPresignSync(
+        _ session: ImageUploadSession,
+        context: AccountContext
+    ) -> Data {
+        let p = session.params
+        let serverKey = "\(session.serverMessageId)"
+        if let record = context.account.postbox.read({ tx in
+            tx.getMessageById(serverKey) ?? tx.getMessageById(p.localId)
+        }) {
+            let base = PresignFinishContent.contentBaseWithoutPresign(record.content)
+            if !base.isEmpty,
+               let json = try? JSONSerialization.jsonObject(with: base) as? [String: Any],
+               !json.isEmpty {
+                return base
+            }
+        }
+        return p.outgoingContentData
+    }
+
+    @MainActor
     private func updatePresignFinishContent(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -528,11 +576,14 @@ final class AttachmentUploadCoordinator {
     ) async {
         let p = session.params
         let keysSnapshot = session.presignFinishedKeys
+        let originContentData = originContentDataForPresignSync(session, context: context)
         let localContentData = PresignFinishContent.injectPresignFinish(
-            into: p.outgoingContentData,
+            into: originContentData,
             keys: keysSnapshot
         )
-        let presignOnlyPayload = PresignFinishContent.presignFinishOnlyString(keys: keysSnapshot)
+        guard let contentStr = String(data: localContentData, encoding: .utf8), !contentStr.isEmpty else {
+            return
+        }
         let maxAttempts = isFinal ? 2 : 1
         for attempt in 1...maxAttempts {
             do {
@@ -542,7 +593,7 @@ final class AttachmentUploadCoordinator {
                     mode: p.mode,
                     isPublic: p.isPublic,
                     messageId: session.serverMessageId,
-                    content: presignOnlyPayload,
+                    content: contentStr,
                     hideEditted: true,
                     topicId: p.topicId != 0 ? p.topicId : nil,
                     token: token

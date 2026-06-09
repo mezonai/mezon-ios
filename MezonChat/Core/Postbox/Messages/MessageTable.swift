@@ -231,10 +231,12 @@ final class MessageTable: Table {
 
     private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
         guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
-        if pending.content == server.content { return true }
-        if let pObj = try? JSONSerialization.jsonObject(with: pending.content),
-           let sObj = try? JSONSerialization.jsonObject(with: server.content) {
-            return (pObj as AnyObject).isEqual(sObj)
+        let pendingBase = PresignFinishContent.contentBaseWithoutPresign(pending.content)
+        let serverBase = PresignFinishContent.contentBaseWithoutPresign(server.content)
+        if pendingBase == serverBase { return true }
+        if let pObj = try? JSONSerialization.jsonObject(with: pendingBase) as? [String: Any],
+           let sObj = try? JSONSerialization.jsonObject(with: serverBase) as? [String: Any] {
+            return NSDictionary(dictionary: pObj).isEqual(to: sObj)
         }
         return false
     }
@@ -279,20 +281,27 @@ final class MessageTable: Table {
             if !pa.isEmpty { return pending.senderAvatarURL }
             return server.senderAvatarURL
         }()
+        let mergedContent = PresignFinishContent.mergePresignFinishContent(
+            local: pending.content,
+            server: server.content
+        )
+        let attachmentsJSON = !server.attachmentsJSON.isEmpty
+            ? server.attachmentsJSON
+            : pending.attachmentsJSON
         return MessageRecord(
             id: server.id,
             channelId: server.channelId,
             clanId: server.clanId,
             senderId: server.senderId,
-            content: server.content,
+            content: mergedContent,
             createdAt: server.createdAt,
             editedAt: server.editedAt,
             isDeleted: server.isDeleted,
             code: server.code,
             senderDisplayName: useName,
             senderAvatarURL: useAvatar,
-            sendingState: server.sendingState,
-            attachmentsJSON: server.attachmentsJSON,
+            sendingState: .sent,
+            attachmentsJSON: attachmentsJSON,
             reactionsJSON: server.reactionsJSON,
             referencesData: server.referencesData,
             mentionsJSON: server.mentionsJSON

@@ -529,7 +529,8 @@ final class ChannelListViewController: ViewController {
             onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() },
             isShowEmptyCategoriesEnabled: { [weak self] in self?.showEmptyCategoriesEnabled ?? false },
             onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) },
-            onLongPressCategory: { [weak self] category in self?.presentCategoryActionSheet(category) }
+            onLongPressCategory: { [weak self] category in self?.presentCategoryActionSheet(category) },
+            onBecameVisible: { [weak self] in self?.reconcileChannelListDataIfNeeded() }
         )
         let initialClan = effectiveClanIdForChannelAppsHydration()
         let initialApps = initialClan != 0 ? channelAppsRawFromCache(clanId: initialClan) : []
@@ -542,6 +543,11 @@ final class ChannelListViewController: ViewController {
             self?.resolveVoiceMember(uid)
         }
         displayNode = container
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        reconcileChannelListDataIfNeeded()
     }
 
     override func viewDidLoad() {
@@ -776,6 +782,9 @@ final class ChannelListViewController: ViewController {
             channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
             if clanId != 0 && !channelListNode.hasDisplayedChannelApps {
                 hydrateChannelAppsFromCacheForEffectiveClan()
+            }
+            if clanId != 0 && allChannels.isEmpty {
+                reconcileChannelListDataIfNeeded()
             }
             return
         }
@@ -1427,6 +1436,7 @@ final class ChannelListViewController: ViewController {
 
     func load(clanId: Int64, clanName: String) {
         fetchDisposable.set(nil)
+        inflightChannelFetchClanId = 0
         self.clanId = clanId
         self.clanName = clanName
         emptyChannelRetryCountByClanId[clanId] = 0
@@ -1503,6 +1513,19 @@ final class ChannelListViewController: ViewController {
     private var emptyChannelRetryCountByClanId: [Int64: Int] = [:]
     private let maxEmptyChannelFetchRetries = 4
 
+    private var channelListNeedsFetch: Bool {
+        guard clanId != 0 else { return false }
+        return allChannels.isEmpty
+    }
+
+    private func reconcileChannelListDataIfNeeded() {
+        guard channelListNeedsFetch else { return }
+        guard NetworkMonitor.shared.isConnected else { return }
+        lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+        inflightChannelFetchClanId = 0
+        fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+    }
+
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false) {
         guard clanId != 0 else {
             cancelDeferredSkeletonReveal()
@@ -1521,8 +1544,13 @@ final class ChannelListViewController: ViewController {
         }
         let clanId = self.clanId
         if inflightChannelFetchClanId == clanId { return }
-        if let last = lastChannelFetchAtByClanId[clanId],
+        let bypassFetchCooldown = channelListNeedsFetch
+        if !bypassFetchCooldown,
+           let last = lastChannelFetchAtByClanId[clanId],
            Date().timeIntervalSince(last) < channelFetchCooldown {
+            if channelListNeedsFetch {
+                scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
+            }
             cancelDeferredSkeletonReveal()
             isLoading = false
             isLoadingPipe.putNext(false)
@@ -1676,6 +1704,9 @@ final class ChannelListViewController: ViewController {
                     self.channelListNode.setChannelAppsLoadingIndicator(false)
                     if !self.allChannels.isEmpty {
                         self.channelsLoadedPromise.set(true)
+                    } else {
+                        self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                        self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
                     }
                 }
                 self.channelListNode.endRefreshing()
@@ -1952,7 +1983,11 @@ final class ChannelListViewController: ViewController {
                 resolvedChannels = recoveredChannels
                 lastChannelFetchAtByClanId.removeValue(forKey: clanId)
             } else {
-                if !channelListCategoryDescs.isEmpty { return }
+                if !channelListCategoryDescs.isEmpty {
+                    lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                    fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+                    return
+                }
                 resolvedChannels = channels
             }
         } else {
