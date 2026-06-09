@@ -385,13 +385,12 @@ final class ChatViewController: ViewController {
     private(set) var lastSeenMessageId: String?
     private var didStartParentChannelMetaView = false
 
-    private lazy var locationManager: CLLocationManager = {
-        let lm = CLLocationManager()
-        lm.desiredAccuracy = kCLLocationAccuracyBest
-        return lm
-    }()
+    private let locationManager = CLLocationManager()
     private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
     private var isWaitingForLocationAuthorization = false
+    private var locationFetchTimeoutWorkItem: DispatchWorkItem?
+    private static let cachedLocationMaxAge: TimeInterval = 120
+    private static let locationFetchTimeout: TimeInterval = 8
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -890,6 +889,7 @@ final class ChatViewController: ViewController {
         messagesNode.applyTheme()
         setupInputBar()
         configureAnonymousComposerAndAdvancePanel()
+        locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         start()
         
         NotificationCenter.default.addObserver(
@@ -1091,27 +1091,9 @@ final class ChatViewController: ViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        var layoutToApply = layout
-        let initialBottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
-        let initialInputH = layout.inputHeight ?? 0
+        let layoutToApply = layout
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
-        let shouldSuppressShareContactKeyboardInset =
-            shouldSuppressShareContactKeyboardInsetOnReturn
-            && initialInputH > initialBottomInset + 1
-            && !composerHasKeyboardFocus
-            && !isKeyboardVisible
-            && trackedKeyboardHeight <= 0.5
-        if shouldSuppressShareContactKeyboardInset {
-            layoutToApply = layout.withUpdatedInputHeight(nil)
-            currentKeyboardOffset = 0
-            suppressScrollToBottomForNextKeyboardInset = false
-        }
-        if shouldSuppressShareContactKeyboardInsetOnReturn {
-            if composerHasKeyboardFocus || isKeyboardVisible {
-                shouldSuppressShareContactKeyboardInsetOnReturn = false
-            }
-        }
-        lastLayout = layoutToApply
+        lastLayout = layout
 
         let bottomInset = max(layoutToApply.intrinsicInsets.bottom, layoutToApply.safeInsets.bottom)
         let layoutInputH = layoutToApply.inputHeight ?? 0
@@ -1239,7 +1221,6 @@ final class ChatViewController: ViewController {
     private var lastLayout: ContainerViewLayout?
     private var wasCoveredByPushedController = false
     private var needsRefreshAfterTopicDiscussion = false
-    private var shouldSuppressShareContactKeyboardInsetOnReturn = false
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -1265,17 +1246,6 @@ final class ChatViewController: ViewController {
         if !hasComposerFR && !isReactionEmojiPickerSheetHostingFirstResponder {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
-        }
-        if shouldSuppressShareContactKeyboardInsetOnReturn {
-            if !hasComposerFR {
-                isKeyboardVisible = false
-                trackedKeyboardHeight = 0
-                currentKeyboardOffset = 0
-                suppressScrollToBottomForNextKeyboardInset = false
-                if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
-                    lastLayout = layout.withUpdatedInputHeight(nil)
-                }
-            }
         }
         reconcileKeyboardAfterNotificationNavigationIfNeeded()
         if let layout = lastLayout {
@@ -3929,6 +3899,18 @@ final class ChatViewController: ViewController {
         handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
     }
 
+    private func dismissComposerOverlaysForNavigation() {
+        view.endEditing(true)
+        isKeyboardVisible = false
+        trackedKeyboardHeight = 0
+        currentKeyboardOffset = 0
+        sendInputViewController.hideAdvancePanelIfNeeded()
+        suppressScrollToBottomForNextKeyboardInset = false
+        if let layout = lastLayout {
+            containerLayoutUpdated(layout, transition: .immediate)
+        }
+    }
+
     private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
         switch item.id {
         case "pickFiles":
@@ -3981,14 +3963,7 @@ final class ChatViewController: ViewController {
     }
 
     private func navigateToShareContact() {
-        view.endEditing(true)
-        shouldSuppressShareContactKeyboardInsetOnReturn = true
-        isKeyboardVisible = false
-        trackedKeyboardHeight = 0
-        currentKeyboardOffset = 0
-        suppressScrollToBottomForNextKeyboardInset = false
-        sendInputViewController.markAdvancePanelDismissedByHost()
-        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        dismissComposerOverlaysForNavigation()
 
         let vc = ShareContactPickerViewController(context: context)
         vc.onSelectFriend = { [weak self, weak vc] friend in
@@ -4008,18 +3983,14 @@ final class ChatViewController: ViewController {
     }
 
     private func navigateToCreatePoll() {
-        view.endEditing(true)
-        sendInputViewController.markAdvancePanelDismissedByHost()
-        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        dismissComposerOverlaysForNavigation()
         let createVC = CreatePollViewController(context: self.context, channelId: self.channel.channelID, clanId: self.clanId)
         navigationController?.pushViewController(createVC, animated: true)
     }
 
 
     private func navigateToTransferFunds() {
-        view.endEditing(true)
-        sendInputViewController.markAdvancePanelDismissedByHost()
-        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        dismissComposerOverlaysForNavigation()
         let payload = TransferQRPayload(
             receiverUserId: nil,
             walletAddress: nil,
@@ -4033,6 +4004,13 @@ final class ChatViewController: ViewController {
     }
 
     private func handleSendLocation() {
+        dismissComposerOverlaysForNavigation()
+        DispatchQueue.main.async { [weak self] in
+            self?.beginLocationAuthorizationFlow()
+        }
+    }
+
+    private func beginLocationAuthorizationFlow() {
         let status: CLAuthorizationStatus
         if #available(iOS 14.0, *) {
             status = locationManager.authorizationStatus
@@ -4057,13 +4035,49 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private func recentCachedCoordinate(from manager: CLLocationManager) -> CLLocationCoordinate2D? {
+        guard let location = manager.location else { return nil }
+        guard location.horizontalAccuracy >= 0 else { return nil }
+        guard abs(location.timestamp.timeIntervalSinceNow) <= Self.cachedLocationMaxAge else { return nil }
+        return location.coordinate
+    }
+
+    private func cancelLocationFetchTimeout() {
+        locationFetchTimeoutWorkItem?.cancel()
+        locationFetchTimeoutWorkItem = nil
+    }
+
+    private func scheduleLocationFetchTimeout(for manager: CLLocationManager) {
+        cancelLocationFetchTimeout()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.locationCompletion != nil else { return }
+            manager.delegate = nil
+            self.isWaitingForLocationAuthorization = false
+            let completion = self.locationCompletion
+            self.locationCompletion = nil
+            if let cached = self.recentCachedCoordinate(from: manager) {
+                completion?(cached)
+            } else {
+                completion?(nil)
+            }
+        }
+        locationFetchTimeoutWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.locationFetchTimeout, execute: work)
+    }
+
     private func fetchLocationAndShowConfirm() {
+        if let cached = recentCachedCoordinate(from: locationManager) {
+            showLocationConfirm(coordinate: cached)
+            return
+        }
+
         locationManager.delegate = self
         isWaitingForLocationAuthorization = false
         locationCompletion = { [weak self] coord in
             guard let self, let coord else { return }
             self.showLocationConfirm(coordinate: coord)
         }
+        scheduleLocationFetchTimeout(for: locationManager)
         locationManager.requestLocation()
     }
 
@@ -4074,11 +4088,9 @@ final class ChatViewController: ViewController {
         isWaitingForLocationAuthorization = false
         switch status {
         case .authorizedWhenInUse, .authorizedAlways:
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak manager] in
-                guard let self, let manager, self.locationCompletion != nil else { return }
-                manager.requestLocation()
-            }
+            fetchLocationAndShowConfirm()
         case .denied, .restricted:
+            cancelLocationFetchTimeout()
             manager.delegate = nil
             let completion = locationCompletion
             locationCompletion = nil
@@ -4087,6 +4099,7 @@ final class ChatViewController: ViewController {
         case .notDetermined:
             break
         @unknown default:
+            cancelLocationFetchTimeout()
             manager.delegate = nil
             locationCompletion = nil
         }
@@ -5722,34 +5735,7 @@ final class ChatViewController: ViewController {
         case .copyImage:
             copySingleMessageImage(display: display)
         case .deleteMessage:
-            let msgId = display.message.id
-            if let msgIdInt = Int64(msgId) {
-                let mode: Int32
-                switch channel.type {
-                case MezonConstants.ChannelType.thread.rawValue:
-                    mode = MezonConstants.ChannelStreamMode.thread.rawValue
-                case MezonConstants.ChannelType.dm.rawValue:
-                    mode = MezonConstants.ChannelStreamMode.dm.rawValue
-                case MezonConstants.ChannelType.group.rawValue:
-                    mode = MezonConstants.ChannelStreamMode.group.rawValue
-                default:
-                    if clanId != 0 {
-                        mode = MezonConstants.ChannelStreamMode.channel.rawValue
-                    } else {
-                        mode = MezonConstants.ChannelStreamMode.group.rawValue
-                    }
-                }
-                let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
-                context.account.socket.removeChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    messageId: msgIdInt,
-                    isPublic: isPublic,
-                    topicId: topicId
-                )
-            }
-            context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
+            showDeleteMessageConfirm(display: display)
         case .pinMessage:
             showPinMessageConfirm(display: display)
         case .unpinMessage:
@@ -5852,6 +5838,57 @@ final class ChatViewController: ViewController {
         } catch {
             Toast.error(error.localizedDescription)
         }
+    }
+
+    private func showDeleteMessageConfirm(display: ChatMessageDisplay) {
+        let alert = UIAlertController(
+            title: L(L10n.MessageAction.deleteMessage),
+            message: L(L10n.MessageAction.deleteMessageConfirm),
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.yes), style: .destructive) { [weak self] _ in
+            self?.performDeleteMessage(display: display)
+        })
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.no), style: .cancel))
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(alert, animated: true)
+    }
+
+    private func performDeleteMessage(display: ChatMessageDisplay) {
+        let msgId = display.message.id
+        if let msgIdInt = Int64(msgId) {
+            let mode: Int32
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                mode = MezonConstants.ChannelStreamMode.thread.rawValue
+            case MezonConstants.ChannelType.dm.rawValue:
+                mode = MezonConstants.ChannelStreamMode.dm.rawValue
+            case MezonConstants.ChannelType.group.rawValue:
+                mode = MezonConstants.ChannelStreamMode.group.rawValue
+            default:
+                if clanId != 0 {
+                    mode = MezonConstants.ChannelStreamMode.channel.rawValue
+                } else {
+                    mode = MezonConstants.ChannelStreamMode.group.rawValue
+                }
+            }
+            let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+            context.account.socket.removeChannelMessage(
+                clanId: clanId,
+                channelId: channel.channelID,
+                mode: mode,
+                messageId: msgIdInt,
+                isPublic: isPublic,
+                topicId: topicId
+            )
+        }
+        context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
     }
 
     private func showPinMessageConfirm(display: ChatMessageDisplay) {
@@ -6054,6 +6091,7 @@ final class ChatViewController: ViewController {
 extension ChatViewController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        cancelLocationFetchTimeout()
         manager.delegate = nil
         isWaitingForLocationAuthorization = false
         let completion = locationCompletion
@@ -6062,11 +6100,16 @@ extension ChatViewController: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        cancelLocationFetchTimeout()
         manager.delegate = nil
         isWaitingForLocationAuthorization = false
         let completion = locationCompletion
         locationCompletion = nil
-        completion?(nil)
+        if let cached = recentCachedCoordinate(from: manager) {
+            completion?(cached)
+        } else {
+            completion?(nil)
+        }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -6080,6 +6123,7 @@ extension ChatViewController: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        if #available(iOS 14.0, *) { return }
         handleLocationAuthorizationStatus(status, manager: manager)
     }
 }
