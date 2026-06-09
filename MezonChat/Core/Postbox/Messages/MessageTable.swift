@@ -280,7 +280,10 @@ final class MessageTable: Table {
                     current[pidx] = Self.mergePendingIdentityIntoServerEcho(pending: pending, server: msg)
                     pendingDeletes.insert(pid)
                 } else if let idx = current.firstIndex(where: { $0.id == msg.id }) {
-                    current[idx] = msg
+                    current[idx] = MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                        incoming: msg,
+                        previous: current[idx]
+                    )
                 } else {
                     current.append(msg)
                 }
