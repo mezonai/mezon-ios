@@ -416,6 +416,15 @@ final class AttachmentUploadCoordinator {
                 )
                 tx.replaceMessage(pendingId: p.localId, with: merged)
             }
+            ClanOnboardingChannelCache.markSendMessageOnboardingProgressIfNeeded(
+                context: context,
+                postbox: context.account.postbox,
+                clanId: p.clanId,
+                channelId: p.channelId,
+                messageId: ack.messageID,
+                messageCode: ack.code,
+                anonymous: false
+            )
             nudge(session, context: context)
         } catch {
             session.aborted = true

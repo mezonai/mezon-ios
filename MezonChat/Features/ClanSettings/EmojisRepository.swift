@@ -39,11 +39,7 @@ final class EmojisRepository {
         let updated = try await context.account.network.updateClanEmoji(request: req, token: token)
         mutateEmojiCache { emojis in
             guard let idx = emojis.firstIndex(where: { $0.id == id }) else { return }
-            emojis[idx] = Self.mergeEmojiRecord(
-                existing: emojis[idx],
-                updated: updated.toCachedRecord(),
-                fallbackShortname: shortname
-            )
+            emojis[idx].shortname = updated.shortname.isEmpty ? shortname : updated.shortname
         }
     }
 
@@ -136,7 +132,7 @@ final class EmojisRepository {
         if updated.clanID != 0 { merged.clanID = updated.clanID }
         if !updated.logo.isEmpty { merged.logo = updated.logo }
         if !updated.clanName.isEmpty { merged.clanName = updated.clanName }
-        merged.isForSale = updated.isForSale
+        merged.isForSale = updated.isForSale || existing.isForSale
         return merged
     }
 

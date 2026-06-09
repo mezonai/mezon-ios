@@ -389,6 +389,7 @@ enum L10n {
         static let settings       = "clan.settings"
         static let duplicateName  = "clan.duplicateName"
         static let invalidName    = "clan.invalidName"
+        static let creationLimitReached = "clan.creationLimitReached"
     }
 
     enum Discover {
@@ -468,6 +469,7 @@ enum L10n {
             static let previewUpload = "clan.setting.emojis.previewUpload"
             static let previewLengthError = "clan.setting.emojis.previewLengthError"
             static let previewTypeEmoji = "clan.setting.emojis.previewTypeEmoji"
+            static let empty = "clan.setting.emojis.empty"
         }
 
         enum Stickers {
@@ -640,6 +642,26 @@ enum L10n {
         static let invite               = "clan.inviteSheet.invite"
         static let invited              = "clan.inviteSheet.invited"
         static let unknownClan          = "clan.inviteSheet.unknownClan"
+    }
+
+    enum OnboardingClan {
+        static let title              = "onboardingClan.title"
+        static let description        = "onboardingClan.description"
+        static let actionTitle        = "onboardingClan.action.title"
+        static let actionDescription  = "onboardingClan.action.description"
+        static let createChannel      = "onboardingClan.action.createChannel"
+        static let invite             = "onboardingClan.action.invite"
+        static let sendMessage        = "onboardingClan.action.sendMessage"
+    }
+
+    enum OnboardingMember {
+        static let title              = "onboardingMember.title"
+        static let description        = "onboardingMember.description"
+        static let actionTitle        = "onboardingMember.action.title"
+        static let actionDescription  = "onboardingMember.action.description"
+        static let missionSendMessage = "onboardingMember.mission.sendMessage"
+        static let missionVisit       = "onboardingMember.mission.visit"
+        static let missionDoSomething = "onboardingMember.mission.doSomething"
     }
 
     enum ThreadList {
@@ -1351,6 +1373,7 @@ extension L10n {
         "clan.settings":    "Clan Settings",
         "clan.duplicateName": "The clan name already exists. Please enter another name.",
         "clan.invalidName": "Please enter a valid clan name (max 64 characters, only words, numbers, _ or -).",
+        "clan.creationLimitReached": "You have reached the clan creation limit.",
 
         "discover.communityOnMezon": "Community on Mezon",
         "discover.exploreCommunities": "Explore communities",
@@ -1443,6 +1466,7 @@ extension L10n {
         "clan.setting.emojis.previewUpload": "Upload",
         "clan.setting.emojis.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
         "clan.setting.emojis.previewTypeEmoji": "Emoji",
+        "clan.setting.emojis.empty": "No emojis found",
 
         "clanRoles.title":                  "Roles",
         "clanRoles.roleDescription":        "Use roles to group your clan members and assign permissions.",
@@ -1572,6 +1596,21 @@ extension L10n {
         "clan.inviteSheet.invite":          "Invite",
         "clan.inviteSheet.invited":         "Invited",
         "clan.inviteSheet.unknownClan":     "Unknown Clan",
+
+        "onboardingClan.title":                 "Complete the guide",
+        "onboardingClan.description":           "Step %d of %d",
+        "onboardingClan.action.title":          "Finish onboarding your clan",
+        "onboardingClan.action.description":    "Completed %d of %d steps",
+        "onboardingClan.action.createChannel":  "Create your channel",
+        "onboardingClan.action.invite":         "Invite some friends",
+        "onboardingClan.action.sendMessage":    "Send your first message",
+        "onboardingMember.title":               "Get Started",
+        "onboardingMember.description":         "Step %d of %d",
+        "onboardingMember.action.title":        "Get Started",
+        "onboardingMember.action.description":  "Completed %d of %d steps",
+        "onboardingMember.mission.sendMessage": "Send a message in",
+        "onboardingMember.mission.visit":       "Visit a channel",
+        "onboardingMember.mission.doSomething": "Do anything you want",
 
         "threadList.searchPlaceholder": "Search Threads",
         "threadList.empty": "No threads yet",
@@ -2345,6 +2384,7 @@ extension L10n {
         "clan.settings":    "Cài đặt Clan",
         "clan.duplicateName": "Tên Clan đã tồn tại. Vui lòng nhập tên khác.",
         "clan.invalidName": "Vui lòng nhập tên clan hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "clan.creationLimitReached": "Bạn đã đạt giới hạn tạo clan.",
 
         "discover.communityOnMezon": "Cộng đồng trên Mezon",
         "discover.exploreCommunities": "Khám phá cộng đồng",
@@ -2437,6 +2477,7 @@ extension L10n {
         "clan.setting.emojis.previewUpload": "Tải lên",
         "clan.setting.emojis.previewLengthError": "Tên %@ phải từ %d đến %d ký tự, chỉ chữ, số, _ và -.",
         "clan.setting.emojis.previewTypeEmoji": "biểu cảm",
+        "clan.setting.emojis.empty": "Không tìm thấy biểu cảm nào",
 
         "clanRoles.title":                  "Vai trò",
         "clanRoles.roleDescription":        "Dùng vai trò để nhóm thành viên và phân quyền trong clan.",
@@ -2566,6 +2607,21 @@ extension L10n {
         "clan.inviteSheet.invite":          "Mời",
         "clan.inviteSheet.invited":         "Đã mời",
         "clan.inviteSheet.unknownClan":     "Clan không xác định",
+
+        "onboardingClan.title":                 "Hoàn thành hướng dẫn",
+        "onboardingClan.description":           "Bước %d trên %d",
+        "onboardingClan.action.title":          "Hoàn thành hướng dẫn cho clan của bạn",
+        "onboardingClan.action.description":    "Đã hoàn thành %d trên %d bước",
+        "onboardingClan.action.createChannel":  "Tạo kênh của bạn",
+        "onboardingClan.action.invite":         "Mời một vài người bạn",
+        "onboardingClan.action.sendMessage":    "Gửi tin nhắn đầu tiên",
+        "onboardingMember.title":               "Bắt đầu nào",
+        "onboardingMember.description":         "Bước %d trên %d",
+        "onboardingMember.action.title":        "Bắt đầu nào",
+        "onboardingMember.action.description":  "Đã hoàn thành %d trên %d bước",
+        "onboardingMember.mission.sendMessage": "Gửi tin nhắn trong",
+        "onboardingMember.mission.visit":       "Truy cập kênh",
+        "onboardingMember.mission.doSomething": "Làm bất cứ điều gì bạn muốn",
 
         "threadList.searchPlaceholder": "Tìm chủ đề",
         "threadList.empty": "Chưa có chủ đề",

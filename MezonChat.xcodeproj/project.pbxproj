@@ -342,6 +342,13 @@
 		99FA9478911EB3BFD4AB51B4 /* CreateChannelViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D55566CF6E7B88DCACAE5BA9 /* CreateChannelViewController.swift */; };
 		9A67B0052FC4367A00707AD3 /* CategoryActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A67B0042FC4367A00707AD3 /* CategoryActionSheet.swift */; };
 		9A67B0072FC8ACA000707AD3 /* IntegrationsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A67B0062FC8ACA000707AD3 /* IntegrationsViewController.swift */; };
+		9A93658D2FD6AB2800D98A8E /* ChannelOnboardingBannerCellNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A93658C2FD6AB2800D98A8E /* ChannelOnboardingBannerCellNode.swift */; };
+		9A93658F2FD6AB3900D98A8E /* ClanOnboardingBottomSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A93658E2FD6AB3900D98A8E /* ClanOnboardingBottomSheetViewController.swift */; };
+		9A9365912FD6AB4C00D98A8E /* ClanOnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A9365902FD6AB4C00D98A8E /* ClanOnboardingState.swift */; };
+		9A9365932FD6AB6100D98A8E /* MemberOnboardingBottomSheetViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A9365922FD6AB6100D98A8E /* MemberOnboardingBottomSheetViewController.swift */; };
+		9A9365952FD6AB7A00D98A8E /* MemberOnboardingChannelRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A9365942FD6AB7A00D98A8E /* MemberOnboardingChannelRouting.swift */; };
+		9A9365972FD6AB9000D98A8E /* MemberOnboardingChatMissionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A9365962FD6AB9000D98A8E /* MemberOnboardingChatMissionBarView.swift */; };
+		9A9365992FD6ABA200D98A8E /* MemberOnboardingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A9365982FD6ABA200D98A8E /* MemberOnboardingState.swift */; };
 		9AAD17101CD67E93010DC8BB /* UpdateUsernameViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C6D78A3B24DC34768AF39C7 /* UpdateUsernameViewController.swift */; };
 		9AB07E0FF22814CBCE67E56C /* SVariable.m in Sources */ = {isa = PBXBuildFile; fileRef = 09EF700E3C59BDE6081FE041 /* SVariable.m */; };
 		9AFF69B9981CF6C50BB2E3D2 /* MmnEd25519PKCS8.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D36E730232ECF3D41FED372 /* MmnEd25519PKCS8.swift */; };
@@ -953,6 +960,13 @@
 		9A06AF095371DC843A0EEB1A /* LayoutSizes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutSizes.swift; sourceTree = "<group>"; };
 		9A67B0042FC4367A00707AD3 /* CategoryActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryActionSheet.swift; sourceTree = "<group>"; };
 		9A67B0062FC8ACA000707AD3 /* IntegrationsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsViewController.swift; sourceTree = "<group>"; };
+		9A93658C2FD6AB2800D98A8E /* ChannelOnboardingBannerCellNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ChannelOnboardingBannerCellNode.swift; path = Onboarding/ChannelOnboardingBannerCellNode.swift; sourceTree = "<group>"; };
+		9A93658E2FD6AB3900D98A8E /* ClanOnboardingBottomSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClanOnboardingBottomSheetViewController.swift; path = Onboarding/ClanOnboardingBottomSheetViewController.swift; sourceTree = "<group>"; };
+		9A9365902FD6AB4C00D98A8E /* ClanOnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClanOnboardingState.swift; path = Onboarding/ClanOnboardingState.swift; sourceTree = "<group>"; };
+		9A9365922FD6AB6100D98A8E /* MemberOnboardingBottomSheetViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MemberOnboardingBottomSheetViewController.swift; path = Onboarding/MemberOnboardingBottomSheetViewController.swift; sourceTree = "<group>"; };
+		9A9365942FD6AB7A00D98A8E /* MemberOnboardingChannelRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MemberOnboardingChannelRouting.swift; path = Onboarding/MemberOnboardingChannelRouting.swift; sourceTree = "<group>"; };
+		9A9365962FD6AB9000D98A8E /* MemberOnboardingChatMissionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MemberOnboardingChatMissionBarView.swift; path = Onboarding/MemberOnboardingChatMissionBarView.swift; sourceTree = "<group>"; };
+		9A9365982FD6ABA200D98A8E /* MemberOnboardingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MemberOnboardingState.swift; path = Onboarding/MemberOnboardingState.swift; sourceTree = "<group>"; };
 		9A95963C16177D92D4F4F3A2 /* ReactionEmojiImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReactionEmojiImageLoader.swift; sourceTree = "<group>"; };
 		9B88CFE33BA172F374CEE369 /* VStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VStack.swift; sourceTree = "<group>"; };
 		9B96798082951DF05938A83A /* PreferencesData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesData.swift; sourceTree = "<group>"; };
@@ -1725,6 +1739,13 @@
 		543B289376928B8228B0AD96 /* ChannelList */ = {
 			isa = PBXGroup;
 			children = (
+				9A9365982FD6ABA200D98A8E /* MemberOnboardingState.swift */,
+				9A9365962FD6AB9000D98A8E /* MemberOnboardingChatMissionBarView.swift */,
+				9A9365942FD6AB7A00D98A8E /* MemberOnboardingChannelRouting.swift */,
+				9A9365922FD6AB6100D98A8E /* MemberOnboardingBottomSheetViewController.swift */,
+				9A9365902FD6AB4C00D98A8E /* ClanOnboardingState.swift */,
+				9A93658E2FD6AB3900D98A8E /* ClanOnboardingBottomSheetViewController.swift */,
+				9A93658C2FD6AB2800D98A8E /* ChannelOnboardingBannerCellNode.swift */,
 				626DCD4F21BD21F0F8A43000 /* CategoryActionSheet.swift */,
 				37BB4471F6CF213C42E3ECBF /* ChannelActionSheet.swift */,
 				B23BEA15E0F21603451529E0 /* ChannelBannerView.swift */,
@@ -2986,6 +3007,7 @@
 				D7944D91C73C4F48D3B9A750 /* ChannelListViewController.swift in Sources */,
 				62D4FE7D5F261A1175CC7A11 /* ChannelMemberRecord.swift in Sources */,
 				35FB926C305366A6C8B1EC2B /* ChannelPermissionRowCell.swift in Sources */,
+				9A9365972FD6AB9000D98A8E /* MemberOnboardingChatMissionBarView.swift in Sources */,
 				14439996A99B3035F898EF36 /* ChannelPermissionsRepository.swift in Sources */,
 				3C071229E309A78A8C0CF005 /* ChannelPermissionsRowView.swift in Sources */,
 				9BF0CAC11700A5A39FF05D27 /* ChannelPermissionsViewController.swift in Sources */,
@@ -3213,6 +3235,7 @@
 				F1EBE6EF7539172F2B2D7684 /* NavigationBackgroundView.swift in Sources */,
 				4DF86D994F7B7A40733F3BA6 /* NavigationBar.swift in Sources */,
 				10D737473E1F0E9D715D7128 /* NavigationBarBadge.swift in Sources */,
+				9A9365992FD6ABA200D98A8E /* MemberOnboardingState.swift in Sources */,
 				138054490E98E6CF8017D405 /* NavigationBarContentNode.swift in Sources */,
 				7C1C64F7AB7DF822A03A16DA /* NavigationBarTitleTransitionNode.swift in Sources */,
 				2E1132CDDA6A5239064EF801 /* NavigationBarTitleView.swift in Sources */,
@@ -3237,6 +3260,7 @@
 				31746162F4DFDDAE769ECB09 /* NotificationSettingTable.swift in Sources */,
 				D92B8732C9C8F2DEC4E675B4 /* NotificationSettingView.swift in Sources */,
 				5DA66361FDD17493D3B3574E /* NotificationSettingsSheetController.swift in Sources */,
+				9A93658D2FD6AB2800D98A8E /* ChannelOnboardingBannerCellNode.swift in Sources */,
 				2D0B5A0C624CF9B22668B161 /* NotificationTable.swift in Sources */,
 				3A60405DB13763DB06568DAE /* NotificationsContainerNode.swift in Sources */,
 				61AB80638BB52B2B8EE0AAAA /* NotificationsData.swift in Sources */,
@@ -3297,6 +3321,7 @@
 				57511433EF3400308F528084 /* RoleColorPickerSheetController.swift in Sources */,
 				5224469A22BC56BAA3CB07DF /* RoleDetailViewController.swift in Sources */,
 				C868EFF516ABDD7EF936FC94 /* RoleHelpers.swift in Sources */,
+				9A93658F2FD6AB3900D98A8E /* ClanOnboardingBottomSheetViewController.swift in Sources */,
 				87AB8C2BC38E3299E5333F2E /* RolePermissionService.swift in Sources */,
 				E502E9FA5FC0D57262CCBE45 /* RolePermissionTypes.swift in Sources */,
 				A45DC648D1E69CA473366CDA /* RolesRepository.swift in Sources */,
@@ -3336,6 +3361,7 @@
 				4F44C15E9C148675681F134C /* SearchViewController.swift in Sources */,
 				6911295A5A03A73EF85BCFF6 /* Secrets.swift in Sources */,
 				1A74E6D6A944E2FD10F0B144 /* SendMessageInputViewController.swift in Sources */,
+				9A9365932FD6AB6100D98A8E /* MemberOnboardingBottomSheetViewController.swift in Sources */,
 				826602218CBC97D592DCEE92 /* SentryLogger.swift in Sources */,
 				E4F170A362A8085DEC132ADB /* SessionExpiredModal.swift in Sources */,
 				E043AB4EE8D03C8003BAA30B /* SessionRefreshManager.swift in Sources */,
@@ -3355,11 +3381,13 @@
 				CDB1A3B757FA595D120C699D /* Signal.swift in Sources */,
 				E5C2806AD865E0D2F9694100 /* Signal_Catch.swift in Sources */,
 				FCF67BF2433C201E10D56936 /* Signal_Combine.swift in Sources */,
+				9A9365952FD6AB7A00D98A8E /* MemberOnboardingChannelRouting.swift in Sources */,
 				719AE5B5F0B9EB1AE8F8AAD1 /* Signal_Dispatch.swift in Sources */,
 				01F9CE61A8A80FE75C47142D /* Signal_Loop.swift in Sources */,
 				3F8287D7D8BF2EE0A95C6ED3 /* Signal_Mapping.swift in Sources */,
 				C499A08CBCB6446F88C893A6 /* Signal_Materialize.swift in Sources */,
 				ADDBD1977CD3CFE7BCC7FA3E /* Signal_Merge.swift in Sources */,
+				9A9365912FD6AB4C00D98A8E /* ClanOnboardingState.swift in Sources */,
 				BA61BDBA93376F34BB212ABE /* Signal_Meta.swift in Sources */,
 				FC9E9D9D4EB4FD24C2AE416B /* Signal_Reduce.swift in Sources */,
 				EED29433CEC00C78ECA83F53 /* Signal_SideEffects.swift in Sources */,

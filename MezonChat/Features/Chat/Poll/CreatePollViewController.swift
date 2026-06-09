@@ -636,7 +636,7 @@ final class CreatePollViewController: BaseViewController {
                 return
             }
             do {
-                _ = try await self.context.account.network.createPoll(
+                let response = try await self.context.account.network.createPoll(
                     channelId: self.channelId,
                     clanId: self.clanId,
                     question: questionText.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -644,6 +644,15 @@ final class CreatePollViewController: BaseViewController {
                     expireHours: durationHours,
                     type: type,
                     token: token
+                )
+                ClanOnboardingChannelCache.markSendMessageOnboardingProgressIfNeeded(
+                    context: self.context,
+                    postbox: self.context.account.postbox,
+                    clanId: self.clanId,
+                    channelId: self.channelId,
+                    messageId: response.messageID,
+                    messageCode: MezonConstants.MessageCode.poll.rawValue,
+                    anonymous: false
                 )
                 self.navigationController?.popViewController(animated: true)
             } catch {

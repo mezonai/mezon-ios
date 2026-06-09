@@ -84,6 +84,10 @@ final class PostboxTransaction {
         messageTable.getMessages(channelId: channelId, limit: limit)
     }
 
+    func getRecentMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+        messageTable.getRecentMessages(channelId: channelId, limit: limit)
+    }
+
     func getMessageById(_ messageId: String, channelId: String? = nil) -> MessageRecord? {
         messageTable.getMessageById(messageId, channelId: channelId)
     }
