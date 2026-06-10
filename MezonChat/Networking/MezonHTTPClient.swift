@@ -1749,11 +1749,12 @@ final class MezonHTTPClient {
         req.limit = min(max(limit, 1), 100)
         req.state = state
         req.cursor = cursor
-        return try await postProto(
+        let response: Mezon_Api_FriendList = try await postProto(
             path: "/mezon.api.Mezon/ListFriends",
             message: req,
             auth: .bearer(token)
         )
+        return response
     }
 
     func addFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
@@ -1805,7 +1806,7 @@ final class MezonHTTPClient {
         req.channelID = channelId
         req.clanID = 0
         try await postProtoIgnoringBody(
-            path: "/mezon.api.Mezon/CloseDirectMess",
+            path: "/mezon.api.Mezon/CloseDMByChannelId",
             message: req,
             auth: .bearer(token)
         )

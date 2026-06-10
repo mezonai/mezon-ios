@@ -402,7 +402,7 @@ final class DirectMessagesViewController: ViewController {
                 channel: channel,
                 groupMemberUserIds: groupMemberUserIds
             )
-            let actionSheet = DmActionSheetController(menuContext: menuContext) { [weak self] action in
+            let actionSheet = DmActionSheetController(menuContext: menuContext, context: self.context) { [weak self] action in
                 self?.handleDmAction(action, channel: channel, menuContext: menuContext)
             }
 
@@ -412,6 +412,7 @@ final class DirectMessagesViewController: ViewController {
                 self.presentInGlobalOverlay(actionSheet)
             }
             self.fetchNotificationSettingForDmBottomsheet(channelId: channel.channelID)
+            self.refreshFriendsForBottomSheet()
         }
     }
 
@@ -466,6 +467,14 @@ final class DirectMessagesViewController: ViewController {
                 )
             } catch {
             }
+        }
+    }
+
+    private func refreshFriendsForBottomSheet() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
         }
     }
 
@@ -607,6 +616,8 @@ final class DirectMessagesViewController: ViewController {
                 } else {
                     return
                 }
+                let currentUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
+                self.context.engine.friendsData.applyLocalBlockState(userId: peerId, blocked: true, blockerUserId: currentUserId)
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
                 Toast.success(L(L10n.DmMenu.blockUserSuccess))
             } catch {
@@ -629,6 +640,7 @@ final class DirectMessagesViewController: ViewController {
                 } else {
                     return
                 }
+                self.context.engine.friendsData.applyLocalBlockState(userId: peerId, blocked: false)
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
                 Toast.success(L(L10n.DmMenu.unblockUserSuccess))
             } catch {
@@ -664,14 +676,13 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private func presentDmMuteDurationSheet(_ channel: Mezon_Api_ChannelDescription) {
-        let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let vc = MuteDurationViewController(
             channelName: Self.dmDisplayName(for: channel),
             channelId: channel.channelID,
             clanId: 0,
             context: context,
             isThread: false,
-            isGroupDirectMessage: isGroup
+            isGroupDirectMessage: true
         ) { [weak self] duration in
             self?.handleMuteDmConversation(channel, muteTimeSeconds: duration.seconds)
         }

@@ -766,7 +766,7 @@ extension MezonEngine {
                     guard let self else { return }
                     switch event {
                     case .blockFriend(let m):
-                        self.applyLocalBlockState(userId: m.userID, blocked: true)
+                        self.applyLocalBlockState(userId: m.userID, blocked: true, blockerUserId: m.userID)
                         self.scheduleRefreshFromSocket()
                     case .unBlockFriend(let m):
                         self.applyLocalBlockState(userId: m.userID, blocked: false)
@@ -779,13 +779,16 @@ extension MezonEngine {
                 })
         }
 
-        private func applyLocalBlockState(userId: Int64, blocked: Bool) {
+        func applyLocalBlockState(userId: Int64, blocked: Bool, blockerUserId: Int64 = 0) {
             guard userId != 0 else { return }
             var list = allFriends()
             guard let idx = list.firstIndex(where: { $0.user.id == userId }) else { return }
             let newState = blocked ? EStateFriend.block.rawValue : EStateFriend.friend.rawValue
             guard list[idx].state != newState else { return }
             list[idx].state = newState
+            if blocked, blockerUserId != 0 {
+                list[idx].sourceID = blockerUserId
+            }
             persistFriends(list)
         }
 
@@ -839,7 +842,9 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: 0))?.friends else { return }
+            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: 0))?.friends else {
+                return
+            }
             let cached = allFriends()
 
             guard !fetched.isEmpty || cached.isEmpty else { return }
@@ -847,6 +852,14 @@ extension MezonEngine {
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
             for friend in fetched {
                 dedupByUserId[friend.user.id] = friend
+            }
+
+            for cachedFriend in cached {
+                guard cachedFriend.hasUser, cachedFriend.user.id != 0 else { continue }
+                if dedupByUserId[cachedFriend.user.id] == nil,
+                   cachedFriend.state != EStateFriend.friend.rawValue {
+                    dedupByUserId[cachedFriend.user.id] = cachedFriend
+                }
             }
 
             guard !dedupByUserId.isEmpty || cached.isEmpty else { return }

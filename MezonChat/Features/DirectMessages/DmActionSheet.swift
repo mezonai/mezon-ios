@@ -43,10 +43,10 @@ enum DmAction: Hashable {
         case .unmuteConversation: return "ChannelSetting/UmuteChannelIcon"
         case .addFriend: return "Notifications/AddFriendIcon"
         case .removeFriend: return "ChannelSetting/DeleteIcon"
-        case .blockUser: return "ChannelSetting/BanIcon"
+        case .blockUser: return "Profile/BlockUserIcon"
         case .closeDm: return "Chat/MessageIcon"
         case .leaveOrDeleteGroup: return nil
-        case .unblockUser: return nil
+        case .unblockUser: return "Profile/UnblockUserIcon"
         }
     }
 }
@@ -87,21 +87,32 @@ struct DmMenuContext {
     }
 
     func menuGroups() -> [[DmAction]] {
+        return menuGroups(currentIsMuted: isMuted, currentFriend: friend)
+    }
+
+    func menuGroups(currentIsMuted: Bool, currentFriend: Mezon_Api_Friend?) -> [[DmAction]] {
         var groups: [[DmAction]] = []
 
         if isGroup {
             groups.append([.leaveOrDeleteGroup(isDelete: isLastOneInGroup)])
         }
 
+        let effectiveDidIBlockUser: Bool = {
+            guard let friend = currentFriend, let peerId = peerUserId else { return false }
+            return friend.state == EStateFriend.block.rawValue
+                && friend.sourceID == currentUserId
+                && friend.user.id == peerId
+        }()
+
         var profileGroup: [DmAction] = []
         if !isGroup {
             profileGroup.append(.closeDm)
         }
-        if shouldShowFriendAction {
-            profileGroup.append(friend?.state == EStateFriend.friend.rawValue ? .removeFriend : .addFriend)
+        if shouldShowFriendAction(friend: currentFriend) {
+            profileGroup.append(currentFriend?.state == EStateFriend.friend.rawValue ? .removeFriend : .addFriend)
         }
-        if shouldShowBlockAction {
-            profileGroup.append(didIBlockUser ? .unblockUser : .blockUser)
+        if shouldShowBlockAction(friend: currentFriend, didIBlockUser: effectiveDidIBlockUser) {
+            profileGroup.append(effectiveDidIBlockUser ? .unblockUser : .blockUser)
         }
         if !profileGroup.isEmpty {
             groups.append(profileGroup)
@@ -112,14 +123,15 @@ struct DmMenuContext {
         }
 
         if !isChatWithMyself {
-            groups.append([isMuted ? .unmuteConversation : .muteConversation])
+            groups.append([currentIsMuted ? .unmuteConversation : .muteConversation])
         }
 
         return groups
     }
 
-    private var shouldShowFriendAction: Bool {
-        guard !isGroup, !isChatWithMyself, let friend else { return !isGroup && !isChatWithMyself }
+    private func shouldShowFriendAction(friend: Mezon_Api_Friend?) -> Bool {
+        guard !isGroup, !isChatWithMyself else { return false }
+        guard let friend else { return true }
         switch friend.state {
         case EStateFriend.block.rawValue,
              EStateFriend.myPending.rawValue,
@@ -130,7 +142,7 @@ struct DmMenuContext {
         }
     }
 
-    private var shouldShowBlockAction: Bool {
+    private func shouldShowBlockAction(friend: Mezon_Api_Friend?, didIBlockUser: Bool) -> Bool {
         guard !isGroup, !isChatWithMyself else { return false }
         if didIBlockUser { return true }
         return friend?.state == EStateFriend.friend.rawValue
@@ -158,11 +170,14 @@ private enum DmActionAssetCache {
 
 final class DmActionSheetController: ViewController {
     private let menuContext: DmMenuContext
+    private let context: AccountContext
     private let onAction: (DmAction) -> Void
     private var didRunEntranceAnimation = false
+    private var friendsUpdatedDisposable: Disposable?
 
-    init(menuContext: DmMenuContext, onAction: @escaping (DmAction) -> Void) {
+    init(menuContext: DmMenuContext, context: AccountContext, onAction: @escaping (DmAction) -> Void) {
         self.menuContext = menuContext
+        self.context = context
         self.onAction = onAction
         super.init(navigationBarPresentationData: nil)
         self.statusBar.statusBarStyle = .Ignore
@@ -170,6 +185,10 @@ final class DmActionSheetController: ViewController {
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
+
+    deinit {
+        friendsUpdatedDisposable?.dispose()
+    }
 
     private var actionSheetNode: DmActionSheetNode {
         displayNode as! DmActionSheetNode
@@ -187,6 +206,17 @@ final class DmActionSheetController: ViewController {
             }
         )
         displayNodeDidLoad()
+        observeFriendUpdates()
+    }
+
+    private func observeFriendUpdates() {
+        guard let peerId = menuContext.peerUserId else { return }
+        friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] _ in
+                guard let self else { return }
+                let newFriend = self.context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == peerId }
+                self.actionSheetNode.updateFriendState(newFriend)
+            })
     }
 
     private func dismissThenCallAction(_ action: DmAction) {
@@ -226,6 +256,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
 
     private let menuContext: DmMenuContext
     private var isMuted: Bool
+    private var friend: Mezon_Api_Friend?
     private let onAction: (DmAction) -> Void
     private let onDismiss: () -> Void
 
@@ -241,6 +272,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
     ) {
         self.menuContext = menuContext
         self.isMuted = menuContext.isMuted
+        self.friend = menuContext.friend
         self.onAction = onAction
         self.onDismiss = onDismiss
         super.init()
@@ -306,6 +338,11 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
         }
     }
 
+    func updateFriendState(_ newFriend: Mezon_Api_Friend?) {
+        friend = newFriend
+        rebuildContent()
+    }
+
     @objc private func handleDimTap() { onDismiss() }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -315,7 +352,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
         let contentW = layout.size.width
         let safeBottom = layout.intrinsicInsets.bottom
 
-        let groups = menuContext.menuGroups()
+        let groups = menuContext.menuGroups(currentIsMuted: isMuted, currentFriend: friend)
         var groupsH: CGFloat = 0
         for group in groups {
             groupsH += CGFloat(group.count) * 48.sh + 12.sh
@@ -345,7 +382,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
         header.frame = CGRect(x: 16.sw, y: 24.sh, width: width - 32.sw, height: 56.swh)
         containerNode.view.addSubview(header)
 
-        let groups = menuContext.menuGroups()
+        let groups = menuContext.menuGroups(currentIsMuted: isMuted, currentFriend: friend)
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = 12.sh
