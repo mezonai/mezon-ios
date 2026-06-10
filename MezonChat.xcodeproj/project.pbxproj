@@ -233,7 +233,6 @@
 		6C30595FB0BC5B4EBE51D7F5 /* MessageReplyNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD09206CACE54148D5F811FA /* MessageReplyNode.swift */; };
 		6C442BE5EF23596295580940 /* DisplayLinkAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBFF1A62FD1747C2E79B5096 /* DisplayLinkAnimator.swift */; };
 		6C9621D5FE230B54C3D12E87 /* SMetaDisposable.m in Sources */ = {isa = PBXBuildFile; fileRef = 58E7BAE5D31DB404A0EEB2B1 /* SMetaDisposable.m */; };
-		6CA3EFED14724D95CF906DA6 /* DmActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2EE97BD0CD02439CBE2694 /* DmActionSheet.swift */; };
 		6CB7E463E27D52BBF8F9C781 /* StickersPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0E91F2B0512B11BAB5ABC8 /* StickersPanel.swift */; };
 		6D189DA053B9C919B0E5E3F4 /* FileListNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB4644E0853C6E628F688FB /* FileListNode.swift */; };
 		6D62E1B52A696A10039B80A6 /* RuntimeUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91B282C71181CC075A6EF957 /* RuntimeUtils.swift */; };
@@ -667,7 +666,6 @@
 		1A3E3E584894196D5C19EDB4 /* TopicRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopicRecord.swift; sourceTree = "<group>"; };
 		1AB336747DD04D9A49650B1B /* ListViewTempItemNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListViewTempItemNode.swift; sourceTree = "<group>"; };
 		1B9CFE4B54B7B7E0E7FA481A /* ProfileSettingViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSettingViewController.swift; sourceTree = "<group>"; };
-		1C2EE97BD0CD02439CBE2694 /* DmActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DmActionSheet.swift; sourceTree = "<group>"; };
 		1D0D9F7F7B93B17617858E9D /* UIKitUtils.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UIKitUtils.m; sourceTree = "<group>"; };
 		1D2AFDFFA92DAFE81CE2E171 /* MessageSkeletonNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSkeletonNode.swift; sourceTree = "<group>"; };
 		1D5510ECC05B079EB97CDE8D /* MessageLocationNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageLocationNode.swift; sourceTree = "<group>"; };
@@ -2322,7 +2320,6 @@
 				811B1E2FBC03AED1C62BEB68 /* AddFriendByUsernameViewController.swift */,
 				2CAE873940BA07736BE01F46 /* DirectMessagesContainerNode.swift */,
 				4085DC7BDBF7832C3E4EBD25 /* DirectMessagesViewController.swift */,
-				1C2EE97BD0CD02439CBE2694 /* DmActionSheet.swift */,
 				A3BF7CE196F5D0037D7AAEB6 /* DmListItemCell.swift */,
 				840A801B19E76D025522E600 /* DmMessageActivityStripView.swift */,
 				B09C8D041816A7A67889F798 /* FriendListContainerNode.swift */,
@@ -3088,7 +3085,6 @@
 				6C442BE5EF23596295580940 /* DisplayLinkAnimator.swift in Sources */,
 				57943F0D65C7FC52C24C0150 /* DisplayLinkDispatcher.swift in Sources */,
 				A705EF80610106E47411D313 /* Disposable.swift in Sources */,
-				6CA3EFED14724D95CF906DA6 /* DmActionSheet.swift in Sources */,
 				0ECD0066655E5D4A55D814C2 /* DmListItemCell.swift in Sources */,
 				F83C1655797DA19CDEBC7366 /* DmMessageActivityStripView.swift in Sources */,
 				EF885E9C8172184363D82AC8 /* EditableTextNode.swift in Sources */,
