@@ -976,23 +976,40 @@ final class AccountContextImpl: AccountContext {
             let mid = "\(update.messageID)"
             account.postbox.write { tx in
                 guard let existing = tx.getMessageById(mid) else { return }
-                let newContentData = update.content.data(using: .utf8) ?? Data()
+                let incomingContent = update.content.data(using: .utf8) ?? Data()
+                let newContentData = PresignFinishContent.mergePresignFinishContent(
+                    local: existing.content,
+                    server: incomingContent
+                )
                 let contentChanged = !newContentData.isEmpty && newContentData != existing.content
-                guard contentChanged else { return }
+                let attachmentsChanged = !update.attachments.isEmpty
+                guard contentChanged || attachmentsChanged else { return }
+                let newAttachmentsJSON: Data = {
+                    guard !update.attachments.isEmpty else { return existing.attachmentsJSON }
+                    var list = Mezon_Api_MessageAttachmentList()
+                    list.attachments = update.attachments
+                    return (try? list.serializedData()) ?? existing.attachmentsJSON
+                }()
+                let hideEdit = update.hideEditted
+                    || (contentChanged
+                        && PresignFinishContent.isPresignFinishOnlyChange(
+                            newContent: newContentData,
+                            oldContent: existing.content
+                        ))
                 let updated = MessageRecord(
                     id: existing.id,
                     channelId: existing.channelId,
                     clanId: existing.clanId,
                     senderId: existing.senderId,
-                    content: newContentData,
+                    content: contentChanged ? newContentData : existing.content,
                     createdAt: existing.createdAt,
-                    editedAt: update.hideEditted ? existing.editedAt : Date(),
+                    editedAt: hideEdit ? nil : Date(),
                     isDeleted: existing.isDeleted,
                     code: existing.code,
                     senderDisplayName: existing.senderDisplayName,
                     senderAvatarURL: existing.senderAvatarURL,
                     sendingState: existing.sendingState,
-                    attachmentsJSON: existing.attachmentsJSON,
+                    attachmentsJSON: newAttachmentsJSON,
                     reactionsJSON: existing.reactionsJSON,
                     referencesData: existing.referencesData,
                     mentionsJSON: existing.mentionsJSON
@@ -1049,6 +1066,18 @@ final class AccountContextImpl: AccountContext {
 
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
+            let joinedIds = e.joins.map(\.userID).filter { $0 != 0 }
+            let clanId = currentClanId
+            if clanId != 0, !joinedIds.isEmpty {
+                Task { @MainActor [weak self] in
+                    guard let self, let token = await self.getToken() else { return }
+                    self.engine.clanData.maybeRefreshClanMembersAfterPresenceJoins(
+                        clanId: clanId,
+                        joinedUserIds: joinedIds,
+                        token: token
+                    )
+                }
+            }
 
         case .lastPin(let e):
             ChannelPinnedStatePersistence.applyPinMessage(
@@ -1098,6 +1127,16 @@ final class AccountContextImpl: AccountContext {
             if let desc = engine.clanData.applyUserChannelAddedFromSocket(ev, currentUserNumericId: myId) {
                 subscribeSocketRoomsForMergedChannel(desc)
             }
+            engine.clanData.applyClanMembersFromUserChannelAddedForObservers(
+                ev,
+                observingClanId: currentClanId
+            )
+
+        case .userClanAdded(let ev):
+            engine.clanData.applyClanUserAddedFromSocket(ev)
+
+        case .userClanRemoved(let ev):
+            engine.clanData.applyClanUserRemovedFromSocket(ev)
 
         case .channelUpdated(let ev):
             guard ev.clanID != 0, ev.channelID != 0 else { break }

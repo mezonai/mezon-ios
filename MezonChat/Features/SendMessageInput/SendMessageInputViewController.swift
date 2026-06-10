@@ -1429,7 +1429,7 @@ final class SendMessageInputViewController: UIViewController {
                     return
                 }
                 do {
-                    _ = try await self.context.account.network.sendChannelMessage(
+                    let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
                         mode: mode,
@@ -1444,6 +1444,10 @@ final class SendMessageInputViewController: UIViewController {
                         topicId: self.topicId,
                         code: 17,
                         token: token
+                    )
+                    self.markOnboardingWelcomeMessageSentIfNeeded(
+                        ack: ack,
+                        anonymous: self.shouldSendAsAnonymousMessage
                     )
                 } catch {
                     SentryLogger.capture(error, extras: [
@@ -1497,7 +1501,7 @@ final class SendMessageInputViewController: UIViewController {
                     return
                 }
                 do {
-                    _ = try await self.context.account.network.sendChannelMessage(
+                    let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
                         mode: mode,
@@ -1512,6 +1516,10 @@ final class SendMessageInputViewController: UIViewController {
                         topicId: self.topicId,
                         code: MezonConstants.MessageCode.buzz.rawValue,
                         token: token
+                    )
+                    self.markOnboardingWelcomeMessageSentIfNeeded(
+                        ack: ack,
+                        anonymous: self.shouldSendAsAnonymousMessage
                     )
                 } catch {
                     SentryLogger.capture(error, extras: [
@@ -1605,6 +1613,7 @@ final class SendMessageInputViewController: UIViewController {
                     ack: ack,
                     fallbackContent: contentStr
                 )
+                self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack, anonymous: false)
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "sendShareContact",
@@ -1644,6 +1653,21 @@ final class SendMessageInputViewController: UIViewController {
                 "clanId": Int64(0),
                 "channelId": channel.channelID,
             ]
+        )
+    }
+
+    private func markOnboardingWelcomeMessageSentIfNeeded(
+        ack: Mezon_Realtime_ChannelMessageAck,
+        anonymous: Bool
+    ) {
+        ClanOnboardingChannelCache.markSendMessageOnboardingProgressIfNeeded(
+            context: context,
+            postbox: context.account.postbox,
+            clanId: clanId,
+            channelId: channel.channelID,
+            messageId: ack.messageID,
+            messageCode: ack.code,
+            anonymous: anonymous
         )
     }
 
@@ -5112,6 +5136,19 @@ final class SendMessageInputViewController: UIViewController {
             return editingRemoteImageAttachments + editingRemoteFileAttachments
         }()
 
+        let capturedEditCreateTimeSeconds: UInt32? = {
+            guard isEdit else { return nil }
+            if let createdAt = editingDisplay?.message.createdAt {
+                let seconds = UInt32(createdAt.timeIntervalSince1970)
+                if seconds > 0 { return seconds }
+            }
+            if editingMessageId > 0 {
+                let seconds = UInt32(truncatingIfNeeded: (editingMessageId >> 22) / 1000)
+                if seconds > 0 { return seconds }
+            }
+            return nil
+        }()
+
         applyOptimisticSendComposerReset()
 
         let contentStr: String = {
@@ -5211,6 +5248,10 @@ final class SendMessageInputViewController: UIViewController {
 
                 if isEdit {
                     let hideEditted = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
+                    let hasNewAttachments = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
+                    let editCreateTimeSeconds: UInt32? = hasNewAttachments
+                        ? capturedEditCreateTimeSeconds
+                        : nil
                     let ack = try await self.context.account.network.updateChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
@@ -5218,11 +5259,13 @@ final class SendMessageInputViewController: UIViewController {
                         isPublic: isPublic,
                         messageId: editingMessageId,
                         content: contentStr,
-                        mentions: mentionList,
-                        attachments: uploadedAttachments,
+                        mentions: mentionList.isEmpty ? nil : mentionList,
+                        attachments: hasNewAttachments && !uploadedAttachments.isEmpty
+                            ? uploadedAttachments
+                            : nil,
                         hideEditted: hideEditted,
-                        topicId: self.topicId,
-                        isUpdateMsgTopic: false,
+                        topicId: self.topicId != 0 ? self.topicId : nil,
+                        createTimeSeconds: editCreateTimeSeconds,
                         token: token
                     )
                     self.context.account.postbox.write { tx in
@@ -5327,8 +5370,19 @@ final class SendMessageInputViewController: UIViewController {
                                 mentionsJSON: pending?.mentionsJSON ?? mentionsPayload
                             )
                             tx.replaceMessage(pendingId: localId, with: merged)
+                            if !ClanOnboardingChannelCache.isEphemeralMessageCode(ack.code) {
+                                ClanOnboardingChannelCache.markCreatorSentWelcomeMessageIfNeeded(
+                                    transaction: tx,
+                                    clanId: self.clanId,
+                                    channelId: channel.channelID
+                                )
+                            }
                         }
                         if ack.messageID != 0 {
+                            self.markOnboardingWelcomeMessageSentIfNeeded(
+                                ack: ack,
+                                anonymous: sendAsAnonymous
+                            )
                             ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                             ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
                         }
@@ -5453,7 +5507,7 @@ final class SendMessageInputViewController: UIViewController {
                 return
             }
             do {
-                _ = try await self.context.account.network.sendChannelMessage(
+                let ack = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
                     mode: mode,
@@ -5467,6 +5521,10 @@ final class SendMessageInputViewController: UIViewController {
                     avatar: avatar,
                     topicId: self.topicId,
                     token: token
+                )
+                self.markOnboardingWelcomeMessageSentIfNeeded(
+                    ack: ack,
+                    anonymous: self.shouldSendAsAnonymousMessage
                 )
             } catch {
                 SentryLogger.capture(error, extras: [

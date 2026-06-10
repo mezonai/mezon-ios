@@ -394,6 +394,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
 
     @objc private func createTapped() {
         guard !isSubmitting, uploadCount == 0 else { return }
+        if ClanCreationLimit.showLimitToastIfNeeded(context: context) { return }
         let name = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             Toast.error(L(L10n.Clan.nameRequired))

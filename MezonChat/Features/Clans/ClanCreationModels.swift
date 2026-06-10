@@ -97,6 +97,26 @@ enum ClanCreationTemplate: Int, CaseIterable {
     }
 }
 
+@MainActor
+enum ClanCreationLimit {
+    static let maxClans = 50
+
+    static func currentClanCount(context: AccountContext) -> Int {
+        context.account.postbox.read { tx in tx.getClans().count }
+    }
+
+    static func isAtLimit(context: AccountContext) -> Bool {
+        currentClanCount(context: context) >= maxClans
+    }
+
+    @discardableResult
+    static func showLimitToastIfNeeded(context: AccountContext) -> Bool {
+        guard isAtLimit(context: context) else { return false }
+        Toast.error(L(L10n.Clan.creationLimitReached))
+        return true
+    }
+}
+
 enum ClanCreationNameRules {
     static let maxLength = 64
 

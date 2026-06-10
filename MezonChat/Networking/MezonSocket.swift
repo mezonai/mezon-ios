@@ -542,6 +542,8 @@ final class MezonSocket: NSObject {
     ) -> Data? {
         guard let msg = envelope.message else { return nil }
         switch msg {
+        case .channelMessageAck(let ack):
+            return try? ack.serializedData()
         case .listDataSocket(let wrapper):
             switch apiName {
             case "ListChannelBadgeCount":

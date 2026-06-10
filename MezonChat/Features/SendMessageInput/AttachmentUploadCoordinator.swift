@@ -39,6 +39,9 @@ final class ImageUploadItem {
     let image: UIImage
     let fileURL: URL?
     var state: ImageUploadItemState = .uploading
+    var reservedAttachment: Mezon_Api_MessageAttachment?
+    var presignKey: String = ""
+    fileprivate var pendingUploads: [PendingMinIOUpload] = []
 
     init(image: UIImage, fileURL: URL?) {
         self.image = image
@@ -46,15 +49,44 @@ final class ImageUploadItem {
     }
 }
 
+fileprivate struct PendingMinIOUpload {
+    enum Body {
+        case data(Data)
+        case file(URL)
+    }
+
+    let minioURL: String
+    let contentType: String
+    let body: Body
+    let progressKey: String
+    let cacheImage: (image: UIImage, data: Data, cdnURL: String)?
+}
+
+fileprivate final class FileUploadTrack {
+    let file: PickedFileInfo
+    let presignKey: String
+    var attachment: Mezon_Api_MessageAttachment
+    var pending: PendingMinIOUpload
+    var state: ImageUploadItemState = .uploading
+
+    init(file: PickedFileInfo, presignKey: String, attachment: Mezon_Api_MessageAttachment, pending: PendingMinIOUpload) {
+        self.file = file
+        self.presignKey = presignKey
+        self.attachment = attachment
+        self.pending = pending
+    }
+}
+
 final class ImageUploadSession {
     let params: ImageSendParams
     var items: [ImageUploadItem]
-    var fileAttachments: [Mezon_Api_MessageAttachment] = []
+    fileprivate var fileTracks: [FileUploadTrack] = []
     var serverMessageId: Int64 = 0
-    var hasSent = false
     var aborted = false
     var finished = false
-    var lastSentAttachmentCount = 0
+    var presignFinishedKeys: [String] = []
+    var lastSyncedPresignCount = 0
+    var isPresignSyncInFlight = false
 
     init(params: ImageSendParams) {
         self.params = params
@@ -69,8 +101,9 @@ final class AttachmentUploadCoordinator {
     static let shared = AttachmentUploadCoordinator()
     private init() {}
 
-    private static let editBatchSize = 4
     private static let maxConcurrentUploads = 4
+    private static let presignEditBatchSize = 4
+    private static let progressNotificationBucketCount = 20
 
     private let lock = NSLock()
     private var sessionsByKey: [String: ImageUploadSession] = [:]
@@ -97,13 +130,11 @@ final class AttachmentUploadCoordinator {
         return Set(sessionsByKey.keys)
     }
 
-    /// True if any active upload session has an item whose file is the given
-    /// progress key, so the chat view knows a progress notification for that
-    /// key should trigger a reload.
     func hasActiveProgressKey(_ key: String) -> Bool {
         lock.lock(); defer { lock.unlock() }
         for session in sessionsByKey.values {
             if session.items.contains(where: { $0.fileURL?.path == key }) { return true }
+            if session.fileTracks.contains(where: { $0.file.url.path == key }) { return true }
             if session.params.files.contains(where: { $0.url.path == key }) { return true }
         }
         return false
@@ -115,6 +146,51 @@ final class AttachmentUploadCoordinator {
     }
 
     // MARK: - Overlay for rendering
+
+    func fileOverlay(for messageId: String) -> [ParsedAttachment]? {
+        guard let session = session(forKey: messageId) else { return nil }
+        guard !session.fileTracks.isEmpty else { return nil }
+        return session.fileTracks.map { track -> ParsedAttachment in
+            let progressKey = track.file.url.path
+            switch track.state {
+            case let .uploaded(att):
+                return ParsedAttachment(
+                    url: att.url,
+                    filename: att.filename,
+                    filetype: att.filetype,
+                    width: att.width != 0 ? Int(att.width) : nil,
+                    height: att.height != 0 ? Int(att.height) : nil,
+                    durationSeconds: nil,
+                    isUploading: false,
+                    uploadFailed: false
+                )
+            case .uploading:
+                return ParsedAttachment(
+                    url: track.attachment.url,
+                    filename: track.attachment.filename,
+                    filetype: track.attachment.filetype,
+                    width: track.attachment.width != 0 ? Int(track.attachment.width) : nil,
+                    height: track.attachment.height != 0 ? Int(track.attachment.height) : nil,
+                    durationSeconds: nil,
+                    isUploading: true,
+                    uploadFailed: false,
+                    uploadProgress: AttachmentUploadProgressStore.shared.progress(forKey: progressKey),
+                    uploadProgressKey: progressKey
+                )
+            case .failed:
+                return ParsedAttachment(
+                    url: track.attachment.url,
+                    filename: track.attachment.filename,
+                    filetype: track.attachment.filetype,
+                    width: nil,
+                    height: nil,
+                    durationSeconds: nil,
+                    isUploading: false,
+                    uploadFailed: true
+                )
+            }
+        }
+    }
 
     func imageOverlay(for messageId: String) -> [ParsedAttachment]? {
         guard let session = session(forKey: messageId) else { return nil }
@@ -134,9 +210,9 @@ final class AttachmentUploadCoordinator {
                 )
             case .uploading:
                 return ParsedAttachment(
-                    url: "",
-                    filename: "uploading.jpg",
-                    filetype: "image/jpeg",
+                    url: item.reservedAttachment?.url ?? "",
+                    filename: item.reservedAttachment?.filename ?? "uploading.jpg",
+                    filetype: item.reservedAttachment?.filetype ?? "image/jpeg",
                     width: Int(item.image.size.width),
                     height: Int(item.image.size.height),
                     durationSeconds: nil,
@@ -176,6 +252,7 @@ final class AttachmentUploadCoordinator {
         register(session, key: params.localId)
 
         if let sender = context.currentUser {
+            let presignContent = PresignFinishContent.injectEmptyPresignFinish(into: params.outgoingContentData)
             let record = MessageRecord.pending(
                 localId: params.localId,
                 text: "",
@@ -186,7 +263,7 @@ final class AttachmentUploadCoordinator {
                 avatarURL: params.pendingSenderAvatarURL,
                 referencesData: params.pendingReferencesData,
                 mentionsData: params.mentionsPayload,
-                contentData: params.outgoingContentData
+                contentData: presignContent
             )
             context.account.postbox.write { tx in tx.addMessages([record]) }
         }
@@ -201,21 +278,22 @@ final class AttachmentUploadCoordinator {
         guard let session = session(forKey: messageId) else { return }
         guard itemIndex >= 0, itemIndex < session.items.count else { return }
         guard session.items[itemIndex].state.isFailed, !session.aborted else { return }
+        guard session.items[itemIndex].reservedAttachment != nil else { return }
 
         session.items[itemIndex].state = .uploading
         session.finished = false
-        nudge(session, context: context)
+        Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
 
         Task { @MainActor in
-            guard let token = await context.getToken() else {
-                session.items[itemIndex].state = .failed
-                self.nudge(session, context: context)
-                return
+            let item = session.items[itemIndex]
+            let success = await self.executeImageUpload(item, context: context)
+            session.items[itemIndex].state = success ? .uploaded(item.reservedAttachment!) : .failed
+            if success { self.markPresignFinished(session, key: item.presignKey) }
+            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
+            if success, let token = await context.getToken() {
+                await self.maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
             }
-            let att = await self.uploadOneImage(session.items[itemIndex], context: context, token: token)
-            session.items[itemIndex].state = att.map { .uploaded($0) } ?? .failed
-            self.nudge(session, context: context)
-            await self.afterStateChange(session, context: context, token: token, forceFlush: true)
+            await self.finalizeIfComplete(session, context: context)
         }
     }
 
@@ -233,82 +311,57 @@ final class AttachmentUploadCoordinator {
             return
         }
 
-        await uploadFiles(session, context: context, token: token)
+        await reserveFiles(session, context: context, token: token)
+        await reserveImages(session, context: context, token: token)
+
+        let attachments = allReservedAttachments(session)
+
         await prepare?(token)
 
-        var nextIndex = 0
-        await withTaskGroup(of: (Int, Mezon_Api_MessageAttachment?).self) { group in
-            func addNext() {
-                guard nextIndex < session.items.count else { return }
-                let index = nextIndex
-                nextIndex += 1
-                let item = session.items[index]
-                group.addTask {
-                    let att = await self.uploadOneImage(item, context: context, token: token)
-                    return (index, att)
-                }
-            }
-
-            for _ in 0..<Self.maxConcurrentUploads { addNext() }
-
-            for await (index, att) in group {
-                session.items[index].state = att.map { .uploaded($0) } ?? .failed
-                self.nudge(session, context: context)
-                addNext()
-                await self.afterStateChange(session, context: context, token: token)
-            }
+        let canSend = !attachments.isEmpty || session.params.hasText
+        if !canSend {
+            finalizeAllFailed(session, context: context)
+            return
         }
 
-        await afterStateChange(session, context: context, token: token, forceFlush: true)
+        await sendMessage(session, context: context, token: token, attachments: attachments)
+
+        guard !session.aborted else {
+            return
+        }
+
+        await executeFileUploads(session, context: context, token: token)
+        await executeImageUploads(session, context: context, token: token)
+        await maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
+        await finalizeIfComplete(session, context: context)
     }
 
     @MainActor
-    private func afterStateChange(
-        _ session: ImageUploadSession,
-        context: AccountContext,
-        token: String,
-        forceFlush: Bool = false
-    ) async {
+    private func finalizeIfComplete(_ session: ImageUploadSession, context: AccountContext) async {
         guard !session.aborted else { return }
-
-        let completedCount = session.items.filter { !$0.state.isUploading }.count
-        let allResolved = completedCount == session.items.count
-        let ready = readyAttachments(session)
-
-        if !session.hasSent {
-            let canSend = !ready.isEmpty || (allResolved && session.params.hasText)
-            if !canSend {
-                if allResolved { finalizeAllFailed(session, context: context) }
-                return
-            }
-            session.lastSentAttachmentCount = ready.count
-            await doFirstSend(session, context: context, token: token, attachments: ready)
-        } else if session.serverMessageId != 0 {
-            let pendingNew = ready.count - session.lastSentAttachmentCount
-            let shouldUpdate = pendingNew > 0 && (forceFlush || pendingNew >= Self.editBatchSize || allResolved)
-            guard shouldUpdate else { return }
-            session.lastSentAttachmentCount = ready.count
-            await doUpdate(session, context: context, token: token, attachments: ready)
-        }
-
-        if allResolved { finalizeSuccessIfNeeded(session, context: context, ready: ready) }
+        let allResolved = session.items.allSatisfy { !$0.state.isUploading }
+            && session.fileTracks.allSatisfy { !$0.state.isUploading }
+        guard allResolved else { return }
+        finalizeSuccessIfNeeded(session, context: context)
     }
 
     @MainActor
-    private func doFirstSend(
+    private func sendMessage(
         _ session: ImageUploadSession,
         context: AccountContext,
         token: String,
         attachments: [Mezon_Api_MessageAttachment]
     ) async {
         let p = session.params
+        let contentData = PresignFinishContent.injectEmptyPresignFinish(into: p.outgoingContentData)
+        let contentStr = String(data: contentData, encoding: .utf8) ?? p.contentStr
         do {
             let ack = try await context.account.network.sendChannelMessage(
                 clanId: p.clanId,
                 channelId: p.channelId,
                 mode: p.mode,
                 isPublic: p.isPublic,
-                content: p.contentStr,
+                content: contentStr,
                 mentions: p.mentionList,
                 attachments: attachments,
                 references: p.references,
@@ -318,21 +371,65 @@ final class AttachmentUploadCoordinator {
                 topicId: p.topicId,
                 token: token
             )
-            session.hasSent = true
             session.serverMessageId = ack.messageID
             if ack.messageID != 0 {
                 register(session, key: "\(ack.messageID)")
             }
             context.account.postbox.write { tx in
-                if tx.getMessageById(p.localId) != nil {
-                    tx.markMessageSent(id: p.localId)
+                guard ack.messageID != 0 else {
+                    if tx.getMessageById(p.localId) != nil {
+                        tx.markMessageSent(id: p.localId)
+                    }
+                    return
                 }
+                let pending = tx.getMessageById(p.localId)
+                let attachmentsJSON: Data = {
+                    guard !attachments.isEmpty else { return pending?.attachmentsJSON ?? Data() }
+                    var list = Mezon_Api_MessageAttachmentList()
+                    list.attachments = attachments
+                    return (try? list.serializedData()) ?? pending?.attachmentsJSON ?? Data()
+                }()
+                let createdAt: Date = ack.createTimeSeconds > 0
+                    ? Date(timeIntervalSince1970: TimeInterval(ack.createTimeSeconds))
+                    : (pending?.createdAt ?? Date())
+                let editedAt: Date? = ack.updateTimeSeconds > ack.createTimeSeconds && ack.updateTimeSeconds > 0
+                    ? Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
+                    : nil
+                let fallbackSenderId = context.currentUser?.id ?? ""
+                let merged = MessageRecord(
+                    id: "\(ack.messageID)",
+                    channelId: pending?.channelId ?? p.channelIdStr,
+                    clanId: pending?.clanId ?? (p.clanId == 0 ? nil : "\(p.clanId)"),
+                    senderId: pending?.senderId ?? fallbackSenderId,
+                    content: contentData,
+                    createdAt: createdAt,
+                    editedAt: editedAt,
+                    isDeleted: pending?.isDeleted ?? false,
+                    code: ack.code,
+                    senderDisplayName: pending?.senderDisplayName ?? p.pendingSenderDisplayName,
+                    senderAvatarURL: pending?.senderAvatarURL ?? p.pendingSenderAvatarURL,
+                    sendingState: .sent,
+                    attachmentsJSON: attachmentsJSON,
+                    reactionsJSON: pending?.reactionsJSON ?? Data(),
+                    referencesData: pending?.referencesData ?? p.pendingReferencesData,
+                    mentionsJSON: pending?.mentionsJSON ?? p.mentionsPayload
+                )
+                tx.replaceMessage(pendingId: p.localId, with: merged)
             }
+            ClanOnboardingChannelCache.markSendMessageOnboardingProgressIfNeeded(
+                context: context,
+                postbox: context.account.postbox,
+                clanId: p.clanId,
+                channelId: p.channelId,
+                messageId: ack.messageID,
+                messageCode: ack.code,
+                anonymous: false
+            )
             nudge(session, context: context)
         } catch {
             session.aborted = true
             SentryLogger.capture(error, extras: [
-                "where": "AttachmentUploadCoordinator.doFirstSend",
+                "where": "AttachmentUploadCoordinator.sendMessage",
                 "channelId": p.channelId,
                 "clanId": p.clanId,
             ])
@@ -341,48 +438,17 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
-    private func doUpdate(
-        _ session: ImageUploadSession,
-        context: AccountContext,
-        token: String,
-        attachments: [Mezon_Api_MessageAttachment]
-    ) async {
-        let p = session.params
-        do {
-            _ = try await context.account.network.updateChannelMessage(
-                clanId: p.clanId,
-                channelId: p.channelId,
-                mode: p.mode,
-                isPublic: p.isPublic,
-                messageId: session.serverMessageId,
-                content: p.contentStr,
-                mentions: p.mentionList,
-                attachments: attachments,
-                hideEditted: true,
-                topicId: p.topicId,
-                isUpdateMsgTopic: false,
-                token: token
-            )
-        } catch {
-            SentryLogger.capture(error, extras: [
-                "where": "AttachmentUploadCoordinator.doUpdate",
-                "channelId": p.channelId,
-                "messageId": session.serverMessageId,
-            ])
-        }
-    }
-
-    @MainActor
     private func finalizeSuccessIfNeeded(
         _ session: ImageUploadSession,
-        context: AccountContext,
-        ready: [Mezon_Api_MessageAttachment]
+        context: AccountContext
     ) {
         let anyFailed = session.items.contains { $0.state.isFailed }
-        if !anyFailed, session.hasSent, session.serverMessageId != 0 {
-            writeFinalAttachments(session, context: context, attachments: ready)
+            || session.fileTracks.contains { $0.state.isFailed }
+        if !anyFailed, session.serverMessageId != 0 {
+            let messageId = "\(session.serverMessageId)"
             clearDocumentPlaceholders(session)
             remove(session)
+            Self.postUploadSlotStateChanged(messageId: messageId)
         } else {
             session.finished = true
             nudge(session, context: context)
@@ -435,16 +501,150 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    // MARK: - Upload primitives
+    @MainActor
+    private func writeMessageContent(
+        _ session: ImageUploadSession,
+        context: AccountContext,
+        contentData: Data
+    ) {
+        let serverKey = "\(session.serverMessageId)"
+        let localId = session.params.localId
+        context.account.postbox.write { tx in
+            guard let old = tx.getMessageById(serverKey) ?? tx.getMessageById(localId) else { return }
+            let updated = MessageRecord(
+                id: old.id,
+                channelId: old.channelId,
+                clanId: old.clanId,
+                senderId: old.senderId,
+                content: contentData,
+                createdAt: old.createdAt,
+                editedAt: nil,
+                isDeleted: old.isDeleted,
+                code: old.code,
+                senderDisplayName: old.senderDisplayName,
+                senderAvatarURL: old.senderAvatarURL,
+                sendingState: old.sendingState,
+                attachmentsJSON: old.attachmentsJSON,
+                reactionsJSON: old.reactionsJSON,
+                referencesData: old.referencesData,
+                mentionsJSON: old.mentionsJSON
+            )
+            tx.addMessages([updated])
+        }
+    }
+
+    @MainActor
+    private func markPresignFinished(_ session: ImageUploadSession, key: String) {
+        guard !key.isEmpty, !session.presignFinishedKeys.contains(key) else { return }
+        session.presignFinishedKeys.append(key)
+    }
+
+    @MainActor
+    private func maybeSyncPresignFinish(
+        _ session: ImageUploadSession,
+        context: AccountContext,
+        token: String,
+        forceFlush: Bool = false
+    ) async {
+        guard !session.aborted, session.serverMessageId != 0 else { return }
+        guard !session.presignFinishedKeys.isEmpty else { return }
+        let pendingNew = session.presignFinishedKeys.count - session.lastSyncedPresignCount
+        guard forceFlush || pendingNew >= Self.presignEditBatchSize else { return }
+        guard !session.isPresignSyncInFlight else { return }
+        session.isPresignSyncInFlight = true
+        defer { session.isPresignSyncInFlight = false }
+        await updatePresignFinishContent(session, context: context, token: token, isFinal: forceFlush)
+    }
+
+    @MainActor
+    private func originContentDataForPresignSync(
+        _ session: ImageUploadSession,
+        context: AccountContext
+    ) -> Data {
+        let p = session.params
+        let serverKey = "\(session.serverMessageId)"
+        if let record = context.account.postbox.read({ tx in
+            tx.getMessageById(serverKey) ?? tx.getMessageById(p.localId)
+        }) {
+            let base = PresignFinishContent.contentBaseWithoutPresign(record.content)
+            if !base.isEmpty,
+               let json = try? JSONSerialization.jsonObject(with: base) as? [String: Any],
+               !json.isEmpty {
+                return base
+            }
+        }
+        return p.outgoingContentData
+    }
+
+    @MainActor
+    private func updatePresignFinishContent(
+        _ session: ImageUploadSession,
+        context: AccountContext,
+        token: String,
+        isFinal: Bool = false
+    ) async {
+        let p = session.params
+        let keysSnapshot = session.presignFinishedKeys
+        let originContentData = originContentDataForPresignSync(session, context: context)
+        let localContentData = PresignFinishContent.injectPresignFinish(
+            into: originContentData,
+            keys: keysSnapshot
+        )
+        guard let contentStr = String(data: localContentData, encoding: .utf8), !contentStr.isEmpty else {
+            return
+        }
+        let maxAttempts = isFinal ? 2 : 1
+        for attempt in 1...maxAttempts {
+            do {
+                _ = try await context.account.network.updateChannelMessage(
+                    clanId: p.clanId,
+                    channelId: p.channelId,
+                    mode: p.mode,
+                    isPublic: p.isPublic,
+                    messageId: session.serverMessageId,
+                    content: contentStr,
+                    hideEditted: true,
+                    topicId: p.topicId != 0 ? p.topicId : nil,
+                    token: token
+                )
+                writeMessageContent(session, context: context, contentData: localContentData)
+                session.lastSyncedPresignCount = keysSnapshot.count
+                nudge(session, context: context)
+                return
+            } catch {
+                if attempt == maxAttempts {
+                    SentryLogger.capture(error, extras: [
+                        "where": "AttachmentUploadCoordinator.updatePresignFinishContent",
+                        "messageId": session.serverMessageId,
+                        "isFinal": isFinal,
+                    ])
+                }
+            }
+        }
+    }
+
+    // MARK: - Reserve URLs
+
+    private func allReservedAttachments(_ session: ImageUploadSession) -> [Mezon_Api_MessageAttachment] {
+        var result = session.items.compactMap { $0.reservedAttachment }
+        result.append(contentsOf: session.fileTracks.map(\.attachment))
+        return result
+    }
 
     private func readyAttachments(_ session: ImageUploadSession) -> [Mezon_Api_MessageAttachment] {
-        var result = session.items.compactMap { $0.state.uploadedAttachment }
-        result.append(contentsOf: session.fileAttachments)
+        var result = session.items.compactMap { item -> Mezon_Api_MessageAttachment? in
+            if let att = item.state.uploadedAttachment { return att }
+            return item.reservedAttachment
+        }
+        result.append(contentsOf: session.fileTracks.compactMap { track -> Mezon_Api_MessageAttachment? in
+            if let att = track.state.uploadedAttachment { return att }
+            return track.attachment
+        })
         return result
     }
 
     @MainActor
-    private func uploadFiles(_ session: ImageUploadSession, context: AccountContext, token: String) async {
+    private func reserveFiles(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         for file in session.params.files {
             guard FileManager.default.fileExists(atPath: file.url.path),
                   let size = await Self.fileSize(of: file.url) else {
@@ -453,7 +653,7 @@ final class AttachmentUploadCoordinator {
                     NSError(domain: "AttachmentUpload", code: -1,
                             userInfo: [NSLocalizedDescriptionKey: "Picked file missing before upload"]),
                     extras: [
-                        "where": "AttachmentUploadCoordinator.uploadFiles.missingFile",
+                        "where": "AttachmentUploadCoordinator.reserveFiles.missingFile",
                         "filename": file.filename,
                         "path": file.url.path,
                     ])
@@ -461,28 +661,27 @@ final class AttachmentUploadCoordinator {
             }
             let sanitized = file.filename.replacingOccurrences(
                 of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
-            let progressKey = file.url.path
             do {
-                let uploaded = try await AttachmentUploader.shared.uploadFile(
-                    fileURL: file.url,
-                    filename: sanitized,
-                    filetype: file.filetype,
-                    fileSize: size,
-                    token: token,
-                    progressKey: progressKey,
-                    network: context.account.network)
+                let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                    filename: sanitized, filetype: file.filetype, size: size, token: token)
+                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let presignKey = PresignFinishContent.presignKey(from: cdnURL)
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = file.filename
-                att.url = uploaded.cdnURL
+                att.url = cdnURL
                 att.filetype = file.filetype
                 att.size = Int32(size)
-                session.fileAttachments.append(att)
-                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
-                try? FileManager.default.removeItem(at: file.url)
+                let pending = PendingMinIOUpload(
+                    minioURL: uploadInfo.url,
+                    contentType: file.filetype,
+                    body: .file(file.url),
+                    progressKey: file.url.path,
+                    cacheImage: nil)
+                session.fileTracks.append(FileUploadTrack(
+                    file: file, presignKey: presignKey, attachment: att, pending: pending))
             } catch {
-                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
                 SentryLogger.capture(error, extras: [
-                    "where": "AttachmentUploadCoordinator.uploadFiles",
+                    "where": "AttachmentUploadCoordinator.reserveFiles",
                     "filename": file.filename,
                 ])
             }
@@ -490,12 +689,35 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
-    private func uploadOneImage(
+    private func reserveImages(_ session: ImageUploadSession, context: AccountContext, token: String) async {
+        var nextIndex = 0
+        await withTaskGroup(of: (Int, Bool).self) { group in
+            func addNext() {
+                guard nextIndex < session.items.count else { return }
+                let index = nextIndex
+                nextIndex += 1
+                group.addTask { @MainActor in
+                    let ok = await self.reserveOneImage(session.items[index], context: context, token: token)
+                    return (index, ok)
+                }
+            }
+
+            for _ in 0..<Self.maxConcurrentUploads { addNext() }
+
+            for await (index, ok) in group {
+                if !ok { session.items[index].state = .failed }
+                addNext()
+            }
+        }
+    }
+
+    @MainActor
+    private func reserveOneImage(
         _ item: ImageUploadItem,
         context: AccountContext,
         token: String
-    ) async -> Mezon_Api_MessageAttachment? {
-        guard let fileURL = item.fileURL else { return nil }
+    ) async -> Bool {
+        guard let fileURL = item.fileURL else { return false }
 
         let image = item.image
         let originalFilename = fileURL.lastPathComponent
@@ -506,6 +728,7 @@ final class AttachmentUploadCoordinator {
         let sanitized = originalFilename.replacingOccurrences(
             of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
         let isVideo = filetype.hasPrefix("video/")
+        let progressKey = fileURL.path
 
         do {
             var att = Mezon_Api_MessageAttachment()
@@ -513,62 +736,70 @@ final class AttachmentUploadCoordinator {
             att.filetype = filetype
             att.width = Int32(width)
             att.height = Int32(height)
+            var pendingUploads: [PendingMinIOUpload] = []
 
             if isVideo {
-                guard let size = await Self.fileSize(of: fileURL) else { return nil }
-                let progressKey = fileURL.path
-                let uploaded = try await AttachmentUploader.shared.uploadFile(
-                    fileURL: fileURL,
-                    filename: sanitized,
-                    filetype: filetype,
-                    fileSize: size,
-                    width: width,
-                    height: height,
-                    token: token,
-                    progressKey: progressKey,
-                    network: context.account.network)
-                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
-                att.url = uploaded.cdnURL
+                guard let size = await Self.fileSize(of: fileURL) else { return false }
+                let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                    filename: sanitized, filetype: filetype, size: size,
+                    width: width, height: height, token: token)
+                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                att.url = cdnURL
                 att.size = Int32(size)
-                att.thumbnail = await uploadVideoThumbnail(
-                    image, originalFilename: sanitized, context: context, token: token)
+
+                if let thumb = await reserveVideoThumbnail(image, originalFilename: sanitized, context: context, token: token) {
+                    att.thumbnail = thumb.cdnURL
+                    pendingUploads.append(thumb.pending)
+                }
+
+                pendingUploads.append(PendingMinIOUpload(
+                    minioURL: uploadInfo.url,
+                    contentType: filetype,
+                    body: .file(fileURL),
+                    progressKey: progressKey,
+                    cacheImage: nil))
             } else {
                 let isGif = filetype == "image/gif" || ext == "gif"
                 guard let payload = await Self.imageUploadPayload(
                     image: image, fileURL: fileURL, filetype: filetype,
-                    filename: sanitized, isGif: isGif) else { return nil }
+                    filename: sanitized, isGif: isGif) else { return false }
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
                     width: width, height: height, token: token)
-                try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, data: payload.data, contentType: payload.filetype)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-                ImageCache.shared.setImage(image, data: payload.data, forKey: cdnURL)
                 att.filename = payload.filename
                 att.filetype = payload.filetype
                 att.url = cdnURL
                 att.size = Int32(payload.data.count)
+                pendingUploads.append(PendingMinIOUpload(
+                    minioURL: uploadInfo.url,
+                    contentType: payload.filetype,
+                    body: .data(payload.data),
+                    progressKey: progressKey,
+                    cacheImage: (image, payload.data, cdnURL)))
             }
 
-            try? FileManager.default.removeItem(at: fileURL)
-            return att
+            item.reservedAttachment = att
+            item.presignKey = PresignFinishContent.presignKey(from: att.url)
+            item.pendingUploads = pendingUploads
+            return true
         } catch {
             SentryLogger.capture(error, extras: [
-                "where": "AttachmentUploadCoordinator.uploadOneImage",
+                "where": "AttachmentUploadCoordinator.reserveOneImage",
                 "filename": originalFilename,
             ])
-            return nil
+            return false
         }
     }
 
     @MainActor
-    private func uploadVideoThumbnail(
+    private func reserveVideoThumbnail(
         _ thumbnail: UIImage,
         originalFilename: String,
         context: AccountContext,
         token: String
-    ) async -> String {
-        guard let thumbData = await Self.encodeJPEG(thumbnail, quality: 0.7) else { return "" }
+    ) async -> (cdnURL: String, pending: PendingMinIOUpload)? {
+        guard let thumbData = await Self.encodeJPEG(thumbnail, quality: 0.7) else { return nil }
 
         let baseName = (originalFilename as NSString).deletingPathExtension
         let thumbFilename = "\(baseName.isEmpty ? "video" : baseName)_thumb.jpg"
@@ -579,13 +810,138 @@ final class AttachmentUploadCoordinator {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
                 width: width, height: height, token: token)
-            try await context.account.network.uploadToMinIO(
-                url: uploadInfo.url, data: thumbData, contentType: "image/jpeg")
-            let thumbCdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-            ImageCache.shared.setImage(thumbnail, data: thumbData, forKey: thumbCdnURL)
-            return thumbCdnURL
+            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+            let pending = PendingMinIOUpload(
+                minioURL: uploadInfo.url,
+                contentType: "image/jpeg",
+                body: .data(thumbData),
+                progressKey: "",
+                cacheImage: (thumbnail, thumbData, cdnURL))
+            return (cdnURL, pending)
         } catch {
-            return ""
+            return nil
+        }
+    }
+
+    // MARK: - Execute uploads
+
+    @MainActor
+    private func executeFileUploads(_ session: ImageUploadSession, context: AccountContext, token: String) async {
+        for track in session.fileTracks where track.state.isUploading {
+            let ok = await executePendingUpload(track.pending, context: context)
+            track.state = ok ? .uploaded(track.attachment) : .failed
+            if ok {
+                markPresignFinished(session, key: track.presignKey)
+                try? FileManager.default.removeItem(at: track.file.url)
+            } else {
+            }
+            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
+            let pendingNew = session.presignFinishedKeys.count - session.lastSyncedPresignCount
+            if pendingNew >= Self.presignEditBatchSize {
+                await maybeSyncPresignFinish(session, context: context, token: token)
+            }
+        }
+    }
+
+    @MainActor
+    private func executeImageUploads(_ session: ImageUploadSession, context: AccountContext, token: String) async {
+        var nextIndex = 0
+        await withTaskGroup(of: (Int, Bool).self) { group in
+            func addNext() {
+                guard nextIndex < session.items.count else { return }
+                let index = nextIndex
+                nextIndex += 1
+                let item = session.items[index]
+                guard item.reservedAttachment != nil, item.state.isUploading else { return }
+                group.addTask { @MainActor in
+                    let ok = await self.executeImageUpload(item, context: context)
+                    return (index, ok)
+                }
+            }
+
+            for _ in 0..<Self.maxConcurrentUploads { addNext() }
+
+            for await (index, ok) in group {
+                let item = session.items[index]
+                session.items[index].state = ok
+                    ? .uploaded(item.reservedAttachment!)
+                    : .failed
+                if ok {
+                    markPresignFinished(session, key: item.presignKey)
+                } else {
+                }
+                Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
+                let pendingNew = session.presignFinishedKeys.count - session.lastSyncedPresignCount
+                if pendingNew >= Self.presignEditBatchSize {
+                    await maybeSyncPresignFinish(session, context: context, token: token)
+                }
+                addNext()
+            }
+        }
+    }
+
+    @MainActor
+    private func executeImageUpload(_ item: ImageUploadItem, context: AccountContext) async -> Bool {
+        guard item.reservedAttachment != nil else { return false }
+        for pending in item.pendingUploads {
+            guard await executePendingUpload(pending, context: context) else { return false }
+        }
+        if let fileURL = item.fileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        return true
+    }
+
+    @MainActor
+    private func executePendingUpload(
+        _ pending: PendingMinIOUpload,
+        context: AccountContext
+    ) async -> Bool {
+        let progressKey = pending.progressKey
+        if !progressKey.isEmpty {
+            AttachmentUploadProgressStore.shared.setProgress(0, forKey: progressKey)
+            Self.postUploadProgress(key: progressKey, progress: 0, previousBucket: -1)
+        }
+        do {
+            switch pending.body {
+            case let .data(data):
+                try await context.account.network.uploadToMinIO(
+                    url: pending.minioURL, data: data, contentType: pending.contentType)
+                if !progressKey.isEmpty {
+                    AttachmentUploadProgressStore.shared.setProgress(1, forKey: progressKey)
+                }
+            case let .file(fileURL):
+                _ = try await MinIOStreamingUploader.shared.put(
+                    url: pending.minioURL, fileURL: fileURL, contentType: pending.contentType
+                ) { fraction in
+                    guard !progressKey.isEmpty else { return }
+                    let clamped = min(max(fraction, 0), 1)
+                    let previous = AttachmentUploadProgressStore.shared.progress(forKey: progressKey)
+                    AttachmentUploadProgressStore.shared.setProgress(clamped, forKey: progressKey)
+                    Self.postUploadProgress(
+                        key: progressKey,
+                        progress: clamped,
+                        previousBucket: Self.progressBucket(for: previous))
+                }
+                if !progressKey.isEmpty {
+                    AttachmentUploadProgressStore.shared.setProgress(1, forKey: progressKey)
+                }
+            }
+            if let cache = pending.cacheImage {
+                ImageCache.shared.setImage(cache.image, data: cache.data, forKey: cache.cdnURL)
+            }
+            if !progressKey.isEmpty {
+                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
+            }
+            return true
+        } catch {
+            if !progressKey.isEmpty {
+                AttachmentUploadProgressStore.shared.clear(forKey: progressKey)
+            }
+            SentryLogger.capture(error, extras: [
+                "where": "AttachmentUploadCoordinator.executePendingUpload",
+            ])
+            return false
         }
     }
 
@@ -624,6 +980,36 @@ final class AttachmentUploadCoordinator {
     }
 
     // MARK: - Helpers
+
+    private static func progressBucket(for value: Double) -> Int {
+        Int(min(max(value, 0), 1) * Double(progressNotificationBucketCount))
+    }
+
+    private static func postUploadProgress(key: String, progress: Double, previousBucket: Int) {
+        let clamped = min(max(progress, 0), 1)
+        let newBucket = progressBucket(for: clamped)
+        guard newBucket != previousBucket || clamped >= 1 else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .mezonAttachmentUploadProgress,
+                object: nil,
+                userInfo: ["key": key, "progress": clamped])
+        }
+    }
+
+    private static func sessionMessageId(_ session: ImageUploadSession) -> String {
+        session.serverMessageId != 0 ? "\(session.serverMessageId)" : session.params.localId
+    }
+
+    private static func postUploadSlotStateChanged(messageId: String) {
+        guard !messageId.isEmpty else { return }
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .mezonAttachmentUploadSlotStateChanged,
+                object: nil,
+                userInfo: ["messageId": messageId])
+        }
+    }
 
     @MainActor
     private func nudge(_ session: ImageUploadSession, context: AccountContext) {

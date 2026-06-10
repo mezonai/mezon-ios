@@ -127,6 +127,30 @@ extension MessageRecord {
         var fresh = MessageRecord(from: api, customId: customId)
         guard let prev = previous, prev.id == fresh.id else { return fresh }
         if prev.senderId != fresh.senderId { return fresh }
+        let mergedContent = PresignFinishContent.mergePresignFinishContent(local: prev.content, server: fresh.content)
+        if mergedContent != fresh.content {
+            fresh = MessageRecord(
+                id: fresh.id,
+                channelId: fresh.channelId,
+                clanId: fresh.clanId,
+                senderId: fresh.senderId,
+                content: mergedContent,
+                createdAt: fresh.createdAt,
+                editedAt: fresh.editedAt,
+                isDeleted: fresh.isDeleted,
+                code: fresh.code,
+                senderDisplayName: fresh.senderDisplayName,
+                senderAvatarURL: fresh.senderAvatarURL,
+                sendingState: fresh.sendingState,
+                attachmentsJSON: mergedAttachmentsJSON(fresh: fresh, previous: prev),
+                reactionsJSON: fresh.reactionsJSON,
+                referencesData: fresh.referencesData,
+                mentionsJSON: fresh.mentionsJSON
+            )
+        }
+        if PresignFinishContent.hasPresignFinishField(in: fresh.content) {
+            fresh.editedAt = nil
+        }
         let bodyTextUnchanged = prev.content == fresh.content
             && prev.mentionsJSON == fresh.mentionsJSON
             && prev.referencesData == fresh.referencesData
@@ -154,7 +178,7 @@ extension MessageRecord {
                 senderDisplayName: mergedDisplayName,
                 senderAvatarURL: mergedAvatarURL,
                 sendingState: fresh.sendingState,
-                attachmentsJSON: fresh.attachmentsJSON,
+                attachmentsJSON: mergedAttachmentsJSON(fresh: fresh, previous: prev),
                 reactionsJSON: mergedReactionsJSON(fresh: fresh, previous: prev),
                 referencesData: fresh.referencesData,
                 mentionsJSON: fresh.mentionsJSON
@@ -202,7 +226,7 @@ extension MessageRecord {
             senderDisplayName: finalDisplayName,
             senderAvatarURL: fresh.senderAvatarURL ?? prev.senderAvatarURL,
             sendingState: fresh.sendingState,
-            attachmentsJSON: fresh.attachmentsJSON,
+            attachmentsJSON: mergedAttachmentsJSON(fresh: fresh, previous: prev),
             reactionsJSON: mergedReactionsJSON(fresh: fresh, previous: prev),
             referencesData: fresh.referencesData,
             mentionsJSON: fresh.mentionsJSON
@@ -233,9 +257,44 @@ extension MessageRecord {
         fresh.reactionsJSON.isEmpty ? previous.reactionsJSON : fresh.reactionsJSON
     }
 
+    private static func mergedAttachmentsJSON(incoming: Data, previous: Data) -> Data {
+        incoming.isEmpty ? previous : incoming
+    }
+
+    private static func mergedAttachmentsJSON(fresh: MessageRecord, previous: MessageRecord) -> Data {
+        mergedAttachmentsJSON(incoming: fresh.attachmentsJSON, previous: previous.attachmentsJSON)
+    }
+
+    static func mergingIncomingPreservingEmptyAttachments(
+        incoming: MessageRecord,
+        previous: MessageRecord
+    ) -> MessageRecord {
+        let attachmentsJSON = mergedAttachmentsJSON(incoming: incoming.attachmentsJSON, previous: previous.attachmentsJSON)
+        guard attachmentsJSON != incoming.attachmentsJSON else { return incoming }
+        return MessageRecord(
+            id: incoming.id,
+            channelId: incoming.channelId,
+            clanId: incoming.clanId,
+            senderId: incoming.senderId,
+            content: incoming.content,
+            createdAt: incoming.createdAt,
+            editedAt: incoming.editedAt,
+            isDeleted: incoming.isDeleted,
+            code: incoming.code,
+            senderDisplayName: incoming.senderDisplayName,
+            senderAvatarURL: incoming.senderAvatarURL,
+            sendingState: incoming.sendingState,
+            attachmentsJSON: attachmentsJSON,
+            reactionsJSON: incoming.reactionsJSON,
+            referencesData: incoming.referencesData,
+            mentionsJSON: incoming.mentionsJSON
+        )
+    }
+
     private static func recordByMergingReactions(fresh: MessageRecord, previous: MessageRecord) -> MessageRecord {
         let reactionsJSON = mergedReactionsJSON(fresh: fresh, previous: previous)
-        guard reactionsJSON != fresh.reactionsJSON else { return fresh }
+        let attachmentsJSON = mergedAttachmentsJSON(fresh: fresh, previous: previous)
+        guard reactionsJSON != fresh.reactionsJSON || attachmentsJSON != fresh.attachmentsJSON else { return fresh }
         return MessageRecord(
             id: fresh.id,
             channelId: fresh.channelId,
@@ -249,7 +308,7 @@ extension MessageRecord {
             senderDisplayName: fresh.senderDisplayName,
             senderAvatarURL: fresh.senderAvatarURL,
             sendingState: fresh.sendingState,
-            attachmentsJSON: fresh.attachmentsJSON,
+            attachmentsJSON: attachmentsJSON,
             reactionsJSON: reactionsJSON,
             referencesData: fresh.referencesData,
             mentionsJSON: fresh.mentionsJSON

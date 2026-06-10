@@ -369,6 +369,39 @@ final class HomeViewController: BaseViewController {
         )
     }
 
+    func openChannelForOnboarding(_ channel: Mezon_Api_ChannelDescription) {
+        guard channel.channelID != 0 else { return }
+        channelListVC.selectWithoutNavigation(channelId: channel.channelID)
+
+        guard let nav = navigationController else { return }
+
+        if let existing = nav.viewControllers
+            .compactMap({ $0 as? ChatViewController })
+            .first(where: { $0.channel.channelID == channel.channelID }) {
+            nav.popToViewController(existing, animated: true)
+            return
+        }
+
+        var parentName: String?
+        if channel.parentID != 0 {
+            parentName = channelListVC.allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: channelListVC.clanId,
+            channel: channel,
+            context: context,
+            parentName: parentName
+        )
+        var stack = nav.viewControllers
+        stack.removeAll { $0 is ChatViewController }
+        stack.append(chatVC)
+        if let mezonNav = nav as? NavigationController {
+            mezonNav.setViewControllers(stack, animated: true)
+        } else {
+            nav.setViewControllers(stack, animated: true)
+        }
+    }
+
     private func bindSearchTapped() {
         disposables.add(
             (channelListVC.searchTappedSignal |> deliverOnMainQueue)

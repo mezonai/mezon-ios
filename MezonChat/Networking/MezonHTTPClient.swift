@@ -942,31 +942,45 @@ final class MezonHTTPClient {
         mode: Int32,
         isPublic: Bool,
         messageId: Int64,
-        content: String,
-        mentions: [Mezon_Api_MessageMention] = [],
-        attachments: [Mezon_Api_MessageAttachment] = [],
+        content: String? = nil,
+        mentions: [Mezon_Api_MessageMention]? = nil,
+        attachments: [Mezon_Api_MessageAttachment]? = nil,
         hideEditted: Bool = false,
-        topicId: Int64 = 0,
+        topicId: Int64? = nil,
         isUpdateMsgTopic: Bool = false,
-        token: String
+        createTimeSeconds: UInt32? = nil,
+        token: String,
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
         var req = Mezon_Realtime_ChannelMessageUpdate()
         req.clanID = clanId
         req.channelID = channelId
         req.messageID = messageId
-        req.content = content
-        req.mentions = mentions
-        req.attachments = attachments
         req.mode = mode
         req.isPublic = isPublic
         req.hideEditted = hideEditted
-        req.topicID = topicId
         req.isUpdateMsgTopic = isUpdateMsgTopic
+        if let topicId, topicId != 0 {
+            req.topicID = topicId
+        }
+        if let content, !content.isEmpty {
+            req.content = content
+        }
+        if let mentions, !mentions.isEmpty {
+            req.mentions = mentions
+        }
+        if let attachments, !attachments.isEmpty {
+            req.attachments = attachments
+        }
+        if let createTimeSeconds, createTimeSeconds != 0 {
+            req.createTimeSeconds = createTimeSeconds
+        }
 
         let ack: Mezon_Realtime_ChannelMessageAck = try await postProto(
             path: "/mezon.api.Mezon/UpdateChannelMessage",
             message: req,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preferHTTPFirst: preferHTTPFirst
         )
         return ack
     }
@@ -1202,6 +1216,40 @@ final class MezonHTTPClient {
         req.clanID = clanId
         return try await postProto(
             path: "/mezon.api.Mezon/ListClanUsers",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listOnboarding(clanId: Int64, limit: Int32 = 100, token: String) async throws -> [Mezon_Api_OnboardingItem] {
+        var req = Mezon_Api_ListOnboardingRequest()
+        req.clanID = clanId
+        req.limit = limit
+        let response: Mezon_Api_ListOnboardingResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListOnboarding",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listOnboarding
+    }
+
+    func listOnboardingStep(clanId: Int64, token: String) async throws -> [Mezon_Api_OnboardingSteps] {
+        var req = Mezon_Api_ListOnboardingStepRequest()
+        req.clanID = clanId
+        let response: Mezon_Api_ListOnboardingStepResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListOnboardingStep",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listOnboardingStep
+    }
+
+    func updateOnboardingStep(clanId: Int64, onboardingStep: Int32, token: String) async throws {
+        var req = Mezon_Api_UpdateOnboardingStepRequest()
+        req.clanID = clanId
+        req.onboardingStep = onboardingStep
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateOnboardingStep",
             message: req,
             auth: .bearer(token)
         )
@@ -1467,11 +1515,6 @@ final class MezonHTTPClient {
         req.width = Int32(width)
         req.height = Int32(height)
         req.partCount = Int32(partCount)
-        req.parts = (1...max(1, partCount)).map { index in
-            var part = Mezon_Api_MultipartUploadAttachmentPart()
-            part.partNumber = Int32(index)
-            return part
-        }
         return try await postProto(
             path: "/mezon.api.Mezon/MultipartUploadAttachmentFileStart",
             message: req,

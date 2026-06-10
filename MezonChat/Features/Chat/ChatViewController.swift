@@ -25,6 +25,7 @@ struct ParsedAttachment: Equatable {
     var localImage: UIImage?
     var isUploading: Bool = false
     var uploadFailed: Bool = false
+    var isPresignPending: Bool = false
     var uploadProgress: Double = 0
     var uploadProgressKey: String = ""
 
@@ -64,7 +65,22 @@ struct ParsedAttachment: Equatable {
             && lhs.width == rhs.width && lhs.height == rhs.height && lhs.durationSeconds == rhs.durationSeconds
             && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
+            && lhs.isPresignPending == rhs.isPresignPending
             && lhs.uploadProgress == rhs.uploadProgress
+    }
+
+    static func attachmentsStructurallyEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.url != r.url || l.filename != r.filename || l.filetype != r.filetype
+                || l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds
+                || l.thumbnail != r.thumbnail
+                || l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed
+                || l.isPresignPending != r.isPresignPending {
+                return false
+            }
+        }
+        return true
     }
 
     private static let maxPendingCacheEntries = 50
@@ -369,13 +385,12 @@ final class ChatViewController: ViewController {
     private(set) var lastSeenMessageId: String?
     private var didStartParentChannelMetaView = false
 
-    private lazy var locationManager: CLLocationManager = {
-        let lm = CLLocationManager()
-        lm.desiredAccuracy = kCLLocationAccuracyBest
-        return lm
-    }()
+    private let locationManager = CLLocationManager()
     private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
     private var isWaitingForLocationAuthorization = false
+    private var locationFetchTimeoutWorkItem: DispatchWorkItem?
+    private static let cachedLocationMaxAge: TimeInterval = 120
+    private static let locationFetchTimeout: TimeInterval = 8
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -458,8 +473,6 @@ final class ChatViewController: ViewController {
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
     private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
-    private var attachmentProgressReloadWorkItem: DispatchWorkItem?
-    private static let attachmentProgressReloadInterval: TimeInterval = 0.25
 
     private struct RemoteTyperState {
         var displayName: String
@@ -472,6 +485,27 @@ final class ChatViewController: ViewController {
     private static let remoteTypingStripMaxHeight: CGFloat = 22
     private static let remoteTypingStripBottomPadding: CGFloat = 2
     private static let chatFrameBottomGap: CGFloat = 6.sh
+
+    private lazy var memberOnboardingMissionBarView: MemberOnboardingChatMissionBarView = {
+        let bar = MemberOnboardingChatMissionBarView()
+        bar.isHidden = true
+        bar.onTap = { [weak self] in self?.handleMemberOnboardingMissionBarTap() }
+        return bar
+    }()
+    private var memberOnboardingMissionBarDidInitialLayout = false
+    private var memberOnboardingMissionBarVisible = false {
+        didSet {
+            guard isViewLoaded, oldValue != memberOnboardingMissionBarVisible, let layout = lastLayout else { return }
+            let transition: ContainedViewLayoutTransition
+            if memberOnboardingMissionBarVisible, !memberOnboardingMissionBarDidInitialLayout {
+                memberOnboardingMissionBarDidInitialLayout = true
+                transition = .immediate
+            } else {
+                transition = .animated(duration: 0.15, curve: .easeInOut)
+            }
+            containerLayoutUpdated(layout, transition: transition)
+        }
+    }
 
     private lazy var remoteTypingStripView: UIView = {
         let v = UIView()
@@ -656,6 +690,7 @@ final class ChatViewController: ViewController {
                     )
                     return
                 }
+                if ClanCreationLimit.showLimitToastIfNeeded(context: self.context) { return }
                 Task {
                     do {
                         let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
@@ -854,6 +889,7 @@ final class ChatViewController: ViewController {
         messagesNode.applyTheme()
         setupInputBar()
         configureAnonymousComposerAndAdvancePanel()
+        locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         start()
         
         NotificationCenter.default.addObserver(
@@ -873,6 +909,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelPinsNeedRefresh(_:)), name: .mezonChannelPinsNeedRefresh, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadSlotStateChanged(_:)), name: .mezonAttachmentUploadSlotStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
     }
 
@@ -1054,27 +1091,9 @@ final class ChatViewController: ViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        var layoutToApply = layout
-        let initialBottomInset = max(layout.intrinsicInsets.bottom, layout.safeInsets.bottom)
-        let initialInputH = layout.inputHeight ?? 0
+        let layoutToApply = layout
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
-        let shouldSuppressShareContactKeyboardInset =
-            shouldSuppressShareContactKeyboardInsetOnReturn
-            && initialInputH > initialBottomInset + 1
-            && !composerHasKeyboardFocus
-            && !isKeyboardVisible
-            && trackedKeyboardHeight <= 0.5
-        if shouldSuppressShareContactKeyboardInset {
-            layoutToApply = layout.withUpdatedInputHeight(nil)
-            currentKeyboardOffset = 0
-            suppressScrollToBottomForNextKeyboardInset = false
-        }
-        if shouldSuppressShareContactKeyboardInsetOnReturn {
-            if composerHasKeyboardFocus || isKeyboardVisible {
-                shouldSuppressShareContactKeyboardInsetOnReturn = false
-            }
-        }
-        lastLayout = layoutToApply
+        lastLayout = layout
 
         let bottomInset = max(layoutToApply.intrinsicInsets.bottom, layoutToApply.safeInsets.bottom)
         let layoutInputH = layoutToApply.inputHeight ?? 0
@@ -1129,31 +1148,35 @@ final class ChatViewController: ViewController {
         let showAppHotbar = shouldShowChannelAppHotbar
         let appHotbarH: CGFloat = showAppHotbar ? ChannelAppHotbarBarView.prefersFixedHeight : 0
         channelAppHotbar.isHidden = !showAppHotbar
+        let missionBarH: CGFloat = memberOnboardingMissionBarVisible ? MemberOnboardingChatMissionBarView.preferredHeight : 0
+        memberOnboardingMissionBarView.isHidden = missionBarH == 0
         let totalBottomH = appHotbarH + sendComposerH
-        let inputY = layoutToApply.size.height - bottomInset - bottomOffset - totalBottomH
+        let composerTop = layoutToApply.size.height - bottomInset - bottomOffset - totalBottomH
         let inputFrame = CGRect(
             x: 0,
-            y: inputY,
+            y: composerTop + appHotbarH,
             width: layoutToApply.size.width,
             height: sendComposerH + bottomInset
         )
         sendInputViewController.syncComposerBottomSafeInset(bottomInset)
+        if missionBarH > 0 {
+            let missionFrame = CGRect(
+                x: 0,
+                y: composerTop - missionBarH,
+                width: layoutToApply.size.width,
+                height: missionBarH
+            )
+            transition.updateFrame(view: memberOnboardingMissionBarView, frame: missionFrame, beginWithCurrentState: true)
+        }
         if showAppHotbar {
             let hotbarFrame = CGRect(
                 x: 0,
-                y: inputY,
+                y: composerTop,
                 width: layoutToApply.size.width,
                 height: appHotbarH
             )
-            let composerTop = inputY + appHotbarH
-            let composerFrame = CGRect(
-                x: 0,
-                y: composerTop,
-                width: layoutToApply.size.width,
-                height: sendComposerH + bottomInset
-            )
             transition.updateFrame(view: channelAppHotbar, frame: hotbarFrame, beginWithCurrentState: true)
-            transition.updateFrame(view: sendInputViewController.view, frame: composerFrame, beginWithCurrentState: true)
+            transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
         } else {
             transition.updateFrame(view: sendInputViewController.view, frame: inputFrame, beginWithCurrentState: true)
         }
@@ -1162,7 +1185,7 @@ final class ChatViewController: ViewController {
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
-        let typingFrame = CGRect(x: 0, y: inputY - stripH, width: layoutToApply.size.width, height: stripH)
+        let typingFrame = CGRect(x: 0, y: composerTop - missionBarH - stripH, width: layoutToApply.size.width, height: stripH)
         transition.updateFrame(view: remoteTypingStripView, frame: typingFrame, beginWithCurrentState: true)
         remoteTypingLabel.frame = CGRect(
             x: 12,
@@ -1171,7 +1194,7 @@ final class ChatViewController: ViewController {
             height: Self.remoteTypingStripMaxHeight
         )
 
-        let totalInputArea = totalBottomH + bottomOffset
+        let totalInputArea = totalBottomH + missionBarH + bottomOffset
         if bottomOffset > 0 && currentKeyboardOffset == 0 && !emojiPicker.wasJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
             let previousTotalInputArea = inputBarHeight + currentKeyboardOffset
             if totalInputArea > previousTotalInputArea + 20 {
@@ -1198,7 +1221,6 @@ final class ChatViewController: ViewController {
     private var lastLayout: ContainerViewLayout?
     private var wasCoveredByPushedController = false
     private var needsRefreshAfterTopicDiscussion = false
-    private var shouldSuppressShareContactKeyboardInsetOnReturn = false
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
@@ -1207,6 +1229,7 @@ final class ChatViewController: ViewController {
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
         }
+        refreshMemberOnboardingMissionBar()
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
             reloadDisplaysWithCurrentPins()
@@ -1223,17 +1246,6 @@ final class ChatViewController: ViewController {
         if !hasComposerFR && !isReactionEmojiPickerSheetHostingFirstResponder {
             isKeyboardVisible = false
             trackedKeyboardHeight = 0
-        }
-        if shouldSuppressShareContactKeyboardInsetOnReturn {
-            if !hasComposerFR {
-                isKeyboardVisible = false
-                trackedKeyboardHeight = 0
-                currentKeyboardOffset = 0
-                suppressScrollToBottomForNextKeyboardInset = false
-                if let layout = lastLayout, (layout.inputHeight ?? 0) > 1 {
-                    lastLayout = layout.withUpdatedInputHeight(nil)
-                }
-            }
         }
         reconcileKeyboardAfterNotificationNavigationIfNeeded()
         if let layout = lastLayout {
@@ -1344,20 +1356,42 @@ final class ChatViewController: ViewController {
 
     @objc private func handleAttachmentUploadProgress(_ notification: Notification) {
         guard let key = notification.userInfo?["key"] as? String, !key.isEmpty else { return }
+        let progress = (notification.userInfo?["progress"] as? Double) ?? 0
         let isRelevant = ParsedAttachment.pendingDocumentPlaceholders.values
             .contains { docs in docs.contains { $0.uploadProgressKey == key } }
             || AttachmentUploadCoordinator.shared.hasActiveProgressKey(key)
         guard isRelevant else { return }
-        guard attachmentProgressReloadWorkItem == nil else { return }
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.attachmentProgressReloadWorkItem = nil
-            self.reloadDisplaysForPendingSendingFeedback()
-            self.needsReloadPipe.putNext(())
+        guard isViewLoaded else { return }
+        messagesNode.updateUploadProgress(progressKey: key, progress: progress)
+    }
+
+    @objc private func handleAttachmentUploadSlotStateChanged(_ notification: Notification) {
+        guard let messageId = notification.userInfo?["messageId"] as? String, !messageId.isEmpty else { return }
+        refreshUploadingMessageDisplay(messageId: messageId)
+    }
+
+    private func refreshUploadingMessageDisplay(messageId: String) {
+        let channelIdStr = storageChannelId
+        guard let record = context.account.postbox.read({ tx in
+            tx.getMessageById(messageId, channelId: channelIdStr) ?? tx.getMessageById(messageId)
+        }) else { return }
+        let updated = buildDisplayMessages(from: [record]).first(where: { $0.id == messageId })
+        guard let updated else { return }
+        guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        let old = messages[idx]
+        guard !ParsedAttachment.attachmentsStructurallyEqual(old.attachments, updated.attachments) else { return }
+
+        if let pIdx = persistentMessages.firstIndex(where: { $0.id == messageId }) {
+            var patched = persistentMessages
+            patched[pIdx] = updated
+            persistentMessages = patched
         }
-        attachmentProgressReloadWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.attachmentProgressReloadInterval, execute: workItem)
+        var patchedMessages = messages
+        patchedMessages[idx] = updated
+        messages = patchedMessages
+
+        guard isViewLoaded else { return }
+        messagesNode.applySingleMessagePatch(updated)
     }
 
     @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
@@ -2491,8 +2525,11 @@ final class ChatViewController: ViewController {
 
     private static func messageUpdateToken(_ m: ChatMessageDisplay) -> String {
         let edited = m.message.editedAt.map { String($0.timeIntervalSince1970) } ?? ""
+        let presignHash = PresignFinishContent.parseKeys(from: m.rawContentData ?? Data())?.joined(separator: ",") ?? ""
         let att = m.attachments
-            .map { "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\(Int($0.uploadProgress * 100))" }
+            .map {
+                "\($0.url)|\($0.filename)|\($0.filetype)|\($0.isUploading)|\($0.uploadFailed)|\($0.isPresignPending)"
+            }
             .joined(separator: ";")
         let pin = m.message.isPinned ? "1" : "0"
         let pollHash: String
@@ -2523,7 +2560,7 @@ final class ChatViewController: ViewController {
         }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -2720,15 +2757,20 @@ final class ChatViewController: ViewController {
             let showsSendingFeedback = record.sendingState == .pending
                 && now.timeIntervalSince(sendingFeedbackBeganAt) >= Self.pendingSendFeedbackDelay
 
-            var attachments = Self.parseAttachments(record.attachmentsJSON)
-            if let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id) {
-                let nonMedia = attachments.filter { !$0.isMedia }
-                if nonMedia.isEmpty {
-                    let localDocs = ParsedAttachment.pendingDocumentPlaceholders[record.id] ?? []
-                    attachments = overlayMedia + localDocs
-                } else {
-                    attachments = overlayMedia + nonMedia
+            var attachments = Self.applyPresignFinishState(
+                to: Self.parseAttachments(record.attachmentsJSON),
+                contentData: record.content
+            )
+            let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id)
+            let overlayFiles = AttachmentUploadCoordinator.shared.fileOverlay(for: record.id)
+            if overlayMedia != nil || overlayFiles != nil {
+                let audio = attachments.filter(\.isAudio)
+                var media = attachments.filter(\.isMedia)
+                if let overlayMedia {
+                    media = overlayMedia
                 }
+                let files = overlayFiles ?? attachments.filter { !$0.isMedia && !$0.isAudio }
+                attachments = media + audio + files
             } else if record.sendingState == .pending {
                 let stillUploading = true
                 let localImages = ParsedAttachment.pendingImageCache[record.id] ?? []
@@ -3052,6 +3094,19 @@ final class ChatViewController: ViewController {
             }
         }
         return []
+    }
+
+    private static func applyPresignFinishState(
+        to attachments: [ParsedAttachment],
+        contentData: Data
+    ) -> [ParsedAttachment] {
+        guard let keys = PresignFinishContent.parseKeys(from: contentData) else { return attachments }
+        return attachments.map { att in
+            guard !att.url.isEmpty, !att.isUploading, att.localImage == nil, !att.uploadFailed else { return att }
+            var copy = att
+            copy.isPresignPending = !PresignFinishContent.isAttachmentReady(url: att.url, presignFinish: keys)
+            return copy
+        }
     }
 
     private static func parseAttachments(_ data: Data) -> [ParsedAttachment] {
@@ -3516,6 +3571,7 @@ final class ChatViewController: ViewController {
     private func setupInputBar() {
         remoteTypingStripView.addSubview(remoteTypingLabel)
         view.addSubview(remoteTypingStripView)
+        view.addSubview(memberOnboardingMissionBarView)
         channelAppHotbar.onLaunch = { [weak self] in self?.openChannelAppFromHotbar() }
         channelAppHotbar.onHelp = { [weak self] in self?.openChannelAppHelpFromHotbar() }
         view.addSubview(channelAppHotbar)
@@ -3543,7 +3599,9 @@ final class ChatViewController: ViewController {
         inputBarHeight = sendInputViewController.totalHeight
         remoteTypingStripView.alpha = 0
         remoteTypingStripView.isHidden = true
+        memberOnboardingMissionBarView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
+        view.bringSubviewToFront(memberOnboardingMissionBarView)
         view.bringSubviewToFront(channelAppHotbar)
         view.bringSubviewToFront(sendInputViewController.view)
         emojiPicker.bringToFront()
@@ -3560,6 +3618,119 @@ final class ChatViewController: ViewController {
             self, selector: #selector(keyboardWillChangeFrame(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification, object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMemberOnboardingDidUpdate(_:)),
+            name: .mezonMemberOnboardingDidUpdate,
+            object: nil
+        )
+    }
+
+    @objc private func handleMemberOnboardingDidUpdate(_ notification: Notification) {
+        guard let gid = notification.userInfo?["clanId"] as? Int64, gid == clanId else { return }
+        refreshMemberOnboardingMissionBar()
+    }
+
+    private func cachedClanChannelsForOnboarding() -> [Mezon_Api_ChannelDescription] {
+        var channels = [channel]
+        if let mission = MemberOnboardingProgress.currentMission(context: context, clanId: clanId),
+           mission.channelId != channel.channelID,
+           let resolved = context.account.postbox.resolvedChannelDescription(
+               clanId: clanId,
+               channelId: mission.channelId
+           ) {
+            channels.append(resolved)
+        }
+        return channels
+    }
+
+    private func refreshMemberOnboardingMissionBar() {
+        guard isViewLoaded, clanId != 0, topicId == 0 else {
+            if memberOnboardingMissionBarVisible {
+                memberOnboardingMissionBarVisible = false
+            }
+            return
+        }
+
+        let state = MemberOnboardingProgress.compute(context: context, clanId: clanId)
+        guard state.isVisible, state.completedSteps < state.missions.count else {
+            if memberOnboardingMissionBarVisible {
+                memberOnboardingMissionBarVisible = false
+            }
+            return
+        }
+
+        let mission = state.missions[state.completedSteps]
+        let channelLabel = MemberOnboardingProgress.resolveChannelLabel(
+            channelId: mission.channelId,
+            context: context,
+            clanId: clanId,
+            channels: cachedClanChannelsForOnboarding()
+        )
+        memberOnboardingMissionBarView.configure(
+            title: mission.title,
+            subtitle: MemberOnboardingProgress.missionActionSubtitle(
+                taskType: mission.taskType,
+                channelLabel: channelLabel
+            )
+        )
+        memberOnboardingMissionBarView.applyTheme()
+        memberOnboardingMissionBarVisible = true
+    }
+
+    private func handleMemberOnboardingMissionBarTap() {
+        guard clanId != 0 else { return }
+        let state = MemberOnboardingProgress.compute(context: context, clanId: clanId)
+        guard state.isVisible, state.completedSteps < state.missions.count else { return }
+        let mission = state.missions[state.completedSteps]
+        MemberOnboardingProgress.performMission(
+            mission,
+            at: state.completedSteps,
+            completedSteps: state.completedSteps,
+            context: context,
+            clanId: clanId,
+            channels: cachedClanChannelsForOnboarding(),
+            navigation: MemberOnboardingChannelNavigation(
+                openChat: { [weak self] target in
+                    self?.selectChannelForMemberOnboarding(target)
+                },
+                presentVoice: { [weak self] target in
+                    self?.presentJoinVoiceSheet(for: target)
+                }
+            )
+        )
+    }
+
+    private func selectChannelForMemberOnboarding(_ target: Mezon_Api_ChannelDescription) {
+        guard target.channelID != channel.channelID else { return }
+        if let home = (navigationController as? MezonRootController)?.homeController {
+            home.openChannelForOnboarding(target)
+            return
+        }
+        var parentName: String?
+        if target.parentID != 0 {
+            parentName = context.account.postbox.resolvedChannelDescription(
+                clanId: clanId,
+                channelId: target.parentID
+            )?.channelLabel
+        }
+        let chatVC = ChatViewController(
+            clanId: clanId,
+            channel: target,
+            context: context,
+            parentName: parentName
+        )
+        guard let nav = navigationController else { return }
+        if let existing = nav.viewControllers
+            .compactMap({ $0 as? ChatViewController })
+            .first(where: { $0.channel.channelID == target.channelID }) {
+            nav.popToViewController(existing, animated: true)
+            return
+        }
+        var stack = nav.viewControllers
+        stack.removeAll { $0 is ChatViewController }
+        stack.append(chatVC)
+        nav.setViewControllers(stack, animated: true)
     }
 
     private func runUIViewAnimationMatchingKeyboard(
@@ -3728,6 +3899,18 @@ final class ChatViewController: ViewController {
         handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
     }
 
+    private func dismissComposerOverlaysForNavigation() {
+        view.endEditing(true)
+        isKeyboardVisible = false
+        trackedKeyboardHeight = 0
+        currentKeyboardOffset = 0
+        sendInputViewController.hideAdvancePanelIfNeeded()
+        suppressScrollToBottomForNextKeyboardInset = false
+        if let layout = lastLayout {
+            containerLayoutUpdated(layout, transition: .immediate)
+        }
+    }
+
     private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
         switch item.id {
         case "pickFiles":
@@ -3780,14 +3963,7 @@ final class ChatViewController: ViewController {
     }
 
     private func navigateToShareContact() {
-        view.endEditing(true)
-        shouldSuppressShareContactKeyboardInsetOnReturn = true
-        isKeyboardVisible = false
-        trackedKeyboardHeight = 0
-        currentKeyboardOffset = 0
-        suppressScrollToBottomForNextKeyboardInset = false
-        sendInputViewController.markAdvancePanelDismissedByHost()
-        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        dismissComposerOverlaysForNavigation()
 
         let vc = ShareContactPickerViewController(context: context)
         vc.onSelectFriend = { [weak self, weak vc] friend in
@@ -3807,18 +3983,14 @@ final class ChatViewController: ViewController {
     }
 
     private func navigateToCreatePoll() {
-        view.endEditing(true)
-        sendInputViewController.markAdvancePanelDismissedByHost()
-        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        dismissComposerOverlaysForNavigation()
         let createVC = CreatePollViewController(context: self.context, channelId: self.channel.channelID, clanId: self.clanId)
         navigationController?.pushViewController(createVC, animated: true)
     }
 
 
     private func navigateToTransferFunds() {
-        view.endEditing(true)
-        sendInputViewController.markAdvancePanelDismissedByHost()
-        handleAdvancePanelToggle(visible: false, collapsedHeight: 0)
+        dismissComposerOverlaysForNavigation()
         let payload = TransferQRPayload(
             receiverUserId: nil,
             walletAddress: nil,
@@ -3832,6 +4004,13 @@ final class ChatViewController: ViewController {
     }
 
     private func handleSendLocation() {
+        dismissComposerOverlaysForNavigation()
+        DispatchQueue.main.async { [weak self] in
+            self?.beginLocationAuthorizationFlow()
+        }
+    }
+
+    private func beginLocationAuthorizationFlow() {
         let status: CLAuthorizationStatus
         if #available(iOS 14.0, *) {
             status = locationManager.authorizationStatus
@@ -3856,13 +4035,49 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private func recentCachedCoordinate(from manager: CLLocationManager) -> CLLocationCoordinate2D? {
+        guard let location = manager.location else { return nil }
+        guard location.horizontalAccuracy >= 0 else { return nil }
+        guard abs(location.timestamp.timeIntervalSinceNow) <= Self.cachedLocationMaxAge else { return nil }
+        return location.coordinate
+    }
+
+    private func cancelLocationFetchTimeout() {
+        locationFetchTimeoutWorkItem?.cancel()
+        locationFetchTimeoutWorkItem = nil
+    }
+
+    private func scheduleLocationFetchTimeout(for manager: CLLocationManager) {
+        cancelLocationFetchTimeout()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.locationCompletion != nil else { return }
+            manager.delegate = nil
+            self.isWaitingForLocationAuthorization = false
+            let completion = self.locationCompletion
+            self.locationCompletion = nil
+            if let cached = self.recentCachedCoordinate(from: manager) {
+                completion?(cached)
+            } else {
+                completion?(nil)
+            }
+        }
+        locationFetchTimeoutWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.locationFetchTimeout, execute: work)
+    }
+
     private func fetchLocationAndShowConfirm() {
+        if let cached = recentCachedCoordinate(from: locationManager) {
+            showLocationConfirm(coordinate: cached)
+            return
+        }
+
         locationManager.delegate = self
         isWaitingForLocationAuthorization = false
         locationCompletion = { [weak self] coord in
             guard let self, let coord else { return }
             self.showLocationConfirm(coordinate: coord)
         }
+        scheduleLocationFetchTimeout(for: locationManager)
         locationManager.requestLocation()
     }
 
@@ -3873,11 +4088,9 @@ final class ChatViewController: ViewController {
         isWaitingForLocationAuthorization = false
         switch status {
         case .authorizedWhenInUse, .authorizedAlways:
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak manager] in
-                guard let self, let manager, self.locationCompletion != nil else { return }
-                manager.requestLocation()
-            }
+            fetchLocationAndShowConfirm()
         case .denied, .restricted:
+            cancelLocationFetchTimeout()
             manager.delegate = nil
             let completion = locationCompletion
             locationCompletion = nil
@@ -3886,6 +4099,7 @@ final class ChatViewController: ViewController {
         case .notDetermined:
             break
         @unknown default:
+            cancelLocationFetchTimeout()
             manager.delegate = nil
             locationCompletion = nil
         }
@@ -5521,34 +5735,7 @@ final class ChatViewController: ViewController {
         case .copyImage:
             copySingleMessageImage(display: display)
         case .deleteMessage:
-            let msgId = display.message.id
-            if let msgIdInt = Int64(msgId) {
-                let mode: Int32
-                switch channel.type {
-                case MezonConstants.ChannelType.thread.rawValue:
-                    mode = MezonConstants.ChannelStreamMode.thread.rawValue
-                case MezonConstants.ChannelType.dm.rawValue:
-                    mode = MezonConstants.ChannelStreamMode.dm.rawValue
-                case MezonConstants.ChannelType.group.rawValue:
-                    mode = MezonConstants.ChannelStreamMode.group.rawValue
-                default:
-                    if clanId != 0 {
-                        mode = MezonConstants.ChannelStreamMode.channel.rawValue
-                    } else {
-                        mode = MezonConstants.ChannelStreamMode.group.rawValue
-                    }
-                }
-                let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
-                context.account.socket.removeChannelMessage(
-                    clanId: clanId,
-                    channelId: channel.channelID,
-                    mode: mode,
-                    messageId: msgIdInt,
-                    isPublic: isPublic,
-                    topicId: topicId
-                )
-            }
-            context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
+            showDeleteMessageConfirm(display: display)
         case .pinMessage:
             showPinMessageConfirm(display: display)
         case .unpinMessage:
@@ -5651,6 +5838,57 @@ final class ChatViewController: ViewController {
         } catch {
             Toast.error(error.localizedDescription)
         }
+    }
+
+    private func showDeleteMessageConfirm(display: ChatMessageDisplay) {
+        let alert = UIAlertController(
+            title: L(L10n.MessageAction.deleteMessage),
+            message: L(L10n.MessageAction.deleteMessageConfirm),
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.yes), style: .destructive) { [weak self] _ in
+            self?.performDeleteMessage(display: display)
+        })
+
+        alert.addAction(UIAlertAction(title: L(L10n.MessageAction.no), style: .cancel))
+
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        presenter.present(alert, animated: true)
+    }
+
+    private func performDeleteMessage(display: ChatMessageDisplay) {
+        let msgId = display.message.id
+        if let msgIdInt = Int64(msgId) {
+            let mode: Int32
+            switch channel.type {
+            case MezonConstants.ChannelType.thread.rawValue:
+                mode = MezonConstants.ChannelStreamMode.thread.rawValue
+            case MezonConstants.ChannelType.dm.rawValue:
+                mode = MezonConstants.ChannelStreamMode.dm.rawValue
+            case MezonConstants.ChannelType.group.rawValue:
+                mode = MezonConstants.ChannelStreamMode.group.rawValue
+            default:
+                if clanId != 0 {
+                    mode = MezonConstants.ChannelStreamMode.channel.rawValue
+                } else {
+                    mode = MezonConstants.ChannelStreamMode.group.rawValue
+                }
+            }
+            let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
+            context.account.socket.removeChannelMessage(
+                clanId: clanId,
+                channelId: channel.channelID,
+                mode: mode,
+                messageId: msgIdInt,
+                isPublic: isPublic,
+                topicId: topicId
+            )
+        }
+        context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
     }
 
     private func showPinMessageConfirm(display: ChatMessageDisplay) {
@@ -5853,6 +6091,7 @@ final class ChatViewController: ViewController {
 extension ChatViewController: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        cancelLocationFetchTimeout()
         manager.delegate = nil
         isWaitingForLocationAuthorization = false
         let completion = locationCompletion
@@ -5861,11 +6100,16 @@ extension ChatViewController: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        cancelLocationFetchTimeout()
         manager.delegate = nil
         isWaitingForLocationAuthorization = false
         let completion = locationCompletion
         locationCompletion = nil
-        completion?(nil)
+        if let cached = recentCachedCoordinate(from: manager) {
+            completion?(cached)
+        } else {
+            completion?(nil)
+        }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -5879,6 +6123,7 @@ extension ChatViewController: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
+        if #available(iOS 14.0, *) { return }
         handleLocationAuthorizationStatus(status, manager: manager)
     }
 }

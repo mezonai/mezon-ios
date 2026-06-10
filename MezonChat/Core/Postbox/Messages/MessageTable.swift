@@ -229,12 +229,42 @@ final class MessageTable: Table {
         return result
     }
 
+    func getRecentMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+        if let cached = cache[channelId] {
+            return cached
+                .filter { $0.channelId == channelId && !$0.isDeleted }
+                .sorted { $0.createdAt > $1.createdAt }
+                .prefix(limit)
+                .map { $0 }
+        }
+
+        let rows = db.query(
+            """
+            SELECT id, channel_id, clan_id, sender_id, content, created_at, edited_at,
+                   is_deleted, sender_display_name, sender_avatar_url, sending_state,
+                   attachments_json, reactions_json, references_data, mentions_json, code
+            FROM messages
+            WHERE channel_id = ? AND is_deleted = 0
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            { s in
+                sqlite3_bind_text(s, 1, channelId, -1, nil)
+                sqlite3_bind_int(s, 2, Int32(limit))
+            }
+        ) { stmt in self.readMessageRow(stmt) }
+
+        return rows.compactMap { $0 }.filter { $0.channelId == channelId }
+    }
+
     private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
         guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
-        if pending.content == server.content { return true }
-        if let pObj = try? JSONSerialization.jsonObject(with: pending.content),
-           let sObj = try? JSONSerialization.jsonObject(with: server.content) {
-            return (pObj as AnyObject).isEqual(sObj)
+        let pendingBase = PresignFinishContent.contentBaseWithoutPresign(pending.content)
+        let serverBase = PresignFinishContent.contentBaseWithoutPresign(server.content)
+        if pendingBase == serverBase { return true }
+        if let pObj = try? JSONSerialization.jsonObject(with: pendingBase) as? [String: Any],
+           let sObj = try? JSONSerialization.jsonObject(with: serverBase) as? [String: Any] {
+            return NSDictionary(dictionary: pObj).isEqual(to: sObj)
         }
         return false
     }
@@ -250,7 +280,10 @@ final class MessageTable: Table {
                     current[pidx] = Self.mergePendingIdentityIntoServerEcho(pending: pending, server: msg)
                     pendingDeletes.insert(pid)
                 } else if let idx = current.firstIndex(where: { $0.id == msg.id }) {
-                    current[idx] = msg
+                    current[idx] = MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                        incoming: msg,
+                        previous: current[idx]
+                    )
                 } else {
                     current.append(msg)
                 }
@@ -279,20 +312,27 @@ final class MessageTable: Table {
             if !pa.isEmpty { return pending.senderAvatarURL }
             return server.senderAvatarURL
         }()
+        let mergedContent = PresignFinishContent.mergePresignFinishContent(
+            local: pending.content,
+            server: server.content
+        )
+        let attachmentsJSON = !server.attachmentsJSON.isEmpty
+            ? server.attachmentsJSON
+            : pending.attachmentsJSON
         return MessageRecord(
             id: server.id,
             channelId: server.channelId,
             clanId: server.clanId,
             senderId: server.senderId,
-            content: server.content,
+            content: mergedContent,
             createdAt: server.createdAt,
             editedAt: server.editedAt,
             isDeleted: server.isDeleted,
             code: server.code,
             senderDisplayName: useName,
             senderAvatarURL: useAvatar,
-            sendingState: server.sendingState,
-            attachmentsJSON: server.attachmentsJSON,
+            sendingState: .sent,
+            attachmentsJSON: attachmentsJSON,
             reactionsJSON: server.reactionsJSON,
             referencesData: server.referencesData,
             mentionsJSON: server.mentionsJSON

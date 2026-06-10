@@ -588,8 +588,15 @@ final class MezonRootController: NavigationController {
             homeVC.clanListVC.select(clan: clan)
             homeVC.channelListVC.configure(clanId: toClanId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner)
         } else {
-
             context.currentClanId = toClanId
+            homeVC.channelListVC.configure(
+                clanId: toClanId,
+                clanName: "",
+                logoURL: nil,
+                bannerURL: nil,
+                memberCount: 0,
+                isCommunity: false
+            )
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -616,9 +623,13 @@ final class MezonRootController: NavigationController {
                 let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if channels.isEmpty {
-                    if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId,
-                       let selectChannelId {
-                        homeVC.channelListVC.selectWithoutNavigation(channelId: selectChannelId)
+                    if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
+                        if let selectChannelId {
+                            homeVC.channelListVC.selectWithoutNavigation(channelId: selectChannelId)
+                        }
+                        if homeVC.channelListVC.allChannels.isEmpty {
+                            homeVC.channelListVC.fetchChannels()
+                        }
                     }
                     return
                 }
@@ -633,6 +644,10 @@ final class MezonRootController: NavigationController {
                     }
                 }
             } catch {
+                if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId,
+                   homeVC.channelListVC.allChannels.isEmpty {
+                    homeVC.channelListVC.fetchChannels()
+                }
             }
         }
     }
