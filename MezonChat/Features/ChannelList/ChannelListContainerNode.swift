@@ -10,6 +10,7 @@ struct ChannelListInteraction {
     let onInviteClan: (() -> Void)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
+    let onEventTapped: (() -> Void)?
     let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
     let onClearCurrentChannelSelection: (() -> Void)?
     let isShowEmptyCategoriesEnabled: (() -> Bool)?
@@ -992,6 +993,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
         headerUIView.onSearchTapped = interaction.onSearchTapped
+        headerUIView.onEventTapped = interaction.onEventTapped
         headerUIView.onClanTitleTap = { [weak self] in
             self?.presentClanActionSheetIfNeeded()
         }
@@ -2049,6 +2051,7 @@ final class ChannelListHeaderView: UIView {
     var onTap: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onQRTapped: (() -> Void)?
+    var onEventTapped: (() -> Void)?
     var onClanTitleTap: (() -> Void)?
 
     var title: String {
@@ -2184,6 +2187,7 @@ final class ChannelListHeaderView: UIView {
         searchBar.addGestureRecognizer(searchTap)
 
         qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
+        eventButton.addTarget(self, action: #selector(eventTapped), for: .touchUpInside)
 
         let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
         actionRow.axis = .horizontal
@@ -2260,6 +2264,10 @@ final class ChannelListHeaderView: UIView {
 
     @objc private func qrTapped() {
         onQRTapped?()
+    }
+
+    @objc private func eventTapped() {
+        onEventTapped?()
     }
 
     func clearMemberSubtitleStaleText() {

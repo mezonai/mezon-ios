@@ -252,11 +252,66 @@ extension MezonEngine {
             }
         }
 
+        func refetchEvents(clanId: Int64, token: String) async {
+            await fetchEvents(clanId: clanId, token: token)
+        }
+
+        func setUserEventInterest(
+            clanId: Int64,
+            eventId: Int64,
+            userId: Int64,
+            interested: Bool,
+            token: String
+        ) async {
+            applyUserEventInterestLocally(
+                clanId: clanId,
+                eventId: eventId,
+                userId: userId,
+                interested: interested
+            )
+            clanEventsUpdated.putNext(clanId)
+            var req = Mezon_Api_UserEventRequest()
+            req.clanID = clanId
+            req.eventID = eventId
+            do {
+                if interested {
+                    try await network.addUserEvent(request: req, token: token)
+                } else {
+                    try await network.deleteUserEvent(request: req, token: token)
+                }
+            } catch {
+                await fetchEvents(clanId: clanId, token: token)
+            }
+        }
+
+        private func applyUserEventInterestLocally(
+            clanId: Int64,
+            eventId: Int64,
+            userId: Int64,
+            interested: Bool
+        ) {
+            guard var list = getClanEvents(clanId: clanId) else { return }
+            guard let index = list.events.firstIndex(where: { $0.id == eventId }) else { return }
+            var event = list.events[index]
+            var userIds = event.userIds.filter { $0 != 0 }
+            if interested {
+                if !userIds.contains(userId) {
+                    userIds.append(userId)
+                }
+            } else {
+                userIds.removeAll { $0 == userId }
+            }
+            event.userIds = userIds
+            list.events[index] = event
+            guard let data = try? list.serializedData() else { return }
+            postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+        }
+
         private func fetchEvents(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listEvents(clanId: clanId, token: token)
                 if let data = try? response.serializedData() {
-                    postbox.setPreferenceData(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
                 }
                 clanEventsUpdated.putNext(clanId)
             } catch {
