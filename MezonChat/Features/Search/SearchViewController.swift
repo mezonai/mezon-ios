@@ -378,10 +378,14 @@ final class SearchViewController: ViewController {
             }.sorted { a, b in
                 scoreMember(a, query: query) > scoreMember(b, query: query)
             }
-            filteredDMGroups = allChannels.filter { ch in
-                guard ch.type == MezonConstants.ChannelType.group.rawValue else { return false }
-                let label = Self.dmGroupDisplayName(for: ch).lowercased()
-                return label.contains(query)
+            if activeFilterOption != nil {
+                filteredDMGroups = []
+            } else {
+                filteredDMGroups = allChannels.filter { ch in
+                    guard ch.type == MezonConstants.ChannelType.group.rawValue else { return false }
+                    let label = Self.dmGroupDisplayName(for: ch).lowercased()
+                    return label.contains(query)
+                }
             }
         }
 
@@ -665,6 +669,26 @@ final class SearchViewController: ViewController {
         }
 
         let targetClanId = effectiveClanId(for: channel)
+        let messageId = doc.messageID
+
+        if let nav = navigationController {
+            for vc in nav.viewControllers.reversed() {
+                guard let chat = vc as? ChatViewController else { continue }
+                if chat.channel.channelID == channelId && chat.clanId == targetClanId {
+                    context.currentClanId = targetClanId
+                    persistSelectedChannelForSearchJump(channel)
+                    context.currentChannel = channel
+                    ActiveChannelTracker.currentChannelId = channelId
+                    nav.popToViewController(chat, animated: true)
+                    DispatchQueue.main.async {
+                        chat.jumpToMessageFromChannelDetail(messageId: messageId)
+                    }
+                    alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channelId)
+                    return
+                }
+            }
+        }
+
         context.currentClanId = targetClanId
         persistSelectedChannelForSearchJump(channel)
         context.currentChannel = channel
@@ -676,7 +700,7 @@ final class SearchViewController: ViewController {
         }
         let chatVC = ChatViewController(
             clanId: targetClanId, channel: channel, context: context, parentName: parentName)
-        chatVC.pendingJumpToMessageId = doc.messageID
+        chatVC.pendingJumpToMessageId = messageId
         navigationController?.pushViewController(chatVC, animated: true)
         alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channelId)
     }
@@ -1813,7 +1837,7 @@ final class MessageSearchCellNode: ASCellNode {
             attributes: [.font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold), .foregroundColor: t.textStrong]
         )
 
-        let contentText = Self.parseMessageContent(document.content)
+        let contentText = MessageContentParser.previewText(fromRawContent: document.content)
         contentNode.attributedText = NSAttributedString(
             string: contentText,
             attributes: [.font: UIFont.systemFont(ofSize: 13.sf), .foregroundColor: t.textStrong]
@@ -1833,15 +1857,6 @@ final class MessageSearchCellNode: ASCellNode {
         addSubnode(senderNode)
         addSubnode(contentNode)
         addSubnode(timeNode)
-    }
-
-    private static func parseMessageContent(_ json: String) -> String {
-        guard let data = json.data(using: .utf8),
-            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let text = obj["t"] as? String else {
-            return json
-        }
-        return text
     }
 
     private static func formatSearchTime(_ timeStr: String) -> String {

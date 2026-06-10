@@ -1553,7 +1553,7 @@ final class ChatViewController: ViewController {
         needsReloadPipe.putNext(())
         markChannelAsRead()
 
-        if let jumpId = pendingJumpToMessageId, !v.isEmpty {
+        if let jumpId = pendingJumpToMessageId {
             pendingJumpToMessageId = nil
             DispatchQueue.main.async { [weak self] in
                 self?.jumpToMessage(id: jumpId)
@@ -2101,6 +2101,7 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages(token: String? = nil) {
+        if pendingJumpToMessageId != nil { return }
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
         if shouldSkipRemoteFetchForEmptyTopic(
