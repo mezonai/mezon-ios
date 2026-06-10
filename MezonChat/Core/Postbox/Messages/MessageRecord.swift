@@ -270,7 +270,8 @@ extension MessageRecord {
         previous: MessageRecord
     ) -> MessageRecord {
         let attachmentsJSON = mergedAttachmentsJSON(incoming: incoming.attachmentsJSON, previous: previous.attachmentsJSON)
-        guard attachmentsJSON != incoming.attachmentsJSON else { return incoming }
+        let reactionsJSON = mergedReactionsJSON(fresh: incoming, previous: previous)
+        guard attachmentsJSON != incoming.attachmentsJSON || reactionsJSON != incoming.reactionsJSON else { return incoming }
         return MessageRecord(
             id: incoming.id,
             channelId: incoming.channelId,
@@ -285,7 +286,7 @@ extension MessageRecord {
             senderAvatarURL: incoming.senderAvatarURL,
             sendingState: incoming.sendingState,
             attachmentsJSON: attachmentsJSON,
-            reactionsJSON: incoming.reactionsJSON,
+            reactionsJSON: reactionsJSON,
             referencesData: incoming.referencesData,
             mentionsJSON: incoming.mentionsJSON
         )

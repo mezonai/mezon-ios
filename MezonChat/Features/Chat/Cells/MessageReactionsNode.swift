@@ -157,6 +157,8 @@ final class MessageReactionsNode: ASDisplayNode {
                 let oldNode = pillNodes[oldEntry.index]
                 if oldEntry.reaction != reaction {
                     oldNode.update(reaction: reaction)
+                } else {
+                    oldNode.refreshEmojiImageIfNeeded()
                 }
                 newPillNodes.append(oldNode)
             } else {
@@ -376,10 +378,33 @@ final class ReactionPillNode: ASDisplayNode {
             (emojiImageNode.view as? AnimatedEmojiImageView)?
                 .setData(pendingData, displayPixelMaxSide: pixel, cacheKey: key)
         }
+        refreshEmojiImageIfNeeded()
+    }
+
+    override func didEnterVisibleState() {
+        super.didEnterVisibleState()
+        refreshEmojiImageIfNeeded()
     }
 
     deinit {
         imageTask?.cancel()
+    }
+
+    func refreshEmojiImageIfNeeded() {
+        guard Self.canLoadEmojiImage(emojiId: emojiId) else { return }
+        guard emojiImageNode.isNodeLoaded else { return }
+        guard let view = emojiImageNode.view as? AnimatedEmojiImageView else { return }
+        view.reapplyContentsIfCleared()
+        guard view.layer.contents == nil else { return }
+        if let pendingData, let key = pendingDataKey {
+            let scale = UIScreen.main.scale
+            let pixel = Self.emojiSize * scale
+            view.setData(pendingData, displayPixelMaxSide: pixel, cacheKey: key)
+            emojiImageNode.isHidden = false
+            emojiFallbackNode.isHidden = true
+        } else {
+            loadEmojiImage()
+        }
     }
 
     private func applyEmojiData(_ data: Data, key: String) {
@@ -445,6 +470,7 @@ final class ReactionPillNode: ASDisplayNode {
             emojiFallbackNode.isHidden = false
         }
 
+        refreshEmojiImageIfNeeded()
         setNeedsLayout()
     }
 

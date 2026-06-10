@@ -526,6 +526,11 @@ final class ChannelListViewController: ViewController {
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
             onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
+            onCreateCategory: { [weak self] in self?.presentCreateCategory() },
+            canCreateCategory: { [weak self] in
+                guard let self, self.clanId != 0 else { return false }
+                return self.context.rolePermissions.canManageRoles(clanId: self.clanId)
+            },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
             onQRTapped: { [weak self] in
                 guard let self else { return }
@@ -1140,6 +1145,44 @@ final class ChannelListViewController: ViewController {
             )
         }
         present(vc, animated: true)
+    }
+
+    private func presentCreateCategory() {
+        guard clanId != 0 else { return }
+        guard context.rolePermissions.canManageRoles(clanId: clanId) else { return }
+        let vc = CreateCategoryViewController(
+            context: context,
+            clanId: clanId,
+            existingCategories: channelListCategoryDescs,
+            onCreated: { [weak self] newCategory in
+                self?.applyCreatedCategory(newCategory)
+            }
+        )
+        enclosingNavigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func applyCreatedCategory(_ category: Mezon_Api_CategoryDesc) {
+        guard category.clanID == clanId || category.clanID == 0 else { return }
+        if channelListCategoryDescs.contains(where: { $0.categoryID == category.categoryID }) { return }
+        channelListCategoryDescs.append(category)
+
+        let built = buildChannelCategories(
+            allChannels,
+            categoryDescs: channelListCategoryDescs,
+            favoriteChannelIds: channelListFavoriteIds,
+            collapsedIds: loadCollapsedCategoryIds()
+        )
+        let cats = applyBuiltCategoriesPreservingCollapse(built)
+        categories = cats
+        categoriesPipe.putNext(cats)
+        persistFullChannelListCache(
+            clanId: clanId,
+            channels: allChannels,
+            categoryDescs: channelListCategoryDescs,
+            favoriteIds: channelListFavoriteIds,
+            categories: cats
+        )
+        needsReloadPipe.putNext(())
     }
 
     private func presentInviteClanSheet() {

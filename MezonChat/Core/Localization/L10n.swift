@@ -418,6 +418,15 @@ enum L10n {
         static let dateUnavailable = "discover.detail.dateUnavailable"
     }
 
+    enum CategoryCreator {
+        static let title            = "category.creator.title"
+        static let create           = "category.creator.create"
+        static let nameTitle        = "category.creator.nameTitle"
+        static let namePlaceholder  = "category.creator.namePlaceholder"
+        static let nameError        = "category.creator.nameError"
+        static let duplicateName    = "category.creator.duplicateName"
+    }
+
     enum ClanAction {
         static let invite               = "clan.action.invite"
         static let markAsRead           = "clan.action.markAsRead"
@@ -1445,6 +1454,12 @@ extension L10n {
 
         "clan.action.invite":               "Invite",
         "clan.action.markAsRead":           "Mark as Read",
+        "category.creator.title":           "Create Category",
+        "category.creator.create":          "Create",
+        "category.creator.nameTitle":       "Category Name",
+        "category.creator.namePlaceholder": "New Category",
+        "category.creator.nameError":       "Please enter a category name (max 64 characters, only letters, numbers, _ or -).",
+        "category.creator.duplicateName":   "The category name already exists.",
         "clan.action.createEvent":          "Create Event",
         "clan.action.createCategory":       "Create Category",
         "clan.action.editClanProfile":      "Edit Clan Profile",
@@ -2479,6 +2494,12 @@ extension L10n {
 
         "clan.action.invite":               "Mời",
         "clan.action.markAsRead":           "Đánh dấu là đã đọc",
+        "category.creator.title":           "Tạo danh mục",
+        "category.creator.create":          "Tạo",
+        "category.creator.nameTitle":       "Danh mục mới",
+        "category.creator.namePlaceholder": "Tên danh mục",
+        "category.creator.nameError":       "Vui lòng nhập tên danh mục hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "category.creator.duplicateName":   "Tên danh mục đã tồn tại.",
         "clan.action.createEvent":          "Tạo sự kiện",
         "clan.action.createCategory":       "Tạo danh mục",
         "clan.action.editClanProfile":      "Chỉnh sửa hồ sơ Clan",

@@ -8,6 +8,8 @@ struct ChannelListInteraction {
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
     let onInviteClan: (() -> Void)?
+    let onCreateCategory: (() -> Void)?
+    let canCreateCategory: (() -> Bool)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
     let onEventTapped: (() -> Void)?
@@ -1442,13 +1444,18 @@ final class ChannelListContainerNode: ASDisplayNode {
             memberCount: memberCount,
             isCommunity: isCommunity,
             initialShowEmptyCategories: interaction.isShowEmptyCategoriesEnabled?() ?? false,
+            canCreateCategory: interaction.canCreateCategory?() ?? false,
             onAction: { [weak self] action in
                 guard let self else { return }
-                if action == .settings {
+                switch action {
+                case .settings:
                     self.interaction.onPresentSettings?()
-                } else if action == .invite {
+                case .invite:
                     self.interaction.onInviteClan?()
-                } else {
+                case .createCategory:
+                    self.interaction.onCreateCategory?()
+                default:
+                    break
                 }
             },
             onToggleShowEmptyCategories: { [weak self] value in
