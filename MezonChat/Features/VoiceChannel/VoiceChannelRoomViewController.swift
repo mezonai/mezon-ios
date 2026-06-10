@@ -1338,6 +1338,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
+    var voiceChannelId: Int64 { channel.channelID }
     private let parentChannelName: String?
     private let voiceChannelCrossClanExitAlignClanId: Int64?
     private let existingPiPOverlay: VoiceChannelPiPOverlay?

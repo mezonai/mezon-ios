@@ -333,7 +333,7 @@ final class MessageTable: Table {
             senderAvatarURL: useAvatar,
             sendingState: .sent,
             attachmentsJSON: attachmentsJSON,
-            reactionsJSON: server.reactionsJSON,
+            reactionsJSON: server.reactionsJSON.isEmpty ? pending.reactionsJSON : server.reactionsJSON,
             referencesData: server.referencesData,
             mentionsJSON: server.mentionsJSON
         )
@@ -342,11 +342,19 @@ final class MessageTable: Table {
     func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
+        let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        let mergedBelonging = belonging.map { incoming -> MessageRecord in
+            guard let previous = existingById[incoming.id] else { return incoming }
+            return MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                incoming: incoming,
+                previous: previous
+            )
+        }
         let pendingsToKeep = existing.filter { record in
             guard record.id.hasPrefix("pending-") else { return false }
-            return !belonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
+            return !mergedBelonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
         }
-        cache[channelId] = (belonging + pendingsToKeep).sorted { $0.createdAt < $1.createdAt }
+        cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { $0.createdAt < $1.createdAt }
         pendingWrites.insert(channelId)
         db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
             sqlite3_bind_text($0, 1, channelId, -1, nil)

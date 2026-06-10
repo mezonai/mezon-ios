@@ -144,6 +144,48 @@ struct ContentToken {
 
 enum MessageContentParser {
 
+    static func previewText(fromRawContent raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        let display = NotificationRecord.extractDisplayText(from: trimmed)
+        if !trimmed.hasPrefix("{") && !trimmed.hasPrefix("[") {
+            return display
+        }
+        if display != trimmed {
+            return display
+        }
+
+        if let text = rawPreviewTextValue(from: trimmed) {
+            return text
+        }
+        let normalized = trimmed
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "\\n", with: " ")
+            .replacingOccurrences(of: "\\\"", with: "\"")
+        if normalized != trimmed, let text = rawPreviewTextValue(from: normalized) {
+            return text
+        }
+        return display
+    }
+
+    private static func rawPreviewTextValue(from raw: String) -> String? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #""t"\s*:\s*"((?:[^"\\]|\\.)*)""#,
+            options: []
+        ) else { return nil }
+        let ns = raw as NSString
+        let range = NSRange(location: 0, length: ns.length)
+        guard let match = regex.firstMatch(in: raw, options: [], range: range),
+              match.numberOfRanges > 1 else { return nil }
+        let value = ns.substring(with: match.range(at: 1))
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "\\n", with: " ")
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
     static func parseLocalCodeBlocks(text: String) -> ParsedContent {
         var tokens: [ContentToken] = []
         let pattern = "(?s)```(.*?)```"

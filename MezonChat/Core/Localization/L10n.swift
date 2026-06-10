@@ -418,6 +418,15 @@ enum L10n {
         static let dateUnavailable = "discover.detail.dateUnavailable"
     }
 
+    enum CategoryCreator {
+        static let title            = "category.creator.title"
+        static let create           = "category.creator.create"
+        static let nameTitle        = "category.creator.nameTitle"
+        static let namePlaceholder  = "category.creator.namePlaceholder"
+        static let nameError        = "category.creator.nameError"
+        static let duplicateName    = "category.creator.duplicateName"
+    }
+
     enum ClanAction {
         static let invite               = "clan.action.invite"
         static let markAsRead           = "clan.action.markAsRead"
@@ -642,6 +651,30 @@ enum L10n {
         static let invite               = "clan.inviteSheet.invite"
         static let invited              = "clan.inviteSheet.invited"
         static let unknownClan          = "clan.inviteSheet.unknownClan"
+    }
+
+    enum EventMenu {
+        static let title              = "eventMenu.dashboard.title"
+        static let eventOne           = "eventMenu.dashboard.event_one"
+        static let noEvent            = "eventMenu.dashboard.noEvent"
+        static let noEventDescription = "eventMenu.dashboard.noEventDescription"
+        static let createButton       = "eventMenu.dashboard.createButton"
+        static let clanEvent          = "eventMenu.eventDetail.clanEvent"
+        static let channelEvent       = "eventMenu.eventDetail.channelEvent"
+        static let privateEvent       = "eventMenu.eventDetail.privateEvent"
+        static let eventIsTaking      = "eventMenu.eventDetail.eventIsTaking"
+        static let tenMinutesLeft     = "eventMenu.eventDetail.tenMinutesLeft"
+        static let newEvent           = "eventMenu.eventDetail.newEvent"
+        static let privateRoom        = "eventMenu.eventDetail.privateRoom"
+        static let channelAudience    = "eventMenu.eventDetail.channelAudience"
+        static let detailEventInfo    = "eventMenu.detail.eventInfo"
+        static let detailInterested   = "eventMenu.detail.interested"
+        static let detailNoOneInterested = "eventMenu.detail.noOneInterested"
+        static let detailOnePersonInterested = "eventMenu.detail.onePersonInterested"
+        static let detailPersonInterested = "eventMenu.detail.personInterested"
+        static let detailCreatedBy    = "eventMenu.detail.createdBy"
+        static let itemInterested     = "eventMenu.item.interested"
+        static let itemUninterested   = "eventMenu.item.uninterested"
     }
 
     enum OnboardingClan {
@@ -1397,8 +1430,36 @@ extension L10n {
         "discover.detail.communityVerified": "Weekly events and updates.",
         "discover.detail.dateUnavailable": "—",
 
+        "eventMenu.dashboard.title":              "Events",
+        "eventMenu.dashboard.event_one":          "Event",
+        "eventMenu.dashboard.noEvent":            "There are no upcoming events.",
+        "eventMenu.dashboard.noEventDescription": "Feel free to invite other members to contribute their ideas for upcoming events.",
+        "eventMenu.dashboard.createButton":     "Create",
+        "eventMenu.eventDetail.clanEvent":        "Clan Event",
+        "eventMenu.eventDetail.channelEvent":     "Channel Event",
+        "eventMenu.eventDetail.privateEvent":     "External Event",
+        "eventMenu.eventDetail.eventIsTaking":    "Event is taking place!",
+        "eventMenu.eventDetail.tenMinutesLeft":   "%d minutes left. Join in!",
+        "eventMenu.eventDetail.newEvent":         "New",
+        "eventMenu.eventDetail.privateRoom":      "Private room",
+        "eventMenu.eventDetail.channelAudience":  "The audience consists of members from channel: %@",
+        "eventMenu.detail.eventInfo":             "Event Info",
+        "eventMenu.detail.interested":            "Interested",
+        "eventMenu.detail.noOneInterested":       "No one's interested in this event yet.",
+        "eventMenu.detail.onePersonInterested":   "1 person is interested",
+        "eventMenu.detail.personInterested":      "%d people are interested",
+        "eventMenu.detail.createdBy":             "Created by ",
+        "eventMenu.item.interested":              "Interested",
+        "eventMenu.item.uninterested":            "Uninterested",
+
         "clan.action.invite":               "Invite",
         "clan.action.markAsRead":           "Mark as Read",
+        "category.creator.title":           "Create Category",
+        "category.creator.create":          "Create",
+        "category.creator.nameTitle":       "Category Name",
+        "category.creator.namePlaceholder": "New Category",
+        "category.creator.nameError":       "Please enter a category name (max 64 characters, only letters, numbers, _ or -).",
+        "category.creator.duplicateName":   "The category name already exists.",
         "clan.action.createEvent":          "Create Event",
         "clan.action.createCategory":       "Create Category",
         "clan.action.editClanProfile":      "Edit Clan Profile",
@@ -2409,8 +2470,36 @@ extension L10n {
         "discover.detail.communityVerified": "Sự kiện và cập nhật hàng tuần.",
         "discover.detail.dateUnavailable": "—",
 
+        "eventMenu.dashboard.title":              "Sự kiện",
+        "eventMenu.dashboard.event_one":          "Sự kiện",
+        "eventMenu.dashboard.noEvent":            "Không có sự kiện nào",
+        "eventMenu.dashboard.noEventDescription": "Hãy thoải mái mời các thành viên khác tham gia đóng góp ý tưởng cho các sự kiện sắp tới.",
+        "eventMenu.dashboard.createButton":     "Tạo",
+        "eventMenu.eventDetail.clanEvent":        "Sự kiện Clan",
+        "eventMenu.eventDetail.channelEvent":     "Sự kiện kênh",
+        "eventMenu.eventDetail.privateEvent":     "Sự kiện riêng",
+        "eventMenu.eventDetail.eventIsTaking":    "Sự kiện đang diễn ra!",
+        "eventMenu.eventDetail.tenMinutesLeft":   "Còn %d phút. Tham gia ngay!",
+        "eventMenu.eventDetail.newEvent":         "Mới",
+        "eventMenu.eventDetail.privateRoom":      "Phòng riêng",
+        "eventMenu.eventDetail.channelAudience":  "Đối tượng là thành viên từ kênh: %@",
+        "eventMenu.detail.eventInfo":             "Thông tin sự kiện",
+        "eventMenu.detail.interested":            "Quan tâm",
+        "eventMenu.detail.noOneInterested":       "Chưa có ai quan tâm sự kiện này.",
+        "eventMenu.detail.onePersonInterested":   "1 người quan tâm",
+        "eventMenu.detail.personInterested":      "%d người quan tâm",
+        "eventMenu.detail.createdBy":             "Tạo bởi ",
+        "eventMenu.item.interested":              "Quan tâm",
+        "eventMenu.item.uninterested":            "Bỏ quan tâm",
+
         "clan.action.invite":               "Mời",
         "clan.action.markAsRead":           "Đánh dấu là đã đọc",
+        "category.creator.title":           "Tạo danh mục",
+        "category.creator.create":          "Tạo",
+        "category.creator.nameTitle":       "Danh mục mới",
+        "category.creator.namePlaceholder": "Tên danh mục",
+        "category.creator.nameError":       "Vui lòng nhập tên danh mục hợp lệ (tối đa 64 ký tự, chỉ từ, số, _ hoặc -).",
+        "category.creator.duplicateName":   "Tên danh mục đã tồn tại.",
         "clan.action.createEvent":          "Tạo sự kiện",
         "clan.action.createCategory":       "Tạo danh mục",
         "clan.action.editClanProfile":      "Chỉnh sửa hồ sơ Clan",

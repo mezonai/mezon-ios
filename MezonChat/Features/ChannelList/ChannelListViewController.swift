@@ -526,12 +526,18 @@ final class ChannelListViewController: ViewController {
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
             onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
+            onCreateCategory: { [weak self] in self?.presentCreateCategory() },
+            canCreateCategory: { [weak self] in
+                guard let self, self.clanId != 0 else { return false }
+                return self.context.rolePermissions.canManageRoles(clanId: self.clanId)
+            },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
             onQRTapped: { [weak self] in
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
                 self.enclosingNavigationController?.pushViewController(vc, animated: true)
             },
+            onEventTapped: { [weak self] in self?.presentEventBottomSheet() },
             onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) },
             onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() },
             isShowEmptyCategoriesEnabled: { [weak self] in self?.showEmptyCategoriesEnabled ?? false },
@@ -1105,6 +1111,78 @@ final class ChannelListViewController: ViewController {
             avatarURL: clanLogoURL
         )
         self.enclosingNavigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func presentEventBottomSheet() {
+        guard clanId != 0 else { return }
+        let vc = EventViewerBottomSheetViewController(
+            context: context,
+            clanId: clanId,
+            clanName: clanName,
+            clanLogoURL: clanLogoURL,
+            channels: allChannels
+        )
+        vc.onOpenChannel = { [weak self] channel in
+            self?.dismissEventBottomSheets(animated: false) {
+                self?.select(channel: channel)
+            }
+        }
+        vc.onPresentJoinVoice = { [weak self] channel in
+            guard let self, let presenter = self.topModalPresenter() else { return }
+            self.presentJoinVoiceSheet(
+                for: channel,
+                from: presenter,
+                onChat: { [weak self] in
+                    self?.dismissEventBottomSheets(animated: false) {
+                        self?.select(channel: channel)
+                    }
+                },
+                onJoinVoice: { [weak self] in
+                    self?.dismissEventBottomSheets(animated: false) {
+                        self?.pushVoiceChannelRoom(for: channel)
+                    }
+                }
+            )
+        }
+        present(vc, animated: true)
+    }
+
+    private func presentCreateCategory() {
+        guard clanId != 0 else { return }
+        guard context.rolePermissions.canManageRoles(clanId: clanId) else { return }
+        let vc = CreateCategoryViewController(
+            context: context,
+            clanId: clanId,
+            existingCategories: channelListCategoryDescs,
+            onCreated: { [weak self] newCategory in
+                self?.applyCreatedCategory(newCategory)
+            }
+        )
+        enclosingNavigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func applyCreatedCategory(_ category: Mezon_Api_CategoryDesc) {
+        guard category.clanID == clanId || category.clanID == 0 else { return }
+        if channelListCategoryDescs.contains(where: { $0.categoryID == category.categoryID }) { return }
+        channelListCategoryDescs.append(category)
+
+        let built = buildChannelCategories(
+            allChannels,
+            categoryDescs: channelListCategoryDescs,
+            favoriteChannelIds: channelListFavoriteIds,
+            collapsedIds: loadCollapsedCategoryIds()
+        )
+        let cats = applyBuiltCategoriesPreservingCollapse(built)
+        categories = cats
+        categoriesPipe.putNext(cats)
+        persistFullChannelListCache(
+            clanId: clanId,
+            channels: allChannels,
+            categoryDescs: channelListCategoryDescs,
+            favoriteIds: channelListFavoriteIds,
+            categories: cats
+        )
+        needsReloadPipe.putNext(())
     }
 
     private func presentInviteClanSheet() {
@@ -1958,7 +2036,7 @@ final class ChannelListViewController: ViewController {
                             self.clearInflightChannelFetchIfMatches(clanId: clanId)
                             return
                         }
-                        var merged = await self.fetchMergedChannelsWithBadgeCounts(base: channels, clanId: clanId)
+                        let merged = await self.fetchMergedChannelsWithBadgeCounts(base: channels, clanId: clanId)
                         self.channelListCategoryDescs = categoryDescs
                         self.channelListFavoriteIds = favoriteIds
                         self.allChannels = merged
@@ -2173,7 +2251,37 @@ final class ChannelListViewController: ViewController {
         return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
     }
 
-    private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
+    private func topModalPresenter() -> UIViewController? {
+        guard let root = view.window?.rootViewController else { return nil }
+        var top = root
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        return top
+    }
+
+    private func dismissEventBottomSheets(animated: Bool = true, completion: @escaping () -> Void) {
+        guard let root = view.window?.rootViewController else {
+            completion()
+            return
+        }
+        var parent = root
+        while let presented = parent.presentedViewController {
+            if presented is EventViewerBottomSheetViewController {
+                parent.dismiss(animated: animated, completion: completion)
+                return
+            }
+            parent = presented
+        }
+        completion()
+    }
+
+    private func presentJoinVoiceSheet(
+        for channel: Mezon_Api_ChannelDescription,
+        from presenter: UIViewController? = nil,
+        onChat: (() -> Void)? = nil,
+        onJoinVoice: (() -> Void)? = nil
+    ) {
         let title = channel.channelLabel.isEmpty
             ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
             : channel.channelLabel
@@ -2191,20 +2299,22 @@ final class ChannelListViewController: ViewController {
             }
         }
         let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember($0) }
+        let chatAction = onChat ?? { [weak self] in self?.pushChatViewController(for: channel) }
+        let joinAction = onJoinVoice ?? { [weak self] in self?.pushVoiceChannelRoom(for: channel) }
 
         let sheet = JoinVoiceChannelSheetViewController(
             channelTitle: title,
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
-            onChat: { [weak self] in self?.pushChatViewController(for: channel) },
-            onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
+            onChat: chatAction,
+            onJoinVoice: joinAction,
             onInvite: {}
         )
         sheet.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
             sheet.sheetPresentationController?.prefersGrabberVisible = false
             if #available(iOS 16.0, *) {
-                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let bottomInset = (presenter ?? self).view.window?.safeAreaInsets.bottom ?? 34
                 let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
                     safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
                 let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
@@ -2217,10 +2327,15 @@ final class ChannelListViewController: ViewController {
                 sheet.sheetPresentationController?.detents = [.medium(), .large()]
             }
         }
+        let resolvedPresenter = presenter ?? topModalPresenter() ?? view.window?.rootViewController ?? self
         CATransaction.begin()
         CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        present(sheet, animated: true)
+        if resolvedPresenter is ViewController {
+            resolvedPresenter.view.window?.rootViewController?.present(sheet, animated: true)
+        } else {
+            resolvedPresenter.present(sheet, animated: true)
+        }
         CATransaction.commit()
     }
 
@@ -2231,6 +2346,15 @@ final class ChannelListViewController: ViewController {
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
         select(channel: channel)
         guard let nav = enclosingNavigationController else { return }
+
+        if let existing = nav.viewControllers.last(where: {
+            ($0 as? VoiceChannelRoomViewController)?.voiceChannelId == channel.channelID
+        }) {
+            if nav.topViewController !== existing {
+                nav.popToViewController(existing, animated: false)
+            }
+            return
+        }
 
         let pip = VoiceChannelPiPOverlay.shared
         if pip.isActive {

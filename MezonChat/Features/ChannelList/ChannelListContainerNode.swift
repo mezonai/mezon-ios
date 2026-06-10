@@ -8,8 +8,11 @@ struct ChannelListInteraction {
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
     let onInviteClan: (() -> Void)?
+    let onCreateCategory: (() -> Void)?
+    let canCreateCategory: (() -> Bool)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
+    let onEventTapped: (() -> Void)?
     let onSelectChannelApp: ((Mezon_Api_ChannelAppResponse) -> Void)?
     let onClearCurrentChannelSelection: (() -> Void)?
     let isShowEmptyCategoriesEnabled: (() -> Bool)?
@@ -992,6 +995,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.applyTheme()
         headerUIView.backgroundColor = UIColor.theme.secondary
         headerUIView.onSearchTapped = interaction.onSearchTapped
+        headerUIView.onEventTapped = interaction.onEventTapped
         headerUIView.onClanTitleTap = { [weak self] in
             self?.presentClanActionSheetIfNeeded()
         }
@@ -1440,13 +1444,18 @@ final class ChannelListContainerNode: ASDisplayNode {
             memberCount: memberCount,
             isCommunity: isCommunity,
             initialShowEmptyCategories: interaction.isShowEmptyCategoriesEnabled?() ?? false,
+            canCreateCategory: interaction.canCreateCategory?() ?? false,
             onAction: { [weak self] action in
                 guard let self else { return }
-                if action == .settings {
+                switch action {
+                case .settings:
                     self.interaction.onPresentSettings?()
-                } else if action == .invite {
+                case .invite:
                     self.interaction.onInviteClan?()
-                } else {
+                case .createCategory:
+                    self.interaction.onCreateCategory?()
+                default:
+                    break
                 }
             },
             onToggleShowEmptyCategories: { [weak self] value in
@@ -2049,6 +2058,7 @@ final class ChannelListHeaderView: UIView {
     var onTap: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onQRTapped: (() -> Void)?
+    var onEventTapped: (() -> Void)?
     var onClanTitleTap: (() -> Void)?
 
     var title: String {
@@ -2184,6 +2194,7 @@ final class ChannelListHeaderView: UIView {
         searchBar.addGestureRecognizer(searchTap)
 
         qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
+        eventButton.addTarget(self, action: #selector(eventTapped), for: .touchUpInside)
 
         let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
         actionRow.axis = .horizontal
@@ -2260,6 +2271,10 @@ final class ChannelListHeaderView: UIView {
 
     @objc private func qrTapped() {
         onQRTapped?()
+    }
+
+    @objc private func eventTapped() {
+        onEventTapped?()
     }
 
     func clearMemberSubtitleStaleText() {

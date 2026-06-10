@@ -1318,6 +1318,22 @@ final class MezonHTTPClient {
         )
     }
 
+    func addUserEvent(request: Mezon_Api_UserEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/AddUserEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteUserEvent(request: Mezon_Api_UserEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteUserEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
     func getRoleOfUserInTheClan(clanId: Int64, token: String) async throws -> Mezon_Api_RoleList {
         var req = Mezon_Api_ListPermissionOfUsersRequest()
         req.clanID = clanId
