@@ -8,6 +8,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     var onSelectIntegrations: (() -> Void)?
     var onSelectStickers: (() -> Void)?
     var onSelectEmojis: (() -> Void)?
+    var onSelectInvites: (() -> Void)?
 
     private let context: AccountContext
     private let clanId: Int64
@@ -113,7 +114,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         if canShowRoles {
             userActions.append(.init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", navigate: .roles))
         }
-        userActions.append(.init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite"))
+        userActions.append(.init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite", navigate: .invites))
         let userGroup = createGroup(actions: userActions)
         stackView.addArrangedSubview(userGroup)
 
@@ -391,6 +392,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             onSelectStickers?()
         case .emojis:
             onSelectEmojis?()
+        case .invites:
+            onSelectInvites?()
         }
     }
 
@@ -418,6 +421,7 @@ private enum ClanSettingsNavigateAction: Int {
     case integrations = 2
     case stickers = 3
     case emojis = 4
+    case invites = 5
 }
 
 private struct SettingAction {
