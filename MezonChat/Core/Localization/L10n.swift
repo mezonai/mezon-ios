@@ -893,6 +893,29 @@ enum L10n {
         static let previewEmbed   = "directMessage.previewEmbed"
     }
 
+    enum DmMenu {
+        static let leaveGroup = "dmMenu.leaveGroup"
+        static let deleteGroup = "dmMenu.deleteGroup"
+        static let closeDm = "dmMenu.closeDm"
+        static let markAsRead = "dmMenu.markAsRead"
+        static let muteConversation = "dmMenu.muteConversation"
+        static let unmuteConversation = "dmMenu.unmuteConversation"
+        static let blockUser = "dmMenu.blockUser"
+        static let unblockUser = "dmMenu.unblockUser"
+        static let removeFriend = "dmMenu.removeFriend"
+        static let addFriend = "dmMenu.addFriend"
+        static let members = "dmMenu.members"
+        static let leaveGroupConfirmTitle = "dmMenu.leaveGroupConfirmTitle"
+        static let leaveGroupConfirmBody = "dmMenu.leaveGroupConfirmBody"
+        static let deleteGroupConfirmTitle = "dmMenu.deleteGroupConfirmTitle"
+        static let deleteGroupConfirmBody = "dmMenu.deleteGroupConfirmBody"
+        static let blockUserSuccess = "dmMenu.blockUserSuccess"
+        static let blockUserError = "dmMenu.blockUserError"
+        static let unblockUserSuccess = "dmMenu.unblockUserSuccess"
+        static let unblockUserError = "dmMenu.unblockUserError"
+        static let unmuteError = "dmMenu.unmuteError"
+    }
+
     enum ReportMessage {
         static let title = "reportMessage.title"
         static let subtitle = "reportMessage.subtitle"
@@ -2175,6 +2198,22 @@ extension L10n {
         "channelDetail.removeFromGroupFailed": "Could not remove member.",
         "channelDetail.memberRemoved": "Member removed",
 
+        "dmMenu.leaveGroup": "Leave Group",
+        "dmMenu.deleteGroup": "Delete Group",
+        "dmMenu.closeDm": "Close DM",
+        "dmMenu.markAsRead": "Mark as Read",
+        "dmMenu.muteConversation": "Mute Conversation",
+        "dmMenu.unmuteConversation": "Unmute Conversation",
+        "dmMenu.blockUser": "Block User",
+        "dmMenu.unblockUser": "Unblock User",
+        "dmMenu.removeFriend": "Remove Friend",
+        "dmMenu.addFriend": "Add Friend",
+        "dmMenu.members": "%d members",
+        "dmMenu.blockUserSuccess": "User blocked successfully",
+        "dmMenu.blockUserError": "Failed to block user",
+        "dmMenu.unblockUserSuccess": "User unblocked successfully",
+        "dmMenu.unblockUserError": "Failed to unblock user",
+
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
 
         "callLog.cancel":           "You canceled",
@@ -3216,6 +3255,22 @@ extension L10n {
         "channelDetail.removeFromGroupConfirmAction": "Xóa",
         "channelDetail.removeFromGroupFailed": "Không thể xóa thành viên.",
         "channelDetail.memberRemoved": "Đã xóa thành viên",
+
+        "dmMenu.leaveGroup": "Rời nhóm",
+        "dmMenu.deleteGroup": "Xóa nhóm",
+        "dmMenu.closeDm": "Đóng tin nhắn",
+        "dmMenu.markAsRead": "Đánh dấu là đã đọc",
+        "dmMenu.muteConversation": "Tắt thông báo",
+        "dmMenu.unmuteConversation": "Bật thông báo",
+        "dmMenu.blockUser": "Chặn người dùng",
+        "dmMenu.unblockUser": "Bỏ chặn người dùng",
+        "dmMenu.removeFriend": "Xóa bạn",
+        "dmMenu.addFriend": "Thêm bạn",
+        "dmMenu.members": "%d thành viên",
+        "dmMenu.blockUserSuccess": "Chặn người dùng thành công",
+        "dmMenu.blockUserError": "Không thể chặn người dùng",
+        "dmMenu.unblockUserSuccess": "Bỏ chặn người dùng thành công",
+        "dmMenu.unblockUserError": "Không thể bỏ chặn người dùng",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
 

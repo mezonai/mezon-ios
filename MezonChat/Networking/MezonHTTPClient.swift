@@ -1765,11 +1765,12 @@ final class MezonHTTPClient {
         req.limit = min(max(limit, 1), 100)
         req.state = state
         req.cursor = cursor
-        return try await postProto(
+        let response: Mezon_Api_FriendList = try await postProto(
             path: "/mezon.api.Mezon/ListFriends",
             message: req,
             auth: .bearer(token)
         )
+        return response
     }
 
     func addFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
@@ -1789,6 +1790,39 @@ final class MezonHTTPClient {
         req.usernames = usernames
         let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
             path: "/mezon.api.Mezon/DeleteFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func blockFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
+        var req = Mezon_Api_BlockFriendsRequest()
+        req.ids = ids
+        req.usernames = usernames
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/BlockFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func unblockFriends(ids: [Int64] = [], usernames: [String] = [], token: String) async throws {
+        var req = Mezon_Api_DeleteFriendsRequest()
+        req.ids = ids
+        req.usernames = usernames
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/UnblockFriends",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func closeDirectMessage(channelId: Int64, token: String) async throws {
+        var req = Mezon_Api_DeleteChannelDescRequest()
+        req.channelID = channelId
+        req.clanID = 0
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/CloseDMByChannelId",
             message: req,
             auth: .bearer(token)
         )

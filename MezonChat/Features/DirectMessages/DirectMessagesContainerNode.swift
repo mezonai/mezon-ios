@@ -3,6 +3,7 @@ import AsyncDisplayKit
 
 struct DirectMessagesInteraction {
     let onSelectDirectMessage: (Mezon_Api_ChannelDescription) -> Void
+    let onLongPressDirectMessage: (Mezon_Api_ChannelDescription) -> Void
     let onAddFriendTapped: () -> Void
     let onCreateGroupTapped: () -> Void
     let onSearchTapped: () -> Void
@@ -97,6 +98,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.prefetchDataSource = self
+
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.5
+        tableView.addGestureRecognizer(longPress)
 
         refreshControl.tintColor = .mezonTextPrimary
         refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
@@ -322,6 +327,16 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         tableView.reloadData()
         activityStrip.applyTheme()
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let point = gesture.location(in: tableView)
+        guard let indexPath = tableView.indexPathForRow(at: point),
+              indexPath.row >= 0,
+              indexPath.row < state.directMessages.count else { return }
+        let channel = state.directMessages[indexPath.row]
+        interaction.onLongPressDirectMessage(channel)
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
