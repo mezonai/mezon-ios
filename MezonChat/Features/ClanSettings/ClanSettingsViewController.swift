@@ -61,6 +61,19 @@ final class ClanSettingsViewController: BaseViewController {
             let vc = ClanEmojisViewController(context: self.context, clanId: self.clanId)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onSelectInvites = { [weak self] in
+            guard let self else { return }
+            let vc = ClanInviteSheetViewController(context: self.context, clanId: self.clanId)
+            vc.modalPresentationStyle = .pageSheet
+            if #available(iOS 15.0, *) {
+                if let sheet = vc.sheetPresentationController {
+                    sheet.prefersGrabberVisible = true
+                    sheet.detents = [.medium(), .large()]
+                    sheet.selectedDetentIdentifier = .medium
+                }
+            }
+            self.present(vc, animated: true)
+        }
         displayNode = node
     }
 
