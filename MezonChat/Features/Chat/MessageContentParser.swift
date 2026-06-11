@@ -678,11 +678,20 @@ enum PresignFinishContent {
         return withoutExt.isEmpty ? last : withoutExt
     }
 
+    private static let cdnHosts = ["cdn.mezon", "profile.mezon"]
+
+    static func isCdnURL(_ url: String) -> Bool {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") else { return false }
+        return cdnHosts.contains(where: { trimmed.contains($0) })
+    }
+
     static func isAttachmentReady(url: String, presignFinish: [String]?) -> Bool {
         guard let presignFinish else { return true }
         let key = presignKey(from: url)
         guard !key.isEmpty else { return false }
-        return presignFinish.contains(key)
+        if presignFinish.contains(key) { return true }
+        return isCdnURL(url) && url.contains(key)
     }
 
     static func injectPresignFinish(into contentData: Data, keys: [String]) -> Data {

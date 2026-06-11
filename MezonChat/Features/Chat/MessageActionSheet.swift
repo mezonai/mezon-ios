@@ -111,6 +111,7 @@ final class MessageActionSheetController: ViewController {
     private let canShowDeleteMessage: Bool
     private let forwardAllAvailable: Bool
     private let canCreateTopicDiscussion: Bool
+    private let canCreateThreadFromMessage: Bool
     private let onAction: (MessageAction) -> Void
     var onDismiss: (() -> Void)?
     var onEmojiReaction: ((String, String) -> Void)?
@@ -126,6 +127,7 @@ final class MessageActionSheetController: ViewController {
         canShowDeleteMessage: Bool,
         forwardAllAvailable: Bool = false,
         canCreateTopicDiscussion: Bool = true,
+        canCreateThreadFromMessage: Bool = false,
         onAction: @escaping (MessageAction) -> Void
     ) {
         self.display = display
@@ -133,6 +135,7 @@ final class MessageActionSheetController: ViewController {
         self.canShowDeleteMessage = canShowDeleteMessage
         self.forwardAllAvailable = forwardAllAvailable
         self.canCreateTopicDiscussion = canCreateTopicDiscussion
+        self.canCreateThreadFromMessage = canCreateThreadFromMessage
         self.onAction = onAction
 
         super.init(navigationBarPresentationData: nil)
@@ -149,7 +152,8 @@ final class MessageActionSheetController: ViewController {
             isOwnMessage: isOwnMessage,
             canShowDeleteMessage: canShowDeleteMessage,
             forwardAllAvailable: forwardAllAvailable,
-            canCreateTopicDiscussion: canCreateTopicDiscussion
+            canCreateTopicDiscussion: canCreateTopicDiscussion,
+            canCreateThreadFromMessage: canCreateThreadFromMessage
         )
         let quickReactions = Self.includeQuickReactions(for: display)
         self.displayNode = MessageActionSheetNode(
@@ -223,7 +227,8 @@ final class MessageActionSheetController: ViewController {
         isOwnMessage: Bool,
         canShowDeleteMessage: Bool,
         forwardAllAvailable: Bool,
-        canCreateTopicDiscussion: Bool
+        canCreateTopicDiscussion: Bool,
+        canCreateThreadFromMessage: Bool
     ) -> [MessageAction] {
         if display.isFailed {
             return [.resend, .deleteMessage]
@@ -248,7 +253,9 @@ final class MessageActionSheetController: ViewController {
                 actions.append(.forwardAll)
             }
         }
-        actions.append(.createThread)
+        if canCreateThreadFromMessage {
+            actions.append(.createThread)
+        }
 
         if hasText {
             actions.append(.copyText)
@@ -258,7 +265,7 @@ final class MessageActionSheetController: ViewController {
             actions.append(.copyImage)
         }
 
-        actions.append(.markUnread)
+        // actions.append(.markUnread)
         if canCreateTopicDiscussion {
             actions.append(.topicDiscussion)
         }
@@ -269,8 +276,8 @@ final class MessageActionSheetController: ViewController {
                 actions.append(.pinMessage)
             }
         }
-        actions.append(.markMessage)
-        actions.append(.quickMenu)
+        // actions.append(.markMessage)
+        // actions.append(.quickMenu)
 
         if Self.shouldIncludeReport(isOwnMessage: isOwnMessage, messageId: display.message.id) {
             actions.append(.report)

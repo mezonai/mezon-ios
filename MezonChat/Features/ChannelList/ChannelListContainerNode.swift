@@ -10,6 +10,9 @@ struct ChannelListInteraction {
     let onInviteClan: (() -> Void)?
     let onCreateCategory: (() -> Void)?
     let canCreateCategory: (() -> Bool)?
+    let isClanOwner: (() -> Bool)?
+    let onLeaveClan: (() -> Void)?
+    let onDeleteClan: (() -> Void)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
     let onEventTapped: (() -> Void)?
@@ -1219,7 +1222,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             committedSectionCount = totalSections
             return
         }
-        guard !shouldDeferLeadingSectionTableMutations else { return }
+        guard !shouldDeferLeadingSectionTableMutations else {
+            committedSectionCount = totalSections
+            return
+        }
         guard tableNode.numberOfSections > 0 else {
             committedSectionCount = totalSections
             return
@@ -1384,7 +1390,11 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func updateChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) {
-        let filtered = Self.normalizeChannelAppsList(apps.filter { $0.hasListableChannelAppContent })
+        let clanScoped = apps.filter { app in
+            guard headerClanId != 0 else { return true }
+            return app.clanID == 0 || app.clanID == headerClanId
+        }
+        let filtered = Self.normalizeChannelAppsList(clanScoped.filter { $0.hasListableChannelAppContent })
         let beforeHadStripe = channelAppsStripeVisible
         channelAppsLoading = false
         if channelAppsUIEqual(channelApps, filtered), beforeHadStripe == (!filtered.isEmpty) { return }
@@ -1445,6 +1455,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             isCommunity: isCommunity,
             initialShowEmptyCategories: interaction.isShowEmptyCategoriesEnabled?() ?? false,
             canCreateCategory: interaction.canCreateCategory?() ?? false,
+            isClanOwner: interaction.isClanOwner?() ?? false,
             onAction: { [weak self] action in
                 guard let self else { return }
                 switch action {
@@ -1454,6 +1465,10 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.interaction.onInviteClan?()
                 case .createCategory:
                     self.interaction.onCreateCategory?()
+                case .leaveClan:
+                    self.interaction.onLeaveClan?()
+                case .deleteClan:
+                    self.interaction.onDeleteClan?()
                 default:
                     break
                 }

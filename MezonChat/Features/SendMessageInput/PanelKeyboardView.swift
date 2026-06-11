@@ -1,5 +1,25 @@
 import UIKit
 
+enum PanelHeightUpdateMode {
+    case interactive
+    case snap
+}
+
+enum PanelInnerScrollMetrics {
+    static func pullDown(from scrollView: UIScrollView) -> CGFloat {
+        let topY = -scrollView.adjustedContentInset.top
+        guard scrollView.contentOffset.y <= topY + 1, scrollView.isDragging else { return 0 }
+
+        let pan = scrollView.panGestureRecognizer
+        let ty = pan.translation(in: scrollView).y
+        let vy = pan.velocity(in: scrollView).y
+        guard vy > 0 || ty > 0 else { return 0 }
+
+        let overscrollPull = max(0, topY - scrollView.contentOffset.y)
+        return max(overscrollPull, max(ty, 0))
+    }
+}
+
 enum PanelKeyboardTab: Int, CaseIterable {
     case emoji = 0
     case gifs = 1
@@ -19,7 +39,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     var onEmojiSelected: ((String, String) -> Void)?
     var onStickerSelected: ((CachedClanStickerRecord) -> Void)?
     var onGifSelected: ((String) -> Void)?
-    var onHeightChanged: ((CGFloat) -> Void)?
+    var onHeightChanged: ((CGFloat, PanelHeightUpdateMode) -> Void)?
     var onPanelSearchBegin: (() -> Void)?
 
     var collapsedHeight: CGFloat = 260
@@ -88,7 +108,8 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
 
     private var sheetPanGesture: UIPanGestureRecognizer!
     private var dragStartHeight: CGFloat = 0
-    private var isDraggingSheet = false
+    private var appliedHeight: CGFloat = 260
+    private(set) var isDraggingSheet = false
 
     private var tabIndicatorLeadingConstraint: NSLayoutConstraint?
 
@@ -294,9 +315,23 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         sheetPanGesture.delegate = self
         addGestureRecognizer(sheetPanGesture)
 
-        contentScrollView.panGestureRecognizer.require(toFail: sheetPanGesture)
+        for inner in [emojisPanel.sheetPanCoordinationScrollView, gifsPanel.sheetPanCoordinationScrollView, stickersPanel.sheetPanCoordinationScrollView] {
+            sheetPanGesture.require(toFail: inner.panGestureRecognizer)
+            inner.panGestureRecognizer.addTarget(self, action: #selector(handleInnerPan(_:)))
+        }
         contentScrollView.delegate = self
         updateScrollEnabled()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer == sheetPanGesture else { return true }
+        var v: UIView? = touch.view
+        while let cur = v {
+            if cur is UIControl { return false }
+            if cur === self { break }
+            v = cur.superview
+        }
+        return true
     }
 
     var isSearchFieldActive: Bool {
@@ -308,13 +343,21 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     }
 
     func applyTheme() {
+        applyThemeChrome()
+        emojisPanel.applyTheme()
+        gifsPanel.applyTheme()
+        stickersPanel.applyTheme()
+    }
+
+    func applyThemeChrome() {
         backgroundColor = UIColor.theme.secondary
         tabContainerView.backgroundColor = UIColor.theme.primary.withAlphaComponent(0.6)
         tabIndicatorView.backgroundColor = UIColor.theme.bgViolet
         updateTabColors()
-        emojisPanel.applyTheme()
-        gifsPanel.applyTheme()
-        stickersPanel.applyTheme()
+    }
+
+    func ensureCurrentTabLoaded() {
+        loadTabDataIfNeeded(currentTab)
     }
 
 
@@ -343,6 +386,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
 
     func resetToCollapsed() {
         isExpanded = false
+        appliedHeight = collapsedHeight
         contentScrollView.setContentOffset(.zero, animated: false)
         updateScrollEnabled()
     }
@@ -351,15 +395,91 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     func applySnapExpanded(height: CGFloat) {
         expandedHeight = height
         isExpanded = true
+        appliedHeight = height
         updateScrollEnabled()
-        onHeightChanged?(height)
+        reportHeight(height, mode: .snap)
     }
 
     func applySnapCollapsed() {
         isExpanded = false
+        appliedHeight = collapsedHeight
         updateScrollEnabled()
         contentScrollView.setContentOffset(.zero, animated: false)
-        onHeightChanged?(collapsedHeight)
+        reportHeight(collapsedHeight, mode: .snap)
+    }
+
+    private func reportHeight(_ height: CGFloat, mode: PanelHeightUpdateMode) {
+        appliedHeight = height.clamped(to: collapsedHeight...expandedHeight)
+        let midPoint = (collapsedHeight + expandedHeight) / 2
+        isExpanded = appliedHeight > midPoint
+        onHeightChanged?(appliedHeight, mode)
+    }
+
+    private var isPanelTall: Bool {
+        appliedHeight > collapsedHeight + 1
+    }
+
+    private static let collapsePullThreshold: CGFloat = 6
+
+    private func handleInnerScroll(offset: CGFloat, isDragging: Bool) {
+        if !isDragging {
+            didExpandThisDrag = false
+            return
+        }
+
+        guard !isPanelTall else { return }
+
+        if offset > 10, !didExpandThisDrag {
+            didExpandThisDrag = true
+            snapTo(expanded: true)
+        }
+    }
+
+    private func handleInnerScrollCollapse(scroll: UIScrollView, isDragging: Bool) {
+        if !isDragging {
+            if innerScrollPullingToCollapse {
+                innerScrollPullingToCollapse = false
+                innerScrollCollapseStartHeight = 0
+                finishInnerScrollPanelResize()
+            }
+            return
+        }
+
+        guard isPanelTall else { return }
+
+        let pullDown = PanelInnerScrollMetrics.pullDown(from: scroll)
+        guard pullDown > 0 else {
+            if innerScrollPullingToCollapse {
+                reportHeight(innerScrollCollapseStartHeight, mode: .interactive)
+            }
+            innerScrollPullingToCollapse = false
+            innerScrollCollapseStartHeight = 0
+            return
+        }
+
+        if !innerScrollPullingToCollapse, pullDown < Self.collapsePullThreshold {
+            return
+        }
+
+        if !innerScrollPullingToCollapse {
+            innerScrollCollapseStartHeight = appliedHeight
+        }
+        innerScrollPullingToCollapse = true
+        let newH = (innerScrollCollapseStartHeight - pullDown).clamped(to: collapsedHeight...expandedHeight)
+        reportHeight(newH, mode: .interactive)
+
+        let topY = -scroll.adjustedContentInset.top
+        if scroll.contentOffset.y < topY - 0.5 {
+            scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: topY), animated: false)
+        }
+    }
+
+    private var activeInnerScrollView: UIScrollView {
+        switch currentTab {
+        case .emoji: return emojisPanel.sheetPanCoordinationScrollView
+        case .gifs: return gifsPanel.sheetPanCoordinationScrollView
+        case .stickers: return stickersPanel.sheetPanCoordinationScrollView
+        }
     }
 
     private func findFirstResponder(in view: UIView) -> UIResponder? {
@@ -431,25 +551,12 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
 
 
     private var didExpandThisDrag = false
+    private var innerScrollPullingToCollapse = false
+    private var innerScrollCollapseStartHeight: CGFloat = 0
 
-    private func handleInnerScroll(offset: CGFloat, isDragging: Bool) {
-        if !isDragging {
-            didExpandThisDrag = false
-            return
-        }
-
-        if !isExpanded {
-
-            if offset > 10, !didExpandThisDrag {
-                didExpandThisDrag = true
-                snapTo(expanded: true)
-            }
-        } else {
-
-            if offset < -40 {
-                snapTo(expanded: false)
-            }
-        }
+    private func finishInnerScrollPanelResize() {
+        let midPoint = (collapsedHeight + expandedHeight) / 2
+        snapTo(expanded: appliedHeight > midPoint)
     }
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -459,25 +566,37 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         let isVertical = abs(velocity.y) > abs(velocity.x)
         guard isVertical else { return false }
 
-        if !isExpanded {
+        if !isPanelTall {
             return true
-        } else {
-            let atTop = contentScrollView.contentOffset.y <= 0
-            let draggingDown = velocity.y > 0
-            return atTop && draggingDown
+        }
+        let inner = activeInnerScrollView
+        let topY = -inner.adjustedContentInset.top
+        let atTop = inner.contentOffset.y <= topY + 0.5
+        let draggingDown = velocity.y > 0
+        return atTop && draggingDown
+    }
+
+    @objc private func handleInnerPan(_ gesture: UIPanGestureRecognizer) {
+        guard let scroll = gesture.view as? UIScrollView, scroll === activeInnerScrollView else { return }
+        switch gesture.state {
+        case .began, .changed:
+            handleInnerScrollCollapse(scroll: scroll, isDragging: true)
+        case .ended, .cancelled, .failed:
+            handleInnerScrollCollapse(scroll: scroll, isDragging: false)
+        default:
+            break
         }
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began:
-            dragStartHeight = bounds.height
+            dragStartHeight = appliedHeight
             isDraggingSheet = true
         case .changed:
             let translation = gesture.translation(in: self)
             let raw = dragStartHeight - translation.y
-            let newHeight = raw.clamped(to: collapsedHeight...expandedHeight)
-            onHeightChanged?(newHeight)
+            reportHeight(raw, mode: .interactive)
         case .ended, .cancelled:
             isDraggingSheet = false
             let velocity = gesture.velocity(in: self).y
@@ -488,7 +607,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func snapWithVelocity(_ velocityY: CGFloat) {
-        let currentH = bounds.height
+        let currentH = appliedHeight
         let midPoint = (collapsedHeight + expandedHeight) / 2
 
         if velocityY < -500 {
@@ -504,13 +623,14 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         let targetH = expanded ? expandedHeight : collapsedHeight
         let wasExpanded = isExpanded
         isExpanded = expanded
-        onHeightChanged?(targetH)
+        reportHeight(targetH, mode: .snap)
 
         updateScrollEnabled()
 
         if !expanded && wasExpanded {
             dismissSearch()
             contentScrollView.setContentOffset(.zero, animated: false)
+            activeInnerScrollView.setContentOffset(.zero, animated: false)
         }
     }
 }

@@ -19,8 +19,24 @@ final class ChatEmojiPickerPresenter {
     private(set) var collapsedHeight: CGFloat = 0
     private(set) var wasJustDismissed: Bool = false
 
+    private static let panelOpenAnimationDuration: TimeInterval = 0.22
+    private static let panelOpenSpringDamping: CGFloat = 0.94
+    private static let panelSnapAnimationDuration: TimeInterval = 0.52
+
+    private static let panelSnapSpringDamping: CGFloat = 0.86
+
     var panelHeightForChatLayout: CGFloat {
         heightConstraint?.constant ?? 0
+    }
+
+    var composerLayoutEmojiOffset: CGFloat {
+        guard collapsedHeight > 0, !pickerView.isHidden else { return 0 }
+        return collapsedHeight
+    }
+
+    var isEmojiPanelExpandedOverContent: Bool {
+        guard collapsedHeight > 0, !pickerView.isHidden else { return false }
+        return panelHeightForChatLayout > collapsedHeight + 1
     }
 
     var isEmojiPanelSearchConsumingKeyboard: Bool {
@@ -50,6 +66,11 @@ final class ChatEmojiPickerPresenter {
             b,
         ])
         v.configureMediaPanelCache(engine: engine)
+        v.applyTheme()
+        v.ensureCurrentTabLoaded()
+        DispatchQueue.main.async { [weak v] in
+            v?.layoutIfNeeded()
+        }
     }
 
     func bringToFront() {
@@ -68,7 +89,7 @@ final class ChatEmojiPickerPresenter {
         if visible {
             onSetSuppressNextScrollToBottom?(false)
             let screenH = UIScreen.main.bounds.height
-            let expandedH = max(screenH * 0.85, collapsedHeight + 200)
+            let expandedH = Self.expandedPanelHeight(collapsedHeight: collapsedHeight, screenHeight: screenH)
             pickerView.collapsedHeight = collapsedHeight
             pickerView.expandedHeight = expandedH
             pickerView.resetToCollapsed()
@@ -76,8 +97,8 @@ final class ChatEmojiPickerPresenter {
             self.collapsedHeight = collapsedHeight
             heightConstraint?.constant = collapsedHeight
             pickerView.isHidden = false
-            pickerView.applyTheme()
-            pickerView.refreshMediaPanelCache()
+            pickerView.applyThemeChrome()
+            pickerView.ensureCurrentTabLoaded()
         } else {
             onSetSuppressNextScrollToBottom?(true)
             self.collapsedHeight = 0
@@ -87,14 +108,21 @@ final class ChatEmojiPickerPresenter {
         }
 
         let transition: ContainedViewLayoutTransition = visible
-            ? .animated(duration: 0.25, curve: .easeInOut)
+            ? .animated(duration: Self.panelOpenAnimationDuration, curve: .easeInOut)
             : .immediate
         onRequestRelayout?(transition)
 
         if visible {
-            UIView.animate(withDuration: 0.25) {
-                self.hostView?.layoutIfNeeded()
-            }
+            UIView.animate(
+                withDuration: Self.panelOpenAnimationDuration,
+                delay: 0,
+                usingSpringWithDamping: Self.panelOpenSpringDamping,
+                initialSpringVelocity: 1.0,
+                options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState],
+                animations: {
+                    self.hostView?.layoutIfNeeded()
+                }
+            )
         } else {
             hostView?.layoutIfNeeded()
         }
@@ -109,17 +137,45 @@ final class ChatEmojiPickerPresenter {
         pickerView.resetToCollapsed()
     }
 
-    func updateOverlayHeight(_ newHeight: CGFloat) {
-        heightConstraint?.constant = newHeight
-        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut]) {
-            self.hostView?.layoutIfNeeded()
+    func updateOverlayHeight(_ newHeight: CGFloat, mode: PanelHeightUpdateMode) {
+        let lo = pickerView.collapsedHeight
+        let hi = pickerView.expandedHeight
+        let clamped = min(max(newHeight, lo), hi)
+        if mode == .snap {
+            guard abs((heightConstraint?.constant ?? 0) - clamped) > 0.5 else { return }
         }
+        heightConstraint?.constant = clamped
+        bringToFront()
+
+        let animateLayout = {
+            self.hostView?.layoutIfNeeded()
+            return ()
+        }
+        switch mode {
+        case .interactive:
+            animateLayout()
+        case .snap:
+            UIView.animate(
+                withDuration: Self.panelSnapAnimationDuration,
+                delay: 0,
+                usingSpringWithDamping: Self.panelSnapSpringDamping,
+                initialSpringVelocity: 0.5,
+                options: [.curveEaseOut, .allowUserInteraction],
+                animations: animateLayout
+            )
+        }
+    }
+
+    private static func expandedPanelHeight(collapsedHeight: CGFloat, screenHeight: CGFloat) -> CGFloat {
+        min(max(screenHeight * 0.80, collapsedHeight + 200), screenHeight * 0.80)
     }
 
     func updateForSearchKeyboard() {
         guard collapsedHeight > 0, !pickerView.isHidden else { return }
         guard pickerView.isPanelSearchFocused || pickerView.isSearchFieldActive else { return }
-        let panelH = pickerView.expandedHeight
+        let screenH = UIScreen.main.bounds.height
+        let panelH = Self.expandedPanelHeight(collapsedHeight: collapsedHeight, screenHeight: screenH)
+        pickerView.expandedHeight = panelH
         pickerView.applySnapExpanded(height: panelH)
     }
 
@@ -168,8 +224,8 @@ final class ChatEmojiPickerPresenter {
             send.hideEmojiPickerIfNeeded()
             send.focusComposerAfterEmojiPanelSelection()
         }
-        v.onHeightChanged = { [weak self] newHeight in
-            self?.updateOverlayHeight(newHeight)
+        v.onHeightChanged = { [weak self] newHeight, mode in
+            self?.updateOverlayHeight(newHeight, mode: mode)
         }
         v.onPanelSearchBegin = { [weak self] in
             DispatchQueue.main.async {

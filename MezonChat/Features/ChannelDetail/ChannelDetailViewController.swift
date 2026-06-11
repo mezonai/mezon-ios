@@ -121,11 +121,18 @@ final class ChannelDetailViewController: ViewController {
             ? channel.parentID
             : channel.channelID
         let composerSurface = Self.surfaceChannelForThreadComposer(from: channel, resolvedType: t)
+        let parentCategoryId: Int64 = {
+            if let parent = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: parentId),
+               parent.categoryID != 0 {
+                return parent.categoryID
+            }
+            return channel.categoryID
+        }()
         let vc = ThreadListViewController(
             context: context,
             clanId: clanId,
             parentChannelId: parentId,
-            parentCategoryId: channel.categoryID,
+            parentCategoryId: parentCategoryId,
             parentChannelLabel: channel.channelLabel,
             composerParentChannel: composerSurface
         )

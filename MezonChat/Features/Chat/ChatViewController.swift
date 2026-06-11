@@ -354,8 +354,18 @@ final class ChatViewController: ViewController {
         }
     }
     private var skipRemoteFetchWhileTopicIsEmpty = false
+    private var pendingTopicCreationMessageId: Int64?
+    private var messageHistoryDisposable: Disposable?
     private var storageChannelId: String {
-        topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
+        if let messageId = pendingTopicCreationMessageId {
+            return "pending-topic-\(messageId)"
+        }
+        return topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
+    }
+
+    func configureAsPendingTopicCreation(sourceMessageId: Int64) {
+        pendingTopicCreationMessageId = sourceMessageId
+        skipRemoteFetchWhileTopicIsEmpty = true
     }
 
     private let needsReloadPipe = ValuePipe<Void>()
@@ -404,7 +414,12 @@ final class ChatViewController: ViewController {
             self?.updateInputBarHeight(newHeight)
         }
         vc.onToggleEmojiPicker = { [weak self] visible, collapsedH in
-            self?.emojiPicker.setVisible(visible, collapsedHeight: collapsedH)
+            guard let self else { return }
+            if visible {
+                self.isKeyboardVisible = false
+                self.trackedKeyboardHeight = 0
+            }
+            self.emojiPicker.setVisible(visible, collapsedHeight: collapsedH)
         }
         vc.onToggleAdvancePanel = { [weak self] visible, collapsedH in
             self?.handleAdvancePanelToggle(visible: visible, collapsedHeight: collapsedH)
@@ -718,12 +733,8 @@ final class ChatViewController: ViewController {
                 guard let ref = display.replyRef, ref.messageRefID != 0 else { return }
                 self.jumpToMessage(id: "\(ref.messageRefID)")
             },
-            onSystemThreadTapped: { [weak self] threadChannelId, _ in
-                guard let self, threadChannelId != 0 else { return }
-                AppDelegate.navigateToChannel(
-                    channelId: "\(threadChannelId)",
-                    clanId: "\(self.clanId)"
-                )
+            onSystemThreadTapped: { [weak self] threadChannelId, threadLabel in
+                self?.openThreadFromSystemMessage(threadChannelId: threadChannelId, threadLabel: threadLabel)
             },
             onSystemAllThreadsTapped: { [weak self] in
                 self?.openThreadListFromChat()
@@ -1140,7 +1151,7 @@ final class ChatViewController: ViewController {
             keyboardOffset = 0
         }
 
-        let emojiOffset = emojiPicker.panelHeightForChatLayout
+        let emojiOffset = emojiPicker.composerLayoutEmojiOffset
         let advanceOffset = advancePanelCollapsedHeight
         let bottomOffset = max(keyboardOffset, max(emojiOffset, advanceOffset))
 
@@ -1182,6 +1193,9 @@ final class ChatViewController: ViewController {
         }
 
         emojiPicker.updateBottomInset(bottomInset)
+        if emojiPicker.isEmojiPanelExpandedOverContent {
+            emojiPicker.bringToFront()
+        }
         advancePanelBottomConstraint?.constant = -bottomInset
 
         let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
@@ -1533,8 +1547,24 @@ final class ChatViewController: ViewController {
         typingPruneTimer?.invalidate()
         sendingFeedbackRefreshWorkItem?.cancel()
         notificationKeyboardReconcileWorkItem?.cancel()
+        messageHistoryDisposable?.dispose()
         stateDisposables.dispose()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    private func bindMessageHistoryView() {
+        messageHistoryDisposable?.dispose()
+        let channelIdStr = storageChannelId
+        messageHistoryDisposable = (context.account.postbox.messageHistoryView(channelId: channelIdStr)
+            |> deliverOnMainQueue)
+            .start(next: { [weak self] view in
+                guard let self else { return }
+                guard view.channelId == channelIdStr else { return }
+                guard self.storageChannelId == channelIdStr else { return }
+                let rows = view.messages.filter { $0.channelId == channelIdStr }
+                let displays = self.buildDisplayMessages(from: rows)
+                self.setMessages(displays)
+            })
     }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
@@ -1669,18 +1699,7 @@ final class ChatViewController: ViewController {
                 setIsLoading(false)
             }
 
-            stateDisposables.add(
-                (self.context.account.postbox.messageHistoryView(channelId: channelIdStr)
-                    |> deliverOnMainQueue)
-                    .start(next: { [weak self] view in
-                        guard let self else { return }
-                        guard view.channelId == channelIdStr else { return }
-                        guard self.storageChannelId == channelIdStr else { return }
-                        let rows = view.messages.filter { $0.channelId == channelIdStr }
-                        let displays = self.buildDisplayMessages(from: rows)
-                        self.setMessages(displays)
-                    })
-            )
+            bindMessageHistoryView()
         }
         stateDisposables.add(
             (self.context.engine.clanData.clanRolesUpdated.signal()
@@ -1888,6 +1907,28 @@ final class ChatViewController: ViewController {
                         if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
                         return
                     }
+                    if self.channel.parentID != 0,
+                       let thread = try await self.context.account.network.fetchThreadDesc(
+                           threadId: self.channel.channelID,
+                           parentChannelId: self.channel.parentID,
+                           clanId: self.clanId,
+                           token: token
+                       ) {
+                        let resolved = self.normalizeThreadDescription(
+                            thread,
+                            threadChannelId: self.channel.channelID,
+                            parentChannelId: self.channel.parentID,
+                            threadLabel: nil
+                        )
+                        self.channel = resolved
+                        if !resolved.channelLabel.isEmpty {
+                            self.setChannelLabel(resolved.channelLabel)
+                        }
+                        self.syncChannelToComposer()
+                        self.completeChannelHydrationAfterMetadataUpgrade()
+                        if typeWasUnknown { self.rejoinChatIfChannelMetadataChanged() }
+                        return
+                    }
                 }
                 let channels = try await self.context.account.network.listChannelByUserId(token: token)
                 if let found = channels.channeldesc.first(where: { $0.channelID == self.channel.channelID }) {
@@ -1975,6 +2016,7 @@ final class ChatViewController: ViewController {
         clearRemoteTypingState()
         context.currentChannel = nil
         ActiveChannelTracker.currentChannelId = 0
+        messageHistoryDisposable?.dispose()
         stateDisposables.dispose()
     }
 
@@ -2094,10 +2136,10 @@ final class ChatViewController: ViewController {
     }
 
     private func shouldSkipRemoteFetchForEmptyTopic(hadCachedMessages: Bool, hadCachedInPostbox: Bool) -> Bool {
-        topicId != 0
-            && skipRemoteFetchWhileTopicIsEmpty
+        skipRemoteFetchWhileTopicIsEmpty
             && !hadCachedMessages
             && !hadCachedInPostbox
+            && (topicId != 0 || pendingTopicCreationMessageId != nil)
     }
 
     func fetchMessages(token: String? = nil) {
@@ -2337,7 +2379,13 @@ final class ChatViewController: ViewController {
 
     private func fetchChannelPermissions(token: String? = nil) {
         guard clanId != 0 else { return }
-        context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: channel.channelID)
+        let parentId = createThreadParentChannelId()
+        if parentId != 0 {
+            context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: parentId)
+        }
+        if channel.channelID != parentId, channel.channelID != 0 {
+            context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: channel.channelID)
+        }
     }
 
     private func fetchChannelMembers(token: String? = nil) {
@@ -3607,6 +3655,7 @@ final class ChatViewController: ViewController {
         view.bringSubviewToFront(sendInputViewController.view)
         emojiPicker.bringToFront()
         view.bringSubviewToFront(advancePanelView)
+        configurePendingTopicCreationIfNeeded()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
         tap.cancelsTouchesInView = false
@@ -3852,7 +3901,7 @@ final class ChatViewController: ViewController {
 
             suppressScrollToBottomForNextKeyboardInset = false
             let screenH = UIScreen.main.bounds.height
-            let expandedH = max(screenH * 0.85, collapsedHeight + 200)
+            let expandedH = min(max(screenH * 0.80, collapsedHeight + 200), screenH * 0.80)
             advancePanelView.collapsedHeight = collapsedHeight
             advancePanelView.expandedHeight = expandedH
             advancePanelView.resetToCollapsed()
@@ -4293,7 +4342,31 @@ final class ChatViewController: ViewController {
     private func createTopicDiscussion(from display: ChatMessageDisplay) {
         guard canCreateTopicDiscussion(for: display),
               let messageId = Int64(display.message.id) else { return }
+
+        var topicChannel = channel
+        topicChannel.channelLabel = L(L10n.MessageAction.topicDiscussion)
+        let topicVC = ChatViewController(
+            clanId: clanId, channel: topicChannel, context: context, parentName: nil
+        )
+        topicVC.configureAsPendingTopicCreation(sourceMessageId: messageId)
+        needsRefreshAfterTopicDiscussion = true
+        navigationController?.pushViewController(topicVC, animated: true)
+    }
+
+    private func configurePendingTopicCreationIfNeeded() {
+        guard pendingTopicCreationMessageId != nil else { return }
+        sendInputViewController.primarySendActionOverride = { [weak self] in
+            self?.performPendingTopicCreationAndSend()
+        }
+    }
+
+    private func performPendingTopicCreationAndSend() {
+        guard let messageId = pendingTopicCreationMessageId else {
+            sendInputViewController.send()
+            return
+        }
         guard !isCreatingTopicDiscussion else { return }
+        guard sendInputViewController.hasComposerSendPayload() else { return }
         isCreatingTopicDiscussion = true
 
         Task { @MainActor in
@@ -4317,25 +4390,210 @@ final class ChatViewController: ViewController {
                 let creatorIdValue = topic.creatorID != 0
                     ? topic.creatorID
                     : (Int64(self.context.currentUser?.id ?? "") ?? 0)
+                let parentChannelIdStr = "\(self.channel.channelID)"
                 self.context.account.postbox.write { tx in
                     tx.updateMessageTopicMetadata(
                         messageId: "\(messageId)",
-                        channelId: "\(self.channel.channelID)",
+                        channelId: parentChannelIdStr,
                         topicId: topic.id,
                         creatorId: creatorIdValue
                     )
                 }
-                self.reloadDisplaysWithCurrentPins()
-                let creatorId = topic.creatorID != 0
-                    ? "\(topic.creatorID)"
-                    : (self.context.currentUser?.id ?? "")
-                self.openTopicDiscussion(
-                    topicData: TopicData(topicId: "\(topic.id)", creatorId: creatorId, replyCount: 0)
+
+                self.pendingTopicCreationMessageId = nil
+                self.sendInputViewController.primarySendActionOverride = nil
+                self.skipRemoteFetchWhileTopicIsEmpty = false
+                self.sendInputViewController.syncStoredDraftIdentity(
+                    channel: channel,
+                    topicId: topic.id,
+                    migrateDraftToNewChannelIdentity: true,
+                    preserveComposerContentsDuringMigration: true
                 )
+                self.topicId = topic.id
+                self.bindMessageHistoryView()
+                self.sendInputViewController.send()
             } catch {
                 Toast.error(error.localizedDescription)
             }
         }
+    }
+
+    private static let threadListFetchPageLimit: Int32 = 50
+    private static let threadListFetchMaxPages: Int32 = 40
+
+    private func openThreadFromSystemMessage(threadChannelId: Int64, threadLabel: String?) {
+        guard clanId != 0, threadChannelId != 0 else { return }
+        let parentChannelId = systemThreadParentChannelId()
+        guard parentChannelId != 0 else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error("No session")
+                return
+            }
+            do {
+                let resolved = try await self.resolveThreadChannelForSystemNavigation(
+                    threadChannelId: threadChannelId,
+                    parentChannelId: parentChannelId,
+                    threadLabel: threadLabel,
+                    token: token
+                )
+                self.context.engine.clanData.applyLocallyCreatedChannel(resolved)
+
+                let parentLabel: String? = {
+                    if self.channel.type == MezonConstants.ChannelType.thread.rawValue {
+                        return self.initialParentName
+                    }
+                    let label = self.channel.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return label.isEmpty ? self.initialParentName : label
+                }()
+
+                let chatVC = ChatViewController(
+                    clanId: self.clanId,
+                    channel: resolved,
+                    context: self.context,
+                    parentName: parentLabel
+                )
+                self.navigationController?.pushViewController(chatVC, animated: true)
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func systemThreadParentChannelId() -> Int64 {
+        if channel.type == MezonConstants.ChannelType.thread.rawValue, channel.parentID != 0 {
+            return channel.parentID
+        }
+        return channel.channelID
+    }
+
+    private func resolveThreadChannelForSystemNavigation(
+        threadChannelId: Int64,
+        parentChannelId: Int64,
+        threadLabel: String?,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription {
+        if let cached = cachedThreadDescription(threadChannelId: threadChannelId, parentChannelId: parentChannelId) {
+            return cached
+        }
+        if let fetched = try await context.account.network.fetchThreadDesc(
+            threadId: threadChannelId,
+            parentChannelId: parentChannelId,
+            clanId: clanId,
+            token: token
+        ) {
+            return normalizeThreadDescription(fetched, threadChannelId: threadChannelId, parentChannelId: parentChannelId, threadLabel: threadLabel)
+        }
+        if let label = threadLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty,
+           let searched = try await context.account.network.searchThread(
+               clanId: clanId,
+               parentChannelId: parentChannelId,
+               label: label,
+               token: token
+           ).channeldesc.first(where: { $0.channelID == threadChannelId || $0.channelLabel == label }) {
+            return normalizeThreadDescription(searched, threadChannelId: threadChannelId, parentChannelId: parentChannelId, threadLabel: label)
+        }
+        if let listed = try await findThreadInPaginatedList(
+            threadChannelId: threadChannelId,
+            parentChannelId: parentChannelId,
+            token: token
+        ) {
+            return normalizeThreadDescription(listed, threadChannelId: threadChannelId, parentChannelId: parentChannelId, threadLabel: threadLabel)
+        }
+
+        var fallback = Mezon_Api_ChannelDescription()
+        fallback.channelID = threadChannelId
+        fallback.parentID = parentChannelId
+        fallback.clanID = clanId
+        fallback.type = MezonConstants.ChannelType.thread.rawValue
+        if let label = threadLabel?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
+            fallback.channelLabel = label
+        }
+        return fallback
+    }
+
+    private func cachedThreadDescription(threadChannelId: Int64, parentChannelId: Int64) -> Mezon_Api_ChannelDescription? {
+        if let found = context.engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: {
+            $0.channelID == threadChannelId && ($0.parentID == parentChannelId || $0.parentID == 0)
+        }) {
+            return found
+        }
+        if let data = context.account.postbox.getPreferenceData(
+            key: PreferencesKeys.threadList(clanId: clanId, parentChannelId: parentChannelId)
+        ), let threads = Self.decodeThreadListPreference(data) {
+            if let found = threads.first(where: { $0.channelID == threadChannelId }) {
+                return found
+            }
+        }
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) {
+            let channels = ChannelPreferenceListCodec.decode(data)
+            if let found = channels.first(where: { $0.channelID == threadChannelId && $0.parentID == parentChannelId }) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func findThreadInPaginatedList(
+        threadChannelId: Int64,
+        parentChannelId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription? {
+        var page: Int32 = 1
+        while page <= Self.threadListFetchMaxPages {
+            let list = try await context.account.network.listThreadDescs(
+                parentChannelId: parentChannelId,
+                clanId: clanId,
+                page: page,
+                limit: Self.threadListFetchPageLimit,
+                token: token
+            )
+            if let found = list.channeldesc.first(where: { $0.channelID == threadChannelId }) {
+                return found
+            }
+            if list.channeldesc.count < Int(Self.threadListFetchPageLimit) { break }
+            page += 1
+        }
+        return nil
+    }
+
+    private func normalizeThreadDescription(
+        _ thread: Mezon_Api_ChannelDescription,
+        threadChannelId: Int64,
+        parentChannelId: Int64,
+        threadLabel: String?
+    ) -> Mezon_Api_ChannelDescription {
+        var resolved = thread
+        if resolved.channelID == 0 { resolved.channelID = threadChannelId }
+        if resolved.parentID == 0 { resolved.parentID = parentChannelId }
+        if resolved.clanID == 0 { resolved.clanID = clanId }
+        if resolved.type == 0 { resolved.type = MezonConstants.ChannelType.thread.rawValue }
+        if resolved.channelLabel.isEmpty,
+           let label = threadLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !label.isEmpty {
+            resolved.channelLabel = label
+        }
+        return resolved
+    }
+
+    private static func decodeThreadListPreference(_ data: Data) -> [Mezon_Api_ChannelDescription]? {
+        guard data.count >= 12 else { return nil }
+        let count = data.subdata(in: 8..<12).withUnsafeBytes { $0.load(as: UInt32.self) }
+        var result: [Mezon_Api_ChannelDescription] = []
+        var offset = 12
+        for _ in 0..<count {
+            guard offset + 4 <= data.count else { break }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            offset += 4
+            guard offset + Int(len) <= data.count else { break }
+            if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
+                result.append(m)
+            }
+            offset += Int(len)
+        }
+        return result.isEmpty ? nil : result
     }
 
     private func openThreadListFromChat() {
@@ -4360,6 +4618,115 @@ final class ChatViewController: ViewController {
             composerParentChannel: composerSurface
         )
         navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private static let createThreadUnsupportedChannelTypes: Set<Int32> = [
+        MezonConstants.ChannelType.dm.rawValue,
+        MezonConstants.ChannelType.group.rawValue,
+        MezonConstants.ChannelType.thread.rawValue,
+        MezonConstants.ChannelType.app.rawValue,
+        MezonConstants.ChannelType.mezonVoice.rawValue,
+        MezonConstants.ChannelType.streaming.rawValue,
+    ]
+
+    private func createThreadParentChannelId() -> Int64 {
+        channel.type == MezonConstants.ChannelType.thread.rawValue
+            ? channel.parentID
+            : channel.channelID
+    }
+
+    private func canCreateThreadFromMessage(for display: ChatMessageDisplay) -> Bool {
+        if clanId == 0 { return false }
+        if topicId != 0 { return false }
+        if display.isFailed { return false }
+        if display.message.id.hasPrefix("pending-") { return false }
+        if display.message.isDeleted { return false }
+        if display.isSystemMessage { return false }
+        if display.isBuzzMessage { return false }
+        if display.isTopic { return false }
+        if AnonymousMessageStore.isEnabled(clanId: clanId) { return false }
+        if Self.createThreadUnsupportedChannelTypes.contains(channel.type) { return false }
+
+        let parentId = createThreadParentChannelId()
+        guard parentId != 0 else { return false }
+        return context.rolePermissions.canManageThread(clanId: clanId, channelId: parentId)
+    }
+
+    private func resolvedParentCategoryId(parentId: Int64) -> Int64 {
+        if let parent = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: parentId),
+           parent.categoryID != 0 {
+            return parent.categoryID
+        }
+        return channel.categoryID
+    }
+
+    private func createThreadFormParentContext() -> (
+        parentId: Int64,
+        parentCategoryId: Int64,
+        parentLabel: String,
+        composerSurface: Mezon_Api_ChannelDescription
+    ) {
+        let parentId = createThreadParentChannelId()
+        let parentLabel: String = {
+            if channel.type == MezonConstants.ChannelType.thread.rawValue {
+                let label = parentChannelMeta?.label.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !label.isEmpty { return label }
+            }
+            let label = channel.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !label.isEmpty { return label }
+            return channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        }()
+        let composerSurface: Mezon_Api_ChannelDescription = {
+            guard channel.type == MezonConstants.ChannelType.thread.rawValue else { return channel }
+            var d = channel
+            d.channelID = channel.parentID
+            d.parentID = 0
+            d.type = MezonConstants.ChannelType.forum.rawValue
+            return d
+        }()
+        return (parentId, resolvedParentCategoryId(parentId: parentId), parentLabel, composerSurface)
+    }
+
+    private func presentCreateThreadForm(from display: ChatMessageDisplay) {
+        guard canCreateThreadFromMessage(for: display) else {
+            Toast.error(L(L10n.ThreadList.createThreadForbidden))
+            return
+        }
+        let ctx = createThreadFormParentContext()
+        let form = CreateThreadFormViewController(
+            context: context,
+            clanId: clanId,
+            parentChannelId: ctx.parentId,
+            parentCategoryId: ctx.parentCategoryId,
+            parentChannelLabel: ctx.parentLabel,
+            composerParentChannel: ctx.composerSurface,
+            seedMessageDisplay: display,
+            onComplete: { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success(let createdChannel):
+                    Toast.success(L(L10n.ThreadList.createThreadSuccess))
+                    self.context.currentClanId = self.clanId
+                    let vc = ChatViewController(clanId: self.clanId, channel: createdChannel, context: self.context)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                        self?.navigationController?.pushViewController(vc, animated: true)
+                    }
+                case .failure:
+                    break
+                }
+            }
+        )
+        let nav = UINavigationController(rootViewController: form)
+        nav.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sheet = nav.sheetPresentationController {
+                sheet.detents = [.large()]
+                sheet.prefersGrabberVisible = true
+            }
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.present(nav, animated: true)
+        }
     }
 
     private func openChannelDetail() {
@@ -5049,7 +5416,8 @@ final class ChatViewController: ViewController {
             isOwnMessage: isOwn,
             canShowDeleteMessage: canDelete,
             forwardAllAvailable: fwdCluster,
-            canCreateTopicDiscussion: canCreateTopicDiscussion(for: display)
+            canCreateTopicDiscussion: canCreateTopicDiscussion(for: display),
+            canCreateThreadFromMessage: canCreateThreadFromMessage(for: display)
         ) { [weak self] action in
             self?.handleMessageAction(action, display: display)
         }
@@ -5756,15 +6124,18 @@ final class ChatViewController: ViewController {
         case .giveACoffee:
             runGiveACoffeeIfPossible(display: display)
         case .createThread:
-            showMessageActionComingSoon(.createThread)
-        case .markUnread:
-            showMessageActionComingSoon(.markUnread)
+            presentCreateThreadForm(from: display)
+        // case .markUnread:
+        //     showMessageActionComingSoon(.markUnread)
+        case .markUnread: break
         case .topicDiscussion:
             createTopicDiscussion(from: display)
-        case .markMessage:
-            showMessageActionComingSoon(.markMessage)
-        case .quickMenu:
-            showMessageActionComingSoon(.quickMenu)
+        // case .markMessage:
+        //     showMessageActionComingSoon(.markMessage)
+        case .markMessage: break
+        // case .quickMenu:
+        //     showMessageActionComingSoon(.quickMenu)
+        case .quickMenu: break
         case .editMessage:
             sendInputViewController.setEditingMessage(display)
             sendInputViewController.view.becomeFirstResponder()

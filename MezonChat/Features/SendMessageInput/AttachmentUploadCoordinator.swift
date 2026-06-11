@@ -246,7 +246,7 @@ final class AttachmentUploadCoordinator {
     func startImageSend(
         context: AccountContext,
         params: ImageSendParams,
-        prepare: ((String) async -> Void)? = nil
+        prepare: ((String) async throws -> Void)? = nil
     ) {
         let session = ImageUploadSession(params: params)
         register(session, key: params.localId)
@@ -303,7 +303,7 @@ final class AttachmentUploadCoordinator {
     private func runUploads(
         _ session: ImageUploadSession,
         context: AccountContext,
-        prepare: ((String) async -> Void)?
+        prepare: ((String) async throws -> Void)?
     ) async {
         guard let token = await context.getToken() else {
             for item in session.items where item.state.isUploading { item.state = .failed }
@@ -316,7 +316,12 @@ final class AttachmentUploadCoordinator {
 
         let attachments = allReservedAttachments(session)
 
-        await prepare?(token)
+        do {
+            try await prepare?(token)
+        } catch {
+            finalizeAllFailed(session, context: context)
+            return
+        }
 
         let canSend = !attachments.isEmpty || session.params.hasText
         if !canSend {
@@ -577,6 +582,23 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    private func mentionsForPresignSync(
+        _ session: ImageUploadSession,
+        context: AccountContext
+    ) -> [Mezon_Api_MessageMention] {
+        let p = session.params
+        let serverKey = "\(session.serverMessageId)"
+        if let record = context.account.postbox.read({ tx in
+            tx.getMessageById(serverKey) ?? tx.getMessageById(p.localId)
+        }),
+           !record.mentionsJSON.isEmpty,
+           let list = try? Mezon_Api_MessageMentionList(serializedBytes: record.mentionsJSON) {
+            return list.mentions
+        }
+        return p.mentionList
+    }
+
+    @MainActor
     private func updatePresignFinishContent(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -603,6 +625,7 @@ final class AttachmentUploadCoordinator {
                     isPublic: p.isPublic,
                     messageId: session.serverMessageId,
                     content: contentStr,
+                    mentions: mentionsForPresignSync(session, context: context),
                     hideEditted: true,
                     topicId: p.topicId != 0 ? p.topicId : nil,
                     token: token

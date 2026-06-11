@@ -363,7 +363,6 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         guard !media.isEmpty else { return }
 
-
         let isGifType = media.count == 1 && Self.isGifImageAttachment(media[0])
         if media.count == 1, media[0].isSticker || isGifType {
             isSticker = true
@@ -716,6 +715,9 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {
         if media.isPresignPending {
+            return
+        }
+        if media.uploadFailed {
             return
         }
         if let localImage = media.localImage {

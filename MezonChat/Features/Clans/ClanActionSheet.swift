@@ -59,6 +59,7 @@ final class ClanActionSheetController: ViewController {
     private let isCommunity: Bool
     private let initialShowEmptyCategories: Bool
     private let canCreateCategory: Bool
+    private let isClanOwner: Bool
     private let onAction: (ClanAction) -> Void
     private let onToggleShowEmptyCategories: ((Bool) -> Void)?
     var onDismiss: (() -> Void)?
@@ -71,6 +72,7 @@ final class ClanActionSheetController: ViewController {
         clanName: String, avatarURL: String, memberCount: Int, isCommunity: Bool,
         initialShowEmptyCategories: Bool = false,
         canCreateCategory: Bool = false,
+        isClanOwner: Bool = false,
         onAction: @escaping (ClanAction) -> Void,
         onToggleShowEmptyCategories: ((Bool) -> Void)? = nil
     ) {
@@ -80,6 +82,7 @@ final class ClanActionSheetController: ViewController {
         self.isCommunity = isCommunity
         self.initialShowEmptyCategories = initialShowEmptyCategories
         self.canCreateCategory = canCreateCategory
+        self.isClanOwner = isClanOwner
         self.onAction = onAction
         self.onToggleShowEmptyCategories = onToggleShowEmptyCategories
 
@@ -99,6 +102,7 @@ final class ClanActionSheetController: ViewController {
             isCommunity: isCommunity,
             initialShowEmptyCategories: initialShowEmptyCategories,
             canCreateCategory: canCreateCategory,
+            isClanOwner: isClanOwner,
             onAction: { [weak self] action in
                 guard let self else { return }
                 self.animateDismiss {
@@ -150,6 +154,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private let isCommunity: Bool
     private let initialShowEmptyCategories: Bool
     private let canCreateCategory: Bool
+    private let isClanOwner: Bool
     private let onAction: (ClanAction) -> Void
     private let onToggleShowEmptyCategories: (Bool) -> Void
     private let onDimTapped: () -> Void
@@ -172,6 +177,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         clanName: String, avatarURL: String, memberCount: Int, isCommunity: Bool,
         initialShowEmptyCategories: Bool,
         canCreateCategory: Bool,
+        isClanOwner: Bool,
         onAction: @escaping (ClanAction) -> Void,
         onToggleShowEmptyCategories: @escaping (Bool) -> Void,
         onDimTapped: @escaping () -> Void
@@ -182,6 +188,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         self.isCommunity = isCommunity
         self.initialShowEmptyCategories = initialShowEmptyCategories
         self.canCreateCategory = canCreateCategory
+        self.isClanOwner = isClanOwner
         self.onAction = onAction
         self.onToggleShowEmptyCategories = onToggleShowEmptyCategories
         self.onDimTapped = onDimTapped
@@ -493,10 +500,17 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         }
         organizationActions.append(.createEvent)
 
+        var optionsActions: [ClanAction] = [.editClanProfile]
+        if isClanOwner {
+            optionsActions.append(.deleteClan)
+        } else {
+            optionsActions.append(.leaveClan)
+        }
+
         let groups: [[ClanAction]] = [
             [.markAsRead],
             organizationActions,
-            [.editClanProfile, .leaveClan, .deleteClan],
+            optionsActions,
         ].filter { !$0.isEmpty }
 
         for group in groups {
