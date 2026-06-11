@@ -41,7 +41,7 @@ enum ChannelAction: CaseIterable {
         case .threads: return "Channel/channelThread"
         case .editChannel: return "Profile/SettingIcon"
         case .deleteChannel: return "ChannelSetting/DeleteIcon"
-        case .leaveThread: return "ChannelSetting/DeleteIcon" 
+        case .leaveThread: return "ChannelSetting/LeaveGroupIcon"
         }
     }
 
@@ -74,6 +74,7 @@ final class ChannelActionSheetController: ViewController {
     private let isThread: Bool
     private let channelType: Int32
     private let canManageChannel: Bool
+    private let canLeaveThread: Bool
     private let isGeneralChannel: Bool
     private let onAction: (ChannelAction) -> Void
     private var didRunEntranceAnimation = false
@@ -88,6 +89,7 @@ final class ChannelActionSheetController: ViewController {
         isThread: Bool = false,
         channelType: Int32,
         canManageChannel: Bool = false,
+        canLeaveThread: Bool = false,
         isGeneralChannel: Bool = false,
         onAction: @escaping (ChannelAction) -> Void
     ) {
@@ -100,6 +102,7 @@ final class ChannelActionSheetController: ViewController {
         self.isThread = isThread
         self.channelType = channelType
         self.canManageChannel = canManageChannel
+        self.canLeaveThread = canLeaveThread
         self.isGeneralChannel = isGeneralChannel
         self.onAction = onAction
         super.init(navigationBarPresentationData: nil)
@@ -123,6 +126,7 @@ final class ChannelActionSheetController: ViewController {
             isThread: isThread,
             channelType: channelType,
             canManageChannel: canManageChannel,
+            canLeaveThread: canLeaveThread,
             isGeneralChannel: isGeneralChannel,
             onAction: { [weak self] action in
                 guard let self else { return }
@@ -181,6 +185,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let isThread: Bool
     private let channelType: Int32
     private let canManageChannel: Bool
+    private let canLeaveThread: Bool
     private let isGeneralChannel: Bool
     private let onAction: (ChannelAction) -> Void
     private let onDismiss: () -> Void
@@ -200,6 +205,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         isThread: Bool,
         channelType: Int32,
         canManageChannel: Bool,
+        canLeaveThread: Bool,
         isGeneralChannel: Bool,
         onAction: @escaping (ChannelAction) -> Void,
         onDismiss: @escaping () -> Void
@@ -213,6 +219,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         self.isThread = isThread
         self.channelType = channelType
         self.canManageChannel = canManageChannel
+        self.canLeaveThread = canLeaveThread
         self.isGeneralChannel = isGeneralChannel
         self.onAction = onAction
         self.onDismiss = onDismiss
@@ -356,14 +363,26 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
             groups.append([.threads])
         }
         
-        if canManageChannel {
+        if isThread {
+            var manageGroup: [ChannelAction] = []
+            if canManageChannel {
+                manageGroup.append(.editChannel)
+            }
+            if canLeaveThread {
+                manageGroup.append(.leaveThread)
+            }
+            if canManageChannel {
+                manageGroup.append(.deleteChannel)
+            }
+            if !manageGroup.isEmpty {
+                groups.append(manageGroup)
+            }
+        } else if canManageChannel {
             if isGeneralChannel {
                 groups.append([.editChannel])
             } else {
                 groups.append([.editChannel, .deleteChannel])
             }
-        } else if isThread {
-            groups.append([.leaveThread])
         }
         return groups
     }

@@ -111,6 +111,11 @@ enum ReactionEmojiImageLoader {
     }
 
     @discardableResult
+    static func loadAnimatedData(from url: URL, completion: @escaping (Data?) -> Void) -> URLSessionDataTask? {
+        loadData(from: url, completion: completion)
+    }
+
+    @discardableResult
     static func loadAnimatedDataBestEffort(
         emojiId: String, imgproxyFitSide: Int, completion: @escaping (Data?) -> Void
     ) -> URLSessionDataTask? {
@@ -444,7 +449,12 @@ final class AnimatedEmojiTicker {
     private var displayLink: CADisplayLink?
     private let views = NSHashTable<AnimatedEmojiImageView>.weakObjects()
     private var lastTick: CFTimeInterval = 0
+    private var isPaused = false
     private static let targetFrameInterval: CFTimeInterval = 1.0 / 30.0
+
+    func setPaused(_ paused: Bool) {
+        isPaused = paused
+    }
 
     func register(_ view: AnimatedEmojiImageView) {
         views.add(view)
@@ -473,6 +483,7 @@ final class AnimatedEmojiTicker {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
+        guard !isPaused else { return }
         let now = link.timestamp
         if now - lastTick < Self.targetFrameInterval { return }
         lastTick = now

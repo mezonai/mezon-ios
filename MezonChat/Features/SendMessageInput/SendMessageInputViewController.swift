@@ -401,6 +401,9 @@ private final class OgpPreviewView: UIView {
 final class SendMessageInputViewController: UIViewController {
 
     private static let mentionHereUserId: Int64 = 1_775_731_111_020_111_321
+    private static let threadArchiveDurationSeconds: Int = 7 * 24 * 60 * 60
+    private static let threadJoinedActiveStatus: Int32 = 1
+    private static let threadActivePrivateJoinedStatus: Int32 = 3
 
     private static func composerEmojiFaceIcon(pointSize: CGFloat) -> UIImage? {
         let sym = UIImage.SymbolConfiguration(pointSize: pointSize)
@@ -444,12 +447,16 @@ final class SendMessageInputViewController: UIViewController {
     var onSent: (() -> Void)?
     var onError: ((String) -> Void)?
     var onHeightChanged: ((CGFloat) -> Void)?
+    var onInlineSuggestionVisibilityChanged: ((Bool) -> Void)?
+    var onInlineSuggestionHostHeightChanged: ((CGFloat) -> Void)?
+    weak var inlineSuggestionHost: UIView?
     var primarySendActionOverride: (() -> Void)?
     var alwaysShowAttachToolbarWhileTyping: Bool = false
     var hidesAdvanceComposerButton: Bool = false
     var suppressStoredComposerDraftRestoreOnLoad: Bool = false
     var skipsPersistingComposerDraftOnLifecycleEnd: Bool = false
     var skipOptimisticPendingMessageOnSend: Bool = false
+    var preferChannelScopedMentions: Bool = false
 
     var inputBarBottomConstraint: NSLayoutConstraint?
 
@@ -526,14 +533,21 @@ final class SendMessageInputViewController: UIViewController {
     private var emojiIdByColonToken: [String: String] = [:]
     private var mentionSuggestionView: MentionSuggestionView?
     private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
+    private var mentionComposerConstraints: [NSLayoutConstraint] = []
+    private var mentionHostConstraints: [NSLayoutConstraint] = []
 
     private var allSuggestionEmojis: [CachedClanEmojiRecord] = []
     private var emojiSuggestionView: EmojiSuggestionView?
     private var emojiSuggestionHeightConstraint: NSLayoutConstraint?
+    private var emojiComposerConstraints: [NSLayoutConstraint] = []
+    private var emojiHostConstraints: [NSLayoutConstraint] = []
 
     private var allHashtagChannelCandidates: [Mezon_Api_ChannelDescription] = []
     private var hashtagSuggestionView: HashtagSuggestionView?
     private var hashtagSuggestionHeightConstraint: NSLayoutConstraint?
+    private var hashtagComposerConstraints: [NSLayoutConstraint] = []
+    private var hashtagHostConstraints: [NSLayoutConstraint] = []
+    private var lastInlineSuggestionHostReportedHeight: CGFloat = -1
 
     private lazy var replyBannerView: UIView = {
         let v = UIView()
@@ -805,6 +819,23 @@ final class SendMessageInputViewController: UIViewController {
         return currentTextViewHeight + Self.inputBarPadding
     }
 
+    private var inlineSuggestionOverlayHeight: CGFloat {
+        var overlay: CGFloat = 0
+        if let m = mentionSuggestionView, !m.isHidden,
+           let c = mentionSuggestionHeightConstraint?.constant, c > 0.5 {
+            overlay = max(overlay, c)
+        }
+        if let e = emojiSuggestionView, !e.isHidden,
+           let c = emojiSuggestionHeightConstraint?.constant, c > 0.5 {
+            overlay = max(overlay, c)
+        }
+        if let h = hashtagSuggestionView, !h.isHidden,
+           let c = hashtagSuggestionHeightConstraint?.constant, c > 0.5 {
+            overlay = max(overlay, c)
+        }
+        return overlay
+    }
+
     var totalHeight: CGFloat {
         if composerSendPermissionBlocked {
             return Self.textViewMinHeight + Self.inputBarPadding
@@ -822,7 +853,137 @@ final class SendMessageInputViewController: UIViewController {
         if replyDisplay != nil || editingDisplay != nil {
             h += Self.replyBannerHeight
         }
+        if inlineSuggestionHost == nil {
+            h += inlineSuggestionOverlayHeight
+        }
         return h
+    }
+
+    private func notifyComposerHeightChanged() {
+        onHeightChanged?(totalHeight)
+    }
+
+    private var inlineSuggestionStripVisible: Bool {
+        if let m = mentionSuggestionView, !m.isHidden,
+           (mentionSuggestionHeightConstraint?.constant ?? 0) > 0.5 { return true }
+        if let e = emojiSuggestionView, !e.isHidden,
+           (emojiSuggestionHeightConstraint?.constant ?? 0) > 0.5 { return true }
+        if let h = hashtagSuggestionView, !h.isHidden,
+           (hashtagSuggestionHeightConstraint?.constant ?? 0) > 0.5 { return true }
+        return false
+    }
+
+    private func notifyInlineSuggestionVisibilityChanged() {
+        onInlineSuggestionVisibilityChanged?(inlineSuggestionStripVisible)
+    }
+
+    private func promoteInlineSuggestionZOrder(strip: UIView) {
+        if let host = inlineSuggestionHost, strip.superview === host {
+            host.superview?.bringSubviewToFront(host)
+        } else {
+            view.bringSubviewToFront(strip)
+        }
+        view.bringSubviewToFront(inputBarView)
+        if !voiceRecordingOverlay.isHidden {
+            view.bringSubviewToFront(voiceRecordingOverlay)
+        }
+        if !sendPermissionRestrictedChrome.isHidden {
+            view.bringSubviewToFront(sendPermissionRestrictedChrome)
+        }
+    }
+
+    private func clearInlineSuggestionHost(except strip: UIView? = nil) {
+        guard let host = inlineSuggestionHost else { return }
+        for subview in host.subviews where subview !== strip {
+            subview.removeFromSuperview()
+        }
+    }
+
+    private func remountInlineSuggestionStripToComposer(
+        _ strip: UIView,
+        heightConstraint: NSLayoutConstraint?,
+        composerConstraints: [NSLayoutConstraint],
+        hostConstraints: inout [NSLayoutConstraint]
+    ) {
+        if !hostConstraints.isEmpty {
+            NSLayoutConstraint.deactivate(hostConstraints)
+            hostConstraints = []
+        }
+        if strip.superview !== view {
+            strip.removeFromSuperview()
+            view.insertSubview(strip, at: 0)
+        }
+        if composerConstraints.contains(where: { !$0.isActive }) {
+            NSLayoutConstraint.activate(composerConstraints)
+        }
+        heightConstraint?.isActive = true
+    }
+
+    private func mountInlineSuggestionStrip(
+        _ strip: UIView,
+        heightConstraint: NSLayoutConstraint?,
+        composerConstraints: [NSLayoutConstraint],
+        hostConstraints: inout [NSLayoutConstraint],
+        visibleHeight: CGFloat
+    ) {
+        if let host = inlineSuggestionHost {
+            if visibleHeight < 0.5 {
+                guard !host.isHidden || lastInlineSuggestionHostReportedHeight >= 0 else { return }
+                remountInlineSuggestionStripToComposer(
+                    strip,
+                    heightConstraint: heightConstraint,
+                    composerConstraints: composerConstraints,
+                    hostConstraints: &hostConstraints
+                )
+                lastInlineSuggestionHostReportedHeight = -1
+                host.isHidden = true
+                onInlineSuggestionHostHeightChanged?(0)
+                return
+            }
+            if strip.superview === host,
+               !hostConstraints.isEmpty,
+               hostConstraints.allSatisfy(\.isActive),
+               abs(lastInlineSuggestionHostReportedHeight - visibleHeight) < 0.5,
+               !host.isHidden {
+                return
+            }
+            clearInlineSuggestionHost(except: strip)
+            NSLayoutConstraint.deactivate(composerConstraints)
+            if strip.superview !== host {
+                strip.removeFromSuperview()
+                host.addSubview(strip)
+                if !hostConstraints.isEmpty {
+                    NSLayoutConstraint.deactivate(hostConstraints)
+                    hostConstraints = []
+                }
+            }
+            if hostConstraints.isEmpty {
+                hostConstraints = [
+                    strip.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                    strip.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+                    strip.topAnchor.constraint(equalTo: host.topAnchor),
+                    strip.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+                ]
+                NSLayoutConstraint.activate(hostConstraints)
+            }
+            heightConstraint?.isActive = false
+            lastInlineSuggestionHostReportedHeight = visibleHeight
+            onInlineSuggestionHostHeightChanged?(visibleHeight)
+            host.isHidden = false
+            host.superview?.bringSubviewToFront(host)
+        } else {
+            if strip.superview !== view {
+                if !hostConstraints.isEmpty {
+                    NSLayoutConstraint.deactivate(hostConstraints)
+                    hostConstraints = []
+                }
+                strip.removeFromSuperview()
+                view.insertSubview(strip, at: 0)
+                NSLayoutConstraint.activate(composerConstraints)
+            }
+            heightConstraint?.isActive = true
+            onInlineSuggestionHostHeightChanged?(0)
+        }
     }
 
     private var currentTextViewHeight: CGFloat = 40.swh
@@ -1313,6 +1474,80 @@ final class SendMessageInputViewController: UIViewController {
         onHeightChanged?(totalHeight)
     }
 
+    func sendReplicatedThreadSeedMessage(from display: ChatMessageDisplay) async throws {
+        let record = context.account.postbox.read { tx in
+            tx.getMessageById(display.message.id, channelId: display.message.channelId)
+                ?? tx.getMessageById(display.message.id)
+        }
+
+        let contentData = record?.content ?? display.rawContentData ?? Data()
+        let contentStr: String = {
+            if let s = String(data: contentData, encoding: .utf8),
+               !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return s
+            }
+            let text = display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return "{}" }
+            if let data = try? JSONSerialization.data(withJSONObject: ["t": text]),
+               let str = String(data: data, encoding: .utf8) {
+                return str
+            }
+            return "{}"
+        }()
+
+        let attachments: [Mezon_Api_MessageAttachment] = {
+            if let data = record?.attachmentsJSON, !data.isEmpty,
+               let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data),
+               !list.attachments.isEmpty {
+                return list.attachments
+            }
+            return Self.mezonApiMessageAttachments(
+                from: display.attachments.filter {
+                    !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                }
+            )
+        }()
+
+        let mentions: [Mezon_Api_MessageMention] = {
+            guard let data = record?.mentionsJSON, !data.isEmpty,
+                  let list = try? Mezon_Api_MessageMentionList(serializedBytes: data) else {
+                return []
+            }
+            return list.mentions
+        }()
+
+        guard let token = await context.getToken() else {
+            throw MezonError.httpError(statusCode: 0, message: "No session")
+        }
+
+        try await prepareThreadBeforeSendIfNeeded(
+            mentionList: mentions,
+            editTargetSenderId: nil,
+            token: token
+        )
+
+        let mode = MezonConstants.ChannelStreamMode.thread.rawValue
+        let isPublic = channel.channelPrivate == 0
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+
+        _ = try await context.account.network.sendChannelMessage(
+            clanId: clanId,
+            channelId: channel.channelID,
+            mode: mode,
+            isPublic: isPublic,
+            content: contentStr,
+            mentions: mentions,
+            attachments: attachments,
+            references: [],
+            anonymous: false,
+            mentionEveryone: false,
+            avatar: avatar,
+            topicId: topicId,
+            code: display.messageCode,
+            token: token
+        )
+    }
+
     func send() {
         guard !composerSendPermissionBlocked else { return }
         let plainText = buildPlainTextFromAttributed()
@@ -1429,6 +1664,7 @@ final class SendMessageInputViewController: UIViewController {
                     return
                 }
                 do {
+                    try await self.activateThreadBeforeSendIfNeeded(token: token)
                     let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
@@ -1501,6 +1737,7 @@ final class SendMessageInputViewController: UIViewController {
                     return
                 }
                 do {
+                    try await self.activateThreadBeforeSendIfNeeded(token: token)
                     let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
@@ -1593,6 +1830,7 @@ final class SendMessageInputViewController: UIViewController {
                 return
             }
             do {
+                try await self.activateThreadBeforeSendIfNeeded(token: token)
                 let ack = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
@@ -1763,6 +2001,7 @@ final class SendMessageInputViewController: UIViewController {
         let shouldShow = replyDisplay != nil || editingDisplay != nil
         let targetH: CGFloat = shouldShow ? Self.replyBannerHeight : 0
         let heightChanged = replyBannerHeightConstraint?.constant != targetH
+        replyBannerView.isUserInteractionEnabled = shouldShow
         refreshBannerLabel()
         if heightChanged {
             replyBannerHeightConstraint?.constant = targetH
@@ -2065,9 +2304,9 @@ final class SendMessageInputViewController: UIViewController {
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
-            textView.resignFirstResponder()
             let collapsedH = max(lastKeyboardHeight, 260)
             onToggleEmojiPicker?(true, collapsedH)
+            textView.resignFirstResponder()
         } else {
             onToggleEmojiPicker?(false, 0)
             DispatchQueue.main.async { [weak self] in
@@ -2411,6 +2650,7 @@ final class SendMessageInputViewController: UIViewController {
             return
         }
         let shouldShow = attachmentPreviewView.hasAnyAttachment
+        attachmentPreviewView.isUserInteractionEnabled = shouldShow
         let targetH = shouldShow ? attachmentPreviewView.preferredPreviewHeight : 0
         let heightChanged = previewHeightConstraint?.constant != targetH
         if heightChanged {
@@ -2440,6 +2680,7 @@ final class SendMessageInputViewController: UIViewController {
         let targetH: CGFloat = shouldShow ? OgpPreviewView.preferredHeight : 0
         let heightChanged = ogpPreviewHeightConstraint?.constant != targetH
         ogpPreviewView.isHidden = !shouldShow
+        ogpPreviewView.isUserInteractionEnabled = shouldShow
         if heightChanged {
             ogpPreviewHeightConstraint?.constant = targetH
             onHeightChanged?(totalHeight)
@@ -2545,6 +2786,9 @@ final class SendMessageInputViewController: UIViewController {
         replyBannerView.addSubview(replyCancelButton)
         view.addSubview(replyBannerView)
 
+        attachmentPreviewView.isUserInteractionEnabled = false
+        ogpPreviewView.isUserInteractionEnabled = false
+        replyBannerView.isUserInteractionEnabled = false
         view.addSubview(attachmentPreviewView)
         view.addSubview(ogpPreviewView)
         view.addSubview(inputBarView)
@@ -2817,12 +3061,11 @@ final class SendMessageInputViewController: UIViewController {
 
         let hc = sv.heightAnchor.constraint(equalToConstant: 0)
         mentionSuggestionHeightConstraint = hc
-        NSLayoutConstraint.activate([
-            sv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            sv.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            sv.bottomAnchor.constraint(equalTo: replyBannerView.topAnchor),
-            hc,
-        ])
+        let leading = sv.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        let trailing = sv.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let bottom = sv.bottomAnchor.constraint(equalTo: inputBarView.topAnchor)
+        mentionComposerConstraints = [leading, trailing, bottom, hc]
+        NSLayoutConstraint.activate(mentionComposerConstraints)
         mentionSuggestionView = sv
     }
 
@@ -2837,12 +3080,11 @@ final class SendMessageInputViewController: UIViewController {
 
         let hc = ev.heightAnchor.constraint(equalToConstant: 0)
         emojiSuggestionHeightConstraint = hc
-        NSLayoutConstraint.activate([
-            ev.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            ev.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            ev.bottomAnchor.constraint(equalTo: replyBannerView.topAnchor),
-            hc,
-        ])
+        let leading = ev.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        let trailing = ev.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let bottom = ev.bottomAnchor.constraint(equalTo: inputBarView.topAnchor)
+        emojiComposerConstraints = [leading, trailing, bottom, hc]
+        NSLayoutConstraint.activate(emojiComposerConstraints)
         emojiSuggestionView = ev
     }
 
@@ -2857,12 +3099,11 @@ final class SendMessageInputViewController: UIViewController {
 
         let hc = hv.heightAnchor.constraint(equalToConstant: 0)
         hashtagSuggestionHeightConstraint = hc
-        NSLayoutConstraint.activate([
-            hv.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            hv.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            hv.bottomAnchor.constraint(equalTo: replyBannerView.topAnchor),
-            hc,
-        ])
+        let leading = hv.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        let trailing = hv.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let bottom = hv.bottomAnchor.constraint(equalTo: inputBarView.topAnchor)
+        hashtagComposerConstraints = [leading, trailing, bottom, hc]
+        NSLayoutConstraint.activate(hashtagComposerConstraints)
         hashtagSuggestionView = hv
     }
 
@@ -2932,10 +3173,52 @@ final class SendMessageInputViewController: UIViewController {
     private func loadClanMembers() {
         if clanId == 0 {
             loadDMMembers()
+        } else if preferChannelScopedMentions {
+            loadComposerChannelMentionMembers()
         } else if isPrivateOrThread {
             loadChannelMembersForPrivate()
         } else {
             loadClanMembersForPublic()
+        }
+    }
+
+    private func loadComposerChannelMentionMembers() {
+        if let records = mergedChannelMemberRecordsForMentions() {
+            buildMentionMembers(from: records)
+            ensureRolesLoadedIfNeeded()
+            rebuildMentionSuggestionItems()
+        }
+        fetchComposerChannelMentionMembersFromNetwork()
+    }
+
+    private func fetchComposerChannelMentionMembersFromNetwork() {
+        guard #available(iOS 13.0, *) else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                let preferred = channel.type != 0
+                    ? channel.type
+                    : context.engine.clanData.resolvedListChannelUsersType(channelId: channel.channelID)
+                let res = try await context.account.network.listChannelUsers(
+                    clanId: clanId, channelId: channel.channelID, channelType: preferred, token: token)
+                guard !res.channelUsers.isEmpty else {
+                    if allMentionMembers.isEmpty { fetchClanMembersFromNetwork() }
+                    return
+                }
+                let records = ChannelMemberRecord.mergingProfilesFromChannelUsers(
+                    res.channelUsers, postbox: context.account.postbox)
+                let cid = channel.channelID
+                context.account.postbox.write { tx in
+                    tx.updateChannelMembers(records, channelId: cid)
+                }
+                if let merged = mergedChannelMemberRecordsForMentions() {
+                    buildMentionMembers(from: merged)
+                }
+                ensureRolesLoadedIfNeeded()
+                rebuildMentionSuggestionItems()
+            } catch {
+                if allMentionMembers.isEmpty { fetchClanMembersFromNetwork() }
+            }
         }
     }
 
@@ -3268,13 +3551,83 @@ final class SendMessageInputViewController: UIViewController {
         guard !toAdd.isEmpty else { return }
         try await context.account.network.addChannelUsers(
             channelId: threadId, userIds: Array(toAdd), token: token)
+        try await refreshThreadMembersAfterAdd(channelId: threadId, threadType: threadType, token: token)
+    }
+
+    private func refreshThreadMembersAfterAdd(channelId: Int64, threadType: Int32, token: String) async throws {
         let refresh = try await context.account.network.listChannelUsers(
-            clanId: clanId, channelId: threadId, channelType: threadType, token: token)
+            clanId: clanId, channelId: channelId, channelType: threadType, token: token)
         let merged = ChannelMemberRecord.mergingProfilesFromChannelUsers(
             refresh.channelUsers, postbox: context.account.postbox)
         context.account.postbox.write { tx in
-            tx.updateChannelMembers(merged, channelId: threadId)
+            tx.updateChannelMembers(merged, channelId: channelId)
         }
+    }
+
+    private var isThreadChannelForSendPrep: Bool {
+        channel.type == MezonConstants.ChannelType.thread.rawValue || channel.parentID != 0
+    }
+
+    private static func isJoinedThread(_ ch: Mezon_Api_ChannelDescription) -> Bool {
+        ch.active == threadJoinedActiveStatus
+            || (ch.channelPrivate != 0 && ch.active == threadActivePrivateJoinedStatus)
+    }
+
+    private func applyLocalThreadJoinedState() {
+        guard channel.channelID != 0 else { return }
+        var ch = channel
+        ch.active = Self.threadJoinedActiveStatus
+        channel = ch
+        context.engine.clanData.applyLocallyCreatedChannel(ch)
+    }
+
+    private func activateThreadBeforeSendIfNeeded(token: String) async throws {
+        guard clanId != 0, isThreadChannelForSendPrep else { return }
+
+        let threadId = channel.channelID
+        let threadType = channel.type != 0
+            ? channel.type
+            : MezonConstants.ChannelType.thread.rawValue
+        let currentUid = Int64(context.currentUser?.id ?? "") ?? 0
+        guard currentUid != 0 else { return }
+
+        let needsJoin = !Self.isJoinedThread(channel)
+
+        let now = Int(Date().timeIntervalSince1970)
+        var lastTs: UInt32 = 0
+        if channel.hasLastSentMessage, channel.lastSentMessage.timestampSeconds > 0 {
+            lastTs = channel.lastSentMessage.timestampSeconds
+        }
+        let isArchived = lastTs > 0 && now - Int(lastTs) > Self.threadArchiveDurationSeconds
+        let needsReactivate = isArchived || channel.active == 0
+
+        if needsReactivate {
+            try await context.account.network.activeArchivedThread(
+                clanId: clanId, channelId: threadId, token: token)
+        }
+
+        if needsJoin {
+            try await context.account.network.addChannelUsers(
+                channelId: threadId, userIds: [currentUid], token: token)
+            try await refreshThreadMembersAfterAdd(channelId: threadId, threadType: threadType, token: token)
+        }
+
+        if needsReactivate || needsJoin {
+            applyLocalThreadJoinedState()
+        }
+    }
+
+    private func prepareThreadBeforeSendIfNeeded(
+        mentionList: [Mezon_Api_MessageMention],
+        editTargetSenderId: Int64?,
+        token: String
+    ) async throws {
+        try await addUsersFromParentMentionsToThreadIfNeeded(
+            mentionList: mentionList,
+            editTargetSenderId: editTargetSenderId,
+            token: token
+        )
+        try await activateThreadBeforeSendIfNeeded(token: token)
     }
 
     private func fetchClanMembersFromNetwork() {
@@ -3688,13 +4041,35 @@ final class SendMessageInputViewController: UIViewController {
         let h = sv.preferredHeight
         mentionSuggestionHeightConstraint?.constant = h
         sv.isHidden = false
+        mountInlineSuggestionStrip(
+            sv,
+            heightConstraint: mentionSuggestionHeightConstraint,
+            composerConstraints: mentionComposerConstraints,
+            hostConstraints: &mentionHostConstraints,
+            visibleHeight: h
+        )
+        promoteInlineSuggestionZOrder(strip: sv)
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func hideMentionSuggestions() {
-        guard let sv = mentionSuggestionView, !sv.isHidden else { return }
+        guard let sv = mentionSuggestionView else { return }
+        let wasVisible = !sv.isHidden
+            || (inlineSuggestionHost != nil && inlineSuggestionHost?.isHidden == false)
         mentionSuggestionHeightConstraint?.constant = 0
         sv.isHidden = true
+        mountInlineSuggestionStrip(
+            sv,
+            heightConstraint: mentionSuggestionHeightConstraint,
+            composerConstraints: mentionComposerConstraints,
+            hostConstraints: &mentionHostConstraints,
+            visibleHeight: 0
+        )
+        guard wasVisible else { return }
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
@@ -3731,13 +4106,34 @@ final class SendMessageInputViewController: UIViewController {
         let h = ev.preferredHeight
         emojiSuggestionHeightConstraint?.constant = h
         ev.isHidden = false
+        mountInlineSuggestionStrip(
+            ev,
+            heightConstraint: emojiSuggestionHeightConstraint,
+            composerConstraints: emojiComposerConstraints,
+            hostConstraints: &emojiHostConstraints,
+            visibleHeight: h
+        )
+        promoteInlineSuggestionZOrder(strip: ev)
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func hideEmojiSuggestions() {
         emojiSuggestionHeightConstraint?.constant = 0
-        guard let ev = emojiSuggestionView, !ev.isHidden else { return }
+        guard let ev = emojiSuggestionView else { return }
+        let wasVisible = !ev.isHidden
         ev.isHidden = true
+        mountInlineSuggestionStrip(
+            ev,
+            heightConstraint: emojiSuggestionHeightConstraint,
+            composerConstraints: emojiComposerConstraints,
+            hostConstraints: &emojiHostConstraints,
+            visibleHeight: 0
+        )
+        guard wasVisible else { return }
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
@@ -3771,13 +4167,34 @@ final class SendMessageInputViewController: UIViewController {
         let h = hv.preferredHeight
         hashtagSuggestionHeightConstraint?.constant = h
         hv.isHidden = false
+        mountInlineSuggestionStrip(
+            hv,
+            heightConstraint: hashtagSuggestionHeightConstraint,
+            composerConstraints: hashtagComposerConstraints,
+            hostConstraints: &hashtagHostConstraints,
+            visibleHeight: h
+        )
+        promoteInlineSuggestionZOrder(strip: hv)
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
     private func hideHashtagSuggestions() {
         hashtagSuggestionHeightConstraint?.constant = 0
-        guard let hv = hashtagSuggestionView, !hv.isHidden else { return }
+        guard let hv = hashtagSuggestionView else { return }
+        let wasVisible = !hv.isHidden
         hv.isHidden = true
+        mountInlineSuggestionStrip(
+            hv,
+            heightConstraint: hashtagSuggestionHeightConstraint,
+            composerConstraints: hashtagComposerConstraints,
+            hostConstraints: &hashtagHostConstraints,
+            visibleHeight: 0
+        )
+        guard wasVisible else { return }
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
@@ -4857,7 +5274,9 @@ final class SendMessageInputViewController: UIViewController {
         hideEmojiSuggestions()
         hideHashtagSuggestions()
         clearOgpPreview(userDismissed: false, resetDismissed: true)
-        onSent?()
+        if !skipOptimisticPendingMessageOnSend {
+            onSent?()
+        }
     }
 
     private static func mezonApiMessageAttachments(from parsed: [ParsedAttachment]) -> [Mezon_Api_MessageAttachment] {
@@ -5201,7 +5620,8 @@ final class SendMessageInputViewController: UIViewController {
                 context: context,
                 params: imageSendParams,
                 prepare: { [weak self] token in
-                    try? await self?.addUsersFromParentMentionsToThreadIfNeeded(
+                    guard let self else { return }
+                    try await self.prepareThreadBeforeSendIfNeeded(
                         mentionList: mentionList, editTargetSenderId: nil, token: token)
                 }
             )
@@ -5227,7 +5647,7 @@ final class SendMessageInputViewController: UIViewController {
                 return
             }
             do {
-                try await self.addUsersFromParentMentionsToThreadIfNeeded(
+                try await self.prepareThreadBeforeSendIfNeeded(
                     mentionList: mentionList,
                     editTargetSenderId: threadEditTargetSenderId,
                     token: token
@@ -5259,7 +5679,7 @@ final class SendMessageInputViewController: UIViewController {
                         isPublic: isPublic,
                         messageId: editingMessageId,
                         content: contentStr,
-                        mentions: mentionList.isEmpty ? nil : mentionList,
+                        mentions: mentionList,
                         attachments: hasNewAttachments && !uploadedAttachments.isEmpty
                             ? uploadedAttachments
                             : nil,
@@ -5388,6 +5808,10 @@ final class SendMessageInputViewController: UIViewController {
                         }
                     }
                 }
+                if self.skipOptimisticPendingMessageOnSend {
+                    self.skipOptimisticPendingMessageOnSend = false
+                    self.onSent?()
+                }
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "sendChannelMessage",
@@ -5409,6 +5833,9 @@ final class SendMessageInputViewController: UIViewController {
                 }
                 if let key = textOnlyEditPendingKey {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
+                }
+                if self.skipOptimisticPendingMessageOnSend {
+                    self.skipOptimisticPendingMessageOnSend = false
                 }
                 self.onError?(error.localizedDescription)
             }
@@ -5507,6 +5934,7 @@ final class SendMessageInputViewController: UIViewController {
                 return
             }
             do {
+                try await self.activateThreadBeforeSendIfNeeded(token: token)
                 let ack = try await self.context.account.network.sendChannelMessage(
                     clanId: clanId,
                     channelId: channel.channelID,
@@ -5987,8 +6415,9 @@ private final class OverflowHitTestView: UIView {
     var overflowTargets: (() -> [UIView])?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        for target in overflowTargets?() ?? [] where !target.isHidden {
+        for target in overflowTargets?() ?? [] where !target.isHidden && target.isUserInteractionEnabled {
             let converted = convert(point, to: target)
+            guard target.point(inside: converted, with: event) else { continue }
             if let hit = target.hitTest(converted, with: event) {
                 return hit
             }

@@ -531,6 +531,12 @@ final class ChannelListViewController: ViewController {
                 guard let self, self.clanId != 0 else { return false }
                 return self.context.rolePermissions.canManageRoles(clanId: self.clanId)
             },
+            isClanOwner: { [weak self] in
+                guard let self, self.clanId != 0 else { return false }
+                return self.context.rolePermissions.isClanOwner(clanId: self.clanId)
+            },
+            onLeaveClan: { [weak self] in self?.presentLeaveClanConfirm() },
+            onDeleteClan: { [weak self] in self?.presentDeleteClanConfirm() },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
             onQRTapped: { [weak self] in
                 guard let self else { return }
@@ -621,10 +627,7 @@ final class ChannelListViewController: ViewController {
         guard clanId != 0 else { return [] }
         let key = PreferencesKeys.channelApps(clanId: clanId)
         guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else { return [] }
-        let apps = decodeChannelApps(data)
-        if apps.isEmpty { return [] }
-        guard cachedChannelAppsMatchClan(apps, clanId: clanId) else { return [] }
-        return apps
+        return channelAppsForClan(decodeChannelApps(data), clanId: clanId)
     }
 
     private func hydrateChannelAppsFromCacheForEffectiveClan() {
@@ -832,11 +835,15 @@ final class ChannelListViewController: ViewController {
         if previousClanId != 0 {
             MemberOnboardingProgress.clearClanData(clanId: previousClanId)
         }
+        self.clanId = clanId
+        self.clanName = clanName
+        allChannels = []
+        categories = []
+        channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
         channelListNode.clearChannelApps()
         if clanId != 0 {
             restoreCachedChannelApps(clanId: clanId)
         }
-        channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
         load(clanId: clanId, clanName: clanName)
     }
 
@@ -1113,6 +1120,100 @@ final class ChannelListViewController: ViewController {
         self.enclosingNavigationController?.pushViewController(vc, animated: true)
     }
 
+    private func homeViewController() -> HomeViewController? {
+        if let home = parent as? HomeViewController { return home }
+        return (enclosingNavigationController as? MezonRootController)?.homeController
+    }
+
+    private func popToHomeIfNeeded() {
+        guard let nav = enclosingNavigationController else { return }
+        if let home = nav.viewControllers.first(where: { $0 is HomeViewController }) {
+            nav.popToViewController(home, animated: false)
+        }
+    }
+
+    private func presentLeaveClanConfirm() {
+        presentClanRemovalConfirm(isLeaveClan: true)
+    }
+
+    private func presentDeleteClanConfirm() {
+        presentClanRemovalConfirm(isLeaveClan: false)
+    }
+
+    private func presentClanRemovalConfirm(isLeaveClan: Bool) {
+        guard clanId != 0 else { return }
+        guard let presenter = topModalPresenter() else { return }
+        let title = isLeaveClan
+            ? L(L10n.DeleteClanModal.titleLeaveClan)
+            : L(L10n.DeleteClanModal.title)
+        let descriptionKey = isLeaveClan
+            ? L10n.DeleteClanModal.descriptionLeaveClan
+            : L10n.DeleteClanModal.description
+        let content = String(format: L(descriptionKey), clanName)
+        MezonConfirm.present(
+            from: presenter,
+            title: title,
+            content: content,
+            confirmTitle: L(L10n.DeleteClanModal.confirm),
+            isDanger: true
+        ) { [weak self] in
+            if isLeaveClan {
+                self?.handleLeaveClan()
+            } else {
+                self?.handleDeleteClan()
+            }
+        }
+    }
+
+    private func handleLeaveClan() {
+        guard clanId != 0 else { return }
+        guard let userId = Int64(context.account.id) else {
+            Toast.error(L(L10n.DeleteClanModal.error))
+            return
+        }
+        let removedClanId = clanId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.DeleteClanModal.error))
+                return
+            }
+            do {
+                try await MezonHTTPClient.shared.removeClanUsers(
+                    clanId: removedClanId,
+                    userIds: [userId],
+                    token: token
+                )
+                self.finishClanRemoval(removedClanId: removedClanId)
+            } catch {
+                Toast.error(L(L10n.DeleteClanModal.error))
+            }
+        }
+    }
+
+    private func handleDeleteClan() {
+        guard clanId != 0 else { return }
+        let removedClanId = clanId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.DeleteClanModal.error))
+                return
+            }
+            do {
+                try await MezonHTTPClient.shared.deleteClanDesc(clanId: removedClanId, token: token)
+                self.finishClanRemoval(removedClanId: removedClanId)
+            } catch {
+                Toast.error(L(L10n.DeleteClanModal.error))
+            }
+        }
+    }
+
+    private func finishClanRemoval(removedClanId: Int64) {
+        popToHomeIfNeeded()
+        homeViewController()?.clanListVC.removeClanAndSelectNext(removedClanId: removedClanId)
+    }
+
     private func presentEventBottomSheet() {
         guard clanId != 0 else { return }
         let vc = EventViewerBottomSheetViewController(
@@ -1243,16 +1344,19 @@ final class ChannelListViewController: ViewController {
         }()
 
         let canManage: Bool
+        let canLeaveThread: Bool
         if isThread {
             let currentUserId = Int64(self.context.account.id) ?? 0
             let isCreator = channel.creatorID == currentUserId
             let isOwner = self.context.rolePermissions.isClanOwner(clanId: self.clanId)
             let isAdmin = self.context.rolePermissions.hasClanPermission(.administrator, clanId: self.clanId)
             let canManageThread = self.context.rolePermissions.canManageThread(clanId: self.clanId, channelId: channel.channelID)
-            
+
             canManage = (isCreator && canManageThread) || isAdmin || isOwner
+            canLeaveThread = !isCreator
         } else {
             canManage = self.context.rolePermissions.canManageChannel(clanId: self.clanId)
+            canLeaveThread = false
         }
 
         let actionSheet = ChannelActionSheetController(
@@ -1265,6 +1369,7 @@ final class ChannelListViewController: ViewController {
             isThread: isThread,
             channelType: channel.type,
             canManageChannel: canManage,
+            canLeaveThread: canLeaveThread,
             isGeneralChannel: isGeneralChannel,
             onAction: { [weak self] action in
                 guard let self else { return }
@@ -2614,11 +2719,28 @@ final class ChannelListViewController: ViewController {
         return withUnsafeBytes(of: &le) { Data($0) }
     }
 
-    private func cachedChannelAppsMatchClan(_ apps: [Mezon_Api_ChannelAppResponse], clanId: Int64) -> Bool {
-        for a in apps where a.clanID != 0 && a.clanID != clanId {
-            return false
+    private func channelAppsForClan(_ apps: [Mezon_Api_ChannelAppResponse], clanId: Int64) -> [Mezon_Api_ChannelAppResponse] {
+        guard clanId != 0 else { return [] }
+        let channelIds = Set(
+            allChannels
+                .filter { $0.clanID == 0 || $0.clanID == clanId }
+                .map(\.channelID)
+        )
+        return apps.filter { app in
+            if app.clanID != 0 && app.clanID != clanId { return false }
+            guard app.clanID == 0, app.channelID != 0 else { return true }
+            guard !channelIds.isEmpty else { return false }
+            return channelIds.contains(app.channelID)
         }
-        return true
+    }
+
+    private func applyResolvedChannelApps(_ apps: [Mezon_Api_ChannelAppResponse], clanId: Int64, cacheKey: String) {
+        channelListNode.updateChannelApps(apps)
+        let encoded = encodeChannelApps(apps)
+        let cachedData = context.account.postbox.getPreferenceData(key: cacheKey)
+        if cachedData != encoded {
+            context.account.postbox.setPreferenceDataSync(key: cacheKey, value: encoded)
+        }
     }
 
     private func fetchChannelApps(allowEmptyOverwrite _: Bool = false) {
@@ -2645,52 +2767,45 @@ final class ChannelListViewController: ViewController {
                 }.value
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 guard self.clanId == clanId else { return }
-                let hasNonEmptyCache: Bool = {
-                    guard let cachedData, !cachedData.isEmpty else { return false }
-                    return !self.decodeChannelApps(cachedData).isEmpty
-                }()
-                if apps.isEmpty && hasNonEmptyCache {
+                let filtered = self.channelAppsForClan(apps, clanId: clanId)
+                if filtered.isEmpty {
+                    if apps.isEmpty,
+                       let cachedData, !cachedData.isEmpty {
+                        let validCached = self.channelAppsForClan(self.decodeChannelApps(cachedData), clanId: clanId)
+                        if !validCached.isEmpty {
+                            self.channelListNode.updateChannelApps(validCached)
+                            return
+                        }
+                    }
+                    self.applyResolvedChannelApps([], clanId: clanId, cacheKey: key)
                     return
                 }
-                self.channelListNode.updateChannelApps(apps)
-                let encoded = self.encodeChannelApps(apps)
-                if cachedData != encoded {
-                    self.context.account.postbox.setPreferenceDataSync(key: key, value: encoded)
-                }
+                self.applyResolvedChannelApps(filtered, clanId: clanId, cacheKey: key)
             } catch {
             }
         }
     }
 
     private func restoreCachedChannelApps(clanId: Int64) {
-        let key = PreferencesKeys.channelApps(clanId: clanId)
-        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else {
-            if !channelListNode.hasDisplayedChannelApps {
-                channelListNode.updateChannelApps([])
-            }
-            return
-        }
-        let apps = decodeChannelApps(data)
-        if apps.isEmpty {
-            if !channelListNode.hasDisplayedChannelApps {
-                channelListNode.updateChannelApps([])
-            }
-            return
-        }
-        guard cachedChannelAppsMatchClan(apps, clanId: clanId) else {
+        guard clanId != 0 else {
             channelListNode.updateChannelApps([])
             return
         }
-        channelListNode.updateChannelApps(apps)
+        let key = PreferencesKeys.channelApps(clanId: clanId)
+        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else {
+            channelListNode.updateChannelApps([])
+            return
+        }
+        let apps = channelAppsForClan(decodeChannelApps(data), clanId: clanId)
+        applyResolvedChannelApps(apps, clanId: clanId, cacheKey: key)
     }
 
     private func refreshChannelAppsLabelsFromChannelList() {
         guard clanId != 0 else { return }
         let key = PreferencesKeys.channelApps(clanId: clanId)
         guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else { return }
-        let apps = decodeChannelApps(data)
-        if apps.isEmpty { return }
-        channelListNode.updateChannelApps(apps)
+        let apps = channelAppsForClan(decodeChannelApps(data), clanId: clanId)
+        applyResolvedChannelApps(apps, clanId: clanId, cacheKey: key)
     }
 
     private func encodeChannelApps(_ apps: [Mezon_Api_ChannelAppResponse]) -> Data {

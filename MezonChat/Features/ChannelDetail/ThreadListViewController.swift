@@ -31,6 +31,10 @@ final class ThreadListViewController: ViewController {
 
     private var cachedClanMembersList: [ClanMemberRecord]?
 
+    private var canCreateThread: Bool {
+        context.rolePermissions.canManageThread(clanId: clanId, channelId: parentChannelId)
+    }
+
     private static let thirtyDays: TimeInterval = 30 * 24 * 60 * 60
     private static let joinedStatus: Int32 = 1
     private static let activePublicStatus: Int32 = 2
@@ -218,6 +222,7 @@ final class ThreadListViewController: ViewController {
             UIImage(systemName: "plus")?.withConfiguration(
                 UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)),
             for: .normal)
+        addButton.isHidden = !canCreateThread
     }
 
     @objc private func backTapped() {
@@ -308,6 +313,10 @@ final class ThreadListViewController: ViewController {
     }
 
     @objc private func createThreadTapped() {
+        guard canCreateThread else {
+            Toast.error(L(L10n.ThreadList.createThreadForbidden))
+            return
+        }
         let form = CreateThreadFormViewController(
             context: context,
             clanId: clanId,
@@ -860,8 +869,9 @@ private final class ThreadListEmptyCell: UITableViewCell {
         onCreateThread = nil
     }
 
-    func configure() {
+    func configure(showCreateButton: Bool = true) {
         let t = UIColor.theme
+        createButton.isHidden = !showCreateButton
         iconCircleView.backgroundColor = t.iconPrimary.withAlphaComponent(0.14)
         iconImageView.image = UIImage(systemName: "bubble.left.fill")?.withConfiguration(
             UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
@@ -1107,7 +1117,7 @@ extension ThreadListViewController: UITableViewDataSource, UITableViewDelegate {
             ) as? ThreadListEmptyCell else {
                 return UITableViewCell()
             }
-            cell.configure()
+            cell.configure(showCreateButton: canCreateThread)
             cell.onCreateThread = { [weak self] in
                 self?.createThreadTapped()
             }

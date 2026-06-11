@@ -9,7 +9,13 @@ final class CreateThreadFormViewController: UIViewController {
     private let parentCategoryId: Int64
     private let parentChannelLabel: String
     private let composerParentChannel: Mezon_Api_ChannelDescription
+    private let seedMessageDisplay: ChatMessageDisplay?
     private let onComplete: ((Result<Mezon_Api_ChannelDescription, Error>) -> Void)?
+
+    private let seedMessageCaptionLabel = UILabel()
+    private let seedMessageCard = UIView()
+    private let seedMessageSenderLabel = UILabel()
+    private let seedMessageBodyLabel = UILabel()
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
@@ -37,8 +43,18 @@ final class CreateThreadFormViewController: UIViewController {
 
     private let composerChrome = UIView()
     private let composerTopHairline = UIView()
+    private let inlineSuggestionHost: UIView = {
+        let v = UIView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.clipsToBounds = true
+        v.isHidden = true
+        v.isUserInteractionEnabled = true
+        return v
+    }()
     private var composerHeightConstraint: NSLayoutConstraint!
     private var composerPinConstraint: NSLayoutConstraint!
+    private var inlineSuggestionHostHeightConstraint: NSLayoutConstraint!
+    private var isComposerLayoutReady = false
 
     private var pendingThreadSubmission = false
 
@@ -75,6 +91,9 @@ final class CreateThreadFormViewController: UIViewController {
 
     private static let minThreadNameLength = 4
     private static let maxThreadNameLength = 64
+    private static let threadNameRegex = try? NSRegularExpression(
+        pattern: "^(?![_\\-\\s])([a-zA-Z0-9_\\-\\s])+$"
+    )
 
     private let locationManager = CLLocationManager()
     private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
@@ -87,13 +106,20 @@ final class CreateThreadFormViewController: UIViewController {
             context: context
         )
         vc.hidesAdvanceComposerButton = true
+        vc.preferChannelScopedMentions = true
         vc.suppressStoredComposerDraftRestoreOnLoad = true
         vc.skipsPersistingComposerDraftOnLifecycleEnd = true
         vc.onHeightChanged = { [weak self] h in
-            guard let self else { return }
-            self.composerHeightConstraint.constant = 1 / UIScreen.main.scale + max(52.swh, h)
+            guard let self, self.isComposerLayoutReady else { return }
+            let next = 1 / UIScreen.main.scale + max(52.swh, h)
+            guard abs(self.composerHeightConstraint.constant - next) > 0.5 else { return }
+            self.composerHeightConstraint.constant = next
             self.view.layoutIfNeeded()
         }
+        vc.onInlineSuggestionHostHeightChanged = { [weak self] h in
+            self?.updateInlineSuggestionHostLayout(height: h)
+        }
+        vc.inlineSuggestionHost = inlineSuggestionHost
         return vc
     }()
 
@@ -106,6 +132,7 @@ final class CreateThreadFormViewController: UIViewController {
         parentCategoryId: Int64,
         parentChannelLabel: String,
         composerParentChannel: Mezon_Api_ChannelDescription,
+        seedMessageDisplay: ChatMessageDisplay? = nil,
         onComplete: ((Result<Mezon_Api_ChannelDescription, Error>) -> Void)? = nil
     ) {
         self.context = context
@@ -114,6 +141,7 @@ final class CreateThreadFormViewController: UIViewController {
         self.parentCategoryId = parentCategoryId
         self.parentChannelLabel = parentChannelLabel
         self.composerParentChannel = composerParentChannel
+        self.seedMessageDisplay = seedMessageDisplay
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
     }
@@ -181,8 +209,9 @@ final class CreateThreadFormViewController: UIViewController {
         visibilityCheckbox.isUserInteractionEnabled = false
 
         composerChrome.translatesAutoresizingMaskIntoConstraints = false
-        composerChrome.clipsToBounds = true
         composerTopHairline.translatesAutoresizingMaskIntoConstraints = false
+
+        inlineSuggestionHostHeightConstraint = inlineSuggestionHost.heightAnchor.constraint(equalToConstant: 0)
 
         composerHeightConstraint = composerChrome.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale + 56.swh)
         if #available(iOS 15.0, *) {
@@ -198,9 +227,15 @@ final class CreateThreadFormViewController: UIViewController {
         contentStack.addArrangedSubview(nameCaptionLabel)
         contentStack.addArrangedSubview(nameContainer)
         contentStack.addArrangedSubview(visibilityCard)
+        if seedMessageDisplay != nil {
+            configureSeedMessagePreviewSection()
+            contentStack.addArrangedSubview(seedMessageCaptionLabel)
+            contentStack.addArrangedSubview(seedMessageCard)
+        }
 
         scrollView.addSubview(contentStack)
         view.addSubview(scrollView)
+        view.addSubview(inlineSuggestionHost)
         view.addSubview(composerChrome)
         composerChrome.addSubview(composerTopHairline)
         view.addSubview(activityIndicator)
@@ -218,6 +253,9 @@ final class CreateThreadFormViewController: UIViewController {
         ])
 
         addChild(sendInputVC)
+        if sendInputVC.view.superview === view {
+            sendInputVC.view.removeFromSuperview()
+        }
         composerChrome.addSubview(sendInputVC.view)
         sendInputVC.didMove(toParent: self)
         sendInputVC.view.translatesAutoresizingMaskIntoConstraints = false
@@ -226,7 +264,12 @@ final class CreateThreadFormViewController: UIViewController {
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16.sw),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
-            scrollView.bottomAnchor.constraint(equalTo: composerChrome.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: inlineSuggestionHost.topAnchor),
+
+            inlineSuggestionHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            inlineSuggestionHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            inlineSuggestionHost.bottomAnchor.constraint(equalTo: composerChrome.topAnchor),
+            inlineSuggestionHostHeightConstraint,
 
             contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16.sh),
             contentStack.leadingAnchor.constraint(equalTo: scrollView.frameLayoutGuide.leadingAnchor),
@@ -263,9 +306,12 @@ final class CreateThreadFormViewController: UIViewController {
             activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
 
+        isComposerLayoutReady = true
+        composerHeightConstraint.constant = 1 / UIScreen.main.scale + max(52.swh, sendInputVC.totalHeight)
+
         emojiPicker.install(in: view, engine: context.engine)
 
-        view.bringSubviewToFront(scrollView)
+        view.bringSubviewToFront(inlineSuggestionHost)
         view.bringSubviewToFront(composerChrome)
         emojiPicker.bringToFront()
         view.bringSubviewToFront(advancePanelView)
@@ -407,6 +453,60 @@ final class CreateThreadFormViewController: UIViewController {
         }
     }
 
+    private static func seedMessageHasSendPayload(_ display: ChatMessageDisplay) -> Bool {
+        let text = display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { return true }
+        return display.attachments.contains {
+            !$0.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private func configureSeedMessagePreviewSection() {
+        guard let display = seedMessageDisplay else { return }
+
+        seedMessageCaptionLabel.font = .systemFont(ofSize: 13.sf, weight: .semibold)
+        seedMessageCaptionLabel.numberOfLines = 1
+        seedMessageCaptionLabel.text = L(L10n.ThreadList.createThreadFirstMessageSection)
+
+        seedMessageCard.layer.cornerRadius = 12
+        seedMessageCard.clipsToBounds = true
+
+        seedMessageSenderLabel.font = .systemFont(ofSize: 13.sf, weight: .semibold)
+        seedMessageSenderLabel.numberOfLines = 1
+
+        seedMessageBodyLabel.font = .systemFont(ofSize: 14.sf)
+        seedMessageBodyLabel.numberOfLines = 0
+
+        seedMessageSenderLabel.translatesAutoresizingMaskIntoConstraints = false
+        seedMessageBodyLabel.translatesAutoresizingMaskIntoConstraints = false
+        seedMessageCard.addSubview(seedMessageSenderLabel)
+        seedMessageCard.addSubview(seedMessageBodyLabel)
+
+        NSLayoutConstraint.activate([
+            seedMessageSenderLabel.leadingAnchor.constraint(equalTo: seedMessageCard.leadingAnchor, constant: 14.sw),
+            seedMessageSenderLabel.trailingAnchor.constraint(equalTo: seedMessageCard.trailingAnchor, constant: -14.sw),
+            seedMessageSenderLabel.topAnchor.constraint(equalTo: seedMessageCard.topAnchor, constant: 12.sh),
+
+            seedMessageBodyLabel.leadingAnchor.constraint(equalTo: seedMessageCard.leadingAnchor, constant: 14.sw),
+            seedMessageBodyLabel.trailingAnchor.constraint(equalTo: seedMessageCard.trailingAnchor, constant: -14.sw),
+            seedMessageBodyLabel.topAnchor.constraint(equalTo: seedMessageSenderLabel.bottomAnchor, constant: 6.sh),
+            seedMessageBodyLabel.bottomAnchor.constraint(equalTo: seedMessageCard.bottomAnchor, constant: -12.sh),
+        ])
+
+        let senderName = display.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        seedMessageSenderLabel.text = senderName.isEmpty ? display.senderUsername : senderName
+
+        let body = display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !body.isEmpty {
+            seedMessageBodyLabel.text = body
+        } else if let att = display.attachments.first {
+            let name = att.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+            seedMessageBodyLabel.text = name.isEmpty ? "…" : name
+        } else {
+            seedMessageBodyLabel.text = "…"
+        }
+    }
+
     private func refreshVisibilityLabels() {
         visibilityHeadlineLabel.text = L(L10n.ThreadList.createThreadPrivateTitle)
         visibilityDetailLabel.text = L(L10n.ThreadList.createThreadPrivateSubtitle)
@@ -434,6 +534,10 @@ final class CreateThreadFormViewController: UIViewController {
         )
         visibilityHeadlineLabel.textColor = t.textStrong
         visibilityDetailLabel.textColor = t.textDisabled
+        seedMessageCaptionLabel.textColor = t.textStrong
+        seedMessageCard.backgroundColor = t.secondary
+        seedMessageSenderLabel.textColor = t.textStrong
+        seedMessageBodyLabel.textColor = t.textDisabled
         activityIndicator.color = t.textStrong
         advancePanelView.applyTheme()
         refreshVisibilityLabels()
@@ -454,9 +558,71 @@ final class CreateThreadFormViewController: UIViewController {
         dismiss(animated: true)
     }
 
+    private func updateInlineSuggestionHostLayout(height: CGFloat) {
+        guard isComposerLayoutReady else { return }
+        let show = height > 0.5
+        let heightChanged = abs(inlineSuggestionHostHeightConstraint.constant - height) > 0.5
+        inlineSuggestionHostHeightConstraint.constant = height
+        inlineSuggestionHost.isHidden = !show
+        scrollView.isScrollEnabled = !show
+        if show {
+            view.bringSubviewToFront(inlineSuggestionHost)
+            view.bringSubviewToFront(composerChrome)
+        }
+        guard heightChanged else { return }
+        UIView.animate(withDuration: 0.15) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
     private func isValidThreadName(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count >= Self.minThreadNameLength && trimmed.count <= Self.maxThreadNameLength
+        guard trimmed.count >= Self.minThreadNameLength && trimmed.count <= Self.maxThreadNameLength else {
+            return false
+        }
+        guard let regex = Self.threadNameRegex else { return true }
+        let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+        return regex.firstMatch(in: trimmed, range: range) != nil
+    }
+
+    private func resolvedParentChannelForCreate() -> Mezon_Api_ChannelDescription? {
+        if let ch = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: parentChannelId) {
+            return ch
+        }
+        if composerParentChannel.channelID == parentChannelId {
+            return composerParentChannel
+        }
+        return nil
+    }
+
+    private func createThreadAPIParameters(
+        parent: Mezon_Api_ChannelDescription?
+    ) -> (clanId: Int64, parentId: Int64, categoryId: Int64)? {
+        guard parentChannelId != 0 else { return nil }
+        let apiClanId = (parent?.clanID).flatMap { $0 != 0 ? $0 : nil } ?? clanId
+        let apiCategoryId: Int64 = {
+            if let cat = parent?.categoryID, cat != 0 { return cat }
+            return parentCategoryId
+        }()
+        return (apiClanId, parentChannelId, apiCategoryId)
+    }
+
+    private static func isSupportedParentChannelType(_ type: Int32) -> Bool {
+        switch type {
+        case MezonConstants.ChannelType.dm.rawValue,
+             MezonConstants.ChannelType.group.rawValue,
+             MezonConstants.ChannelType.app.rawValue,
+             MezonConstants.ChannelType.mezonVoice.rawValue,
+             MezonConstants.ChannelType.streaming.rawValue:
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func isCreateThreadPermissionDeniedError(_ error: Error) -> Bool {
+        guard case MezonError.httpError(let code, _) = error else { return false }
+        return code == 403 || code == 7
     }
 
     private func performCreateThreadSubmission() {
@@ -478,6 +644,20 @@ final class CreateThreadFormViewController: UIViewController {
             return
         }
 
+        let parent = resolvedParentChannelForCreate()
+        guard let params = createThreadAPIParameters(parent: parent) else {
+            Toast.error(L(L10n.ThreadList.createThreadFailed))
+            return
+        }
+        if let parent, !Self.isSupportedParentChannelType(parent.type) {
+            Toast.error(L(L10n.ThreadList.createThreadForbidden))
+            return
+        }
+        guard context.rolePermissions.canManageThread(clanId: params.clanId, channelId: params.parentId) else {
+            Toast.error(L(L10n.ThreadList.createThreadForbidden))
+            return
+        }
+
         pendingThreadSubmission = true
         navigationItem.leftBarButtonItem?.isEnabled = false
         activityIndicator.startAnimating()
@@ -492,9 +672,9 @@ final class CreateThreadFormViewController: UIViewController {
             }
             do {
                 let created = try await context.account.network.createThreadChannelDesc(
-                    clanId: clanId,
-                    parentChannelId: parentChannelId,
-                    categoryId: parentCategoryId,
+                    clanId: params.clanId,
+                    parentChannelId: params.parentId,
+                    categoryId: params.categoryId,
                     channelLabel: trimmed,
                     channelPrivate: threadIsPrivate ? 1 : 0,
                     token: token
@@ -505,7 +685,24 @@ final class CreateThreadFormViewController: UIViewController {
                     migrateDraftToNewChannelIdentity: true,
                     preserveComposerContentsDuringMigration: true
                 )
-                if sendInputVC.hasComposerSendPayload() {
+                if context.account.socket.isConnected {
+                    context.account.socket.joinChannel(
+                        clanId: params.clanId,
+                        channelId: created.channelID,
+                        channelType: MezonConstants.ChannelType.thread.rawValue,
+                        isPublic: created.channelPrivate == 0
+                    )
+                }
+                try await Task.sleep(nanoseconds: 100_000_000)
+
+                let hasSeedPayload = seedMessageDisplay.map(Self.seedMessageHasSendPayload) ?? false
+                let hasUserPayload = sendInputVC.hasComposerSendPayload()
+
+                if hasSeedPayload, let seed = seedMessageDisplay {
+                    try await sendInputVC.sendReplicatedThreadSeedMessage(from: seed)
+                }
+
+                if hasUserPayload {
                     sendInputVC.onSent = { [weak self] in
                         guard let self else { return }
                         self.sendInputVC.onSent = nil
@@ -541,15 +738,23 @@ final class CreateThreadFormViewController: UIViewController {
                 pendingThreadSubmission = false
                 activityIndicator.stopAnimating()
                 navigationItem.leftBarButtonItem?.isEnabled = true
-                Toast.error(L(L10n.ThreadList.createThreadFailed))
+                let msg = Self.isCreateThreadPermissionDeniedError(error)
+                    ? L(L10n.ThreadList.createThreadForbidden)
+                    : L(L10n.ThreadList.createThreadFailed)
+                Toast.error(msg)
             }
         }
     }
 
     private func finishCreateSuccess(created: Mezon_Api_ChannelDescription) {
+        view.endEditing(true)
+        sendInputVC.hideEmojiPickerIfNeeded()
+        sendInputVC.hideAdvancePanelIfNeeded()
         let cb = onComplete
         dismiss(animated: true) {
-            cb?(.success(created))
+            DispatchQueue.main.async {
+                cb?(.success(created))
+            }
         }
     }
 

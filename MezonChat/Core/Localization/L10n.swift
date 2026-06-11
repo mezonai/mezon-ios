@@ -442,6 +442,15 @@ enum L10n {
         static let community            = "clan.action.community"
     }
 
+    enum DeleteClanModal {
+        static let title                = "deleteClanModal.title"
+        static let description          = "deleteClanModal.description"
+        static let titleLeaveClan       = "deleteClanModal.titleLeaveClan"
+        static let descriptionLeaveClan = "deleteClanModal.descriptionLeaveClan"
+        static let confirm              = "deleteClanModal.confirm"
+        static let error                = "deleteClanModal.error"
+    }
+
     enum ClanSetting {
         static let overview             = "clan.setting.overview"
         static let auditLog             = "clan.setting.auditLog"
@@ -721,6 +730,7 @@ enum L10n {
         static let createThreadCancel = "threadList.createThreadCancel"
         static let createThreadNameInvalid = "threadList.createThreadNameInvalid"
         static let createThreadFailed = "threadList.createThreadFailed"
+        static let createThreadForbidden = "threadList.createThreadForbidden"
         static let createThreadSuccess = "threadList.createThreadSuccess"
         static let createThreadInChannel = "threadList.createThreadInChannel"
         static let createThreadPublicTitle = "threadList.createThreadPublicTitle"
@@ -1489,6 +1499,12 @@ extension L10n {
         "clan.action.auditLog" :            "Audit log",
         "clan.action.leaveClan":            "Leave Clan",
         "clan.action.deleteClan":           "Delete Clan",
+        "deleteClanModal.title":            "Delete Clan",
+        "deleteClanModal.description":      "Please confirm if you would like to delete %@? This action cannot be undone.",
+        "deleteClanModal.titleLeaveClan":   "Leave clan",
+        "deleteClanModal.descriptionLeaveClan": "Please confirm if you would like to leave %@? You won't be able to re-join this clan unless you are re-invited.",
+        "deleteClanModal.confirm":          "Yes",
+        "deleteClanModal.error":            "An error occurred while trying to delete/leave the clan",
         "clan.action.showEmptyCategories":  "Show Empty Categories",
         "clan.action.onlineCount":          "%d Online",
         "clan.action.memberCount":          "%d Members",
@@ -1720,6 +1736,7 @@ extension L10n {
         "threadList.createThreadCancel": "Cancel",
         "threadList.createThreadNameInvalid": "Enter a name from 4 to 64 characters.",
         "threadList.createThreadFailed": "Could not create thread.",
+        "threadList.createThreadForbidden": "You do not have permission to create threads in this channel.",
         "threadList.createThreadSuccess": "Thread created.",
         "threadList.createThreadInChannel": "In #%@",
         "threadList.createThreadPublicTitle": "Public thread",
@@ -2545,6 +2562,12 @@ extension L10n {
         "clan.action.auditLog" :            "Nhật kí kiểm tra",
         "clan.action.leaveClan":            "Rời Clan",
         "clan.action.deleteClan":           "Xóa Clan",
+        "deleteClanModal.title":            "Xóa Clan",
+        "deleteClanModal.description":      "Bạn có chắc chắn muốn xóa %@? Hành động này không thể hoàn tác.",
+        "deleteClanModal.titleLeaveClan":   "Rời clan",
+        "deleteClanModal.descriptionLeaveClan": "Bạn có chắc chắn muốn rời khỏi %@ không? Bạn sẽ không thể tham gia lại clan này trừ khi bạn được mời lại.",
+        "deleteClanModal.confirm":          "Có",
+        "deleteClanModal.error":            "Đã xảy ra lỗi khi cố gắng xóa/rời clan",
         "clan.action.showEmptyCategories":  "Hiển thị danh mục trống",
         "clan.action.onlineCount":          "%d Đang trực tuyến",
         "clan.action.memberCount":          "%d Thành viên",
@@ -2776,6 +2799,7 @@ extension L10n {
         "threadList.createThreadCancel": "Hủy",
         "threadList.createThreadNameInvalid": "Nhập tên từ 4 đến 64 ký tự.",
         "threadList.createThreadFailed": "Không tạo được chủ đề.",
+        "threadList.createThreadForbidden": "Bạn không có quyền tạo chủ đề trong kênh này.",
         "threadList.createThreadSuccess": "Đã tạo chủ đề.",
         "threadList.createThreadInChannel": "Trong #%@",
         "threadList.createThreadPublicTitle": "Chủ đề công khai",
