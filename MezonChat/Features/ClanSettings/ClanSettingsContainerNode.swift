@@ -401,7 +401,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
-        btn.tag = action.navigate?.rawValue ?? 0
+        btn.tag = action.navigate?.rawValue ?? -1
         btn.addTarget(self, action: #selector(rowButtonTapped(_:)), for: .touchUpInside)
 
         return v
