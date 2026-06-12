@@ -990,8 +990,22 @@ final class ClanOverviewViewController: BaseViewController {
                     guard let token = await self.context.getToken() else { return }
                     do {
                         try await self.context.account.network.deleteClanDesc(clanId: self.clanId, token: token)
+                        
                         await MainActor.run {
-                            self.navigationController?.popToRootViewController(animated: true)
+                            if let root = self.navigationController as? MezonRootController {
+                                root.homeController?.clanListVC.removeClanAndSelectNext(removedClanId: self.clanId)
+                            }
+                            
+                            let nextClanId = self.context.currentClanId
+                            if nextClanId != 0 {
+                                NotificationCenter.default.post(
+                                    name: .mezonQRSelectClan,
+                                    object: nil,
+                                    userInfo: ["clanId": "\(nextClanId)"]
+                                )
+                            } else {
+                                self.navigationController?.popToRootViewController(animated: true)
+                            }
                         }
                     } catch {
                         await MainActor.run {
