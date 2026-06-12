@@ -208,6 +208,7 @@ final class MediaGalleryNode: ASDisplayNode {
                 ? Date(timeIntervalSince1970: TimeInterval(att.createTimeSeconds)) : nil
             return GalleryItemInfo(
                 url: url,
+                sourceURL: att.url,
                 image: nil,
                 placeholderURL: placeholderURL,
                 senderName: "",

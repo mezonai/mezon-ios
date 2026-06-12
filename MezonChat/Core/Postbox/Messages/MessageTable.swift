@@ -292,7 +292,7 @@ final class MessageTable: Table {
             } else {
                 current.append(msg)
             }
-            current.sort { $0.createdAt < $1.createdAt }
+            current.sort { MessageRecord.isOrderedAscending($0, $1) }
             cache[msg.channelId] = current
             pendingWrites.insert(msg.channelId)
         }
@@ -354,7 +354,7 @@ final class MessageTable: Table {
             guard record.id.hasPrefix("pending-") else { return false }
             return !mergedBelonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
         }
-        cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { $0.createdAt < $1.createdAt }
+        cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
         db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
             sqlite3_bind_text($0, 1, channelId, -1, nil)

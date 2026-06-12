@@ -2939,34 +2939,12 @@ final class ChatViewController: ViewController {
     }
 
     private static func messageDisplayLessThan(_ a: ChatMessageDisplay, _ b: ChatMessageDisplay) -> Bool {
-        if a.id == b.id { return false }
-        if a.message.createdAt != b.message.createdAt {
-            return a.message.createdAt < b.message.createdAt
-        }
-        let aSnowflake = isSnowflakeMessageId(a.id)
-        let bSnowflake = isSnowflakeMessageId(b.id)
-        if aSnowflake != bSnowflake {
-            return aSnowflake
-        }
-        if aSnowflake && bSnowflake {
-            return messageSnowflakeIdLessThan(a.id, b.id)
-        }
-        return a.id < b.id
-    }
-
-    private static func messageSnowflakeIdLessThan(_ a: String, _ b: String) -> Bool {
-        if a == b { return false }
-        let aNum = isSnowflakeMessageId(a)
-        let bNum = isSnowflakeMessageId(b)
-        if aNum && bNum {
-            if a.count != b.count { return a.count < b.count }
-            return a < b
-        }
-        return a < b
-    }
-
-    private static func isSnowflakeMessageId(_ id: String) -> Bool {
-        !id.isEmpty && id.allSatisfy { $0.isASCII && $0.isNumber }
+        MessageRecord.compareAscending(
+            id: a.id,
+            createdAt: a.message.createdAt,
+            id: b.id,
+            createdAt: b.message.createdAt
+        )
     }
 
     private static func parseContentIsForward(from data: Data) -> Bool {

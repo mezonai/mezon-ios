@@ -819,23 +819,6 @@ final class SendMessageInputViewController: UIViewController {
         return currentTextViewHeight + Self.inputBarPadding
     }
 
-    private var inlineSuggestionOverlayHeight: CGFloat {
-        var overlay: CGFloat = 0
-        if let m = mentionSuggestionView, !m.isHidden,
-           let c = mentionSuggestionHeightConstraint?.constant, c > 0.5 {
-            overlay = max(overlay, c)
-        }
-        if let e = emojiSuggestionView, !e.isHidden,
-           let c = emojiSuggestionHeightConstraint?.constant, c > 0.5 {
-            overlay = max(overlay, c)
-        }
-        if let h = hashtagSuggestionView, !h.isHidden,
-           let c = hashtagSuggestionHeightConstraint?.constant, c > 0.5 {
-            overlay = max(overlay, c)
-        }
-        return overlay
-    }
-
     var totalHeight: CGFloat {
         if composerSendPermissionBlocked {
             return Self.textViewMinHeight + Self.inputBarPadding
@@ -852,9 +835,6 @@ final class SendMessageInputViewController: UIViewController {
         }
         if replyDisplay != nil || editingDisplay != nil {
             h += Self.replyBannerHeight
-        }
-        if inlineSuggestionHost == nil {
-            h += inlineSuggestionOverlayHeight
         }
         return h
     }
@@ -1001,6 +981,7 @@ final class SendMessageInputViewController: UIViewController {
     override func loadView() {
         let v = OverflowHitTestView()
         v.backgroundColor = .clear
+        v.clipsToBounds = false
         v.disablesInteractiveTransitionGestureRecognizer = true
         v.disablesInteractiveTransitionGestureRecognizerNow = { true }
         v.overflowTargets = { [weak self] in
@@ -5363,12 +5344,12 @@ final class SendMessageInputViewController: UIViewController {
         let sendAsAnonymous = shouldSendAsAnonymousMessage
         let localId = "pending-\(UUID().uuidString)"
         let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
-
         let imagesToUpload = images
         let fileURLsToUpload = pickedFileURLs
         let filesToUpload = pickedFiles
-        let useIncrementalImagePath = !isEdit && !sendAsAnonymous && !imagesToUpload.isEmpty && !skipOptimisticPendingMessageOnSend
-        if !skipOptimisticPendingMessageOnSend, !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous, !useIncrementalImagePath {
+        let hasAttachmentsToUpload = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
+        let useIncrementalAttachmentPath = !isEdit && !sendAsAnonymous && hasAttachmentsToUpload
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous, !useIncrementalAttachmentPath {
             ParsedAttachment.pendingImageCache[localId] = imagesToUpload
         }
         if !skipOptimisticPendingMessageOnSend, !isEdit, !filesToUpload.isEmpty, !sendAsAnonymous {
@@ -5532,7 +5513,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         let pendingCreatedAt = Date()
 
-        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, !useIncrementalImagePath, let sender = context.currentUser {
+        if !skipOptimisticPendingMessageOnSend, !isEdit, !sendAsAnonymous, !useIncrementalAttachmentPath, let sender = context.currentUser {
             let pendingRecord = MessageRecord.pending(
                 localId: localId,
                 text: displayText,
@@ -5593,7 +5574,7 @@ final class SendMessageInputViewController: UIViewController {
         let avatar: String = context.currentUser?.avatarURL?.absoluteString ?? ""
         let references: [Mezon_Api_MessageRef] = replyRef.map { [$0] } ?? []
 
-        if useIncrementalImagePath {
+        if useIncrementalAttachmentPath {
             let imageSendParams = ImageSendParams(
                 localId: localId,
                 channelIdStr: channelIdStr,
@@ -5614,7 +5595,8 @@ final class SendMessageInputViewController: UIViewController {
                 pendingSenderAvatarURL: pendingSenderAvatarURL,
                 images: imagesToUpload,
                 fileURLs: fileURLsToUpload,
-                files: filesToUpload
+                files: filesToUpload,
+                skipOptimisticPending: skipOptimisticPendingMessageOnSend
             )
             AttachmentUploadCoordinator.shared.startImageSend(
                 context: context,

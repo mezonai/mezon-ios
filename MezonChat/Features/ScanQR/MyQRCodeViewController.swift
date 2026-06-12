@@ -36,6 +36,11 @@ final class MyQRCodeViewController: ViewController {
         myQRCodeNode.onShareTapped = { [weak self] image in
             guard let self = self else { return }
             let activityVC = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+            if let popover = activityVC.popoverPresentationController {
+                let anchorView = self.myQRCodeNode.shareAnchorView
+                popover.sourceView = anchorView
+                popover.sourceRect = anchorView.bounds
+            }
             self.present(activityVC, animated: true)
         }
     }

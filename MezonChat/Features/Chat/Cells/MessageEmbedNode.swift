@@ -927,6 +927,10 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
             EmbedFormState.shared.setValue(str, forComponent: self.component.id, messageId: self.messageId)
         }))
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = button
+            popover.sourceRect = button.bounds
+        }
         vc.present(alert, animated: true)
     }
 

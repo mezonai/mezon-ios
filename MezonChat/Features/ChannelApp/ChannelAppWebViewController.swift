@@ -86,8 +86,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         let top = pick(kit.top, lt.top)
         let left = pick(kit.left, lt.left)
         let right = pick(kit.right, lt.right)
-        let baselineBottom = max(pick(kit.bottom, lt.bottom), layout.safeInsets.bottom)
-        let bottom = max(baselineBottom, layout.inputHeight ?? 0)
+        let bottom = max(pick(kit.bottom, lt.bottom), layout.safeInsets.bottom)
 
         return (top, left, right, bottom)
     }
@@ -414,6 +413,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         wv.backgroundColor = UIColor.theme.primary
         wv.scrollView.backgroundColor = UIColor.theme.primary
         wv.scrollView.contentInsetAdjustmentBehavior = .never
+        wv.scrollView.keyboardDismissMode = .interactive
         wv.translatesAutoresizingMaskIntoConstraints = true
 
         view.addSubview(wv)

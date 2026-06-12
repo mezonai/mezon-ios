@@ -21,6 +21,7 @@ struct ImageSendParams {
     let images: [UIImage]
     let fileURLs: [Int: URL]
     let files: [PickedFileInfo]
+    let skipOptimisticPending: Bool
 }
 
 enum ImageUploadItemState {
@@ -79,6 +80,7 @@ fileprivate final class FileUploadTrack {
 
 final class ImageUploadSession {
     let params: ImageSendParams
+    let outgoingBase: Data
     var items: [ImageUploadItem]
     fileprivate var fileTracks: [FileUploadTrack] = []
     var serverMessageId: Int64 = 0
@@ -90,6 +92,7 @@ final class ImageUploadSession {
 
     init(params: ImageSendParams) {
         self.params = params
+        self.outgoingBase = PresignFinishContent.presignSyncOriginContent(params.outgoingContentData)
         self.items = params.images.enumerated().map { idx, img in
             ImageUploadItem(image: img, fileURL: params.fileURLs[idx])
         }
@@ -194,6 +197,7 @@ final class AttachmentUploadCoordinator {
 
     func imageOverlay(for messageId: String) -> [ParsedAttachment]? {
         guard let session = session(forKey: messageId) else { return nil }
+        guard !session.items.isEmpty else { return nil }
         return session.items.map { item -> ParsedAttachment in
             switch item.state {
             case let .uploaded(att):
@@ -251,8 +255,11 @@ final class AttachmentUploadCoordinator {
         let session = ImageUploadSession(params: params)
         register(session, key: params.localId)
 
-        if let sender = context.currentUser {
-            let presignContent = PresignFinishContent.injectEmptyPresignFinish(into: params.outgoingContentData)
+        if !params.skipOptimisticPending, let sender = context.currentUser {
+            let presignContent = PresignFinishContent.contentStringForSend(
+                base: session.outgoingBase,
+                presignKeys: []
+            ).data(using: .utf8) ?? PresignFinishContent.injectEmptyPresignFinish(into: session.outgoingBase)
             let record = MessageRecord.pending(
                 localId: params.localId,
                 text: "",
@@ -305,14 +312,18 @@ final class AttachmentUploadCoordinator {
         context: AccountContext,
         prepare: ((String) async throws -> Void)?
     ) async {
-        guard let token = await context.getToken() else {
+        guard let token = await prepareSendToken(context: context) else {
             for item in session.items where item.state.isUploading { item.state = .failed }
             finalizeAllFailed(session, context: context)
             return
         }
 
-        await reserveFiles(session, context: context, token: token)
-        await reserveImages(session, context: context, token: token)
+        await reserveAttachments(session, context: context, token: token)
+
+        guard allAttachmentsReserved(session) else {
+            finalizeAllFailed(session, context: context)
+            return
+        }
 
         let attachments = allReservedAttachments(session)
 
@@ -329,16 +340,89 @@ final class AttachmentUploadCoordinator {
             return
         }
 
-        await sendMessage(session, context: context, token: token, attachments: attachments)
+        guard let sendToken = await context.getToken() else {
+            finalizeAllFailed(session, context: context)
+            return
+        }
+        await sendMessage(session, context: context, token: sendToken, attachments: attachments)
 
         guard !session.aborted else {
             return
         }
 
-        await executeFileUploads(session, context: context, token: token)
-        await executeImageUploads(session, context: context, token: token)
-        await maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
+        guard let uploadToken = await context.getToken() else { return }
+        await executeFileUploads(session, context: context, token: uploadToken)
+        await executeImageUploads(session, context: context, token: uploadToken)
+        await retryFailedUploads(session, context: context)
+        await flushAllPresignFinish(session, context: context)
+        if session.lastSyncedPresignCount < session.presignFinishedKeys.count {
+            await retryFailedUploads(session, context: context)
+            await flushAllPresignFinish(session, context: context)
+        }
         await finalizeIfComplete(session, context: context)
+    }
+
+    @MainActor
+    private func prepareSendToken(context: AccountContext) async -> String? {
+        _ = await context.account.socket.waitForConnected(timeoutNanoseconds: 3_000_000_000)
+        return await context.getToken()
+    }
+
+    @MainActor
+    private func allAttachmentsReserved(_ session: ImageUploadSession) -> Bool {
+        let imagesReady = session.items.allSatisfy { $0.reservedAttachment != nil }
+        let filesReady = session.fileTracks.count == session.params.files.count
+        return imagesReady && filesReady
+    }
+
+    @MainActor
+    private func reserveAttachments(
+        _ session: ImageUploadSession,
+        context: AccountContext,
+        token: String
+    ) async {
+        await reserveFiles(session, context: context, token: token)
+        await reserveImages(session, context: context, token: token)
+        for _ in 0..<2 {
+            let missingImageIndices = session.items.enumerated().compactMap { index, item -> Int? in
+                item.reservedAttachment == nil ? index : nil
+            }
+            guard !missingImageIndices.isEmpty else { break }
+            guard let retryToken = await context.getToken() else { break }
+            for index in missingImageIndices {
+                session.items[index].state = .uploading
+                if !(await reserveOneImage(session.items[index], context: context, token: retryToken)) {
+                    session.items[index].state = .failed
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func retryFailedUploads(
+        _ session: ImageUploadSession,
+        context: AccountContext
+    ) async {
+        guard let token = await context.getToken() else { return }
+        for index in session.items.indices {
+            let item = session.items[index]
+            guard item.state.isFailed, item.reservedAttachment != nil else { continue }
+            item.state = .uploading
+            let ok = await executeImageUpload(item, context: context)
+            session.items[index].state = ok ? .uploaded(item.reservedAttachment!) : .failed
+            if ok { markPresignFinished(session, key: item.presignKey) }
+            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
+        }
+        for track in session.fileTracks where track.state.isFailed {
+            track.state = .uploading
+            let ok = await executePendingUpload(track.pending, context: context)
+            track.state = ok ? .uploaded(track.attachment) : .failed
+            if ok {
+                markPresignFinished(session, key: track.presignKey)
+                try? FileManager.default.removeItem(at: track.file.url)
+            }
+            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
+        }
     }
 
     @MainActor
@@ -358,8 +442,8 @@ final class AttachmentUploadCoordinator {
         attachments: [Mezon_Api_MessageAttachment]
     ) async {
         let p = session.params
-        let contentData = PresignFinishContent.injectEmptyPresignFinish(into: p.outgoingContentData)
-        let contentStr = String(data: contentData, encoding: .utf8) ?? p.contentStr
+        let contentStr = PresignFinishContent.contentStringForSend(base: session.outgoingBase, presignKeys: [])
+        let contentData = contentStr.data(using: .utf8) ?? PresignFinishContent.injectEmptyPresignFinish(into: session.outgoingBase)
         do {
             let ack = try await context.account.network.sendChannelMessage(
                 clanId: p.clanId,
@@ -374,7 +458,8 @@ final class AttachmentUploadCoordinator {
                 mentionEveryone: false,
                 avatar: p.avatar,
                 topicId: p.topicId,
-                token: token
+                token: token,
+                preferHTTPFirst: true
             )
             session.serverMessageId = ack.messageID
             if ack.messageID != 0 {
@@ -555,30 +640,33 @@ final class AttachmentUploadCoordinator {
         guard !session.presignFinishedKeys.isEmpty else { return }
         let pendingNew = session.presignFinishedKeys.count - session.lastSyncedPresignCount
         guard forceFlush || pendingNew >= Self.presignEditBatchSize else { return }
-        guard !session.isPresignSyncInFlight else { return }
+        if session.isPresignSyncInFlight {
+            guard forceFlush else { return }
+            for _ in 0..<60 {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                if !session.isPresignSyncInFlight { break }
+            }
+            guard !session.isPresignSyncInFlight else { return }
+        }
         session.isPresignSyncInFlight = true
         defer { session.isPresignSyncInFlight = false }
         await updatePresignFinishContent(session, context: context, token: token, isFinal: forceFlush)
     }
 
     @MainActor
-    private func originContentDataForPresignSync(
+    private func flushAllPresignFinish(
         _ session: ImageUploadSession,
         context: AccountContext
-    ) -> Data {
-        let p = session.params
-        let serverKey = "\(session.serverMessageId)"
-        if let record = context.account.postbox.read({ tx in
-            tx.getMessageById(serverKey) ?? tx.getMessageById(p.localId)
-        }) {
-            let base = PresignFinishContent.contentBaseWithoutPresign(record.content)
-            if !base.isEmpty,
-               let json = try? JSONSerialization.jsonObject(with: base) as? [String: Any],
-               !json.isEmpty {
-                return base
-            }
+    ) async {
+        for attempt in 0..<8 {
+            guard !session.aborted, session.serverMessageId != 0 else { return }
+            guard session.lastSyncedPresignCount < session.presignFinishedKeys.count else { return }
+            guard let token = await context.getToken() else { return }
+            await maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
+            if session.lastSyncedPresignCount >= session.presignFinishedKeys.count { return }
+            let delayMs = UInt64(150_000_000 * UInt64(attempt + 1))
+            try? await Task.sleep(nanoseconds: delayMs)
         }
-        return p.outgoingContentData
     }
 
     @MainActor
@@ -607,16 +695,22 @@ final class AttachmentUploadCoordinator {
     ) async {
         let p = session.params
         let keysSnapshot = session.presignFinishedKeys
-        let originContentData = originContentDataForPresignSync(session, context: context)
-        let localContentData = PresignFinishContent.injectPresignFinish(
-            into: originContentData,
-            keys: keysSnapshot
+        let contentStr = PresignFinishContent.contentStringForSend(
+            base: session.outgoingBase,
+            presignKeys: keysSnapshot
         )
-        guard let contentStr = String(data: localContentData, encoding: .utf8), !contentStr.isEmpty else {
-            return
-        }
-        let maxAttempts = isFinal ? 2 : 1
+        guard !contentStr.isEmpty else { return }
+        let localContentData = contentStr.data(using: .utf8) ?? Data()
+        let maxAttempts = isFinal ? 4 : 1
         for attempt in 1...maxAttempts {
+            let activeToken: String
+            if attempt == 1 {
+                activeToken = token
+            } else if let refreshed = await context.getToken() {
+                activeToken = refreshed
+            } else {
+                activeToken = token
+            }
             do {
                 _ = try await context.account.network.updateChannelMessage(
                     clanId: p.clanId,
@@ -628,7 +722,8 @@ final class AttachmentUploadCoordinator {
                     mentions: mentionsForPresignSync(session, context: context),
                     hideEditted: true,
                     topicId: p.topicId != 0 ? p.topicId : nil,
-                    token: token
+                    token: activeToken,
+                    preferHTTPFirst: true
                 )
                 writeMessageContent(session, context: context, contentData: localContentData)
                 session.lastSyncedPresignCount = keysSnapshot.count
@@ -640,7 +735,10 @@ final class AttachmentUploadCoordinator {
                         "where": "AttachmentUploadCoordinator.updatePresignFinishContent",
                         "messageId": session.serverMessageId,
                         "isFinal": isFinal,
+                        "keyCount": keysSnapshot.count,
                     ])
+                } else {
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 200_000_000)
                 }
             }
         }
@@ -686,7 +784,8 @@ final class AttachmentUploadCoordinator {
                 of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
             do {
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: sanitized, filetype: file.filetype, size: size, token: token)
+                    filename: sanitized, filetype: file.filetype, size: size, token: token,
+                    preferHTTPFirst: true)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 let presignKey = PresignFinishContent.presignKey(from: cdnURL)
                 var att = Mezon_Api_MessageAttachment()
@@ -765,7 +864,7 @@ final class AttachmentUploadCoordinator {
                 guard let size = await Self.fileSize(of: fileURL) else { return false }
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: sanitized, filetype: filetype, size: size,
-                    width: width, height: height, token: token)
+                    width: width, height: height, token: token, preferHTTPFirst: true)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.url = cdnURL
                 att.size = Int32(size)
@@ -788,7 +887,7 @@ final class AttachmentUploadCoordinator {
                     filename: sanitized, isGif: isGif) else { return false }
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
-                    width: width, height: height, token: token)
+                    width: width, height: height, token: token, preferHTTPFirst: true)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.filename = payload.filename
                 att.filetype = payload.filetype
@@ -832,7 +931,7 @@ final class AttachmentUploadCoordinator {
         do {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
-                width: width, height: height, token: token)
+                width: width, height: height, token: token, preferHTTPFirst: true)
             let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
             let pending = PendingMinIOUpload(
                 minioURL: uploadInfo.url,
@@ -917,6 +1016,20 @@ final class AttachmentUploadCoordinator {
 
     @MainActor
     private func executePendingUpload(
+        _ pending: PendingMinIOUpload,
+        context: AccountContext
+    ) async -> Bool {
+        for attempt in 0..<2 {
+            if await performPendingUpload(pending, context: context) { return true }
+            if attempt == 0 {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+        }
+        return false
+    }
+
+    @MainActor
+    private func performPendingUpload(
         _ pending: PendingMinIOUpload,
         context: AccountContext
     ) async -> Bool {

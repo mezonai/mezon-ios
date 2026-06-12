@@ -981,6 +981,7 @@ final class ClanInviteSheetViewController: ViewController {
     private func shareInvite() {
         guard let inviteLink else { return }
         let ac = UIActivityViewController(activityItems: [inviteLink], applicationActivities: nil)
+        configurePopover(for: ac, anchorView: containerNode.shareButton.view)
         present(ac, animated: true)
     }
 
@@ -993,7 +994,14 @@ final class ClanInviteSheetViewController: ViewController {
         let transform = CGAffineTransform(scaleX: 8, y: 8)
         let image = UIImage(ciImage: output.transformed(by: transform))
         let ac = UIActivityViewController(activityItems: [image, inviteLink], applicationActivities: nil)
+        configurePopover(for: ac, anchorView: containerNode.qrButton.view)
         present(ac, animated: true)
+    }
+
+    private func configurePopover(for controller: UIViewController, anchorView: UIView) {
+        guard let popover = controller.popoverPresentationController else { return }
+        popover.sourceView = anchorView
+        popover.sourceRect = anchorView.bounds
     }
 
     @objc private func emptyActionTapped() {

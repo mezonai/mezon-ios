@@ -662,10 +662,12 @@ enum PresignFinishContent {
     static let fieldKey = "presign_finish"
 
     static func parseKeys(from contentData: Data) -> [String]? {
-        guard !contentData.isEmpty,
-              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
-              json[fieldKey] != nil else { return nil }
-        return json[fieldKey] as? [String] ?? []
+        guard let raw = presignFinishRawValue(from: contentData) else { return nil }
+        guard let array = raw as? [Any] else { return [] }
+        return array.compactMap { item -> String? in
+            guard let key = item as? String, !key.isEmpty else { return nil }
+            return key
+        }
     }
 
     static func presignKey(from cdnURL: String) -> String {
@@ -690,22 +692,54 @@ enum PresignFinishContent {
         guard let presignFinish else { return true }
         let key = presignKey(from: url)
         guard !key.isEmpty else { return false }
-        if presignFinish.contains(key) { return true }
-        return isCdnURL(url) && url.contains(key)
+        return presignFinish.contains(key)
+    }
+
+    static func emptyOutgoingContent() -> Data {
+        "{}".data(using: .utf8) ?? Data()
+    }
+
+    static func isEmptyOutgoingContent(_ contentData: Data) -> Bool {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] else {
+            return contentData.isEmpty
+        }
+        if json.isEmpty { return true }
+        if json.count == 1,
+           let text = json["t"] as? String,
+           text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        return false
+    }
+
+    static func presignSyncOriginContent(_ wireContent: Data) -> Data {
+        let base = contentBaseWithoutPresign(wireContent)
+        return isEmptyOutgoingContent(base) ? emptyOutgoingContent() : base
     }
 
     static func injectPresignFinish(into contentData: Data, keys: [String]) -> Data {
         var json: [String: Any] = [:]
         if !contentData.isEmpty,
            let existing = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] {
-            json = existing
+            for (key, value) in existing where key != fieldKey {
+                json[key] = value
+            }
         }
         json[fieldKey] = keys
-        return (try? JSONSerialization.data(withJSONObject: json)) ?? contentData
+        if let data = serializeJSONObject(json) {
+            return data
+        }
+        return fallbackPresignPayload(keys: keys, json: json)
     }
 
     static func injectEmptyPresignFinish(into contentData: Data) -> Data {
         injectPresignFinish(into: contentData, keys: [])
+    }
+
+    static func contentStringForSend(base contentData: Data, presignKeys: [String]) -> String {
+        let data = injectPresignFinish(into: contentData, keys: presignKeys)
+        return String(data: data, encoding: .utf8) ?? "{\"presign_finish\":[]}"
     }
 
     static func presignFinishOnlyContent(keys: [String]) -> Data {
@@ -713,14 +747,18 @@ enum PresignFinishContent {
     }
 
     static func presignFinishOnlyString(keys: [String]) -> String {
-        String(data: presignFinishOnlyContent(keys: keys), encoding: .utf8) ?? "{\"presign_finish\":[]}"
+        contentStringForSend(base: Data(), presignKeys: keys)
     }
 
     static func isPresignOnlyPayload(_ contentData: Data) -> Bool {
         guard !contentData.isEmpty,
               let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
               json[fieldKey] != nil else { return false }
-        return json.keys.allSatisfy { $0 == fieldKey }
+        return json.keys.allSatisfy { key in
+            if key == fieldKey { return true }
+            if key == "t" { return (json["t"] as? String)?.isEmpty != false }
+            return false
+        }
     }
 
     static func hasPresignFinishField(in contentData: Data) -> Bool {
@@ -755,9 +793,7 @@ enum PresignFinishContent {
             mergedKeys = keys
         }
         let base: Data
-        if isPresignOnlyPayload(server), !local.isEmpty {
-            base = contentBaseWithoutPresign(local)
-        } else if !server.isEmpty {
+        if !server.isEmpty {
             base = contentBaseWithoutPresign(server)
         } else {
             base = contentBaseWithoutPresign(local)
@@ -775,5 +811,42 @@ enum PresignFinishContent {
         newCopy.removeValue(forKey: fieldKey)
         oldCopy.removeValue(forKey: fieldKey)
         return NSDictionary(dictionary: newCopy).isEqual(to: oldCopy)
+    }
+
+    private static func presignFinishRawValue(from contentData: Data) -> Any? {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
+              json[fieldKey] != nil else { return nil }
+        return json[fieldKey]
+    }
+
+    private static func serializeJSONObject(_ json: [String: Any]) -> Data? {
+        guard JSONSerialization.isValidJSONObject(json) else { return nil }
+        return try? JSONSerialization.data(withJSONObject: json)
+    }
+
+    private static func jsonStringArray(_ keys: [String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: keys),
+              let str = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return str
+    }
+
+    private static func fallbackPresignPayload(keys: [String], json: [String: Any]) -> Data {
+        var payload = json
+        payload[fieldKey] = keys
+        if let data = serializeJSONObject(payload) {
+            return data
+        }
+        let keysJSON = jsonStringArray(keys)
+        if let text = json["t"] as? String {
+            let escapedText = text
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let built = "{\"t\":\"\(escapedText)\",\"\(fieldKey)\":\(keysJSON)}"
+            return built.data(using: .utf8) ?? Data()
+        }
+        return "{\"\(fieldKey)\":\(keysJSON)}".data(using: .utf8) ?? Data()
     }
 }

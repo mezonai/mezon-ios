@@ -1033,13 +1033,12 @@ final class MezonHTTPClient {
             req.createTimeSeconds = createTimeSeconds
         }
 
-        let ack: Mezon_Realtime_ChannelMessageAck = try await postProto(
+        return try await postProto(
             path: "/mezon.api.Mezon/UpdateChannelMessage",
             message: req,
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
-        return ack
     }
 
     func listChannelMessages(

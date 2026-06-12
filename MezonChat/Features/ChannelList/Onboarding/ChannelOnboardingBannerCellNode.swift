@@ -5,6 +5,7 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
 
     var onTap: (() -> Void)?
 
+    private static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
     private static let cardCornerRadius: CGFloat = 16.swh
 
     private let cardNode = ASDisplayNode()
@@ -25,12 +26,16 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
         cardNode.clipsToBounds = true
 
         iconWrapNode.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.98, alpha: 1)
-        iconWrapNode.cornerRadius = 15.swh
-        iconWrapNode.style.preferredSize = CGSize(width: 30.swh, height: 30.swh)
+        iconWrapNode.cornerRadius = Self.isPad ? 14 : 15.swh
+        iconWrapNode.style.preferredSize = Self.isPad
+            ? CGSize(width: 28, height: 28)
+            : CGSize(width: 30.swh, height: 30.swh)
 
         iconNode.image = Self.bannerIcon()
         iconNode.contentMode = .scaleAspectFit
-        iconNode.style.preferredSize = CGSize(width: 18.swh, height: 18.swh)
+        iconNode.style.preferredSize = Self.isPad
+            ? CGSize(width: 16, height: 16)
+            : CGSize(width: 18.swh, height: 18.swh)
 
         titleNode.attributedText = Self.titleAttributes(title)
         subtitleNode.attributedText = Self.subtitleAttributes(subtitle)
@@ -91,16 +96,19 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
         )
 
         let cardInset = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 14.sh, left: 16.sw, bottom: 14.sh, right: 16.sw),
+            insets: Self.isPad
+                ? UIEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
+                : UIEdgeInsets(top: 14.sh, left: 16.sw, bottom: 14.sh, right: 16.sw),
             child: row
         )
 
         let cardBackground = ASBackgroundLayoutSpec(child: cardInset, background: cardNode)
 
-        return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw),
-            child: cardBackground
-        )
+        let outerInsets = Self.isPad
+            ? UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+            : UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
+
+        return ASInsetLayoutSpec(insets: outerInsets, child: cardBackground)
     }
 
     override func layout() {
@@ -143,7 +151,8 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
     }
 
     private static func bannerIcon() -> UIImage? {
-        let config = UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold)
+        let pointSize: CGFloat = isPad ? 13 : 14.sf
+        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
         if let image = UIImage(systemName: "sparkles", withConfiguration: config) {
             return image.withTintColor(.white, renderingMode: .alwaysOriginal)
         }
@@ -161,7 +170,7 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
         NSAttributedString(
             string: text,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 15.sf, weight: .bold),
+                .font: UIFont.systemFont(ofSize: isPad ? 14 : 14.sf, weight: .semibold),
                 .foregroundColor: UIColor.theme.textStrong,
             ]
         )
@@ -171,8 +180,8 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
         NSAttributedString(
             string: text,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
-                .foregroundColor: UIColor.theme.text,
+                .font: UIFont.systemFont(ofSize: isPad ? 12 : 12.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.textDisabled,
             ]
         )
     }
