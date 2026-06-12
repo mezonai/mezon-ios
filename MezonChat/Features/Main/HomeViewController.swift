@@ -426,8 +426,14 @@ final class HomeViewController: BaseViewController {
         )
         disposables.add(
             (clanListVC.clansSignal |> deliverOnMainQueue)
-                .start(next: { [weak self] _ in
-                    self?.updateAppBadgeCount()
+                .start(next: { [weak self] clans in
+                    guard let self else { return }
+                    self.updateAppBadgeCount()
+                    if let selectedId = self.clanListVC.selectedClanId, selectedId != 0,
+                       let clan = clans.first(where: { $0.clanID == selectedId }) {
+                        let memberCount = self.channelSidebarMemberCount(clanId: selectedId)
+                        self.channelListVC.configure(clanId: selectedId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner, memberCount: memberCount, isCommunity: clan.isCommunity)
+                    }
                 })
         )
 

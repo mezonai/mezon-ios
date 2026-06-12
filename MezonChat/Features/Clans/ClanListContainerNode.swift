@@ -67,6 +67,7 @@ final class ClanListContainerNode: ASDisplayNode {
                 let prevDMCount = self.state.unreadDMs.count
                 let prevDMBadges = self.state.unreadDMs.map { $0.countMessUnread }
                 let prevClanBadges = self.state.clans.map { $0.badgeCount }
+                let prevClanFingerprints = self.state.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
                 let prevAccountLogo = self.state.accountLogoURL
                 self.state = newState
 
@@ -80,11 +81,13 @@ final class ClanListContainerNode: ASDisplayNode {
 
                 let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
                 let newClanBadges = newState.clans.map { $0.badgeCount }
+                let newClanFingerprints = newState.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
                 let badgesChanged = prevDMBadges != newDMBadges || prevClanBadges != newClanBadges
+                let clansChanged = prevClanFingerprints != newClanFingerprints
                 let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
                 let dmStripIdentityChanged = prevDmFingerprint != newDmFingerprint
 
-                if newClanSectionCount != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged {
+                if newClanSectionCount != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged || clansChanged {
                     self.collectionView.reloadData()
                 } else if dmStripIdentityChanged {
                     if self.collectionView.numberOfSections > 0 {
