@@ -425,6 +425,54 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateClanDesc(request: Mezon_Api_UpdateClanDescRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateClanDesc",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteClanDesc(clanId: Int64, token: String) async throws {
+        var req = Mezon_Api_DeleteClanDescRequest()
+        req.clanDescID = clanId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteClanDesc",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func getSystemMessageByClanId(clanId: Int64, token: String) async throws -> Mezon_Api_SystemMessage {
+        var req = Mezon_Api_GetSystemMessage()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetSystemMessageByClanId",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateSystemMessage(request: Mezon_Api_SystemMessageRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateSystemMessage",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func setDefaultNotificationClan(clanId: Int64, notificationType: Int32, token: String) async throws {
+        var req = Mezon_Api_SetDefaultNotificationRequest()
+        req.notificationType = notificationType
+        req.clanID = clanId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/SetNotificationClanSetting",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+
     func linkInviteUser(
         clanId: Int64,
         channelId: Int64,

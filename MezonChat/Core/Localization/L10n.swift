@@ -506,6 +506,36 @@ enum L10n {
             static let previewLengthError = "clan.setting.stickers.previewLengthError"
             static let previewTypeSticker = "clan.setting.stickers.previewTypeSticker"
         }
+
+        enum Overview {
+            static let title = "clan.setting.overview.title"
+            static let save = "clan.setting.overview.save"
+            static let clanName = "clan.setting.overview.clanName"
+            static let chooseImage = "clan.setting.overview.chooseImage"
+            static let systemMessageTitle = "clan.setting.overview.systemMessage.title"
+            static let systemMessageChannel = "clan.setting.overview.systemMessage.channel"
+        static let systemMessageNoChannel = "clan.setting.overview.systemMessage.noChannel"
+            static let systemMessageWelcomeRandom = "clan.setting.overview.systemMessage.welcomeRandom"
+            static let systemMessageWelcomeSticker = "clan.setting.overview.systemMessage.welcomeSticker"
+            static let systemMessageHideAuditLog = "clan.setting.overview.systemMessage.hideAuditLog"
+            static let systemMessageDescription = "clan.setting.overview.systemMessage.description"
+            static let uploadFileTooLarge10MB = "clan.setting.overview.uploadFileTooLarge10MB"
+            static let anonymousTitle = "clan.setting.overview.anonymous.title"
+            static let anonymousDescription = "clan.setting.overview.anonymous.description"
+            static let defaultNotificationTitle = "clan.setting.overview.defaultNotification.title"
+            static let defaultNotificationAll = "clan.setting.overview.defaultNotification.all"
+            static let defaultNotificationMention = "clan.setting.overview.defaultNotification.mention"
+            static let defaultNotificationNone = "clan.setting.overview.defaultNotification.none"
+            static let defaultNotificationDescription = "clan.setting.overview.defaultNotification.description"
+            static let deleteClan = "clan.setting.overview.deleteClan"
+            static let saveSuccess = "clan.setting.overview.toast.saveSuccess"
+            static let saveError = "clan.setting.overview.toast.saveError"
+            static let duplicateName = "clan.setting.overview.toast.duplicateName"
+            static let permissionDenied = "clan.setting.overview.toast.permissionDenied"
+            static let invalidName = "clan.setting.overview.toast.invalidName"
+            static let deleteClanConfirmTitle = "clan.setting.overview.deleteClan.confirmTitle"
+            static let deleteClanConfirmMessage = "clan.setting.overview.deleteClan.confirmMessage"
+        }
     }
 
     enum ClanRoles {
@@ -1505,6 +1535,34 @@ extension L10n {
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
 
+        "clan.setting.overview.title": "Overview",
+        "clan.setting.overview.save": "Save",
+        "clan.setting.overview.clanName": "Clan Name",
+        "clan.setting.overview.chooseImage": "Choose Clan Banner",
+        "clan.setting.overview.systemMessage.title": "System Notification Settings",
+        "clan.setting.overview.systemMessage.channel": "Channel",
+        "clan.setting.overview.systemMessage.noChannel": "No system messages",
+        "clan.setting.overview.systemMessage.welcomeRandom": "Send random welcome messages when someone joins this clan",
+        "clan.setting.overview.systemMessage.welcomeSticker": "Send helpful tips for clan setup",
+        "clan.setting.overview.systemMessage.hideAuditLog": "Send a log when an action is applied to the clan",
+        "clan.setting.overview.systemMessage.description": "This is the channel we send system event notifications to. You can turn them off at any time.",
+        "clan.setting.overview.uploadFileTooLarge10MB": "File size exceeds 10MB limit.",
+        "clan.setting.overview.anonymous.title": "Anonymous Mode",
+        "clan.setting.overview.anonymous.description": "Prevent users from using anonymous mode",
+        "clan.setting.overview.defaultNotification.title": "Default Notification Settings",
+        "clan.setting.overview.defaultNotification.all": "All messages",
+        "clan.setting.overview.defaultNotification.mention": "Only @mention",
+        "clan.setting.overview.defaultNotification.none": "Nothing",
+        "clan.setting.overview.defaultNotification.description": "This setting will determine whether members who have not set up their notification settings will receive notifications for all messages sent in this clan or not. We recommend that communities only set notifications for @mention.",
+        "clan.setting.overview.deleteClan": "Delete Clan",
+        "clan.setting.overview.toast.saveSuccess": "Settings saved successfully",
+        "clan.setting.overview.toast.saveError": "Failed to save settings",
+        "clan.setting.overview.toast.duplicateName": "Clan name already exists",
+        "clan.setting.overview.toast.permissionDenied": "You don't have permission",
+        "clan.setting.overview.toast.invalidName": "Invalid clan name",
+        "clan.setting.overview.deleteClan.confirmTitle": "Delete Clan",
+        "clan.setting.overview.deleteClan.confirmMessage": "Are you sure you want to delete this clan? This action cannot be undone.",
+
         "clan.setting.stickers.duplicateName": "Sticker name already exists",
         "clan.setting.stickers.updateSuccess": "Sticker updated successfully",
         "clan.setting.stickers.deleteConfirmTitle": "Delete Sticker",
@@ -2429,7 +2487,7 @@ extension L10n {
         "notifications.topic": "Thảo luận ngắn",
         "notifications.empty.title": "Chưa có gì ở đây",
         "notifications.empty.description": "Quay lại để nhận thông báo về sự kiện và nhiều hơn thế nữa",
-        "notifiactions.repliedTo": "Trả lời: ",
+        "notifications.repliedTo": "Trả lời: ",
         "notifications.sender": "Người gửi: ",
         "notifications.unreachableMessage": "Tin nhắn không khả dụng",
 
@@ -2560,6 +2618,34 @@ extension L10n {
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
+
+        "clan.setting.overview.title": "Tổng quan",
+        "clan.setting.overview.save": "Lưu",
+        "clan.setting.overview.clanName": "Tên clan",
+        "clan.setting.overview.chooseImage": "Đặt ảnh bìa clan",
+        "clan.setting.overview.systemMessage.title": "Kênh tin nhắn hệ thống",
+        "clan.setting.overview.systemMessage.channel": "Kênh",
+        "clan.setting.overview.systemMessage.noChannel": "Không có kênh tin nhắn hệ thống",
+        "clan.setting.overview.systemMessage.welcomeRandom": "Gửi tin nhắn chào mừng ngẫu nhiên khi ai đó tham gia vào clan này",
+        "clan.setting.overview.systemMessage.welcomeSticker": "Gửi mẹo hữu ích cho thiết lập clan",
+        "clan.setting.overview.systemMessage.hideAuditLog": "Gửi nhật ký khi một hành động được áp dụng cho clan",
+        "clan.setting.overview.systemMessage.description": "Đây là kênh nhận thông báo về các sự kiện của hệ thống. Bạn có thể tắt chúng bất cứ lúc nào.",
+        "clan.setting.overview.uploadFileTooLarge10MB": "Kích thước ảnh không được vượt quá 10MB.",
+        "clan.setting.overview.anonymous.title": "Chế độ ẩn danh",
+        "clan.setting.overview.anonymous.description": "Chặn thành viên sử dụng chế độ ẩn danh",
+        "clan.setting.overview.defaultNotification.title": "Cài đặt thông báo mặc định",
+        "clan.setting.overview.defaultNotification.all": "Tất cả tin nhắn",
+        "clan.setting.overview.defaultNotification.mention": "Chỉ @mention",
+        "clan.setting.overview.defaultNotification.none": "Không có gì",
+        "clan.setting.overview.defaultNotification.description": "Thiết lập này sẽ xác định liệu các thành viên chưa thiết lập rõ ràng cài đặt thông báo của họ có nhận thông báo cho mọi tin nhắn được gửi trong clan này hay không. Chúng tôi khuyến nghị cho các cộng đồng clan chỉ nên đặt thông báo cho @mention.",
+        "clan.setting.overview.deleteClan": "Xóa clan",
+        "clan.setting.overview.toast.saveSuccess": "Đã lưu cài đặt thành công",
+        "clan.setting.overview.toast.saveError": "Không thể lưu cài đặt",
+        "clan.setting.overview.toast.duplicateName": "Tên clan đã tồn tại",
+        "clan.setting.overview.toast.permissionDenied": "Bạn không có quyền",
+        "clan.setting.overview.toast.invalidName": "Tên clan không hợp lệ",
+        "clan.setting.overview.deleteClan.confirmTitle": "Xóa clan",
+        "clan.setting.overview.deleteClan.confirmMessage": "Bạn có chắc muốn xóa clan này? Hành động này không thể hoàn tác.",
 
         "clan.setting.stickers.duplicateName": "Tên nhãn dán đã tồn tại",
         "clan.setting.stickers.updateSuccess": "Cập nhật nhãn dán thành công",

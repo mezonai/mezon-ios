@@ -4,6 +4,7 @@ import UIKit
 final class ClanSettingsContainerNode: ASDisplayNode {
 
     var onClose: (() -> Void)?
+    var onSelectOverview: (() -> Void)?
     var onSelectRoles: (() -> Void)?
     var onSelectIntegrations: (() -> Void)?
     var onSelectStickers: (() -> Void)?
@@ -12,25 +13,32 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     private let context: AccountContext
     private let clanId: Int64
-    private let clanName: String
-    private let avatarURL: String
+    private var clanName: String
+    private var avatarURL: String
     private var canShowRoles: Bool
     private var canShowIntegrations: Bool
+    private var canShowOverview: Bool
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
     private var validLayout: ContainerViewLayout?
+    
+    private let nameLabel = UILabel()
+    private let initialsLabel = UILabel()
+    private let avatarContainer = UIView()
+    private let avatarImageView = UIImageView()
 
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
 
-    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool) {
+    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool) {
         self.context = context
         self.clanId = clanId
         self.clanName = clanName
         self.avatarURL = avatarURL
         self.canShowRoles = canShowRoles
         self.canShowIntegrations = canShowIntegrations
+        self.canShowOverview = canShowOverview
         super.init()
         backgroundColor = .mezonSecondary
     }
@@ -84,10 +92,13 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(settingsHeader)
         stackView.setCustomSpacing(10.sh, after: settingsHeader)
 
-        var settingsActions: [SettingAction] = [
-            .init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview"),
-            .init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon")
-        ]
+        var settingsActions: [SettingAction] = []
+        
+        if canShowOverview {
+            settingsActions.append(.init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview", navigate: .overview))
+        }
+        
+        settingsActions.append(.init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon"))
         
         if canShowIntegrations {
             settingsActions.append(.init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon", navigate: .integrations))
@@ -123,10 +134,11 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(footerSpacer)
     }
 
-    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool) {
-        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations else { return }
+    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool) {
+        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations || self.canShowOverview != canShowOverview else { return }
         self.canShowRoles = canShowRoles
         self.canShowIntegrations = canShowIntegrations
+        self.canShowOverview = canShowOverview
         guard isNodeLoaded else { return }
         rebuildContent()
     }
@@ -180,7 +192,6 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         v.translatesAutoresizingMaskIntoConstraints = false
 
         let avatarSize: CGFloat = 56.swh
-        let avatarContainer = UIView()
         avatarContainer.backgroundColor = colorFor(name: clanName)
         avatarContainer.layer.cornerRadius = 16.swh
         avatarContainer.layer.shadowColor = UIColor.black.cgColor
@@ -190,14 +201,12 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         avatarContainer.clipsToBounds = false
         v.addSubview(avatarContainer)
 
-        let initialsLabel = UILabel()
         initialsLabel.text = initials(for: clanName)
         initialsLabel.font = .systemFont(ofSize: 14.sf, weight: .bold)
         initialsLabel.textColor = .mezonTextPrimary
         initialsLabel.textAlignment = .center
         avatarContainer.addSubview(initialsLabel)
 
-        let avatarImageView = UIImageView()
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
         avatarImageView.layer.cornerRadius = 16.swh
@@ -213,7 +222,6 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             }
         }
 
-        let nameLabel = UILabel()
         nameLabel.text = clanName
         nameLabel.font = .systemFont(ofSize: 16.sf, weight: .medium)
         nameLabel.textColor = .mezonTextMuted
@@ -246,6 +254,28 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             nameLabel.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8.sh),
         ])
         return v
+    }
+
+    func updateClanDetails(name: String, avatarURL: String) {
+        self.clanName = name
+        self.avatarURL = avatarURL
+        
+        nameLabel.text = name
+        initialsLabel.text = initials(for: name)
+        avatarContainer.backgroundColor = colorFor(name: name)
+        
+        if !avatarURL.isEmpty {
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) {
+                [weak self] image in
+                if let image = image {
+                    self?.avatarImageView.image = image
+                    self?.initialsLabel.isHidden = true
+                }
+            }
+        } else {
+            avatarImageView.image = nil
+            initialsLabel.isHidden = false
+        }
     }
 
     private func createSectionHeader(title: String) -> UIView {
@@ -384,6 +414,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     @objc private func rowButtonTapped(_ sender: UIButton) {
         guard let nav = ClanSettingsNavigateAction(rawValue: sender.tag) else { return }
         switch nav {
+        case .overview:
+            onSelectOverview?()
         case .roles:
             onSelectRoles?()
         case .integrations:
@@ -417,6 +449,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 }
 
 private enum ClanSettingsNavigateAction: Int {
+    case overview = 0
     case roles = 1
     case integrations = 2
     case stickers = 3

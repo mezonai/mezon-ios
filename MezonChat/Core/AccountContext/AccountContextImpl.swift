@@ -1138,6 +1138,35 @@ final class AccountContextImpl: AccountContext {
         case .userClanRemoved(let ev):
             engine.clanData.applyClanUserRemovedFromSocket(ev)
 
+        case .clanUpdated(let ev):
+            account.postbox.write { tx in
+                guard let existingClan = tx.getClan(id: ev.clanID) else { return }
+                var d = (try? Mezon_Api_ClanDesc(serializedBytes: existingClan.data)) ?? Mezon_Api_ClanDesc()
+                d.clanID = ev.clanID
+                if !ev.clanName.isEmpty { d.clanName = ev.clanName }
+                d.logo = ev.logo
+                d.banner = ev.banner
+                d.status = ev.status
+                d.isOnboarding = ev.isOnboarding
+                d.welcomeChannelID = ev.welcomeChannelID
+                if !ev.onboardingBanner.isEmpty { d.onboardingBanner = ev.onboardingBanner }
+                if !ev.communityBanner.isEmpty { d.communityBanner = ev.communityBanner }
+                d.isCommunity = ev.isCommunity
+                if !ev.about.isEmpty { d.about = ev.about }
+                if !ev.description_p.isEmpty { d.description_p = ev.description_p }
+                d.preventAnonymous = ev.preventAnonymous
+
+                let updatedClan = ClanRecord(
+                    id: existingClan.id,
+                    name: ev.clanName.isEmpty ? existingClan.name : ev.clanName,
+                    icon: ev.logo,
+                    ownerId: existingClan.ownerId,
+                    data: (try? d.serializedData()) ?? existingClan.data
+                )
+                tx.updateClans([updatedClan])
+            }
+            NotificationCenter.default.post(name: Notification.Name("MezonClanDescUpdated"), object: nil, userInfo: ["clanId": ev.clanID])
+
         case .channelUpdated(let ev):
             guard ev.clanID != 0, ev.channelID != 0 else { break }
             let clanId = ev.clanID

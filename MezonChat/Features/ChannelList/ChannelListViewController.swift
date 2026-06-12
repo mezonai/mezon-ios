@@ -807,6 +807,7 @@ final class ChannelListViewController: ViewController {
     }
 
     func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+        self.clanName = clanName
         self.clanLogoURL = logoURL ?? ""
         self.sidebarMemberCount = memberCount
         guard clanId != self.clanId else {
