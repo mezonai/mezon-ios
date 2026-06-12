@@ -520,6 +520,36 @@ final class ClanListViewController: ViewController {
         fetchClanData(clanId: clan.clanID)
     }
 
+    func removeClanAndSelectNext(removedClanId: Int64) {
+        guard clans.contains(where: { $0.clanID == removedClanId }) else { return }
+
+        let targetClan: Mezon_Api_ClanDesc?
+        if removedClanId == clans.first?.clanID {
+            targetClan = clans.count > 1 ? clans[1] : nil
+        } else {
+            targetClan = clans.first
+        }
+
+        let updated = clans.filter { $0.clanID != removedClanId }
+        context.account.postbox.writeSync { tx in
+            tx.deleteClan(id: removedClanId)
+        }
+        setClans(updated)
+        persistToPostbox()
+
+        if let target = targetClan, updated.contains(where: { $0.clanID == target.clanID }) {
+            select(clan: target)
+        } else if let first = updated.first {
+            select(clan: first)
+        } else {
+            setSelectedClanId(nil)
+            context.currentClanId = 0
+            UserDefaults.standard.removeObject(forKey: Self.selectedClanIdUserDefaultsKey)
+            context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: Data())
+            refreshDiscoverEmptyOverlayFlag()
+        }
+    }
+
     func openDirectMessage(_ dm: Mezon_Api_ChannelDescription) {
         let vc = ChatViewController(clanId: 0, channel: dm, context: context, parentName: nil)
         navigationController?.pushViewController(vc, animated: true)

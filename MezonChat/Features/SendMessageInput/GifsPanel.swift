@@ -43,6 +43,8 @@ final class GifsPanel: UIView {
 
     var onInnerScroll: ((CGFloat, Bool) -> Void)?
 
+    var sheetPanCoordinationScrollView: UIScrollView { collectionView }
+
     private weak var cacheEngine: MezonEngine?
     private var categories: [TenorCategory] = []
     private var featuredGifs: [TenorGif] = []
@@ -428,7 +430,16 @@ extension GifsPanel: UICollectionViewDataSource, UICollectionViewDelegate, UICol
 
 extension GifsPanel {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        onInnerScroll?(scrollView.contentOffset.y, scrollView.isDragging || scrollView.isDecelerating)
+        onInnerScroll?(scrollView.contentOffset.y, scrollView.isDragging)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard !decelerate else { return }
+        onInnerScroll?(scrollView.contentOffset.y, false)
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        onInnerScroll?(scrollView.contentOffset.y, false)
     }
 }
 

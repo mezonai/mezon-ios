@@ -191,6 +191,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func activeArchivedThread(clanId: Int64, channelId: Int64, token: String) async throws {
+        var req = Mezon_Realtime_ActiveArchivedThread()
+        req.clanID = clanId
+        req.channelID = channelId
+        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+            path: "/mezon.api.Mezon/ActiveArchivedThread",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private func stripDefaultPort(_ urlString: String) -> String {
         guard var components = URLComponents(string: urlString) else { return urlString }
         let isHTTPS = components.scheme?.lowercased() == "https"
@@ -432,7 +443,6 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
     }
-
     func deleteClanDesc(clanId: Int64, token: String) async throws {
         var req = Mezon_Api_DeleteClanDescRequest()
         req.clanDescID = clanId
@@ -448,6 +458,17 @@ final class MezonHTTPClient {
         req.clanID = clanId
         return try await postProto(
             path: "/mezon.api.Mezon/GetSystemMessageByClanId",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func removeClanUsers(clanId: Int64, userIds: [Int64], token: String) async throws {
+        var req = Mezon_Api_RemoveClanUsersRequest()
+        req.clanID = clanId
+        req.userIds = userIds
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/RemoveClanUsers",
             message: req,
             auth: .bearer(token)
         )
@@ -471,8 +492,6 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
     }
-
-
     func linkInviteUser(
         clanId: Int64,
         channelId: Int64,
@@ -556,6 +575,7 @@ final class MezonHTTPClient {
         categoryId: Int64,
         channelLabel: String,
         channelPrivate: Int32,
+        sourceMessageId: Int64 = 0,
         token: String
     ) async throws -> Mezon_Api_ChannelDescription {
         var req = Mezon_Api_CreateChannelDescRequest()
@@ -565,6 +585,9 @@ final class MezonHTTPClient {
         req.channelLabel = channelLabel
         req.type = MezonConstants.ChannelType.thread.rawValue
         req.channelPrivate = channelPrivate
+        if sourceMessageId != 0 {
+            req.channelID = sourceMessageId
+        }
         return try await postProto(
             path: "/mezon.api.Mezon/CreateChannelDesc",
             message: req,
@@ -634,6 +657,27 @@ final class MezonHTTPClient {
             message: req,
             auth: .bearer(token)
         )
+    }
+
+    func fetchThreadDesc(
+        threadId: Int64,
+        parentChannelId: Int64,
+        clanId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription? {
+        var req = Mezon_Api_ListThreadRequest()
+        req.limit = 1
+        req.state = 0
+        req.clanID = clanId
+        req.channelID = parentChannelId
+        req.threadID = threadId
+        req.page = 1
+        let list: Mezon_Api_ChannelDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListThreadDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return list.channeldesc.first(where: { $0.channelID == threadId }) ?? list.channeldesc.first
     }
 
     func searchThread(
@@ -1014,7 +1058,7 @@ final class MezonHTTPClient {
         if let content, !content.isEmpty {
             req.content = content
         }
-        if let mentions, !mentions.isEmpty {
+        if let mentions {
             req.mentions = mentions
         }
         if let attachments, !attachments.isEmpty {

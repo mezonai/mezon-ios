@@ -759,7 +759,17 @@ extension StickersPanel: UICollectionViewDelegateFlowLayout {
 extension StickersPanel {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView.tag == 2 else { return }
-        onInnerScroll?(scrollView.contentOffset.y, scrollView.isDragging || scrollView.isDecelerating)
+        onInnerScroll?(scrollView.contentOffset.y, scrollView.isDragging)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard scrollView.tag == 2, !decelerate else { return }
+        onInnerScroll?(scrollView.contentOffset.y, false)
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        guard scrollView.tag == 2 else { return }
+        onInnerScroll?(scrollView.contentOffset.y, false)
     }
 }
 
