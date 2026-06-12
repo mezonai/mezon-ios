@@ -951,6 +951,10 @@ enum L10n {
     enum Gallery {
         static let imageSaved = "gallery.imageSaved"
         static let imageSaveFailed = "gallery.imageSaveFailed"
+        static let videoSaved = "gallery.videoSaved"
+        static let videoSaveFailed = "gallery.videoSaveFailed"
+        static let videoDownloading = "gallery.videoDownloading"
+        static let videoSaving = "gallery.videoSaving"
         static let imageLoadFailed = "gallery.imageLoadFailed"
         static let photoPermissionDenied = "gallery.photoPermissionDenied"
         static let photoPermissionTitle = "gallery.photoPermissionTitle"
@@ -961,6 +965,7 @@ enum L10n {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
         static let saveImage        = "messageAction.saveImage"
+        static let saveVideo        = "messageAction.saveVideo"
         static let copyImage        = "messageAction.copyImage"
         static let editMessage      = "messageAction.editMessage"
         static let editingMessage   = "messageAction.editingMessage"
@@ -1990,6 +1995,10 @@ extension L10n {
 
         "gallery.imageSaved": "Image saved",
         "gallery.imageSaveFailed": "Could not save image",
+        "gallery.videoSaved": "Video saved",
+        "gallery.videoSaveFailed": "Could not save video",
+        "gallery.videoDownloading": "Downloading video...",
+        "gallery.videoSaving": "Saving video...",
         "gallery.imageLoadFailed": "Could not load image",
         "gallery.photoPermissionDenied": "Allow photo access to save images",
         "gallery.photoPermissionTitle": "Photo Access Needed",
@@ -1998,6 +2007,7 @@ extension L10n {
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
         "messageAction.saveImage": "Save Image",
+        "messageAction.saveVideo": "Save Video",
         "messageAction.copyImage": "Copy Image",
         "messageAction.editMessage": "Edit Message",
         "messageAction.editingMessage": "Editing message",
@@ -3054,6 +3064,10 @@ extension L10n {
 
         "gallery.imageSaved": "Đã lưu ảnh",
         "gallery.imageSaveFailed": "Không thể lưu ảnh",
+        "gallery.videoSaved": "Đã lưu video",
+        "gallery.videoSaveFailed": "Không thể lưu video",
+        "gallery.videoDownloading": "Đang tải video...",
+        "gallery.videoSaving": "Đang lưu video...",
         "gallery.imageLoadFailed": "Không thể tải ảnh",
         "gallery.photoPermissionDenied": "Vui lòng cấp quyền ảnh để lưu ảnh",
         "gallery.photoPermissionTitle": "Cần quyền truy cập ảnh",
@@ -3062,6 +3076,7 @@ extension L10n {
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
         "messageAction.saveImage": "Lưu ảnh",
+        "messageAction.saveVideo": "Lưu video",
         "messageAction.copyImage": "Sao chép ảnh",
         "messageAction.editMessage": "Chỉnh sửa tin nhắn",
         "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",

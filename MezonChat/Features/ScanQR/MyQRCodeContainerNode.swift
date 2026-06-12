@@ -43,6 +43,7 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     var onBackTapped: (() -> Void)?
     var onDownloadTapped: ((UIImage) -> Void)?
     var onShareTapped: ((UIImage) -> Void)?
+    var shareAnchorView: UIView { shareButton.view }
 
     init(context: AccountContext) {
         self.context = context

@@ -431,6 +431,11 @@ final class MediaPickerViewController: UIViewController {
 
         sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
 
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = limitedBanner
+            popover.sourceRect = limitedBanner.bounds
+        }
+
         present(sheet, animated: true)
     }
 

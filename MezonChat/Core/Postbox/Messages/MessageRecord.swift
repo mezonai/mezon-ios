@@ -356,4 +356,29 @@ extension MessageRecord {
             mentionsJSON:      mentionsData
         )
     }
+
+    static func compareAscending(id aId: String, createdAt aDate: Date, id bId: String, createdAt bDate: Date) -> Bool {
+        if aId == bId { return false }
+        if let aNum = numericMessageId(aId), let bNum = numericMessageId(bId) {
+            return aNum < bNum
+        }
+        if aDate != bDate {
+            return aDate < bDate
+        }
+        let aPending = aId.hasPrefix("pending-")
+        let bPending = bId.hasPrefix("pending-")
+        if aPending != bPending {
+            return aPending
+        }
+        return aId < bId
+    }
+
+    static func isOrderedAscending(_ a: MessageRecord, _ b: MessageRecord) -> Bool {
+        compareAscending(id: a.id, createdAt: a.createdAt, id: b.id, createdAt: b.createdAt)
+    }
+
+    private static func numericMessageId(_ id: String) -> UInt64? {
+        guard !id.isEmpty, id.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return UInt64(id)
+    }
 }

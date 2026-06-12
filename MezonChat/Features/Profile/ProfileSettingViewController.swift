@@ -1266,6 +1266,10 @@ final class ProfileSettingViewController: BaseViewController {
             self?.removeCurrentAvatar()
         })
         sheet.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = avatarContainerView
+            popover.sourceRect = avatarContainerView.bounds
+        }
         present(sheet, animated: true)
     }
 

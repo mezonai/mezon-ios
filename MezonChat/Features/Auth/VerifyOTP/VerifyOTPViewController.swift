@@ -56,14 +56,29 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
     }()
 
     private var digitFields: [UITextField] = []
-    private lazy var otpStack: UIStackView = {
+    private lazy var otpContainer: UIView = {
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
         let fields = (0..<6).map { _ in makeDigitField() }
         digitFields = fields
-        let sv = UIStackView(arrangedSubviews: fields)
-        sv.axis = .horizontal
-        sv.distribution = .equalSpacing
-        sv.translatesAutoresizingMaskIntoConstraints = false
-        return sv
+
+        var previousField: UIView?
+        for field in fields {
+            container.addSubview(field)
+            NSLayoutConstraint.activate([
+                field.topAnchor.constraint(equalTo: container.topAnchor),
+                field.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                field.widthAnchor.constraint(equalToConstant: 44.sw),
+            ])
+            if let previousField {
+                field.leadingAnchor.constraint(equalTo: previousField.trailingAnchor, constant: 10.sw).isActive = true
+            } else {
+                field.leadingAnchor.constraint(equalTo: container.leadingAnchor).isActive = true
+            }
+            previousField = field
+        }
+        fields.last?.trailingAnchor.constraint(equalTo: container.trailingAnchor).isActive = true
+        return container
     }()
 
     private lazy var actionButton: GradientButton = {
@@ -133,12 +148,21 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         instructionStack.alignment = .center
         instructionStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let contentStack = UIStackView(arrangedSubviews: [titleLabel, instructionStack, otpStack, actionButton, alternativeSection])
+        let otpRowContainer = UIView()
+        otpRowContainer.translatesAutoresizingMaskIntoConstraints = false
+        otpRowContainer.addSubview(otpContainer)
+        NSLayoutConstraint.activate([
+            otpContainer.centerXAnchor.constraint(equalTo: otpRowContainer.centerXAnchor),
+            otpContainer.topAnchor.constraint(equalTo: otpRowContainer.topAnchor),
+            otpContainer.bottomAnchor.constraint(equalTo: otpRowContainer.bottomAnchor),
+        ])
+
+        let contentStack = UIStackView(arrangedSubviews: [titleLabel, instructionStack, otpRowContainer, actionButton, alternativeSection])
         contentStack.axis = .vertical
         contentStack.spacing = 12.sh
         contentStack.setCustomSpacing(18.sh, after: titleLabel)
         contentStack.setCustomSpacing(32.sh, after: instructionStack)
-        contentStack.setCustomSpacing(28.sh, after: otpStack)
+        contentStack.setCustomSpacing(28.sh, after: otpRowContainer)
         contentStack.setCustomSpacing(24.sh, after: actionButton)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
@@ -161,7 +185,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
             contentStack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -40.sh),
             contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -80.sw),
 
-            otpStack.heightAnchor.constraint(equalToConstant: 48.sh),
+            otpRowContainer.heightAnchor.constraint(equalToConstant: 48.sh),
 
             actionButton.heightAnchor.constraint(equalToConstant: 50.sh),
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -412,7 +436,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         animation.timingFunction = CAMediaTimingFunction(name: .linear)
         animation.duration = 0.5
         animation.values = [-10, 10, -8, 8, -5, 5, 0]
-        otpStack.layer.add(animation, forKey: "shake")
+        otpContainer.layer.add(animation, forKey: "shake")
     }
 }
 
