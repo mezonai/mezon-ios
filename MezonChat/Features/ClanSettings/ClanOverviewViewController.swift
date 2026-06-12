@@ -1053,7 +1053,7 @@ final class SysMsgSelectChannelViewController: BaseViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func setupUI() {
-        displayNode.backgroundColor = UIColor.theme.primary
+        displayNode.backgroundColor = UIColor.theme.secondary
         let t = UIColor.theme
         
         let grabber = UIView()
@@ -1154,7 +1154,7 @@ final class SysMsgSelectChannelViewController: BaseViewController {
         }
 
         let container = UIView()
-        container.backgroundColor = UIColor.theme.secondary
+        container.backgroundColor = UIColor.theme.primary
         container.layer.cornerRadius = 12
         container.clipsToBounds = true
 
@@ -1175,7 +1175,7 @@ final class SysMsgSelectChannelViewController: BaseViewController {
             innerStack.addArrangedSubview(row)
             if idx < channels.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.border
+                sep.backgroundColor = UIColor.theme.borderDim
                 innerStack.addArrangedSubview(sep)
                 sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
