@@ -140,6 +140,16 @@ final class PostboxTransaction {
         if let channelId { updatedMessageChannelIds.insert(channelId) }
     }
 
+    func markMessagePending(id: String) {
+        let channelId = messageTable.channelIdForMessage(id: id)
+        messageTable.markMessagePending(id: id)
+        if let channelId { updatedMessageChannelIds.insert(channelId) }
+    }
+
+    func registerResendDuplicateGuard(senderId: String, content: Data) {
+        messageTable.registerResendDuplicateGuard(senderId: senderId, content: content)
+    }
+
     func markMessageSent(id: String) {
         let channelId = messageTable.channelIdForMessage(id: id)
         messageTable.markMessageSent(id: id)

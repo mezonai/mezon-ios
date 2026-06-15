@@ -234,7 +234,9 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     init(member m: VoiceMemberDisplay, size s: CGFloat) {
         if let av = m.avatarURL, !av.isEmpty {
-            proxiedURL = URL(string: ImgproxyURL.create(from: av, width: 20, height: 20))
+            let absolute = ImgproxyURL.absoluteResourceURL(from: av)
+            let px = max(1, Int((s * UIScreen.main.scale).rounded(.up)))
+            proxiedURL = URL(string: ImgproxyURL.create(from: absolute, width: px, height: px))
         } else {
             proxiedURL = nil
         }

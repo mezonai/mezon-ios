@@ -125,7 +125,8 @@ extension MezonEngine {
         private let fetchAllCooldownInterval: TimeInterval = 2.0
         private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
         private var lastPresenceMemberRefreshAtByClanId: [Int64: Date] = [:]
-        private let presenceMemberRefreshCooldown: TimeInterval = 3.0
+        private var attemptedMemberRefreshUserIdsByClanId: [Int64: Set<Int64>] = [:]
+        private let presenceMemberRefreshCooldown: TimeInterval = 60
 
         init(engine: MezonEngine) { self.engine = engine }
 
@@ -140,6 +141,7 @@ extension MezonEngine {
             }
             inflightForceRefreshClanUsersByClanId.removeAll()
             lastPresenceMemberRefreshAtByClanId.removeAll()
+            attemptedMemberRefreshUserIdsByClanId.removeAll()
         }
 
         func fetchAllClanData(clanId: Int64, token: String) {
@@ -204,8 +206,13 @@ extension MezonEngine {
                 return
             }
             let knownIds = Set(resolvedClanMembers(clanId: clanId).map(\.userId))
-            let unknownIds = joinedUserIds.filter { $0 != 0 && !knownIds.contains($0) }
+            var attempted = attemptedMemberRefreshUserIdsByClanId[clanId] ?? []
+            let unknownIds = joinedUserIds.filter {
+                $0 != 0 && !knownIds.contains($0) && !attempted.contains($0)
+            }
             guard !unknownIds.isEmpty else { return }
+            attempted.formUnion(unknownIds)
+            attemptedMemberRefreshUserIdsByClanId[clanId] = attempted
             lastPresenceMemberRefreshAtByClanId[clanId] = Date()
             forceRefreshClanUsers(clanId: clanId, token: token)
         }
@@ -238,6 +245,11 @@ extension MezonEngine {
                 tx.updateClanMembers(members, clanId: clanId)
             }
             syncClanUsersPreferenceCache(clanId: clanId, members: members)
+            let nowKnown = Set(members.map(\.userId))
+            if var attempted = attemptedMemberRefreshUserIdsByClanId[clanId] {
+                attempted.subtract(nowKnown)
+                attemptedMemberRefreshUserIdsByClanId[clanId] = attempted
+            }
             clanUsersUpdated.putNext(clanId)
         }
 

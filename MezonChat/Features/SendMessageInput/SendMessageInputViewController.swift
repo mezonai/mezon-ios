@@ -2207,6 +2207,158 @@ final class SendMessageInputViewController: UIViewController {
         scheduleOgpPreviewUpdate(for: newText)
     }
 
+    func resendFailedMessage(display: ChatMessageDisplay) {
+        guard display.isFailed else { return }
+        let localId = display.message.id
+        if AttachmentUploadCoordinator.shared.resendFailedSession(context: context, messageId: localId) {
+            return
+        }
+        guard let record = context.account.postbox.read({ tx in tx.getMessageById(localId) }),
+              record.sendingState == .failed else { return }
+
+        context.account.postbox.write { tx in
+            tx.registerResendDuplicateGuard(senderId: record.senderId, content: record.content)
+            tx.markMessagePending(id: localId)
+        }
+
+        let contentStr: String = {
+            guard let s = String(data: record.content, encoding: .utf8), !s.isEmpty else { return "{}" }
+            return s
+        }()
+        let mentionList: [Mezon_Api_MessageMention] = {
+            guard !record.mentionsJSON.isEmpty,
+                  let list = try? Mezon_Api_MessageMentionList(serializedBytes: record.mentionsJSON) else { return [] }
+            return list.mentions
+        }()
+        let attachments: [Mezon_Api_MessageAttachment] = {
+            guard !record.attachmentsJSON.isEmpty,
+                  let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: record.attachmentsJSON) else { return [] }
+            return list.attachments
+        }()
+        let references: [Mezon_Api_MessageRef] = {
+            guard !record.referencesData.isEmpty,
+                  let list = try? Mezon_Api_MessageRefList(serializedBytes: record.referencesData) else { return [] }
+            return list.refs
+        }()
+        let mode = Self.streamMode(for: channel, clanId: clanId)
+        let isPublic = channel.channelPrivate == 0
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+        let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
+        let fallbackClanId: String? = clanId == 0 ? nil : "\(clanId)"
+        let fallbackSenderId = context.currentUser?.id ?? record.senderId
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+                return
+            }
+            do {
+                let ack = try await self.context.account.network.sendChannelMessage(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    content: contentStr,
+                    mentions: mentionList,
+                    attachments: attachments,
+                    references: references,
+                    anonymous: false,
+                    mentionEveryone: false,
+                    avatar: avatar,
+                    topicId: self.topicId,
+                    code: record.code,
+                    token: token
+                )
+                self.context.account.postbox.write { tx in
+                    guard ack.messageID != 0 else {
+                        if tx.getMessageById(localId) != nil {
+                            tx.markMessageSent(id: localId)
+                        }
+                        return
+                    }
+                    let pending = tx.getMessageById(localId)
+                    let attachmentsJSON: Data = {
+                        guard !attachments.isEmpty else { return pending?.attachmentsJSON ?? record.attachmentsJSON }
+                        var list = Mezon_Api_MessageAttachmentList()
+                        list.attachments = attachments
+                        return (try? list.serializedData()) ?? pending?.attachmentsJSON ?? record.attachmentsJSON
+                    }()
+                    let createdAt: Date = ack.createTimeSeconds > 0
+                        ? Date(timeIntervalSince1970: TimeInterval(ack.createTimeSeconds))
+                        : (pending?.createdAt ?? record.createdAt)
+                    let editedAt: Date? = ack.updateTimeSeconds > ack.createTimeSeconds && ack.updateTimeSeconds > 0
+                        ? Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
+                        : nil
+                    let merged = MessageRecord(
+                        id: "\(ack.messageID)",
+                        channelId: pending?.channelId ?? channelIdStr,
+                        clanId: pending?.clanId ?? fallbackClanId,
+                        senderId: pending?.senderId ?? fallbackSenderId,
+                        content: pending?.content ?? record.content,
+                        createdAt: createdAt,
+                        editedAt: editedAt,
+                        isDeleted: pending?.isDeleted ?? false,
+                        code: ack.code,
+                        senderDisplayName: pending?.senderDisplayName ?? record.senderDisplayName,
+                        senderAvatarURL: pending?.senderAvatarURL ?? record.senderAvatarURL,
+                        sendingState: .sent,
+                        attachmentsJSON: attachmentsJSON,
+                        reactionsJSON: pending?.reactionsJSON ?? record.reactionsJSON,
+                        referencesData: pending?.referencesData ?? record.referencesData,
+                        mentionsJSON: pending?.mentionsJSON ?? record.mentionsJSON
+                    )
+                    tx.replaceMessage(pendingId: localId, with: merged)
+                }
+                self.markOnboardingWelcomeMessageSentIfNeeded(ack: ack, anonymous: false)
+            } catch {
+                SentryLogger.capture(error, extras: [
+                    "where": "resendFailedMessage",
+                    "channelId": channel.channelID,
+                    "clanId": clanId,
+                    "messageId": localId,
+                ])
+                if Self.isDefinitelyUndelivered(error) {
+                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+                } else {
+                    self.scheduleAmbiguousSendFailsafe(localId: localId)
+                }
+            }
+        }
+    }
+
+    private static func streamMode(for channel: Mezon_Api_ChannelDescription, clanId: Int64) -> Int32 {
+        switch channel.type {
+        case MezonConstants.ChannelType.thread.rawValue:
+            return MezonConstants.ChannelStreamMode.thread.rawValue
+        case MezonConstants.ChannelType.dm.rawValue:
+            return MezonConstants.ChannelStreamMode.dm.rawValue
+        case MezonConstants.ChannelType.group.rawValue:
+            return MezonConstants.ChannelStreamMode.group.rawValue
+        default:
+            return clanId == 0
+                ? MezonConstants.ChannelStreamMode.group.rawValue
+                : MezonConstants.ChannelStreamMode.channel.rawValue
+        }
+    }
+
+    private static let ambiguousSendFailsafeDelay: TimeInterval = 30
+
+    private static func isDefinitelyUndelivered(_ error: Error) -> Bool {
+        if let mezon = error as? MezonError, case let .httpError(code, _) = mezon, (400..<500).contains(code) {
+            return true
+        }
+        return !NetworkMonitor.shared.isConnected
+    }
+
+    private func scheduleAmbiguousSendFailsafe(localId: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ambiguousSendFailsafeDelay) { [weak self] in
+            guard let self else { return }
+            let record = self.context.account.postbox.read { tx in tx.getMessageById(localId) }
+            guard let record, record.id == localId, record.sendingState == .pending else { return }
+            self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+        }
+    }
+
     func focusTextInput() {
         guard !composerSendPermissionBlocked else { return }
         textView.becomeFirstResponder()
@@ -5803,10 +5955,16 @@ final class SendMessageInputViewController: UIViewController {
                     "imageCount": imagesToUpload.count,
                     "fileCount": filesToUpload.count,
                 ])
+                var suppressErrorToast = false
                 if !isEdit, !sendAsAnonymous {
-                    self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
-                    ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
-                    ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                    if Self.isDefinitelyUndelivered(error) {
+                        self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+                        ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
+                        ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                    } else {
+                        self.scheduleAmbiguousSendFailsafe(localId: localId)
+                        suppressErrorToast = true
+                    }
                 }
                 if let key = editPendingCacheKey {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
@@ -5819,7 +5977,9 @@ final class SendMessageInputViewController: UIViewController {
                 if self.skipOptimisticPendingMessageOnSend {
                     self.skipOptimisticPendingMessageOnSend = false
                 }
-                self.onError?(error.localizedDescription)
+                if !suppressErrorToast {
+                    self.onError?(error.localizedDescription)
+                }
             }
         }
     }

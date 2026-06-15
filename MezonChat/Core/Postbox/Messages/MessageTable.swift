@@ -257,16 +257,77 @@ final class MessageTable: Table {
         return rows.compactMap { $0 }.filter { $0.channelId == channelId }
     }
 
-    private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
-        guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
-        let pendingBase = PresignFinishContent.contentBaseWithoutPresign(pending.content)
-        let serverBase = PresignFinishContent.contentBaseWithoutPresign(server.content)
-        if pendingBase == serverBase { return true }
-        if let pObj = try? JSONSerialization.jsonObject(with: pendingBase) as? [String: Any],
-           let sObj = try? JSONSerialization.jsonObject(with: serverBase) as? [String: Any] {
-            return NSDictionary(dictionary: pObj).isEqual(to: sObj)
+    private func contentsEquivalent(_ a: Data, _ b: Data) -> Bool {
+        let baseA = PresignFinishContent.contentBaseWithoutPresign(a)
+        let baseB = PresignFinishContent.contentBaseWithoutPresign(b)
+        if baseA == baseB { return true }
+        if let objA = try? JSONSerialization.jsonObject(with: baseA) as? [String: Any],
+           let objB = try? JSONSerialization.jsonObject(with: baseB) as? [String: Any] {
+            return NSDictionary(dictionary: objA).isEqual(to: objB)
         }
         return false
+    }
+
+    private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
+        guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
+        return contentsEquivalent(pending.content, server.content)
+    }
+
+    private var resendDuplicateGuards: [String: [Date]] = [:]
+    private static let resendGuardWindow: TimeInterval = 300
+
+    private func resendGuardKey(senderId: String, content: Data) -> String {
+        let base = PresignFinishContent.contentBaseWithoutPresign(content)
+        let normalized: String
+        if let obj = try? JSONSerialization.jsonObject(with: base),
+           let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),
+           let s = String(data: data, encoding: .utf8) {
+            normalized = s
+        } else {
+            normalized = String(data: base, encoding: .utf8) ?? ""
+        }
+        return "\(senderId)\u{1}\(normalized)"
+    }
+
+    func registerResendDuplicateGuard(senderId: String, content: Data) {
+        let key = resendGuardKey(senderId: senderId, content: content)
+        let now = Date()
+        var arr = (resendDuplicateGuards[key] ?? []).filter { now.timeIntervalSince($0) < Self.resendGuardWindow }
+        arr.append(now)
+        resendDuplicateGuards[key] = arr
+    }
+
+    private func consumeResendDuplicateGuard(senderId: String, content: Data) -> Bool {
+        let key = resendGuardKey(senderId: senderId, content: content)
+        let now = Date()
+        var arr = (resendDuplicateGuards[key] ?? []).filter { now.timeIntervalSince($0) < Self.resendGuardWindow }
+        guard !arr.isEmpty else {
+            resendDuplicateGuards[key] = nil
+            return false
+        }
+        arr.removeFirst()
+        resendDuplicateGuards[key] = arr.isEmpty ? nil : arr
+        return true
+    }
+
+    private func hasActiveResendDuplicateGuard(senderId: String, content: Data) -> Bool {
+        let key = resendGuardKey(senderId: senderId, content: content)
+        let now = Date()
+        let arr = (resendDuplicateGuards[key] ?? []).filter { now.timeIntervalSince($0) < Self.resendGuardWindow }
+        resendDuplicateGuards[key] = arr.isEmpty ? nil : arr
+        return !arr.isEmpty
+    }
+
+    private func isResendDuplicate(_ msg: MessageRecord, in current: [MessageRecord]) -> Bool {
+        guard !msg.id.hasPrefix("pending-") else { return false }
+        let hasTwin = current.contains { other in
+            !other.id.hasPrefix("pending-")
+                && other.id != msg.id
+                && other.senderId == msg.senderId
+                && contentsEquivalent(other.content, msg.content)
+        }
+        guard hasTwin else { return false }
+        return consumeResendDuplicateGuard(senderId: msg.senderId, content: msg.content)
     }
 
     func addMessages(_ messages: [MessageRecord]) {
@@ -284,6 +345,8 @@ final class MessageTable: Table {
                         incoming: msg,
                         previous: current[idx]
                     )
+                } else if isResendDuplicate(msg, in: current) {
+                    continue
                 } else {
                     current.append(msg)
                 }
@@ -343,12 +406,25 @@ final class MessageTable: Table {
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
         let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-        let mergedBelonging = belonging.map { incoming -> MessageRecord in
+        let mergedRaw = belonging.map { incoming -> MessageRecord in
             guard let previous = existingById[incoming.id] else { return incoming }
             return MessageRecord.mergingIncomingPreservingEmptyAttachments(
                 incoming: incoming,
                 previous: previous
             )
+        }
+        var mergedBelonging: [MessageRecord] = []
+        for record in mergedRaw {
+            let isTwin = !record.id.hasPrefix("pending-") && mergedBelonging.contains { kept in
+                !kept.id.hasPrefix("pending-")
+                    && kept.id != record.id
+                    && kept.senderId == record.senderId
+                    && contentsEquivalent(kept.content, record.content)
+            }
+            if isTwin, hasActiveResendDuplicateGuard(senderId: record.senderId, content: record.content) {
+                continue
+            }
+            mergedBelonging.append(record)
         }
         let pendingsToKeep = existing.filter { record in
             guard record.id.hasPrefix("pending-") else { return false }
@@ -794,6 +870,10 @@ final class MessageTable: Table {
 
     func markMessageFailed(id: String) {
         updateSendingState(id: id, state: .failed)
+    }
+
+    func markMessagePending(id: String) {
+        updateSendingState(id: id, state: .pending)
     }
 
     func markMessageSent(id: String) {

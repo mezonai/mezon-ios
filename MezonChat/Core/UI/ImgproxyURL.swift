@@ -37,6 +37,16 @@ enum ImgproxyURL {
         return "https://" + String(s.dropFirst("http://".count))
     }
 
+    static func absoluteResourceURL(from raw: String) -> String {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return "" }
+        if let u = URL(string: t), u.scheme != nil { return secureURLString(from: t) }
+        if t.hasPrefix("//") { return secureURLString(from: "https:\(t)") }
+        let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if t.hasPrefix("/") { return "\(base)\(t)" }
+        return "\(base)/\(t)"
+    }
+
     static func attachmentURL(
         from sourceURL: String,
         width: Int,

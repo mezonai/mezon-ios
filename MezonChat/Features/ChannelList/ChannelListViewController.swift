@@ -303,6 +303,7 @@ final class ChannelListViewController: ViewController {
     private var isCurrentSessionAlive: Bool { context.isStillCurrentSession(epoch: initialSessionEpoch) }
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
+    private let clanUsersDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
 
@@ -449,6 +450,7 @@ final class ChannelListViewController: ViewController {
     deinit {
         fetchDisposable.dispose()
         dataDisposable.dispose()
+        clanUsersDisposable.dispose()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -588,6 +590,12 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMemberOnboardingDidUpdate(_:)), name: .mezonMemberOnboardingDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAccountCurrentUserDidChangeForOnboarding(_:)), name: .mezonAccountCurrentUserDidChange, object: nil)
+        clanUsersDisposable.set(
+            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, self.clanId != 0, updatedClanId == self.clanId else { return }
+                self.needsReloadPipe.putNext(())
+            })
+        )
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
@@ -920,7 +928,15 @@ final class ChannelListViewController: ViewController {
     }
 
     private func scheduleOnboardingMemberCountRefresh() {
-        guard clanId != 0, !onboardingMemberFetchInFlight else { return }
+        guard clanId != 0 else { return }
+        if let cachedCount = context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count,
+           cachedCount > 0 {
+            if cachedCount != sidebarMemberCount {
+                updateMemberCount(cachedCount)
+            }
+            return
+        }
+        guard !onboardingMemberFetchInFlight else { return }
         if let last = lastOnboardingMemberFetchAt,
            Date().timeIntervalSince(last) < onboardingMemberFetchCooldown {
             return
@@ -2350,8 +2366,16 @@ final class ChannelListViewController: ViewController {
         let avatar: String?
         if let m = member {
             avatar = m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
+                .flatMap { raw -> String? in
+                    let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
+                    return absolute.isEmpty ? nil : absolute
+                }
         } else {
-            avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
+            avatar = profile?.avatarUrl.flatMap { raw -> String? in
+                guard !raw.isEmpty else { return nil }
+                let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
+                return absolute.isEmpty ? nil : absolute
+            }
         }
 
         return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)

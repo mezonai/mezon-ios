@@ -2132,6 +2132,26 @@ final class MezonHTTPClient {
         return try await execute(req, allowBearerRetry: true)
     }
 
+    private static let httpOnlyApiNames: Set<String> = [
+        "SessionRefresh",
+    ]
+    private static let singleTransportOnlyApiNames: Set<String> = [
+        "SendChannelMessage",
+        "UpdateChannelMessage",
+    ]
+    private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
+
+    private func protoApiName(from path: String) -> String {
+        let prefix = "/mezon.api.Mezon/"
+        return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    }
+
+    private func isSocketConnectedAfterGraceWait() async -> Bool {
+        if await MezonSocket.shared.isConnected { return true }
+        return await MezonSocket.shared.waitForConnected(
+            timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
+    }
+
     func postProto<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
         message: Request,
@@ -2139,9 +2159,10 @@ final class MezonHTTPClient {
         allowBearerRetry: Bool = true,
         preferHTTPFirst: Bool = false
     ) async throws -> Response {
+        let apiName = protoApiName(from: path)
+        let singleTransportOnly = Self.singleTransportOnlyApiNames.contains(apiName)
+
         if preferHTTPFirst {
-            let prefix = "/mezon.api.Mezon/"
-            let apiName = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
             do {
                 let response: Response = try await postProtoHTTP(
                     path: path,
@@ -2153,12 +2174,28 @@ final class MezonHTTPClient {
                 return response
             } catch {
                 MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\(error.localizedDescription) → SOCKET fallback")
+                if singleTransportOnly {
+                    throw error
+                }
                 if let response: Response = try await sendOverSocketIfPossible(path: path, message: message) {
                     return response
                 }
                 throw error
             }
         }
+
+        if singleTransportOnly {
+            if await isSocketConnectedAfterGraceWait() {
+                return try await sendOverSocketRequired(path: path, message: message)
+            }
+            return try await postProtoHTTP(
+                path: path,
+                message: message,
+                auth: auth,
+                allowBearerRetry: allowBearerRetry
+            )
+        }
+
         if let response: Response = try await sendOverSocketIfPossible(path: path, message: message) {
             return response
         }
@@ -2170,10 +2207,21 @@ final class MezonHTTPClient {
         )
     }
 
-    private static let httpOnlyApiNames: Set<String> = [
-        "SessionRefresh",
-    ]
-    private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
+    private func sendOverSocketRequired<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
+        path: String,
+        message: Request
+    ) async throws -> Response {
+        let apiName = protoApiName(from: path)
+        let body = try message.serializedData()
+        let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
+        if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
+            guard let empty = SwiftProtobuf.Google_Protobuf_Empty() as? Response else {
+                throw MezonError.socketError("Empty response cast failed for '\(apiName)'")
+            }
+            return empty
+        }
+        return try Response(serializedBytes: respBytes)
+    }
 
     private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
