@@ -210,10 +210,15 @@ final class KickMemberViewController: BaseViewController {
         dismiss(animated: true)
     }
 
+    private func updateKickButton() {
+        kickButton.isEnabled = !isSubmitting
+        kickButton.backgroundColor = kickButton.isEnabled ? .systemRed : .systemRed.withAlphaComponent(0.5)
+    }
+
     @objc private func kickConfirmed() {
         guard !isSubmitting else { return }
         isSubmitting = true
-        kickButton.isEnabled = false
+        updateKickButton()
 
         Task { [weak self] in
             guard let self else { return }
@@ -240,7 +245,7 @@ final class KickMemberViewController: BaseViewController {
             } catch {
                 await MainActor.run {
                     self.isSubmitting = false
-                    self.kickButton.isEnabled = true
+                    self.updateKickButton()
                     Toast.error(L(L10n.ClanSetting.Members.kickFailed))
                 }
             }
