@@ -474,6 +474,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func transferClanOwnership(clanId: Int64, newOwnerId: Int64, token: String) async throws {
+        var req = Mezon_Api_TransferOwnershipRequest()
+        req.clanID = clanId
+        req.newOwnerID = newOwnerId
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/TransferOwnership",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func updateSystemMessage(request: Mezon_Api_SystemMessageRequest, token: String) async throws {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/UpdateSystemMessage",
