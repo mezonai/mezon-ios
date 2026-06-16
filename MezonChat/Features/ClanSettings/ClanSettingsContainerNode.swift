@@ -10,6 +10,9 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     var onSelectStickers: (() -> Void)?
     var onSelectEmojis: (() -> Void)?
     var onSelectInvites: (() -> Void)?
+    var onSelectMembers: (() -> Void)?
+    var onChangeAvatar: (() -> Void)?
+    var onRemoveAvatar: (() -> Void)?
 
     private let context: AccountContext
     private let clanId: Int64
@@ -27,6 +30,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private let initialsLabel = UILabel()
     private let avatarContainer = UIView()
     private let avatarImageView = UIImageView()
+    private let removeAvatarBtn = UIButton(type: .system)
 
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
@@ -120,7 +124,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.setCustomSpacing(10.sh, after: userMgmtHeader)
 
         var userActions: [SettingAction] = [
-            .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon"),
+            .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon", navigate: .members),
         ]
         if canShowRoles {
             userActions.append(.init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", navigate: .roles))
@@ -228,10 +232,21 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         nameLabel.textAlignment = .center
         v.addSubview(nameLabel)
 
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 10.sf, weight: .bold)
+        removeAvatarBtn.setImage(UIImage(systemName: "xmark", withConfiguration: symbolConfig), for: .normal)
+        removeAvatarBtn.tintColor = .white
+        removeAvatarBtn.backgroundColor = .systemRed
+        removeAvatarBtn.layer.cornerRadius = 12.swh
+        removeAvatarBtn.clipsToBounds = true
+        removeAvatarBtn.addTarget(self, action: #selector(removeAvatarTapped), for: .touchUpInside)
+        removeAvatarBtn.isHidden = avatarURL.isEmpty || !canShowOverview
+        v.addSubview(removeAvatarBtn)
+
         avatarContainer.translatesAutoresizingMaskIntoConstraints = false
         initialsLabel.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        removeAvatarBtn.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             avatarContainer.topAnchor.constraint(equalTo: v.topAnchor, constant: 16.sh),
@@ -252,8 +267,26 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             nameLabel.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 16.sh),
             nameLabel.centerXAnchor.constraint(equalTo: v.centerXAnchor),
             nameLabel.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8.sh),
+
+            removeAvatarBtn.topAnchor.constraint(equalTo: avatarContainer.topAnchor, constant: -4.sh),
+            removeAvatarBtn.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor, constant: 4.sw),
+            removeAvatarBtn.widthAnchor.constraint(equalToConstant: 24.swh),
+            removeAvatarBtn.heightAnchor.constraint(equalToConstant: 24.swh),
         ])
+
+        avatarContainer.isUserInteractionEnabled = true
+        let tapAvatar = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
+        avatarContainer.addGestureRecognizer(tapAvatar)
+
         return v
+    }
+
+    @objc private func avatarTapped() {
+        onChangeAvatar?()
+    }
+
+    @objc private func removeAvatarTapped() {
+        onRemoveAvatar?()
     }
 
     func updateClanDetails(name: String, avatarURL: String) {
@@ -272,9 +305,11 @@ final class ClanSettingsContainerNode: ASDisplayNode {
                     self?.initialsLabel.isHidden = true
                 }
             }
+            removeAvatarBtn.isHidden = !canShowOverview
         } else {
             avatarImageView.image = nil
             initialsLabel.isHidden = false
+            removeAvatarBtn.isHidden = true
         }
     }
 
@@ -426,6 +461,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             onSelectEmojis?()
         case .invites:
             onSelectInvites?()
+        case .members:
+            onSelectMembers?()
         }
     }
 
@@ -455,6 +492,7 @@ private enum ClanSettingsNavigateAction: Int {
     case stickers = 3
     case emojis = 4
     case invites = 5
+    case members = 6
 }
 
 private struct SettingAction {

@@ -529,6 +529,9 @@ enum L10n {
             static let systemMessageHideAuditLog = "clan.setting.overview.systemMessage.hideAuditLog"
             static let systemMessageDescription = "clan.setting.overview.systemMessage.description"
             static let uploadFileTooLarge10MB = "clan.setting.overview.uploadFileTooLarge10MB"
+            static let uploadFileTooLarge1MB = "clan.setting.overview.uploadFileTooLarge1MB"
+            static let removeAvatarTitle = "clan.setting.overview.removeAvatarTitle"
+            static let removeAvatarMessage = "clan.setting.overview.removeAvatarMessage"
             static let anonymousTitle = "clan.setting.overview.anonymous.title"
             static let anonymousDescription = "clan.setting.overview.anonymous.description"
             static let defaultNotificationTitle = "clan.setting.overview.defaultNotification.title"
@@ -544,6 +547,30 @@ enum L10n {
             static let invalidName = "clan.setting.overview.toast.invalidName"
             static let deleteClanConfirmTitle = "clan.setting.overview.deleteClan.confirmTitle"
             static let deleteClanConfirmMessage = "clan.setting.overview.deleteClan.confirmMessage"
+        }
+
+        enum Members {
+            static let title                 = "clan.setting.members.title"
+            static let searchPlaceholder     = "clan.setting.members.searchPlaceholder"
+            static let manageUserTitle       = "clan.setting.members.manageUserTitle"
+            static let roles                 = "clan.setting.members.roles"
+            static let editRoles             = "clan.setting.members.editRoles"
+            static let transferOwnership     = "clan.setting.members.transferOwnership"
+            static let kick                  = "clan.setting.members.kick"
+            static let kickTitle             = "clan.setting.members.kickTitle"
+            static let kickFromClan          = "clan.setting.members.kickFromClan"
+            static let kickConfirmation      = "clan.setting.members.kickConfirmation"
+            static let kickReason            = "clan.setting.members.kickReason"
+            static let kickButton            = "clan.setting.members.kickButton"
+            static let kickSuccess           = "clan.setting.members.kickSuccess"
+            static let kickFailed            = "clan.setting.members.kickFailed"
+            static let transferTitle         = "clan.setting.members.transferTitle"
+            static let transferWarning       = "clan.setting.members.transferWarning"
+            static let transferAcknowledgmentTitle = "clan.setting.members.transferAcknowledgmentTitle"
+            static let transferAcknowledgment = "clan.setting.members.transferAcknowledgment"
+            static let transferButton        = "clan.setting.members.transferButton"
+            static let transferSuccess       = "clan.setting.members.transferSuccess"
+            static let transferFailed        = "clan.setting.members.transferFailed"
         }
     }
 
@@ -1568,6 +1595,9 @@ extension L10n {
         "clan.setting.overview.systemMessage.hideAuditLog": "Send a log when an action is applied to the clan",
         "clan.setting.overview.systemMessage.description": "This is the channel we send system event notifications to. You can turn them off at any time.",
         "clan.setting.overview.uploadFileTooLarge10MB": "File size exceeds 10MB limit.",
+        "clan.setting.overview.uploadFileTooLarge1MB": "File size exceeds 1MB limit.",
+        "clan.setting.overview.removeAvatarTitle": "Remove Avatar",
+        "clan.setting.overview.removeAvatarMessage": "Are you sure you want to remove the clan avatar?",
         "clan.setting.overview.anonymous.title": "Anonymous Mode",
         "clan.setting.overview.anonymous.description": "Prevent users from using anonymous mode",
         "clan.setting.overview.defaultNotification.title": "Default Notification Settings",
@@ -1583,6 +1613,28 @@ extension L10n {
         "clan.setting.overview.toast.invalidName": "Invalid clan name",
         "clan.setting.overview.deleteClan.confirmTitle": "Delete Clan",
         "clan.setting.overview.deleteClan.confirmMessage": "Are you sure you want to delete this clan? This action cannot be undone.",
+
+        "clan.setting.members.title": "Members",
+        "clan.setting.members.searchPlaceholder": "Search Members",
+        "clan.setting.members.manageUserTitle": "Edit Member",
+        "clan.setting.members.roles": "Roles",
+        "clan.setting.members.editRoles": "Edit Roles",
+        "clan.setting.members.transferOwnership": "Transfer Ownership",
+        "clan.setting.members.kick": "Kick",
+        "clan.setting.members.kickTitle": "Kick Member",
+        "clan.setting.members.kickFromClan": "Kick %@ from clan",
+        "clan.setting.members.kickConfirmation": "Are you sure you want to kick %@ from the clan? They can rejoin with a new invitation.",
+        "clan.setting.members.kickReason": "Kick Reason",
+        "clan.setting.members.kickButton": "Kick",
+        "clan.setting.members.kickSuccess": "Member kicked successfully",
+        "clan.setting.members.kickFailed": "Failed to kick member",
+        "clan.setting.members.transferTitle": "Transfer Ownership",
+        "clan.setting.members.transferWarning": "This will transfer ownership of %@ to %@. This action cannot be undone!",
+        "clan.setting.members.transferAcknowledgmentTitle": "Transfer Ownership",
+        "clan.setting.members.transferAcknowledgment": "I acknowledge that by transferring ownership of this clan to %@, it will belong to them.",
+        "clan.setting.members.transferButton": "Transfer",
+        "clan.setting.members.transferSuccess": "Ownership transferred successfully",
+        "clan.setting.members.transferFailed": "Failed to transfer ownership",
 
         "clan.setting.stickers.duplicateName": "Sticker name already exists",
         "clan.setting.stickers.updateSuccess": "Sticker updated successfully",
@@ -2664,6 +2716,9 @@ extension L10n {
         "clan.setting.overview.systemMessage.hideAuditLog": "Gửi nhật ký khi một hành động được áp dụng cho clan",
         "clan.setting.overview.systemMessage.description": "Đây là kênh nhận thông báo về các sự kiện của hệ thống. Bạn có thể tắt chúng bất cứ lúc nào.",
         "clan.setting.overview.uploadFileTooLarge10MB": "Kích thước ảnh không được vượt quá 10MB.",
+        "clan.setting.overview.uploadFileTooLarge1MB": "Kích thước ảnh không được vượt quá 1MB.",
+        "clan.setting.overview.removeAvatarTitle": "Xóa ảnh đại diện",
+        "clan.setting.overview.removeAvatarMessage": "Bạn có chắc chắn muốn xóa ảnh đại diện của clan không?",
         "clan.setting.overview.anonymous.title": "Chế độ ẩn danh",
         "clan.setting.overview.anonymous.description": "Chặn thành viên sử dụng chế độ ẩn danh",
         "clan.setting.overview.defaultNotification.title": "Cài đặt thông báo mặc định",
@@ -2679,6 +2734,28 @@ extension L10n {
         "clan.setting.overview.toast.invalidName": "Tên clan không hợp lệ",
         "clan.setting.overview.deleteClan.confirmTitle": "Xóa clan",
         "clan.setting.overview.deleteClan.confirmMessage": "Bạn có chắc muốn xóa clan này? Hành động này không thể hoàn tác.",
+
+        "clan.setting.members.title": "Thành viên",
+        "clan.setting.members.searchPlaceholder": "Tìm kiếm thành viên",
+        "clan.setting.members.manageUserTitle": "Chỉnh sửa thành viên",
+        "clan.setting.members.roles": "Vai trò",
+        "clan.setting.members.editRoles": "Chỉnh sửa vai trò",
+        "clan.setting.members.transferOwnership": "Chuyển quyền sở hữu",
+        "clan.setting.members.kick": "Khai trừ",
+        "clan.setting.members.kickTitle": "Khai trừ thành viên",
+        "clan.setting.members.kickFromClan": "Khai trừ %@ ra khỏi clan",
+        "clan.setting.members.kickConfirmation": "Bạn có chắc chắn muốn khai trừ %@ ra khỏi clan? Họ có thể tham gia lại bằng lời mời mới.",
+        "clan.setting.members.kickReason": "Lý do khai trừ",
+        "clan.setting.members.kickButton": "Khai trừ",
+        "clan.setting.members.kickSuccess": "Đã khai trừ thành viên",
+        "clan.setting.members.kickFailed": "Khai trừ thành viên thất bại",
+        "clan.setting.members.transferTitle": "Chuyển quyền sở hữu",
+        "clan.setting.members.transferWarning": "Điều này sẽ chuyển quyền sở hữu của %@ cho %@. Hành động này không thể hoàn tác!",
+        "clan.setting.members.transferAcknowledgmentTitle": "Chuyển quyền sở hữu",
+        "clan.setting.members.transferAcknowledgment": "Tôi xác nhận rằng bằng cách chuyển quyền sở hữu của clan này cho %@, nó sẽ thuộc về họ.",
+        "clan.setting.members.transferButton": "Chuyển",
+        "clan.setting.members.transferSuccess": "Chuyển quyền sở hữu thành công",
+        "clan.setting.members.transferFailed": "Chuyển quyền sở hữu thất bại",
 
         "clan.setting.stickers.duplicateName": "Tên nhãn dán đã tồn tại",
         "clan.setting.stickers.updateSuccess": "Cập nhật nhãn dán thành công",
