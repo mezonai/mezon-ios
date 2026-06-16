@@ -10,7 +10,7 @@ enum RoleColors {
     ]
 
     static func uiColor(forRole role: Mezon_Api_Role) -> UIColor {
-        if let color = UIColor(hexString: role.color), !role.color.isEmpty {
+        if let color = UIColor(hexString: role.color), !role.color.isEmpty, role.color != "0", role.color != "000000", role.color != "#000000" {
             return color
         }
         return UIColor(hexString: RolePermissionConstants.defaultRoleColor) ?? .systemGray
