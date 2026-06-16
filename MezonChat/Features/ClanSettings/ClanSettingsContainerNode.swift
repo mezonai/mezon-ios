@@ -6,6 +6,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     var onClose: (() -> Void)?
     var onSelectOverview: (() -> Void)?
     var onSelectRoles: (() -> Void)?
+    var onSelectAuditLog: (() -> Void)?
     var onSelectIntegrations: (() -> Void)?
     var onSelectStickers: (() -> Void)?
     var onSelectEmojis: (() -> Void)?
@@ -21,6 +22,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private var canShowRoles: Bool
     private var canShowIntegrations: Bool
     private var canShowOverview: Bool
+    private var canShowAuditLog: Bool
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -35,7 +37,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
 
-    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool) {
+    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool, canShowAuditLog: Bool) {
         self.context = context
         self.clanId = clanId
         self.clanName = clanName
@@ -43,6 +45,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         self.canShowRoles = canShowRoles
         self.canShowIntegrations = canShowIntegrations
         self.canShowOverview = canShowOverview
+        self.canShowAuditLog = canShowAuditLog
         super.init()
         backgroundColor = .mezonSecondary
     }
@@ -102,7 +105,9 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             settingsActions.append(.init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview", navigate: .overview))
         }
         
-        settingsActions.append(.init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon"))
+        if canShowAuditLog {
+            settingsActions.append(.init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon", navigate: .auditLog))
+        }
         
         if canShowIntegrations {
             settingsActions.append(.init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon", navigate: .integrations))
@@ -138,11 +143,12 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(footerSpacer)
     }
 
-    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool) {
-        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations || self.canShowOverview != canShowOverview else { return }
+    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool, canShowAuditLog: Bool) {
+        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations || self.canShowOverview != canShowOverview || self.canShowAuditLog != canShowAuditLog else { return }
         self.canShowRoles = canShowRoles
         self.canShowIntegrations = canShowIntegrations
         self.canShowOverview = canShowOverview
+        self.canShowAuditLog = canShowAuditLog
         guard isNodeLoaded else { return }
         rebuildContent()
     }
@@ -463,6 +469,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             onSelectInvites?()
         case .members:
             onSelectMembers?()
+        case .auditLog:
+            onSelectAuditLog?()
         }
     }
 
@@ -493,6 +501,7 @@ private enum ClanSettingsNavigateAction: Int {
     case emojis = 4
     case invites = 5
     case members = 6
+    case auditLog = 7
 }
 
 private struct SettingAction {
