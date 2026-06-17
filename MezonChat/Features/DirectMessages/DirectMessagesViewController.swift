@@ -422,6 +422,7 @@ final class DirectMessagesViewController: ViewController {
     ) -> DmMenuContext {
         let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
         let displayName = Self.dmDisplayName(for: channel)
+        let userName = channel.usernames.first(where: { !$0.isEmpty }) ?? ""
         let avatarURL = currentState.resolvedAvatarURLByChannelId[channel.channelID] ?? ""
         let peerId = channel.userIds.first
         let friend = peerId.flatMap { userId in
@@ -434,6 +435,7 @@ final class DirectMessagesViewController: ViewController {
         return DmMenuContext(
             channel: channel,
             displayName: displayName,
+            userName: userName,
             avatarURL: avatarURL,
             friend: friend,
             currentUserId: currentUserId,
@@ -483,7 +485,7 @@ final class DirectMessagesViewController: ViewController {
         case .leaveOrDeleteGroup(let isDelete):
             presentLeaveOrDeleteGroupConfirm(channel: channel, isDelete: isDelete)
         case .closeDm:
-            handleCloseDm(channel)
+            presentCloseDmConfirm(channel: channel, menuContext: menuContext)
         case .addFriend:
             handleAddFriend(channel: channel, menuContext: menuContext)
         case .removeFriend:
@@ -499,6 +501,23 @@ final class DirectMessagesViewController: ViewController {
         case .unmuteConversation:
             handleUnmuteDmConversation(channel)
         }
+    }
+
+    private func presentCloseDmConfirm(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
+        let title = String(format: L(L10n.DmMenu.closeDmConfirmTitle), menuContext.displayName)
+        let message = String(format: L(L10n.DmMenu.closeDmConfirmMessage), menuContext.displayName)
+
+        MezonConfirm.present(
+            from: self,
+            title: title,
+            content: message,
+            confirmTitle: L(L10n.Common.close),
+            cancelTitle: L(L10n.Common.cancel),
+            isDanger: true,
+            onConfirm: { [weak self] in
+                self?.handleCloseDm(channel)
+            }
+        )
     }
 
     private func presentLeaveOrDeleteGroupConfirm(channel: Mezon_Api_ChannelDescription, isDelete: Bool) {
@@ -708,6 +727,13 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private func removeDmChannelFromList(channelId: Int64) {
+        if let index = directMessages.firstIndex(where: { $0.channelID == channelId }) {
+            var newDMs = directMessages
+            newDMs.remove(at: index)
+            setDirectMessages(newDMs)
+            persistDmChannelListToPostbox()
+        }
+        
         NotificationCenter.default.post(
             name: .mezonChannelDescriptionDidUpdate,
             object: nil,

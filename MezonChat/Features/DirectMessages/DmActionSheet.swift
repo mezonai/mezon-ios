@@ -42,9 +42,9 @@ enum DmAction: Hashable {
         case .muteConversation: return "ChannelSetting/MuteChannel"
         case .unmuteConversation: return "ChannelSetting/UmuteChannelIcon"
         case .addFriend: return "Notifications/AddFriendIcon"
-        case .removeFriend: return "ChannelSetting/DeleteIcon"
+        case .removeFriend: return "Profile/RemoveFriendIcon"
         case .blockUser: return "Profile/BlockUserIcon"
-        case .closeDm: return "Chat/MessageIcon"
+        case .closeDm: return "Profile/CloseDMIcon"
         case .leaveOrDeleteGroup: return nil
         case .unblockUser: return "Profile/UnblockUserIcon"
         }
@@ -54,6 +54,7 @@ enum DmAction: Hashable {
 struct DmMenuContext {
     let channel: Mezon_Api_ChannelDescription
     let displayName: String
+    let userName: String
     let avatarURL: String
     let friend: Mezon_Api_Friend?
     let currentUserId: Int64
@@ -403,7 +404,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
     private func buildHeader(width: CGFloat) -> UIView {
         let v = UIView()
         let avatarSize: CGFloat = 56.swh
-        let avatar = TextAvatarView(username: menuContext.displayName, size: avatarSize, fontSize: 18.sf)
+        let avatar = TextAvatarView(username: menuContext.userName, size: avatarSize, fontSize: 18.sf)
         avatar.frame = CGRect(x: 0, y: 0, width: avatarSize, height: avatarSize)
         avatar.layer.cornerRadius = menuContext.isGroup ? 12.swh : avatarSize / 2
         v.addSubview(avatar)
