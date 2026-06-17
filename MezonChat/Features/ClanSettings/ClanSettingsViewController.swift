@@ -33,7 +33,8 @@ final class ClanSettingsViewController: BaseViewController {
             avatarURL: avatarURL,
             canShowRoles: canShowRolesSection(),
             canShowIntegrations: canShowIntegrationsSection(),
-            canShowOverview: canShowOverviewSection()
+            canShowOverview: canShowOverviewSection(),
+            canShowAuditLog: canShowAuditLogSection()
         )
         node.onClose = { [weak self] in
             if let nav = self?.navigationController {
@@ -45,6 +46,11 @@ final class ClanSettingsViewController: BaseViewController {
         node.onSelectOverview = { [weak self] in
             guard let self else { return }
             let vc = ClanOverviewViewController(context: self.context, clanId: self.clanId)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
+        node.onSelectAuditLog = { [weak self] in
+            guard let self else { return }
+            let vc = AuditLogViewController(context: self.context, clanId: self.clanId)
             self.navigationController?.pushViewController(vc, animated: true)
         }
         node.onSelectRoles = { [weak self] in
@@ -103,12 +109,12 @@ final class ClanSettingsViewController: BaseViewController {
         disposables.add((context.engine.clanData.clanPermissionsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, updatedClanId == self.clanId else { return }
-                self.settingsNode.updateCanShowRoles(self.canShowRolesSection(), canShowIntegrations: self.canShowIntegrationsSection(), canShowOverview: self.canShowOverviewSection())
+                self.settingsNode.updateCanShowRoles(self.canShowRolesSection(), canShowIntegrations: self.canShowIntegrationsSection(), canShowOverview: self.canShowOverviewSection(), canShowAuditLog: self.canShowAuditLogSection())
             }))
         disposables.add((context.engine.clanData.clanRolesUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, updatedClanId == self.clanId else { return }
-                self.settingsNode.updateCanShowRoles(self.canShowRolesSection(), canShowIntegrations: self.canShowIntegrationsSection(), canShowOverview: self.canShowOverviewSection())
+                self.settingsNode.updateCanShowRoles(self.canShowRolesSection(), canShowIntegrations: self.canShowIntegrationsSection(), canShowOverview: self.canShowOverviewSection(), canShowAuditLog: self.canShowAuditLogSection())
             }))
         disposables.add((context.account.postbox.clanListView()
             |> deliverOnMainQueue).start(next: { [weak self] view in
@@ -137,6 +143,12 @@ final class ClanSettingsViewController: BaseViewController {
     }
 
     private func canShowOverviewSection() -> Bool {
+        context.rolePermissions.isClanOwner(clanId: clanId) ||
+        context.rolePermissions.hasClanPermission(.administrator, clanId: clanId) ||
+        context.rolePermissions.canManageClan(clanId: clanId)
+    }
+
+    private func canShowAuditLogSection() -> Bool {
         context.rolePermissions.isClanOwner(clanId: clanId) ||
         context.rolePermissions.hasClanPermission(.administrator, clanId: clanId) ||
         context.rolePermissions.canManageClan(clanId: clanId)

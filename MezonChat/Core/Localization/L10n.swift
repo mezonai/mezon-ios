@@ -442,6 +442,69 @@ enum L10n {
         static let community            = "clan.action.community"
     }
 
+    enum AuditLog {
+        static let title = "auditLog.title"
+        static let filterBtn = "auditLog.filterBtn"
+        static let filterByUser = "auditLog.filterByUser"
+        static let filterByAction = "auditLog.filterByAction"
+        static let allUsers = "auditLog.allUsers"
+        static let allActions = "auditLog.allActions"
+        static let empty = "auditLog.empty"
+        static let add = "auditLog.add"
+        static let remove = "auditLog.remove"
+        static let toChannel = "auditLog.toChannel"
+        
+        static let updateClan = "auditLog.updateClan"
+        static let createChannel = "auditLog.createChannel"
+        static let updateChannel = "auditLog.updateChannel"
+        static let updateChannelPrivate = "auditLog.updateChannelPrivate"
+        static let deleteChannel = "auditLog.deleteChannel"
+        static let createChannelPermission = "auditLog.createChannelPermission"
+        static let updateChannelPermission = "auditLog.updateChannelPermission"
+        static let deleteChannelPermission = "auditLog.deleteChannelPermission"
+        static let kickMember = "auditLog.kickMember"
+        static let pruneMember = "auditLog.pruneMember"
+        static let banMember = "auditLog.banMember"
+        static let unbanMember = "auditLog.unbanMember"
+        static let updateMember = "auditLog.updateMember"
+        static let updateRolesMember = "auditLog.updateRolesMember"
+        static let moveMember = "auditLog.moveMember"
+        static let disconnectMember = "auditLog.disconnectMember"
+        static let addBot = "auditLog.addBot"
+        static let createThread = "auditLog.createThread"
+        static let updateThread = "auditLog.updateThread"
+        static let deleteThread = "auditLog.deleteThread"
+        static let createRole = "auditLog.createRole"
+        static let updateRole = "auditLog.updateRole"
+        static let deleteRole = "auditLog.deleteRole"
+        static let createWebhook = "auditLog.createWebhook"
+        static let updateWebhook = "auditLog.updateWebhook"
+        static let deleteWebhook = "auditLog.deleteWebhook"
+        static let createEmoji = "auditLog.createEmoji"
+        static let updateEmoji = "auditLog.updateEmoji"
+        static let deleteEmoji = "auditLog.deleteEmoji"
+        static let createSticker = "auditLog.createSticker"
+        static let updateSticker = "auditLog.updateSticker"
+        static let deleteSticker = "auditLog.deleteSticker"
+        static let createEvent = "auditLog.createEvent"
+        static let updateEvent = "auditLog.updateEvent"
+        static let deleteEvent = "auditLog.deleteEvent"
+        static let createCanvas = "auditLog.createCanvas"
+        static let updateCanvas = "auditLog.updateCanvas"
+        static let deleteCanvas = "auditLog.deleteCanvas"
+        static let createCategory = "auditLog.createCategory"
+        static let updateCategory = "auditLog.updateCategory"
+        static let deleteCategory = "auditLog.deleteCategory"
+        static let addMemberChannel = "auditLog.addMemberChannel"
+        static let removeMemberChannel = "auditLog.removeMemberChannel"
+        static let addRoleChannel = "auditLog.addRoleChannel"
+        static let removeRoleChannel = "auditLog.removeRoleChannel"
+        static let addMemberThread = "auditLog.addMemberThread"
+        static let removeMemberThread = "auditLog.removeMemberThread"
+        static let addRoleThread = "auditLog.addRoleThread"
+        static let removeRoleThread = "auditLog.removeRoleThread"
+    }
+
     enum DeleteClanModal {
         static let title                = "deleteClanModal.title"
         static let description          = "deleteClanModal.description"
@@ -2389,6 +2452,66 @@ extension L10n {
         "peerCall.alertEndCallMessage":     "Please confirm if you would like to end the call?",
         "peerCall.bannerWeakNetwork":       "Weak network — reconnecting…",
         "peerCall.remoteMicOffBanner":      "%@ turned the microphone off",
+
+        "auditLog.title": "Audit Log",
+        "auditLog.filterBtn": "Filter",
+        "auditLog.filterByUser": "Filter by User",
+        "auditLog.filterByAction": "Filter by Action",
+        "auditLog.allUsers": "All Users",
+        "auditLog.allActions": "All Actions",
+        "auditLog.empty": "No logs found.",
+        "auditLog.add": "added",
+        "auditLog.remove": "removed",
+        "auditLog.toChannel": "to channel",
+        "auditLog.updateClan": "Update Clan",
+        "auditLog.createChannel": "Create Channel",
+        "auditLog.updateChannel": "Update Channel",
+        "auditLog.updateChannelPrivate": "Update Channel Private",
+        "auditLog.deleteChannel": "Delete Channel",
+        "auditLog.createChannelPermission": "Create Channel Permission",
+        "auditLog.updateChannelPermission": "Update Channel Permission",
+        "auditLog.deleteChannelPermission": "Delete Channel Permission",
+        "auditLog.kickMember": "Kick Member",
+        "auditLog.pruneMember": "Prune Member",
+        "auditLog.banMember": "Ban Member",
+        "auditLog.unbanMember": "Unban Member",
+        "auditLog.updateMember": "Update Member",
+        "auditLog.updateRolesMember": "Update Roles Member",
+        "auditLog.moveMember": "Move Member",
+        "auditLog.disconnectMember": "Disconnect Member",
+        "auditLog.addBot": "Add Bot",
+        "auditLog.createThread": "Create Thread",
+        "auditLog.updateThread": "Update Thread",
+        "auditLog.deleteThread": "Delete Thread",
+        "auditLog.createRole": "Create Role",
+        "auditLog.updateRole": "Update Role",
+        "auditLog.deleteRole": "Delete Role",
+        "auditLog.createWebhook": "Create Webhook",
+        "auditLog.updateWebhook": "Update Webhook",
+        "auditLog.deleteWebhook": "Delete Webhook",
+        "auditLog.createEmoji": "Create Emoji",
+        "auditLog.updateEmoji": "Update Emoji",
+        "auditLog.deleteEmoji": "Delete Emoji",
+        "auditLog.createSticker": "Create Sticker",
+        "auditLog.updateSticker": "Update Sticker",
+        "auditLog.deleteSticker": "Delete Sticker",
+        "auditLog.createEvent": "Create Event",
+        "auditLog.updateEvent": "Update Event",
+        "auditLog.deleteEvent": "Delete Event",
+        "auditLog.createCanvas": "Create Canvas",
+        "auditLog.updateCanvas": "Update Canvas",
+        "auditLog.deleteCanvas": "Delete Canvas",
+        "auditLog.createCategory": "Create Category",
+        "auditLog.updateCategory": "Update Category",
+        "auditLog.deleteCategory": "Delete Category",
+        "auditLog.addMemberChannel": "Add Member to Channel",
+        "auditLog.removeMemberChannel": "Remove Member from Channel",
+        "auditLog.addRoleChannel": "Add Role to Channel",
+        "auditLog.removeRoleChannel": "Remove Role from Channel",
+        "auditLog.addMemberThread": "Add Member to Thread",
+        "auditLog.removeMemberThread": "Remove Member from Thread",
+        "auditLog.addRoleThread": "Add Role to Thread",
+        "auditLog.removeRoleThread": "Remove Role from Thread",
     ]
 
     private static let vi: [String: String] = [
@@ -3512,5 +3635,65 @@ extension L10n {
         "peerCall.alertEndCallMessage":     "Bạn có chắc chắn muốn kết thúc cuộc gọi không?",
         "peerCall.bannerWeakNetwork":       "Mạng yếu — đang kết nối lại…",
         "peerCall.remoteMicOffBanner":      "%@ đã tắt micro",
+
+        "auditLog.title": "Nhật ký hoạt động",
+        "auditLog.filterBtn": "Lọc",
+        "auditLog.filterByUser": "Lọc theo người dùng",
+        "auditLog.filterByAction": "Lọc theo hành động",
+        "auditLog.allUsers": "Tất cả người dùng",
+        "auditLog.allActions": "Tất cả hành động",
+        "auditLog.empty": "Không tìm thấy nhật ký.",
+        "auditLog.add": "thêm",
+        "auditLog.remove": "xoá",
+        "auditLog.toChannel": "vào kênh",
+        "auditLog.updateClan": "Cập nhật clan",
+        "auditLog.createChannel": "Tạo kênh",
+        "auditLog.updateChannel": "Cập nhật kênh",
+        "auditLog.updateChannelPrivate": "Cập nhật kênh riêng tư",
+        "auditLog.deleteChannel": "Xóa kênh",
+        "auditLog.createChannelPermission": "Tạo quyền kênh",
+        "auditLog.updateChannelPermission": "Cập nhật quyền kênh",
+        "auditLog.deleteChannelPermission": "Xóa quyền kênh",
+        "auditLog.kickMember": "Đuổi thành viên",
+        "auditLog.pruneMember": "Lọc thành viên",
+        "auditLog.banMember": "Cấm thành viên",
+        "auditLog.unbanMember": "Bỏ cấm thành viên",
+        "auditLog.updateMember": "Cập nhật thành viên",
+        "auditLog.updateRolesMember": "Cập nhật quyền thành viên",
+        "auditLog.moveMember": "Di chuyển thành viên",
+        "auditLog.disconnectMember": "Ngắt kết nối thành viên",
+        "auditLog.addBot": "Thêm bot",
+        "auditLog.createThread": "Tạo chủ đề",
+        "auditLog.updateThread": "Cập nhật chủ đề",
+        "auditLog.deleteThread": "Xóa chủ đề",
+        "auditLog.createRole": "Tạo vai trò",
+        "auditLog.updateRole": "Cập nhật vai trò",
+        "auditLog.deleteRole": "Xóa vai trò",
+        "auditLog.createWebhook": "Tạo webhook",
+        "auditLog.updateWebhook": "Cập nhật webhook",
+        "auditLog.deleteWebhook": "Xóa webhook",
+        "auditLog.createEmoji": "Tạo biểu cảm",
+        "auditLog.updateEmoji": "Cập nhật biểu cảm",
+        "auditLog.deleteEmoji": "Xóa biểu cảm",
+        "auditLog.createSticker": "Tạo nhãn dán",
+        "auditLog.updateSticker": "Cập nhật nhãn dán",
+        "auditLog.deleteSticker": "Xóa nhãn dán",
+        "auditLog.createEvent": "Tạo sự kiện",
+        "auditLog.updateEvent": "Cập nhật sự kiện",
+        "auditLog.deleteEvent": "Xóa sự kiện",
+        "auditLog.createCanvas": "Tạo canvas",
+        "auditLog.updateCanvas": "Cập nhật canvas",
+        "auditLog.deleteCanvas": "Xóa canvas",
+        "auditLog.createCategory": "Tạo danh mục",
+        "auditLog.updateCategory": "Cập nhật danh mục",
+        "auditLog.deleteCategory": "Xóa danh mục",
+        "auditLog.addMemberChannel": "Thêm thành viên vào kênh",
+        "auditLog.removeMemberChannel": "Xóa thành viên khỏi kênh",
+        "auditLog.addRoleChannel": "Thêm vai trò vào kênh",
+        "auditLog.removeRoleChannel": "Xóa vai trò khỏi kênh",
+        "auditLog.addMemberThread": "Thêm thành viên vào chủ đề",
+        "auditLog.removeMemberThread": "Xóa thành viên khỏi chủ đề",
+        "auditLog.addRoleThread": "Thêm vai trò vào chủ đề",
+        "auditLog.removeRoleThread": "Xóa vai trò khỏi chủ đề",
     ]
 }
