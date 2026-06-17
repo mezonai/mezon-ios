@@ -2642,6 +2642,14 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
     }
+
+    func listAuditLog(request: Mezon_Api_ListAuditLogRequest, token: String) async throws -> Mezon_Api_ListAuditLog {
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListAuditLog",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
 }
 
 private struct EmptyBody: Encodable {}
