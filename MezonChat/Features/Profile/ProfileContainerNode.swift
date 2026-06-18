@@ -19,6 +19,7 @@ final class ProfileContainerNode: ASDisplayNode {
     var onDisplayNameTapped: (() -> Void)?
     var onAddStatusTapped: (() -> Void)?
     var onYourFriendsTapped: (() -> Void)?
+    var onHistoryTransactionTapped: (() -> Void)?
 
     private let avatarSize: CGFloat = 90.swh
     private let sideInset: CGFloat = 16.sw
@@ -1075,7 +1076,7 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     @objc private func historyTransactionTapped() {
-        showComingSoonToastLine(title: L(L10n.Profile.historyTransaction))
+        onHistoryTransactionTapped?()
     }
 
     @objc private func yourFriendsTapped() {

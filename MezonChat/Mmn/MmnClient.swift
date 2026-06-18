@@ -21,6 +21,136 @@ struct MmnAddTxResult: Decodable, Sendable {
     let error: String?
 }
 
+struct MmnTransaction: Decodable, Sendable {
+    let hash: String
+    let from_address: String?
+    let to_address: String?
+    let value: Int64?
+    let transaction_timestamp: Int64?
+    let from_username: String?
+    let to_username: String?
+    let sender_name: String?
+    let receiver_name: String?
+    let note: String?
+    let extra_info: String?
+
+    enum CodingKeys: String, CodingKey {
+        case hash = "hash"
+        case tx_hash = "tx_hash"
+        case transaction_hash = "transaction_hash"
+        case from_address = "from_address"
+        case to_address = "to_address"
+        case value = "value"
+        case transaction_timestamp = "transaction_timestamp"
+        case from_username = "from_username"
+        case to_username = "to_username"
+        case sender_name = "sender_name"
+        case receiver_name = "receiver_name"
+        case from_user = "from_user"
+        case to_user = "to_user"
+        case note = "note"
+        case data = "data"
+        case text_data = "text_data"
+        case extra_info = "extra_info"
+    }
+
+    struct MmnUser: Decodable {
+        let username: String?
+        let name: String?
+    }
+    
+    struct ExtraInfoWrapper: Decodable {
+        let UserSenderId: String?
+        let UserReceiverId: String?
+        
+        enum CodingKeys: String, CodingKey {
+            case UserSenderId, UserReceiverId
+        }
+        
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            if let s = try? container.decode(String.self, forKey: .UserSenderId) { UserSenderId = s }
+            else if let i = try? container.decode(Int64.self, forKey: .UserSenderId) { UserSenderId = String(i) }
+            else { UserSenderId = nil }
+            
+            if let s = try? container.decode(String.self, forKey: .UserReceiverId) { UserReceiverId = s }
+            else if let i = try? container.decode(Int64.self, forKey: .UserReceiverId) { UserReceiverId = String(i) }
+            else { UserReceiverId = nil }
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        if let h = try? container.decode(String.self, forKey: .hash) {
+            hash = h
+        } else if let th = try? container.decode(String.self, forKey: .tx_hash) {
+            hash = th
+        } else if let tbh = try? container.decode(String.self, forKey: .transaction_hash) {
+            hash = tbh
+        } else {
+            hash = ""
+        }
+        
+        from_address = try? container.decode(String.self, forKey: .from_address)
+        to_address = try? container.decode(String.self, forKey: .to_address)
+        
+        if let vInt = try? container.decode(Int64.self, forKey: .value) {
+            value = vInt
+        } else if let vStr = try? container.decode(String.self, forKey: .value), let v = Int64(vStr) {
+            value = v
+        } else {
+            value = nil
+        }
+        
+        if let tInt = try? container.decode(Int64.self, forKey: .transaction_timestamp) {
+            transaction_timestamp = tInt
+        } else if let tStr = try? container.decode(String.self, forKey: .transaction_timestamp), let t = Int64(tStr) {
+            transaction_timestamp = t
+        } else {
+            transaction_timestamp = nil
+        }
+        
+        var fName = try? container.decode(String.self, forKey: .from_username)
+        if fName == nil { fName = try? container.decode(String.self, forKey: .sender_name) }
+        if fName == nil, let user = try? container.decode(MmnUser.self, forKey: .from_user) {
+            fName = user.username ?? user.name
+        }
+        from_username = fName
+        
+        var tName = try? container.decode(String.self, forKey: .to_username)
+        if tName == nil { tName = try? container.decode(String.self, forKey: .receiver_name) }
+        if tName == nil, let user = try? container.decode(MmnUser.self, forKey: .to_user) {
+            tName = user.username ?? user.name
+        }
+        to_username = tName
+        
+        sender_name = fName
+        receiver_name = tName
+        
+        var noteStr = try? container.decode(String.self, forKey: .note)
+        if noteStr == nil { noteStr = try? container.decode(String.self, forKey: .data) }
+        if noteStr == nil { noteStr = try? container.decode(String.self, forKey: .text_data) }
+        note = noteStr
+        
+        if let str = try? container.decode(String.self, forKey: .extra_info) {
+            extra_info = str
+        } else if let wrapper = try? container.decode(ExtraInfoWrapper.self, forKey: .extra_info) {
+            var dict: [String: String] = [:]
+            if let s = wrapper.UserSenderId { dict["UserSenderId"] = s }
+            if let r = wrapper.UserReceiverId { dict["UserReceiverId"] = r }
+            if let data = try? JSONSerialization.data(withJSONObject: dict),
+               let str = String(data: data, encoding: .utf8) {
+                extra_info = str
+            } else {
+                extra_info = nil
+            }
+        } else {
+            extra_info = nil
+        }
+    }
+}
+
 final class MmnClient: Sendable {
     static let shared = MmnClient()
 
@@ -48,6 +178,75 @@ final class MmnClient: Sendable {
     func addTx(signed: [String: Any]) async throws -> MmnAddTxResult {
         let r: MmnAddTxResult = try await jsonRPC(method: "tx.addtx", params: signed)
         return r
+    }
+
+    func getTransactionDetail(hash: String) async throws -> MmnTransaction {
+        var indexerURLString = baseURL.absoluteString.replacingOccurrences(of: "mmn-api", with: "indexer-api")
+        if !indexerURLString.hasSuffix("/") { indexerURLString += "/" }
+        indexerURLString += "1337/tx/\(hash)/detail"
+        
+        guard let url = URL(string: indexerURLString) else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        
+        let (data, response) = try await session.data(for: req)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse)
+        }
+        
+        struct Resp: Decodable {
+            let data: RespData
+        }
+        struct RespData: Decodable {
+            let transaction: MmnTransaction
+        }
+        
+        let r = try JSONDecoder().decode(Resp.self, from: data)
+        return r.data.transaction
+    }
+
+    func getTransactionHistory(address: String, filter: String, timeStamp: String? = nil, lastHash: String? = nil) async throws -> [MmnTransaction] {
+        var indexerURLString = baseURL.absoluteString.replacingOccurrences(of: "mmn-api", with: "indexer-api")
+        if !indexerURLString.hasSuffix("/") { indexerURLString += "/" }
+        indexerURLString += "1337/transactions/infinite"
+        
+        guard var comps = URLComponents(string: indexerURLString) else { throw URLError(.badURL) }
+        var queryItems = [URLQueryItem(name: "limit", value: "20")]
+        
+        if let ts = timeStamp { queryItems.append(URLQueryItem(name: "timestamp_lt", value: ts)) }
+        if let lh = lastHash { queryItems.append(URLQueryItem(name: "last_hash", value: lh)) }
+        
+        if filter == "2" || filter == "SENT" || filter == "outgoing" {
+            queryItems.append(URLQueryItem(name: "filter_from_address", value: address))
+        } else if filter == "1" || filter == "RECEIVED" || filter == "incoming" {
+            queryItems.append(URLQueryItem(name: "filter_to_address", value: address))
+        } else {
+            queryItems.append(URLQueryItem(name: "wallet_address", value: address))
+        }
+        
+        comps.queryItems = queryItems
+        guard let finalURL = comps.url else { throw URLError(.badURL) }
+        
+        var req = URLRequest(url: finalURL)
+        req.httpMethod = "GET"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        
+        struct IndexerResponse: Decodable {
+            let data: [MmnTransaction]?
+        }
+        
+        let (data, response) = try await session.data(for: req)
+        
+        if let httpRes = response as? HTTPURLResponse, !(200...299).contains(httpRes.statusCode) {
+            let errorMsg = String(data: data, encoding: .utf8) ?? "none"
+            if httpRes.statusCode >= 500 {
+                throw NSError(domain: "MmnClient", code: httpRes.statusCode, userInfo: [NSLocalizedDescriptionKey: L(L10n.Error.somethingWentWrong)])
+            }
+            throw URLError(.badServerResponse)
+        }
+        let decoder = JSONDecoder()
+        let res = try decoder.decode(IndexerResponse.self, from: data)
+        return res.data ?? []
     }
 
     static func addressFromUserId(_ userId: String) -> String {

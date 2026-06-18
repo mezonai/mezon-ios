@@ -43,6 +43,26 @@ enum L10n {
         static let sendTokenLogLinePrefix = "profile.sendTokenLogLinePrefix"
         static let mezonTransfer       = "profile.mezonTransfer"
         static let historyTransaction = "profile.historyTransaction"
+        static let historyAll        = "profile.historyAll"
+        static let historyIncoming   = "profile.historyIncoming"
+        static let historyOutgoing   = "profile.historyOutgoing"
+        static let historyReceived   = "profile.historyReceived"
+        static let historySent       = "profile.historySent"
+        static let historyTransactionId = "profile.historyTransactionId"
+        static let historyDetailTitle = "profile.historyDetailTitle"
+        static let historyStatus     = "profile.historyStatus"
+        static let historyCompleted  = "profile.historyCompleted"
+        static let historyFailed     = "profile.historyFailed"
+        static let historyTime       = "profile.historyTime"
+        static let historyFee        = "profile.historyFee"
+        static let historyHash       = "profile.historyHash"
+        static let historyFrom       = "profile.historyFrom"
+        static let historyTo         = "profile.historyTo"
+        static let historySenderName = "profile.historySenderName"
+        static let historyReceiverName = "profile.historyReceiverName"
+        static let historyUnknownUser = "profile.historyUnknownUser"
+        static let historyTransactionIdCopied = "profile.historyTransactionIdCopied"
+        static let historyValue      = "profile.historyValue"
         static let aboutMe           = "profile.aboutMe"
         static let mezonMemberSince   = "profile.mezonMemberSince"
         static let yourFriends       = "profile.yourFriends"
@@ -1027,6 +1047,8 @@ enum L10n {
         static let leaveGroup = "dmMenu.leaveGroup"
         static let deleteGroup = "dmMenu.deleteGroup"
         static let closeDm = "dmMenu.closeDm"
+        static let closeDmConfirmTitle = "dmMenu.closeDmConfirmTitle"
+        static let closeDmConfirmMessage = "dmMenu.closeDmConfirmMessage"
         static let markAsRead = "dmMenu.markAsRead"
         static let muteConversation = "dmMenu.muteConversation"
         static let unmuteConversation = "dmMenu.unmuteConversation"
@@ -2257,8 +2279,28 @@ extension L10n {
         "profile.sendTokenErrSessionExpired": "Your session has expired",
         "profile.sendTokenErrLoginAgain": "Please log in again to continue.",
         "profile.sendTokenLogLinePrefix": "Funds Transferred:",
-        "profile.mezonTransfer":      "Mezon transfer",
+        "profile.mezonTransfer": "Mezon Transfer",
         "profile.historyTransaction": "History Transaction",
+        "profile.historyAll": "All",
+        "profile.historyIncoming": "Incoming",
+        "profile.historyOutgoing": "Outgoing",
+        "profile.historyReceived": "Received",
+        "profile.historySent": "Sent",
+        "profile.historyTransactionId": "Transaction ID:",
+        "profile.historyDetailTitle": "Transaction Details",
+        "profile.historyStatus": "Status",
+        "profile.historyCompleted": "Completed",
+        "profile.historyFailed": "Failed",
+        "profile.historyTime": "Time",
+        "profile.historyFee": "Network Fee",
+        "profile.historyHash": "Hash",
+        "profile.historyFrom": "From",
+        "profile.historyTo": "To",
+        "profile.historySenderName": "Sender name",
+        "profile.historyReceiverName": "Receiver name",
+        "profile.historyUnknownUser": "Unknown",
+        "profile.historyTransactionIdCopied": "Transaction ID copied",
+        "profile.historyValue": "Value",
         "profile.aboutMe": "About Me",
         "profile.mezonMemberSince": "Mezon Member Since",
         "profile.yourFriends": "Your Friends",
@@ -2401,6 +2443,8 @@ extension L10n {
         "dmMenu.leaveGroup": "Leave Group",
         "dmMenu.deleteGroup": "Delete Group",
         "dmMenu.closeDm": "Close DM",
+        "dmMenu.closeDmConfirmTitle": "Close %@",
+        "dmMenu.closeDmConfirmMessage": "Are you sure you want to close this conversation with %@?",
         "dmMenu.markAsRead": "Mark as Read",
         "dmMenu.muteConversation": "Mute Conversation",
         "dmMenu.unmuteConversation": "Unmute Conversation",
@@ -3338,6 +3382,28 @@ extension L10n {
         "friendRequest.toastWaitAccept": "Bạn đã gửi yêu cầu kết bạn tới người dùng này rồi!",
         "friendRequest.toastIncomingReq": "Người này đã gửi yêu cầu kết bạn cho bạn",
         "friendRequest.toastSendSuccess": "Yêu cầu kết bạn đã được gửi thành công!",
+        "profile.mezonTransfer": "Chuyển tiền qua Mezon",
+        "profile.historyTransaction": "Lịch sử giao dịch",
+        "profile.historyAll": "Tất cả",
+        "profile.historyIncoming": "Tiền vào",
+        "profile.historyOutgoing": "Tiền ra",
+        "profile.historyReceived": "Nhận tiền",
+        "profile.historySent": "Chuyển tiền",
+        "profile.historyTransactionId": "Mã giao dịch:",
+        "profile.historyDetailTitle": "Chi tiết giao dịch",
+        "profile.historyStatus": "Trạng thái",
+        "profile.historyCompleted": "Thành công",
+        "profile.historyFailed": "Thất bại",
+        "profile.historyTime": "Thời gian",
+        "profile.historyFee": "Phí mạng",
+        "profile.historyHash": "Mã giao dịch",
+        "profile.historyFrom": "Từ",
+        "profile.historyTo": "Đến",
+        "profile.historySenderName": "Tên người gửi",
+        "profile.historyReceiverName": "Tên người nhận",
+        "profile.historyUnknownUser": "Không xác định",
+        "profile.historyTransactionIdCopied": "Đã sao chép mã giao dịch",
+        "profile.historyValue": "Số lượng",
 
         "friendList.title": "Bạn bè",
         "friendList.friendCount": "Bạn bè",
@@ -3439,8 +3505,6 @@ extension L10n {
         "profile.sendTokenErrSessionExpired": "Phiên đăng nhập đã hết hạn",
         "profile.sendTokenErrLoginAgain": "Vui lòng đăng nhập lại để tiếp tục",
         "profile.sendTokenLogLinePrefix": "Biến động số dư:",
-        "profile.mezonTransfer":      "Chuyển khoản Mezon",
-        "profile.historyTransaction": "Lịch sử giao dịch",
         "profile.aboutMe": "Về tôi",
         "profile.mezonMemberSince": "Thành viên Mezon từ",
         "profile.yourFriends": "Bạn bè",
@@ -3584,6 +3648,8 @@ extension L10n {
         "dmMenu.leaveGroup": "Rời nhóm",
         "dmMenu.deleteGroup": "Xóa nhóm",
         "dmMenu.closeDm": "Đóng tin nhắn",
+        "dmMenu.closeDmConfirmTitle": "Đóng %@",
+        "dmMenu.closeDmConfirmMessage": "Bạn có chắc chắn muốn đóng cuộc trò chuyện với %@ không?",
         "dmMenu.markAsRead": "Đánh dấu là đã đọc",
         "dmMenu.muteConversation": "Tắt thông báo",
         "dmMenu.unmuteConversation": "Bật thông báo",
