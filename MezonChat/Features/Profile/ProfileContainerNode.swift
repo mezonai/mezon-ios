@@ -56,6 +56,11 @@ final class ProfileContainerNode: ASDisplayNode {
     }()
     private let statusBubbleContainer = UIView()
     private let statusBubbleShapeLayer = CAShapeLayer()
+    private let statusTextLabel = UILabel()
+    private static let maxStatusLines = 3
+    private static let statusFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
+    private var statusBubbleText: String = ""
+    private var statusBubbleHasCustom: Bool = false
 
     private let nameTapArea = UIView()
     private let nameLabel = UILabel()
@@ -236,37 +241,45 @@ final class ProfileContainerNode: ASDisplayNode {
     private func configureAddStatusButton(user: User?) {
         let custom = user?.customStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasCustom = !custom.isEmpty
+        statusBubbleText = custom
+        statusBubbleHasCustom = hasCustom
+
+        statusTextLabel.textColor = .mezonTextPrimary
+        statusTextLabel.text = hasCustom ? custom : nil
+        statusTextLabel.isHidden = !hasCustom
+
         if #available(iOS 15.0, *) {
             var statusCfg = UIButton.Configuration.plain()
-            if !hasCustom {
-                statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-                statusCfg.imagePadding = 6
-            } else {
+            statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
+            if hasCustom {
                 statusCfg.image = nil
                 statusCfg.imagePadding = 0
+                statusCfg.attributedTitle = nil
+            } else {
+                statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
+                statusCfg.imagePadding = 6
+                statusCfg.baseForegroundColor = .mezonTextPrimary
+                statusCfg.attributedTitle = AttributedString(
+                    L(L10n.Profile.addStatus),
+                    attributes: AttributeContainer([
+                        .font: Self.statusFont,
+                        .foregroundColor: UIColor.mezonTextPrimary
+                    ])
+                )
             }
-            statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
-            statusCfg.baseForegroundColor = .mezonTextPrimary
-            let title = hasCustom ? custom : L(L10n.Profile.addStatus)
-            statusCfg.attributedTitle = AttributedString(
-                title,
-                attributes: AttributeContainer([
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                    .foregroundColor: UIColor.mezonTextPrimary
-                ])
-            )
             addStatusButton.configuration = statusCfg
         } else {
             if hasCustom {
                 addStatusButton.setImage(nil, for: .normal)
+                addStatusButton.setTitle(nil, for: .normal)
             } else {
                 addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
+                addStatusButton.setTitle(L(L10n.Profile.addStatus), for: .normal)
+                addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
+                addStatusButton.titleLabel?.font = Self.statusFont
+                addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
+                addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
             }
-            addStatusButton.setTitle(hasCustom ? custom : L(L10n.Profile.addStatus), for: .normal)
-            addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
-            addStatusButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
-            addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
-            addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
         }
     }
 
@@ -427,6 +440,15 @@ final class ProfileContainerNode: ASDisplayNode {
             addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
         }
         statusBubbleContainer.addSubview(addStatusButton)
+
+        statusTextLabel.numberOfLines = Self.maxStatusLines
+        statusTextLabel.lineBreakMode = .byTruncatingTail
+        statusTextLabel.font = Self.statusFont
+        statusTextLabel.textColor = .mezonTextPrimary
+        statusTextLabel.isUserInteractionEnabled = false
+        statusTextLabel.isHidden = true
+        statusBubbleContainer.addSubview(statusTextLabel)
+
         fixedHeaderView.addSubview(statusBubbleContainer)
 
         addStatusButton.addTarget(self, action: #selector(addStatusButtonTapped), for: .touchUpInside)
@@ -909,12 +931,38 @@ final class ProfileContainerNode: ASDisplayNode {
             height: dotSize
         )
 
-        addStatusButton.sizeToFit()
         let statusX = avatarContainerView.frame.maxX + 12.sw
-        let bubbleBodyH: CGFloat = 44.sh
         let tailH: CGFloat = 8.sh
-        let bubbleW = min(addStatusButton.intrinsicContentSize.width + 12, width - statusX - side)
+        let maxBubbleW = width - statusX - side
+        let statusHInset: CGFloat = 12
+        let statusVInset: CGFloat = 28
+        let bubbleBodyH: CGFloat
+        let bubbleW: CGFloat
+        if statusBubbleHasCustom {
+            let statusFont = Self.statusFont
+            let textMaxW = max(0, maxBubbleW - statusHInset)
+            let bounding = (statusBubbleText as NSString).boundingRect(
+                with: CGSize(width: textMaxW, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: statusFont],
+                context: nil
+            )
+            let maxTextH = ceil(statusFont.lineHeight * CGFloat(Self.maxStatusLines))
+            let textH = min(ceil(bounding.height), maxTextH)
+            bubbleW = min(ceil(bounding.width) + statusHInset, maxBubbleW)
+            bubbleBodyH = max(44.sh, textH + statusVInset)
+        } else {
+            addStatusButton.sizeToFit()
+            bubbleW = min(addStatusButton.intrinsicContentSize.width + 12, maxBubbleW)
+            bubbleBodyH = 44.sh
+        }
         let totalBubbleH = bubbleBodyH + tailH
+        statusTextLabel.frame = CGRect(
+            x: statusHInset / 2,
+            y: 0,
+            width: max(0, bubbleW - statusHInset),
+            height: bubbleBodyH
+        )
 
         statusBubbleContainer.frame = CGRect(
             x: statusX,

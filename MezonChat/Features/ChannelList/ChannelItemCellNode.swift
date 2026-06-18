@@ -227,8 +227,10 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     private let imgNode = ASNetworkImageNode()
     private let initNode = ASTextNode2()
     private let proxiedURL: URL?
+    private let originalURL: URL?
 
     private var didLoadImage = false
+    private var usingFallback = false
     private var retryCount = 0
     private static let maxRetries = 4
 
@@ -237,17 +239,20 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
             let absolute = ImgproxyURL.absoluteResourceURL(from: av)
             let px = max(1, Int((s * UIScreen.main.scale).rounded(.up)))
             proxiedURL = URL(string: ImgproxyURL.create(from: absolute, width: px, height: px))
+            originalURL = URL(string: absolute)
         } else {
             proxiedURL = nil
+            originalURL = nil
         }
         super.init()
         automaticallyManagesSubnodes = true
         style.preferredSize = CGSize(width: s, height: s)
         cornerRadius = s / 2
         clipsToBounds = true
-        backgroundColor = UIColor.avatarColor(for: m.username)
+        let avatarSeed = m.username.isEmpty ? m.name : m.username
+        backgroundColor = UIColor.avatarColor(for: avatarSeed)
 
-        let initial = String(m.username.prefix(1)).uppercased()
+        let initial = String(avatarSeed.prefix(1)).uppercased()
         let fontSize: CGFloat = s < 22 ? 9 : 11
         initNode.maximumNumberOfLines = 1
         initNode.attributedText = NSAttributedString(
@@ -263,8 +268,10 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         imgNode.contentMode = .scaleAspectFill
         imgNode.delegate = self
 
-        if let proxiedURL {
-            imgNode.url = proxiedURL
+        let initialURL = proxiedURL ?? originalURL
+        if let initialURL {
+            usingFallback = (proxiedURL == nil)
+            imgNode.url = initialURL
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(handleNetworkStatusChanged(_:)),
@@ -286,9 +293,10 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     }
 
     private func reloadAvatar() {
-        guard let proxiedURL, !didLoadImage else { return }
+        guard !didLoadImage else { return }
+        guard let target = usingFallback ? originalURL : proxiedURL else { return }
         imgNode.url = nil
-        imgNode.url = proxiedURL
+        imgNode.url = target
     }
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
@@ -308,11 +316,19 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
-        guard imageNode === imgNode, !didLoadImage, retryCount < Self.maxRetries else { return }
-        retryCount += 1
-        let delay = Double(retryCount) * 1.5
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.reloadAvatar()
+        guard imageNode === imgNode, !didLoadImage else { return }
+        if retryCount < Self.maxRetries {
+            retryCount += 1
+            let delay = Double(retryCount) * 1.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.reloadAvatar()
+            }
+        } else if !usingFallback, let originalURL, originalURL != proxiedURL {
+            usingFallback = true
+            retryCount = 0
+            DispatchQueue.main.async { [weak self] in
+                self?.reloadAvatar()
+            }
         }
     }
 }

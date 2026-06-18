@@ -488,6 +488,7 @@ final class ChannelListViewController: ViewController {
     private var lastOnboardingState: ClanOnboardingViewState = .hidden
     private var lastMemberOnboardingState: MemberOnboardingViewState = .hidden
     private var memberOnboardingFetchInFlight = false
+    private var memberOnboardingFetchedClanId: Int64?
 
     private var pendingSkeletonRevealItem: DispatchWorkItem?
     private let skeletonRevealDelay: TimeInterval = 0.4
@@ -594,12 +595,14 @@ final class ChannelListViewController: ViewController {
             (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, self.clanId != 0, updatedClanId == self.clanId else { return }
                 self.needsReloadPipe.putNext(())
+                self.channelListNode.reloadVoiceMemberRows()
             })
         )
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
         guard clanId != 0 else { return }
+        guard memberOnboardingFetchedClanId != clanId else { return }
         scheduleMemberOnboardingDataFetch()
     }
 
@@ -923,6 +926,7 @@ final class ChannelListViewController: ViewController {
             defer { self?.memberOnboardingFetchInFlight = false }
             guard let self, self.clanId == clanId else { return }
             await MemberOnboardingProgress.fetchData(context: self.context, clanId: clanId)
+            self.memberOnboardingFetchedClanId = clanId
             self.refreshMemberOnboardingState()
         }
     }

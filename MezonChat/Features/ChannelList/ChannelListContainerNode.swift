@@ -1644,6 +1644,53 @@ final class ChannelListContainerNode: ASDisplayNode {
         cachedRows[section] = rows
         return rows
     }
+
+    private static func isVoiceMemberRow(_ row: ChannelListRow) -> Bool {
+        switch row {
+        case .voiceMembersCollapsed, .voiceMemberExpanded:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var voiceMemberReloadScheduled = false
+
+    func reloadVoiceMemberRows() {
+        guard !voiceMemberReloadScheduled else { return }
+        voiceMemberReloadScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.voiceMemberReloadScheduled = false
+            self.performVoiceMemberRowsReload()
+        }
+    }
+
+    private func performVoiceMemberRowsReload() {
+        guard isNodeLoaded else { return }
+        guard committedSectionCount == tableNode.numberOfSections else { return }
+        let leading = leadingTableSectionsCount
+        var paths: [IndexPath] = []
+        for section in leading..<totalSections {
+            guard section < tableNode.numberOfSections else { continue }
+            guard !isLoadingPlaceholderTableSection(section) else { continue }
+            let catIdx = categoryIndex(forSection: section)
+            guard catIdx >= 0, catIdx < state.categories.count else { continue }
+            let rows = rowsForSection(catIdx)
+            guard tableNode.numberOfRows(inSection: section) == rows.count else { continue }
+            for (r, row) in rows.enumerated() where Self.isVoiceMemberRow(row) {
+                paths.append(IndexPath(row: r, section: section))
+            }
+        }
+        guard !paths.isEmpty else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.reloadRows(at: paths, with: .none)
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        CATransaction.commit()
+    }
 }
 
 extension ChannelListContainerNode: ASTableDataSource {
