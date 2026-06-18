@@ -53,6 +53,11 @@ final class ProfileViewController: ViewController {
             let vc = FriendListViewController(context: self.context)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onHistoryTransactionTapped = { [weak self] in
+            guard let self else { return }
+            let vc = HistoryTransactionViewController(context: self.context)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         displayNode = node
     }
 
