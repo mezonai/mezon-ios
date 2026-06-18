@@ -1047,6 +1047,8 @@ enum L10n {
         static let leaveGroup = "dmMenu.leaveGroup"
         static let deleteGroup = "dmMenu.deleteGroup"
         static let closeDm = "dmMenu.closeDm"
+        static let closeDmConfirmTitle = "dmMenu.closeDmConfirmTitle"
+        static let closeDmConfirmMessage = "dmMenu.closeDmConfirmMessage"
         static let markAsRead = "dmMenu.markAsRead"
         static let muteConversation = "dmMenu.muteConversation"
         static let unmuteConversation = "dmMenu.unmuteConversation"
@@ -2441,6 +2443,8 @@ extension L10n {
         "dmMenu.leaveGroup": "Leave Group",
         "dmMenu.deleteGroup": "Delete Group",
         "dmMenu.closeDm": "Close DM",
+        "dmMenu.closeDmConfirmTitle": "Close %@",
+        "dmMenu.closeDmConfirmMessage": "Are you sure you want to close this conversation with %@?",
         "dmMenu.markAsRead": "Mark as Read",
         "dmMenu.muteConversation": "Mute Conversation",
         "dmMenu.unmuteConversation": "Unmute Conversation",
@@ -3644,6 +3648,8 @@ extension L10n {
         "dmMenu.leaveGroup": "Rời nhóm",
         "dmMenu.deleteGroup": "Xóa nhóm",
         "dmMenu.closeDm": "Đóng tin nhắn",
+        "dmMenu.closeDmConfirmTitle": "Đóng %@",
+        "dmMenu.closeDmConfirmMessage": "Bạn có chắc chắn muốn đóng cuộc trò chuyện với %@ không?",
         "dmMenu.markAsRead": "Đánh dấu là đã đọc",
         "dmMenu.muteConversation": "Tắt thông báo",
         "dmMenu.unmuteConversation": "Bật thông báo",
