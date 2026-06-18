@@ -598,7 +598,7 @@ final class ChatContainerNode: ASDisplayNode {
             return "\(topic.topicId)|\(topic.creatorId)|\(topic.replyCount)"
         }()
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
     }
 
     private static func welcomeFingerprint(_ state: ChatState) -> String {

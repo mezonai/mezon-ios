@@ -2609,7 +2609,7 @@ final class ChatViewController: ViewController {
         }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)"
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -6092,13 +6092,8 @@ final class ChatViewController: ViewController {
         case .forwardAll:
             presentForwardMessage(for: display, includeAdjacentNewer: true)
         case .resend:
-            let msgId = display.message.id
-            let text = display.parsedContent.text
-            context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                sendInputViewController.updateText(text)
-                sendInputViewController.send()
-            }
+            pendingSendingFeedbackBeganAtByMessageId[display.message.id] = Date()
+            sendInputViewController.resendFailedMessage(display: display)
         case .giveACoffee:
             runGiveACoffeeIfPossible(display: display)
         case .createThread:

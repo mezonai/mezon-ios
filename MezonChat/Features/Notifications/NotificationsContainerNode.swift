@@ -78,8 +78,10 @@ struct NotificationsState {
     let items: [NotificationItem]
     let isLoading: Bool
     let isLoadingMore: Bool
+    let hasLoaded: Bool
 
-    static let empty = NotificationsState(items: [], isLoading: false, isLoadingMore: false)
+    static let empty = NotificationsState(
+        items: [], isLoading: false, isLoadingMore: false, hasLoaded: false)
 }
 
 
@@ -430,7 +432,8 @@ final class NotificationsContainerNode: ASDisplayNode {
                 guard let self else { return }
                 self.state = newState
                 self.tableView.reloadData()
-                let isEmpty = newState.items.isEmpty && !newState.isLoading
+                let isEmpty =
+                    newState.items.isEmpty && !newState.isLoading && newState.hasLoaded
                 self.emptyStateStack.isHidden = !isEmpty
                 if newState.isLoading {
                     self.loadingIndicator.startAnimating()

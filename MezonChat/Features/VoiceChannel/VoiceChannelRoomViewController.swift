@@ -1346,6 +1346,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var liveKitBridge: VoiceChannelLiveKitBridge?
     private var connectTask: Task<Void, Never>?
     private var voiceReactionDisposable: Disposable?
+    private var clanUsersUpdatedDisposable: Disposable?
+    private var didRequestClanUsersForAvatars = false
     private var didStartVoiceConnection = false
     private var micButton: UIButton!
     private var camButton: UIButton!
@@ -1746,6 +1748,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         NotificationCenter.default.addObserver(
             self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
 
+        bindClanUsersUpdatedForAvatars()
+
         audioRouteObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
             object: AVAudioSession.sharedInstance(),
@@ -1842,6 +1846,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     deinit {
         voiceReactionDisposable?.dispose()
+        clanUsersUpdatedDisposable?.dispose()
         liveKitReconnectTask?.cancel()
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
@@ -1869,6 +1874,30 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         UIApplication.shared.isIdleTimerDisabled = true
         applyTheme()
         bindVoiceReactionSocketIfActive()
+    }
+
+    private func bindClanUsersUpdatedForAvatars() {
+        guard channel.clanID != 0 else { return }
+        clanUsersUpdatedDisposable?.dispose()
+        let clanId = channel.clanID
+        clanUsersUpdatedDisposable = (context.engine.clanData.clanUsersUpdated.signal()
+            |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == clanId else { return }
+                guard self.liveKitBridge != nil, !self.participantRows.isEmpty else { return }
+                self.updateParticipantTilesInPlace()
+            })
+        ensureClanUsersLoadedForAvatars()
+    }
+
+    private func ensureClanUsersLoadedForAvatars() {
+        guard !didRequestClanUsersForAvatars, channel.clanID != 0 else { return }
+        let clanId = channel.clanID
+        didRequestClanUsersForAvatars = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            self.context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
+        }
     }
 
     private func bindVoiceReactionSocketIfActive() {

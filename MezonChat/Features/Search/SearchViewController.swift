@@ -59,6 +59,7 @@ final class SearchViewController: ViewController {
     private var allMembers: [Mezon_Api_User] = []
     private var filteredMembers: [Mezon_Api_User] = []
     private var clanNicks: [Int64: String] = [:]
+    private var clanAvatars: [Int64: String] = [:]
 
     private var allChannels: [Mezon_Api_ChannelDescription] = []
     private var filteredChannels: [Mezon_Api_ChannelDescription] = []
@@ -67,7 +68,7 @@ final class SearchViewController: ViewController {
     private var searchMessages: [Mezon_Api_SearchMessageDocument] = []
     private var groupedMessages: [(channelId: String, channelLabel: String, messages: [Mezon_Api_SearchMessageDocument])] = []
     private var messageTotalCount: Int32 = 0
-    private var messageCurrentPage: Int32 = 0
+    private var messageCurrentPage: Int32 = 1
     private var isLoadingMessages = false
     private var hasMoreMessages: Bool { Int32(searchMessages.count) < messageTotalCount }
 
@@ -92,6 +93,48 @@ final class SearchViewController: ViewController {
     private func reloadSearchTable() {
         UIView.performWithoutAnimation {
             self.searchNode.tableNode.reloadData()
+        }
+    }
+
+    private func appendMessageRowsIncrementally(oldSectionCounts: [Int]) {
+        let tableNode = searchNode.tableNode
+        let oldSectionCount = oldSectionCounts.count
+        let newSectionCount = groupedMessages.count
+
+        guard newSectionCount >= oldSectionCount else {
+            reloadSearchTable()
+            return
+        }
+
+        var rowInserts: [IndexPath] = []
+        for section in 0..<oldSectionCount {
+            let oldCount = oldSectionCounts[section]
+            let newCount = groupedMessages[section].messages.count
+            guard newCount >= oldCount else {
+                reloadSearchTable()
+                return
+            }
+            for row in oldCount..<newCount {
+                rowInserts.append(IndexPath(row: row, section: section))
+            }
+        }
+
+        var sectionInserts = IndexSet()
+        if newSectionCount > oldSectionCount {
+            sectionInserts.insert(integersIn: oldSectionCount..<newSectionCount)
+        }
+
+        guard !rowInserts.isEmpty || !sectionInserts.isEmpty else { return }
+
+        UIView.performWithoutAnimation {
+            tableNode.performBatchUpdates({
+                if !sectionInserts.isEmpty {
+                    tableNode.insertSections(sectionInserts, with: .none)
+                }
+                if !rowInserts.isEmpty {
+                    tableNode.insertRows(at: rowInserts, with: .none)
+                }
+            }, completion: nil)
         }
     }
 
@@ -167,7 +210,7 @@ final class SearchViewController: ViewController {
         if isChannelScoped {
             if let clanUsers = clanUsersCache {
                 allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-                Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks)
+                Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
             }
         } else {
             if let allUsers = allUsersCache {
@@ -228,7 +271,7 @@ final class SearchViewController: ViewController {
                     if isChannelScoped {
                         let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
                         allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-                        Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks)
+                        Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
                     } else {
                         let users = try await context.account.network.listUserClansByUserId(token: token)
                         allMembers = Self.uniqueUsers(users.users)
@@ -274,7 +317,7 @@ final class SearchViewController: ViewController {
                 if allMembers.isEmpty {
                     let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
                     allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-                    Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks)
+                    Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
                 }
 
                 let response = try await context.account.network.listChannelUsers(
@@ -306,10 +349,13 @@ final class SearchViewController: ViewController {
         }
     }
 
-    private static func buildClanNicks(from clanUsers: [Mezon_Api_ClanUserList.ClanUser], into map: inout [Int64: String]) {
+    private static func buildClanNicks(from clanUsers: [Mezon_Api_ClanUserList.ClanUser], into map: inout [Int64: String], avatars: inout [Int64: String]) {
         for cu in clanUsers {
             if !cu.clanNick.isEmpty {
                 map[cu.user.id] = cu.clanNick
+            }
+            if !cu.clanAvatar.isEmpty {
+                avatars[cu.user.id] = cu.clanAvatar
             }
         }
     }
@@ -403,7 +449,7 @@ final class SearchViewController: ViewController {
         }
 
         if !query.isEmpty || filterUser != nil {
-            messageCurrentPage = 0
+            messageCurrentPage = 1
             searchMessages = []
             fetchMessages()
         } else {
@@ -515,7 +561,9 @@ final class SearchViewController: ViewController {
                     token: token
                 )
 
-                if messageCurrentPage == 0 {
+                let isAppend = messageCurrentPage > 1
+                let oldSectionCounts = isAppend ? groupedMessages.map { $0.messages.count } : []
+                if messageCurrentPage == 1 {
                     searchMessages = response.messages
                 } else {
                     searchMessages.append(contentsOf: response.messages)
@@ -523,13 +571,19 @@ final class SearchViewController: ViewController {
                 messageTotalCount = response.total
                 rebuildGroupedMessages()
                 isLoadingMessages = false
+                setLoadMoreIndicator(false)
 
                 updateTabCounts()
                 if activeTab == .messages {
-                    self.reloadSearchTable()
+                    if isAppend, !oldSectionCounts.isEmpty {
+                        appendMessageRowsIncrementally(oldSectionCounts: oldSectionCounts)
+                    } else {
+                        self.reloadSearchTable()
+                    }
                 }
             } catch {
                 isLoadingMessages = false
+                setLoadMoreIndicator(false)
             }
         }
     }
@@ -537,7 +591,27 @@ final class SearchViewController: ViewController {
     private func loadMoreMessages() {
         guard hasMoreMessages, !isLoadingMessages else { return }
         messageCurrentPage += 1
+        setLoadMoreIndicator(true)
         fetchMessages()
+    }
+
+    private func setLoadMoreIndicator(_ visible: Bool) {
+        let tableView = searchNode.tableNode.view
+        guard visible else {
+            tableView.tableFooterView = nil
+            return
+        }
+        let footer = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 44.sh))
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.color = UIColor.theme.iconSecondary
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        footer.addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+        ])
+        tableView.tableFooterView = footer
     }
 
     private func switchTab(_ tab: SearchTab) {
@@ -593,7 +667,7 @@ final class SearchViewController: ViewController {
         activeTab = .messages
         searchNode.searchBar.textField.text = " "
         searchQuery = ""
-        messageCurrentPage = 0
+        messageCurrentPage = 1
         searchMessages = []
         fetchMessages()
         reloadSearchTable()
@@ -1033,7 +1107,10 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
             let count = group.messages.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { MessageSearchCellNode(document: doc, isFirst: isFirst, isLast: isLast) }
+            let senderId = Int64(doc.senderID) ?? 0
+            let clanNick = clanNicks[senderId]
+            let clanAvatar = clanAvatars[senderId]
+            return { MessageSearchCellNode(document: doc, clanNick: clanNick, clanAvatar: clanAvatar, isFirst: isFirst, isLast: isLast) }
         }
     }
 
@@ -1811,7 +1888,7 @@ final class MessageSearchCellNode: ASCellNode {
     }()
     private static let relativeFormatter = RelativeDateTimeFormatter()
 
-    init(document: Mezon_Api_SearchMessageDocument, isFirst: Bool = false, isLast: Bool = false) {
+    init(document: Mezon_Api_SearchMessageDocument, clanNick: String? = nil, clanAvatar: String? = nil, isFirst: Bool = false, isLast: Bool = false) {
         self.isFirst = isFirst
         self.isLast = isLast
         super.init()
@@ -1826,11 +1903,16 @@ final class MessageSearchCellNode: ASCellNode {
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = t.tertiary
-        if !document.avatarURL.isEmpty, let url = URL(string: ImgproxyURL.create(from: document.avatarURL, width: 150, height: 150)) {
+        let resolvedAvatar = (clanAvatar?.isEmpty == false ? clanAvatar : nil) ?? (document.avatarURL.isEmpty ? nil : document.avatarURL)
+        if let resolvedAvatar, let url = URL(string: ImgproxyURL.create(from: resolvedAvatar, width: 150, height: 150)) {
             avatarNode.url = url
         }
 
-        let displayName = document.displayName.isEmpty ? document.username : document.displayName
+        let displayName: String = {
+            if let clanNick, !clanNick.isEmpty { return clanNick }
+            if !document.displayName.isEmpty { return document.displayName }
+            return document.username
+        }()
         senderNode.maximumNumberOfLines = 1
         senderNode.attributedText = NSAttributedString(
             string: displayName,

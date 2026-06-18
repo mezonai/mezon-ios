@@ -201,7 +201,7 @@ final class MediaGalleryNode: ASDisplayNode {
                 url = ImgproxyURL.attachmentURL(
                     from: att.url, width: fullPx, height: fullPx, resizeType: "fit")
                 placeholderURL = ImgproxyURL.attachmentURL(
-                    from: att.url, width: 100, height: 100, resizeType: "fit")
+                    from: att.url, width: 150, height: 150, resizeType: "fit")
             }
             let ts: Date? =
                 att.createTimeSeconds > 0
@@ -317,7 +317,7 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
                let attachment = attachments[indexPath.item]
         let isVideo = Self.isVideo(attachment)
         let imageThumbURL = ImgproxyURL.attachmentURL(
-            from: attachment.url, width: 100, height: 100, resizeType: "fit")
+            from: attachment.url, width: 150, height: 150, resizeType: "fit")
         let index = indexPath.item
         return { [weak self] in
             let cell = MediaThumbCellNode(

@@ -30,17 +30,41 @@ enum ComposerContentPayloadBuilder {
     }
 
 
+    private static func isEffectiveBoldContent(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).contains { $0 != "*" }
+    }
+
     private static func stripBoldWrappers(_ text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: #"\*\*([\s\S]*?)\*\*"#, options: []) else { return text }
-        var result = text
-        for _ in 0..<500 {
-            let ns = result as NSString
-            let full = NSRange(location: 0, length: ns.length)
-            let new = regex.stringByReplacingMatches(in: result, options: [], range: full, withTemplate: "$1")
-            if new == result { break }
-            result = new
+        let boldPrefix = "**"
+        let ns = text as NSString
+        let len = ns.length
+        let bpLen = (boldPrefix as NSString).length
+        var segments: [String] = []
+        var i = 0
+
+        while i < len {
+            let start = ns.range(of: boldPrefix, range: NSRange(location: i, length: len - i)).location
+            if start == NSNotFound {
+                segments.append(ns.substring(from: i))
+                break
+            }
+            if start > i {
+                segments.append(ns.substring(with: NSRange(location: i, length: start - i)))
+            }
+            let end = ns.range(of: boldPrefix, range: NSRange(location: start + bpLen, length: len - (start + bpLen))).location
+            if end == NSNotFound {
+                segments.append(ns.substring(from: start))
+                break
+            }
+            let inner = ns.substring(with: NSRange(location: start + bpLen, length: end - (start + bpLen)))
+            if isEffectiveBoldContent(inner) {
+                segments.append(inner)
+            } else {
+                segments.append(ns.substring(with: NSRange(location: start, length: end + bpLen - start)))
+            }
+            i = end + bpLen
         }
-        return result
+        return segments.joined()
     }
 
 
@@ -133,18 +157,7 @@ enum ComposerContentPayloadBuilder {
     }
 
     private static func getCleanLenBold(_ str: String) -> Int {
-        var s = str
-        guard let r = try? NSRegularExpression(pattern: #"\*\*(.*?)\*\*"#, options: []) else {
-            return (str as NSString).length
-        }
-        for _ in 0..<200 {
-            let ns = s as NSString
-            let full = NSRange(location: 0, length: ns.length)
-            guard let m = r.firstMatch(in: s, options: [], range: full) else { break }
-            let inner = ns.substring(with: m.range(at: 1))
-            s = ns.replacingCharacters(in: m.range, with: inner)
-        }
-        return (s as NSString).length
+        stripBoldWrappers(str).utf16.count
     }
 
 
@@ -168,12 +181,14 @@ enum ComposerContentPayloadBuilder {
 
             cleanedPosition += getCleanLen(segmentBefore)
 
-            if boldText.trimmingCharacters(in: .whitespacesAndNewlines).count > 0 {
+            if isEffectiveBoldContent(boldText) {
                 let boldTextCleanLen = getCleanLen(boldText)
                 let startIndex = cleanedPosition
                 let endIndex = startIndex + boldTextCleanLen
                 bolds.append(["type": "b", "s": startIndex, "e": endIndex])
                 cleanedPosition += boldTextCleanLen
+            } else {
+                cleanedPosition += getCleanLen(ns.substring(with: NSRange(location: start, length: end + bpLen - start)))
             }
 
             i = end + bpLen

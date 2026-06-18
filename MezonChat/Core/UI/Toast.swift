@@ -290,6 +290,9 @@ private final class ToastView: UIView {
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         addGestureRecognizer(tap)
 
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        addGestureRecognizer(pan)
+
         let leftBar = UIView()
         leftBar.backgroundColor = config.accentColor
         leftBar.translatesAutoresizingMaskIntoConstraints = false
@@ -395,6 +398,35 @@ private final class ToastView: UIView {
     @objc private func handleTap() {
         onTap?()
         onClose?()
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let translationY = gesture.translation(in: self).y
+        switch gesture.state {
+        case .changed:
+            transform = CGAffineTransform(translationX: 0, y: min(0, translationY))
+        case .ended, .cancelled:
+            let velocityY = gesture.velocity(in: self).y
+            if translationY < -24.sh || velocityY < -500 {
+                dismissBySwipe()
+            } else {
+                UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseOut) {
+                    self.transform = .identity
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    private func dismissBySwipe() {
+        let target = -(bounds.height + 80.sh)
+        UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseIn) {
+            self.transform = CGAffineTransform(translationX: 0, y: target)
+            self.alpha = 0
+        } completion: { _ in
+            self.onClose?()
+        }
     }
 }
 

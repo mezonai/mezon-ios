@@ -71,22 +71,19 @@ final class DmListItemCell: UITableViewCell {
     private static let unreadNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
     private static let readNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
 
-    private struct PreviewCacheKey: Hashable {
+    private struct PreviewBodyKey: Hashable {
         let channelId: Int64
         let hasLastSentMessage: Bool
         let messageId: Int64
         let timestampSeconds: UInt32
         let senderId: Int64
-        let content: String
-        let lastSeenTimestampSeconds: UInt32
-        let updateTimeSeconds: UInt32
-        let createTimeSeconds: UInt32
-        let relativeMinuteBucket: UInt32
+        let contentByteCount: Int
     }
 
-    private static var previewCache: [PreviewCacheKey: (String, String)] = [:]
-    private static var previewCacheOrder: [PreviewCacheKey] = []
-    private static let previewCacheLimit = 400
+    private static var previewBodyCache: [PreviewBodyKey: String] = [:]
+    private static var previewBodyCacheOrder: [PreviewBodyKey] = []
+    private static let previewBodyCacheLimit = 400
+    private static var absoluteDateCache: [UInt32: String] = [:]
     private static let urlDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     private static let relativeDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -106,7 +103,6 @@ final class DmListItemCell: UITableViewCell {
         avatarLoadGeneration += 1
         isAvatarLoadInFlight = false
         configuredAvatarURLString = nil
-        hasPreviewLayout = nil
         avatarImageView.image = nil
         textAvatar.showImageMode()
         groupIconView.isHidden = true
@@ -213,15 +209,16 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.isHidden = !isOnline
 
             let username = channel.usernames.first ?? ""
+            let avatarSeed = username.isEmpty ? displayName : username
 
             if let urlString = resolvedAvatarURL, let url = URL(string: urlString) {
-                loadImage(url: url, fallbackUsername: username)
+                loadImage(url: url, fallbackUsername: avatarSeed)
             } else {
                 avatarLoadGeneration += 1
                 isAvatarLoadInFlight = false
                 configuredAvatarURLString = nil
                 avatarImageView.image = nil
-                textAvatar.configure(username: username, fontSize: 16.sf)
+                textAvatar.configure(username: avatarSeed, fontSize: 16.sf)
             }
         }
 
@@ -300,42 +297,27 @@ final class DmListItemCell: UITableViewCell {
 
     private func lastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
         let msg = channel.lastSentMessage
-        let key = PreviewCacheKey(
+        let time = previewTimeString(channel: channel, msg: msg)
+        let key = PreviewBodyKey(
             channelId: channel.channelID,
             hasLastSentMessage: channel.hasLastSentMessage,
             messageId: msg.id,
             timestampSeconds: msg.timestampSeconds,
             senderId: msg.senderID,
-            content: msg.content,
-            lastSeenTimestampSeconds: channel.lastSeenMessage.timestampSeconds,
-            updateTimeSeconds: channel.updateTimeSeconds,
-            createTimeSeconds: channel.createTimeSeconds,
-            relativeMinuteBucket: UInt32(Date().timeIntervalSince1970 / 60)
+            contentByteCount: msg.content.utf8.count
         )
-        if let cached = Self.previewCache[key] {
-            return cached
+        if let cachedBody = Self.previewBodyCache[key] {
+            return (cachedBody, time)
         }
-        let value = computeLastMessagePreview(channel: channel)
-        Self.storePreviewCache(value, for: key)
-        return value
+        let body = computeLastMessagePreviewBody(channel: channel, msg: msg)
+        Self.storePreviewBodyCache(body, for: key)
+        return (body, time)
     }
 
-    private static func storePreviewCache(_ value: (String, String), for key: PreviewCacheKey) {
-        guard previewCache[key] == nil else { return }
-        previewCache[key] = value
-        previewCacheOrder.append(key)
-        if previewCacheOrder.count > previewCacheLimit {
-            let overflow = previewCacheOrder.count - previewCacheLimit
-            let removed = previewCacheOrder.prefix(overflow)
-            for key in removed {
-                previewCache.removeValue(forKey: key)
-            }
-            previewCacheOrder.removeFirst(overflow)
-        }
-    }
-
-    private func computeLastMessagePreview(channel: Mezon_Api_ChannelDescription) -> (String, String) {
-        let msg = channel.lastSentMessage
+    private func previewTimeString(
+        channel: Mezon_Api_ChannelDescription,
+        msg: Mezon_Api_ChannelMessageHeader
+    ) -> String {
         let hasHeaderPayload =
             channel.hasLastSentMessage
             || msg.timestampSeconds > 0
@@ -343,18 +325,45 @@ final class DmListItemCell: UITableViewCell {
             || msg.id != 0
             || msg.senderID != 0
 
-
         if !hasHeaderPayload {
             let ts = max(
                 channel.updateTimeSeconds,
                 channel.lastSeenMessage.timestampSeconds,
                 channel.createTimeSeconds
             )
-            let time = ts > 0 ? formatRelativeTime(timestamp: ts) : ""
-            return ("", time)
+            return ts > 0 ? formatRelativeTime(timestamp: ts) : ""
         }
+        return formatRelativeTime(timestamp: msg.timestampSeconds)
+    }
 
-        let time = formatRelativeTime(timestamp: msg.timestampSeconds)
+    private static func storePreviewBodyCache(_ value: String, for key: PreviewBodyKey) {
+        guard previewBodyCache[key] == nil else { return }
+        previewBodyCache[key] = value
+        previewBodyCacheOrder.append(key)
+        if previewBodyCacheOrder.count > previewBodyCacheLimit {
+            let overflow = previewBodyCacheOrder.count - previewBodyCacheLimit
+            let removed = previewBodyCacheOrder.prefix(overflow)
+            for key in removed {
+                previewBodyCache.removeValue(forKey: key)
+            }
+            previewBodyCacheOrder.removeFirst(overflow)
+        }
+    }
+
+    private func computeLastMessagePreviewBody(
+        channel: Mezon_Api_ChannelDescription,
+        msg: Mezon_Api_ChannelMessageHeader
+    ) -> String {
+        let hasHeaderPayload =
+            channel.hasLastSentMessage
+            || msg.timestampSeconds > 0
+            || !msg.content.isEmpty
+            || msg.id != 0
+            || msg.senderID != 0
+
+        if !hasHeaderPayload {
+            return ""
+        }
 
         let preview: String
         if let payload = Self.messageContentPayload(from: msg.content) {
@@ -373,12 +382,12 @@ final class DmListItemCell: UITableViewCell {
         let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             if Self.shouldInferAttachmentOnlyListPreview(msg: msg) {
-                return (Self.attachmentBracketPreviewText(), time)
+                return Self.attachmentBracketPreviewText()
             }
-            return (Self.previewWhenNoMessageBody(), time)
+            return Self.previewWhenNoMessageBody()
         }
         let body = Self.normalizeJsonEscapedSlashes(in: preview)
-        return (Self.appendPreviewEllipsisIfTruncated(body), time)
+        return Self.appendPreviewEllipsisIfTruncated(body)
     }
 
     private static func appendPreviewEllipsisIfTruncated(_ body: String) -> String {
@@ -652,6 +661,9 @@ final class DmListItemCell: UITableViewCell {
         if diff < 3600 { return "\(Int(diff / 60))m" }
         if diff < 86400 { return "\(Int(diff / 3600))h" }
         if diff < 604800 { return "\(Int(diff / 86400))d" }
-        return Self.relativeDateFormatter.string(from: date)
+        if let cached = Self.absoluteDateCache[timestamp] { return cached }
+        let formatted = Self.relativeDateFormatter.string(from: date)
+        Self.absoluteDateCache[timestamp] = formatted
+        return formatted
     }
 }

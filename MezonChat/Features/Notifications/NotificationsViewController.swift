@@ -18,6 +18,8 @@ final class NotificationsViewController: ViewController {
     private(set) var isLoadingMore: Bool = false
     private(set) var currentCategory: Int32 = 1
 
+    private var loadedCategories: Set<Int32> = []
+
     private var dataDisposable: Disposable?
 
     private var notificationsNode: NotificationsContainerNode {
@@ -89,27 +91,22 @@ final class NotificationsViewController: ViewController {
     func fetchNotifications(category: Int32, isLoadMore: Bool = false) async {
         if isLoadMore {
             guard !isLoadingMore else { return }
+            setIsLoadingMore(true)
         } else {
             guard !isLoading else { return }
+            setIsLoading(true)
         }
+
         let token = await context.getToken()
         let clanId = context.currentClanId
 
-        if isLoadMore, token == nil { return }
+        if isLoadMore, token == nil {
+            setIsLoadingMore(false)
+            return
+        }
 
         if category == 4 {
             dataDisposable?.dispose()
-            if let token {
-                asyncDetached { [weak self] in
-                    guard let self else { return }
-                    do {
-                        try await context.engine.topicDiscussion.listTopics(
-                            clanId: clanId, token: token)
-                    } catch {
-                    }
-                }
-            }
-
             dataDisposable =
                 (context.engine.data.subscribe(
                     MezonEngine.EngineData.Item.TopicList(clanId: clanId)
@@ -117,18 +114,26 @@ final class NotificationsViewController: ViewController {
                     guard let self else { return }
                     self.setItems(self.enrichTopicItems(topics))
                 })
+
+            if let token {
+                do {
+                    try await context.engine.topicDiscussion.listTopics(
+                        clanId: clanId, token: token)
+                } catch {
+                }
+            }
+            loadedCategories.insert(category)
+            setIsLoading(false)
             return
         }
 
         var notificationId: Int64 = 0
         if isLoadMore, let last = items.last {
             notificationId = last.id
-            setIsLoadingMore(true)
-        } else {
-            setIsLoading(true)
         }
 
         defer {
+            loadedCategories.insert(category)
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
         }
 
@@ -285,7 +290,8 @@ final class NotificationsViewController: ViewController {
 
     var currentState: NotificationsState {
         return NotificationsState(
-            items: items, isLoading: isLoading, isLoadingMore: isLoadingMore)
+            items: items, isLoading: isLoading, isLoadingMore: isLoadingMore,
+            hasLoaded: loadedCategories.contains(currentCategory))
     }
 
     func stateSignal() -> Signal<NotificationsState, NoError> {

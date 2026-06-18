@@ -670,6 +670,23 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    func resendFailedSession(context: AccountContext, messageId: String) -> Bool {
+        guard let session = session(forKey: messageId), session.aborted else { return false }
+        session.aborted = false
+        session.finished = false
+        context.account.postbox.write { tx in
+            if let record = tx.getMessageById(messageId) {
+                tx.registerResendDuplicateGuard(senderId: record.senderId, content: record.content)
+            }
+            tx.markMessagePending(id: messageId)
+        }
+        Task { @MainActor in
+            await self.runUploads(session, context: context, prepare: nil)
+        }
+        return true
+    }
+
+    @MainActor
     private func mentionsForPresignSync(
         _ session: ImageUploadSession,
         context: AccountContext
