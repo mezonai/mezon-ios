@@ -191,28 +191,75 @@ final class ImageCache {
         return downloadImage(url: url, key: urlString, completion: completion)
     }
 
+    private static let maxImageDownloadRetries = 2
+    private static let imageDownloadRetryBackoff: [TimeInterval] = [0.6, 1.8]
+
+    static func responseStatusAcceptable(_ response: URLResponse?) -> Bool {
+        guard let http = response as? HTTPURLResponse else { return true }
+        return (200..<300).contains(http.statusCode)
+    }
+
+    static func isCancellation(_ error: Error?) -> Bool {
+        guard let e = error as NSError? else { return false }
+        return e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled
+    }
+
+    private static func retryDelay(forAttempt attempt: Int) -> TimeInterval {
+        imageDownloadRetryBackoff[min(attempt, imageDownloadRetryBackoff.count - 1)]
+    }
+
     @discardableResult
     private func downloadImage(
         url: URL,
         key: String,
         completion: @escaping (UIImage?) -> Void
     ) -> URLSessionDataTask {
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+        return startImageDownload(url: url, key: key, attempt: 0, completion: completion)
+    }
+
+    @discardableResult
+    private func startImageDownload(
+        url: URL,
+        key: String,
+        attempt: Int,
+        completion: @escaping (UIImage?) -> Void
+    ) -> URLSessionDataTask {
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            guard let self else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            if Self.isCancellation(error) { return }
+
+            if Self.responseStatusAcceptable(response),
+               let data,
+               let image = UIImage.decompressedImage(from: data) {
+                self.setImage(image, data: data, forKey: key)
+                DispatchQueue.main.async { completion(image) }
+                return
+            }
+
             if let error {
                 SentryLogger.captureMediaError(error, extras: [
                     "where": "ImageCache.downloadImage",
                     "url": url.absoluteString,
+                    "attempt": "\(attempt)",
                 ])
             }
-            guard let data else {
+
+            if attempt < Self.maxImageDownloadRetries {
+                let delay = Self.retryDelay(forAttempt: attempt)
+                self.ioQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else {
+                        DispatchQueue.main.async { completion(nil) }
+                        return
+                    }
+                    _ = self.startImageDownload(
+                        url: url, key: key, attempt: attempt + 1, completion: completion)
+                }
+            } else {
                 DispatchQueue.main.async { completion(nil) }
-                return
             }
-            let image = UIImage.decompressedImage(from: data)
-            if let image {
-                self?.setImage(image, data: data, forKey: key)
-            }
-            DispatchQueue.main.async { completion(image) }
         }
         task.resume()
         return task
@@ -266,13 +313,45 @@ final class ImageCache {
     }
 
     private func downloadAvatar(url: URL, key: String, deliver: @escaping (UIImage?) -> Void) {
-        avatarSession.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data else { deliver(nil); return }
-            let image = UIImage.decompressedImage(from: data)
-            if let image {
-                self?.setImage(image, data: data, forKey: key)
+        startAvatarDownload(url: url, key: key, attempt: 0, deliver: deliver)
+    }
+
+    private func startAvatarDownload(
+        url: URL,
+        key: String,
+        attempt: Int,
+        deliver: @escaping (UIImage?) -> Void
+    ) {
+        avatarSession.dataTask(with: url) { [weak self] data, response, error in
+            guard let self else { deliver(nil); return }
+            if Self.isCancellation(error) { deliver(nil); return }
+
+            if Self.responseStatusAcceptable(response),
+               let data,
+               let image = UIImage.decompressedImage(from: data) {
+                self.setImage(image, data: data, forKey: key)
+                deliver(image)
+                return
             }
-            deliver(image)
+
+            if let error {
+                SentryLogger.captureMediaError(error, extras: [
+                    "where": "ImageCache.downloadAvatar",
+                    "url": url.absoluteString,
+                    "attempt": "\(attempt)",
+                ])
+            }
+
+            if attempt < Self.maxImageDownloadRetries {
+                let delay = Self.retryDelay(forAttempt: attempt)
+                self.ioQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self else { deliver(nil); return }
+                    self.startAvatarDownload(
+                        url: url, key: key, attempt: attempt + 1, deliver: deliver)
+                }
+            } else {
+                deliver(nil)
+            }
         }.resume()
     }
 }

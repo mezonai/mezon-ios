@@ -187,13 +187,6 @@ extension MezonEngine {
                     }
                 }
 
-                let existingPref = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId))
-                let existingMembers = postbox.read { tx in tx.getClanMembers(clanId: clanId) }
-                let hasExistingCache = (existingPref?.isEmpty == false) || !existingMembers.isEmpty
-                if !response.cursor.isEmpty && hasExistingCache {
-                    return
-                }
-
                 persistClanUsersResponse(clanId: clanId, response: response)
             } catch {
             }
@@ -237,15 +230,19 @@ extension MezonEngine {
         }
 
         private func persistClanUsersResponse(clanId: Int64, response: Mezon_Api_ClanUserList) {
-            let members = response.clanUsers.map { ClanMemberRecord(from: $0) }
+            let responseMembers = response.clanUsers.map { ClanMemberRecord(from: $0) }
+            let existingMembers = postbox.read { tx in tx.getClanMembers(clanId: clanId) }
+            var merged: [Int64: ClanMemberRecord] = Dictionary(uniqueKeysWithValues: existingMembers.map { ($0.userId, $0) })
+            for m in responseMembers { merged[m.userId] = m }
+            let finalMembers = Array(merged.values)
             postbox.write { tx in
                 for clanUser in response.clanUsers {
                     tx.updateProfile(ProfileRecord(from: clanUser))
                 }
-                tx.updateClanMembers(members, clanId: clanId)
+                tx.updateClanMembers(finalMembers, clanId: clanId)
             }
-            syncClanUsersPreferenceCache(clanId: clanId, members: members)
-            let nowKnown = Set(members.map(\.userId))
+            syncClanUsersPreferenceCache(clanId: clanId, members: finalMembers)
+            let nowKnown = Set(finalMembers.map(\.userId))
             if var attempted = attemptedMemberRefreshUserIdsByClanId[clanId] {
                 attempted.subtract(nowKnown)
                 attemptedMemberRefreshUserIdsByClanId[clanId] = attempted

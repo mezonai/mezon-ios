@@ -114,12 +114,6 @@ final class MezonSocket: NSObject {
     private override init() { super.init() }
 
     func connect(token: String, wsHostOverride: String? = nil) {
-        // Dedupe redundant connect calls. When two paths race to connect with
-        // the same credentials (e.g. AccountContext.restoreAndRefreshSession
-        // and CallKit.prepareForVoIPAnswerConnectivity both completing at
-        // roughly the same time on a VoIP cold-launch), cancelling the
-        // already-in-flight WebSocket and rebuilding it just adds a wasted
-        // round-trip before we can send the answer SDP.
         if self.token == token, self.wsHostOverride == wsHostOverride,
            webSocketTask != nil {
             return
