@@ -332,8 +332,8 @@ final class AccountSettingsViewController: BaseViewController {
             let vc = UpdatePhoneNumberViewController(context: context, currentPhone: currentPhone)
             navigationController?.pushViewController(vc, animated: true)
         case .blockedUsers:
-            let line = "\(L(L10n.AccountSetting.blockedUsers)) — \(L(L10n.Common.comingSoon))"
-            Toast.comingSoonLine(line)
+            let vc = BlockedUsersViewController(context: context)
+            navigationController?.pushViewController(vc, animated: true)
         case .setPassword:
             let email = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if email.isEmpty {
