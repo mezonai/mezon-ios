@@ -1115,6 +1115,22 @@ final class AccountContextImpl: AccountContext {
                 ]
             )
 
+        case .channelCreated(let ev):
+            var ch = Mezon_Api_ChannelDescription()
+            ch.clanID = ev.clanID
+            ch.categoryID = ev.categoryID
+            ch.creatorID = ev.creatorID
+            ch.parentID = ev.parentID
+            ch.channelID = ev.channelID
+            ch.channelLabel = ev.channelLabel
+            ch.channelPrivate = ev.channelPrivate
+            ch.type = ev.channelType
+            ch.appID = ev.appID
+            ch.clanName = ev.clanName
+            ch.channelAvatar = ev.channelAvatar
+            ch.active = 1
+            engine.clanData.applyLocallyCreatedChannel(ch)
+
         case .channelDeleted(let ev):
             NotificationCenter.default.post(
                 name: .mezonChannelDeletedLocally,
