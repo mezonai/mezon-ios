@@ -30,6 +30,7 @@ final class StickerItemCell: UITableViewCell {
     private let creatorTextAvatar = TextAvatarView(username: "", size: creatorAvatarSize, fontSize: 12.sf)
     private let creatorAvatarImageView = UIImageView()
     private let creatorNameLabel = UILabel()
+    private let emptyStateLabel = UILabel()
     private let separatorView = UIView()
 
     private var iconTask: URLSessionDataTask?
@@ -119,11 +120,17 @@ final class StickerItemCell: UITableViewCell {
         creatorNameLabel.textColor = UIColor.theme.textStrong
         creatorNameLabel.lineBreakMode = .byTruncatingTail
 
+        emptyStateLabel.font = .systemFont(ofSize: 15.sf, weight: .medium)
+        emptyStateLabel.textColor = UIColor.theme.textDisabled
+        emptyStateLabel.textAlignment = .center
+        emptyStateLabel.numberOfLines = 0
+        emptyStateLabel.isHidden = true
+
         [deleteActionView, mainContentView, separatorView].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
-        [deleteButton, iconContainerView, iconView, forSaleBadgeHost, forSaleBadgeView, nameTextField, creatorTextAvatar, creatorNameLabel].forEach {
+        [deleteButton, iconContainerView, iconView, forSaleBadgeHost, forSaleBadgeView, nameTextField, emptyStateLabel, creatorTextAvatar, creatorNameLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         deleteActionView.addSubview(deleteButton)
@@ -131,7 +138,7 @@ final class StickerItemCell: UITableViewCell {
         forSaleBadgeHost.addSubview(forSaleBadgeView)
         creatorTextAvatar.addSubview(creatorAvatarImageView)
         creatorAvatarImageView.translatesAutoresizingMaskIntoConstraints = false
-        [iconContainerView, forSaleBadgeHost, nameTextField, creatorTextAvatar, creatorNameLabel].forEach {
+        [iconContainerView, forSaleBadgeHost, nameTextField, emptyStateLabel, creatorTextAvatar, creatorNameLabel].forEach {
             mainContentView.addSubview($0)
         }
         contentView.addGestureRecognizer(panGesture)
@@ -196,6 +203,11 @@ final class StickerItemCell: UITableViewCell {
             ),
             nameTextField.trailingAnchor.constraint(lessThanOrEqualTo: creatorNameLabel.leadingAnchor, constant: -10.sw),
 
+            emptyStateLabel.centerXAnchor.constraint(equalTo: mainContentView.centerXAnchor),
+            emptyStateLabel.centerYAnchor.constraint(equalTo: mainContentView.centerYAnchor),
+            emptyStateLabel.leadingAnchor.constraint(greaterThanOrEqualTo: mainContentView.leadingAnchor, constant: Self.horizontalInset),
+            emptyStateLabel.trailingAnchor.constraint(lessThanOrEqualTo: mainContentView.trailingAnchor, constant: -Self.horizontalInset),
+
             creatorTextAvatar.trailingAnchor.constraint(equalTo: mainContentView.trailingAnchor, constant: -Self.horizontalInset),
             creatorTextAvatar.centerYAnchor.constraint(equalTo: mainContentView.centerYAnchor),
             creatorTextAvatar.widthAnchor.constraint(equalToConstant: Self.creatorAvatarSize),
@@ -235,13 +247,15 @@ final class StickerItemCell: UITableViewCell {
         mainContentView.transform = CGAffineTransform(translationX: currentSwipeOffset, y: 0)
     }
 
-    private func updateAppearance() {
-        mainContentView.backgroundColor = UIColor.theme.secondary
+    private func updateAppearance(isEmpty: Bool = false) {
+        let contentBackground = isEmpty ? UIColor.theme.primary : UIColor.theme.secondary
+        mainContentView.backgroundColor = contentBackground
         forSaleBadgeHost.backgroundColor = UIColor.theme.secondary
         separatorView.backgroundColor = UIColor.theme.border
         nameTextField.textColor = .mezonTextPrimary
+        emptyStateLabel.textColor = UIColor.theme.textDisabled
         creatorNameLabel.textColor = UIColor.theme.textStrong
-        selectedBackgroundView?.backgroundColor = UIColor.theme.secondary.withAlphaComponent(0.6)
+        selectedBackgroundView?.backgroundColor = contentBackground.withAlphaComponent(isEmpty ? 0 : 0.6)
         applySwipeOffset(currentSwipeOffset, animated: false)
     }
 
@@ -289,7 +303,10 @@ final class StickerItemCell: UITableViewCell {
         closeSwipe(animated: false)
         isSwipeDeletable = isEditable
         syncDeleteActionVisibility()
-        updateAppearance()
+        updateAppearance(isEmpty: false)
+        iconContainerView.isHidden = false
+        nameTextField.isHidden = false
+        emptyStateLabel.isHidden = true
         originalShortname = sticker.shortname
         nameTextField.text = sticker.shortname
         nameTextField.textColor = .mezonTextPrimary
@@ -312,18 +329,20 @@ final class StickerItemCell: UITableViewCell {
     func configureEmpty(text: String, isLast: Bool = true) {
         closeSwipe(animated: false)
         isSwipeDeletable = false
-        updateAppearance()
+        updateAppearance(isEmpty: true)
         iconTask?.cancel()
         iconView.image = nil
         creatorAvatarImageView.image = nil
+        iconContainerView.isHidden = true
         iconView.isHidden = true
         forSaleBadgeHost.isHidden = true
         creatorTextAvatar.isHidden = true
         creatorNameLabel.isHidden = true
         deleteActionView.isHidden = true
-        nameTextField.text = text
-        nameTextField.textColor = UIColor.theme.textDisabled
-        nameTextField.textAlignment = .left
+        nameTextField.isHidden = true
+        emptyStateLabel.isHidden = false
+        emptyStateLabel.text = text
+        nameTextField.text = nil
         nameTextField.isUserInteractionEnabled = false
         isUserInteractionEnabled = false
         applyRowSeparator(isLast: isLast)
@@ -356,6 +375,10 @@ final class StickerItemCell: UITableViewCell {
         loadingIconURL = nil
         iconView.image = nil
         forSaleBadgeHost.isHidden = true
+        iconContainerView.isHidden = false
+        nameTextField.isHidden = false
+        emptyStateLabel.isHidden = true
+        emptyStateLabel.text = nil
         creatorAvatarImageView.image = nil
         creatorTextAvatar.showImageMode()
         onShortnameCommit = nil

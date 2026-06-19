@@ -105,8 +105,8 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
         let cardBackground = ASBackgroundLayoutSpec(child: cardInset, background: cardNode)
 
         let outerInsets = Self.isPad
-            ? UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
-            : UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
+            ? UIEdgeInsets(top: 8, left: 16, bottom: 4, right: 16)
+            : UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 4.sh, right: 12.sw)
 
         return ASInsetLayoutSpec(insets: outerInsets, child: cardBackground)
     }

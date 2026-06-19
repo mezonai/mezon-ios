@@ -22,6 +22,13 @@ final class LanguageSettingsViewController: BaseViewController {
     private lazy var tableView: UITableView = {
         let tv = UITableView(frame: .zero, style: .insetGrouped)
         tv.translatesAutoresizingMaskIntoConstraints = false
+        tv.separatorInset = .zero
+        
+        if #available(iOS 15.0, *) {
+            tv.sectionHeaderTopPadding = 16
+        }
+        tv.tableHeaderView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: 16))
+        
         tv.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tv.dataSource = self
         tv.delegate   = self
@@ -101,6 +108,7 @@ extension LanguageSettingsViewController: UITableViewDataSource {
             cell.textLabel?.textColor = t.textStrong
         }
         cell.backgroundColor       = t.secondary
+        cell.separatorInset        = .zero
         cell.accessoryType         = lang == LanguageManager.shared.current ? .checkmark : .none
         cell.tintColor             = .outgoingBubble
         cell.selectionStyle        = .default

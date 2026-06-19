@@ -449,7 +449,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         nameLabel.frame = CGRect(x: padH, y: y, width: contentW, height: 28.sh)
         scrollView.addSubview(nameLabel)
 
-        y += 48.sh
+        y += 36.sh
 
         let tagsStack = UIStackView()
         tagsStack.axis = .horizontal
@@ -461,8 +461,8 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         if isCommunity {
             let commTag = createTagView(
-                text: L(L10n.ClanAction.community), icon: "checkmark.seal.fill", bgColor: UIColor.theme.border,
-                textColor: UIColor.theme.textDisabled)
+                text: L(L10n.ClanAction.community), icon: "checkmark.seal.fill", bgColor: UIColor.theme.secondary,
+                textColor: UIColor.theme.textStrong, isOriginalIcon: true)
             tagsStack.addArrangedSubview(commTag)
         }
 
@@ -473,7 +473,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         tagsStack.addArrangedSubview(spacer)
 
-        y += 48.sh
+        y += 40.sh
 
         let quickActions = [ClanAction.invite, .notifications, .settings]
         let quickActionsStack = UIStackView()
@@ -532,7 +532,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         scrollView.contentSize.height = y
     }
 
-    private func createTagView(text: String, icon: String?, bgColor: UIColor, textColor: UIColor)
+    private func createTagView(text: String, icon: String?, bgColor: UIColor, textColor: UIColor, isOriginalIcon: Bool = false)
         -> UIView
     {
         let v = UIView()
@@ -541,16 +541,33 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         let l = UILabel()
         l.text = text
-        l.font = .systemFont(ofSize: 11.sf, weight: .bold)
+        l.font = .systemFont(ofSize: 13.sf, weight: .bold)
         l.textColor = textColor
 
         let stack = UIStackView(arrangedSubviews: [l])
         if let icon = icon {
-            let iv = UIImageView(image: UIImage(systemName: icon))
+            let image: UIImage?
+            if isOriginalIcon {
+                if #available(iOS 15.0, *) {
+                    if icon == "checkmark.seal.fill" {
+                        let config = UIImage.SymbolConfiguration(paletteColors: [.white, UIColor(red: 0.18, green: 0.6, blue: 1.0, alpha: 1.0)])
+                        image = UIImage(systemName: icon, withConfiguration: config)
+                    } else {
+                        image = UIImage(systemName: icon, withConfiguration: UIImage.SymbolConfiguration.preferringMulticolor())?.withRenderingMode(.alwaysOriginal)
+                    }
+                } else {
+                    image = UIImage(systemName: icon)?.withRenderingMode(.alwaysOriginal)
+                }
+            } else {
+                image = UIImage(systemName: icon)
+            }
+            let iv = UIImageView(image: image)
             iv.contentMode = .scaleAspectFit
-            iv.tintColor = textColor
-            iv.widthAnchor.constraint(equalToConstant: 12.sw).isActive = true
-            iv.heightAnchor.constraint(equalToConstant: 12.sh).isActive = true
+            if !isOriginalIcon {
+                iv.tintColor = textColor
+            }
+            iv.widthAnchor.constraint(equalToConstant: 16.sw).isActive = true
+            iv.heightAnchor.constraint(equalToConstant: 16.sh).isActive = true
             stack.insertArrangedSubview(iv, at: 0)
         }
         stack.spacing = 4.sw
@@ -582,7 +599,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         let l = UILabel()
         l.text = text
         l.font = .systemFont(ofSize: 13.sf, weight: .medium)
-        l.textColor = UIColor.theme.textDisabled
+        l.textColor = UIColor.theme.textStrong
 
         let stack = UIStackView(arrangedSubviews: [dot, l])
         stack.spacing = 6.sw
@@ -620,7 +637,6 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
                     ? loadedImage?.withRenderingMode(.alwaysOriginal)
                     : loadedImage?.withRenderingMode(.alwaysTemplate)
             } else {
-                // SF Symbols fallback.
                 iconView.image = UIImage(systemName: name)
             }
         }
@@ -684,7 +700,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private func createActionGroup(actions: [ClanAction], width: CGFloat) -> UIView {
         let groupH = CGFloat(actions.count) * 56.sh
         let v = UIView(frame: CGRect(x: 0, y: 0, width: width, height: groupH))
-        v.backgroundColor = UIColor.theme.border
+        v.backgroundColor = UIColor.theme.secondary
         v.layer.cornerRadius = 12.swh
         v.clipsToBounds = true
 
@@ -695,9 +711,10 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
             v.addSubview(row)
 
             if i < actions.count - 1 {
+                let sepHeight = 1.0 / UIScreen.main.scale
                 let sep = UIView(
-                    frame: CGRect(x: 0, y: rowY + 64.sh - 0.5, width: width, height: 0.5))
-                sep.backgroundColor = UIColor.theme.border.withAlphaComponent(0.3)
+                    frame: CGRect(x: 0, y: rowY + 56.sh - sepHeight, width: width, height: sepHeight))
+                sep.backgroundColor = UIColor.theme.border
                 v.addSubview(sep)
             }
         }
@@ -730,7 +747,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
     private func createToggleRow(action: ClanAction, width: CGFloat) -> UIView {
         let height: CGFloat = 64.sh
         let v = UIView(frame: CGRect(x: 0, y: 0, width: width, height: height))
-        v.backgroundColor = UIColor.theme.border
+        v.backgroundColor = UIColor.theme.secondary
         v.layer.cornerRadius = 12.swh
 
         let l = UILabel()

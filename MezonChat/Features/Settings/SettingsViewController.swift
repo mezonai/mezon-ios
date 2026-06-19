@@ -153,15 +153,41 @@ final class SettingsViewController: BaseViewController {
                 return (section.header, matchedRows)
             }
         }
-        for (i, (header, rows)) in filteredSections.enumerated() {
-            if i > 0 { addSpacer(12.sh) }
-            addSectionHeader(header)
-            addGroupedCard(rows: rows)
-        }
         let shouldShowLogout = query.isEmpty || L(L10n.Settings.logout).lowercased().contains(query.lowercased())
-        if shouldShowLogout {
-            addSpacer(20.sh)
-            addLogoutCard()
+        
+        let isEmpty = filteredSections.isEmpty && !shouldShowLogout
+
+        if isEmpty {
+            let container = UIView()
+            container.translatesAutoresizingMaskIntoConstraints = false
+            
+            let label = UILabel()
+            label.text = L(L10n.Settings.noSearchResults)
+            label.font = .systemFont(ofSize: 15.sf, weight: .regular)
+            label.textColor = .mezonTextPrimary
+            label.textAlignment = .center
+            label.translatesAutoresizingMaskIntoConstraints = false
+            
+            container.addSubview(label)
+            contentStack.addArrangedSubview(container)
+            
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                label.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16.sw),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16.sw),
+                container.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.7)
+            ])
+        } else {
+            for (i, (header, rows)) in filteredSections.enumerated() {
+                if i > 0 { addSpacer(12.sh) }
+                addSectionHeader(header)
+                addGroupedCard(rows: rows)
+            }
+            if shouldShowLogout {
+                addSpacer(20.sh)
+                addLogoutCard()
+            }
         }
         addSpacer(40.sh)
     }
@@ -309,10 +335,10 @@ final class SettingsViewController: BaseViewController {
 
             if i < rows.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = .mezonSeparator
+                sep.backgroundColor = UIColor.theme.border
                 sep.translatesAutoresizingMaskIntoConstraints = false
                 stack.addArrangedSubview(sep)
-                sep.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
         }
 

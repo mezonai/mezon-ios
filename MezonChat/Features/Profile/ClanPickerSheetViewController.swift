@@ -44,7 +44,7 @@ final class ClanPickerSheetViewController: UIViewController {
         view.addSubview(titleLabel)
 
         tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.separatorInset = .zero
+        tableView.separatorStyle = .none
         tableView.tableFooterView = UIView()
         tableView.delegate = self
         tableView.dataSource = self
@@ -94,7 +94,6 @@ final class ClanPickerSheetViewController: UIViewController {
         view.backgroundColor = .mezonPrimary
         titleLabel.textColor = .mezonTextStrong
         tableView.backgroundColor = .mezonPrimary
-        tableView.separatorColor = .mezonSeparator
     }
 
     private func selectClan(_ clan: Mezon_Api_ClanDesc) {
@@ -116,7 +115,8 @@ extension ClanPickerSheetViewController: UITableViewDelegate, UITableViewDataSou
         let cell = tableView.dequeueReusableCell(withIdentifier: ClanPickerCell.reuseId, for: indexPath) as! ClanPickerCell
         let clan = clans[indexPath.row]
         let selected = clan.clanID == selectedClanId
-        cell.configure(clan: clan, selected: selected)
+        let isLast = indexPath.row == clans.count - 1
+        cell.configure(clan: clan, selected: selected, showSeparator: !isLast)
         return cell
     }
 
@@ -137,6 +137,7 @@ private final class ClanPickerCell: UITableViewCell {
     private let initialLabel = UILabel()
     private let nameLabel = UILabel()
     private let checkView = UIImageView()
+    private let separatorView = UIView()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -172,6 +173,9 @@ private final class ClanPickerCell: UITableViewCell {
         placeholderView.addSubview(initialLabel)
         contentView.addSubview(nameLabel)
         contentView.addSubview(checkView)
+        
+        separatorView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(separatorView)
 
         NSLayoutConstraint.activate([
             avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
@@ -195,6 +199,11 @@ private final class ClanPickerCell: UITableViewCell {
             checkView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             checkView.widthAnchor.constraint(equalToConstant: 22),
             checkView.heightAnchor.constraint(equalToConstant: 22),
+            
+            separatorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            separatorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            separatorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            separatorView.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale)
         ])
 
         applyCellTheme()
@@ -206,9 +215,10 @@ private final class ClanPickerCell: UITableViewCell {
         nameLabel.textColor = .mezonTextStrong
         initialLabel.textColor = .white
         checkView.tintColor = .mezonSuccess
+        separatorView.backgroundColor = UIColor.theme.border
     }
 
-    func configure(clan: Mezon_Api_ClanDesc, selected: Bool) {
+    func configure(clan: Mezon_Api_ClanDesc, selected: Bool, showSeparator: Bool) {
         applyCellTheme()
         boundClanId = clan.clanID
         nameLabel.text = clan.clanName
@@ -219,6 +229,7 @@ private final class ClanPickerCell: UITableViewCell {
         placeholderView.isHidden = false
         placeholderView.backgroundColor = UIColor.avatarColor(for: clan.clanName)
         avatarView.isHidden = true
+        separatorView.isHidden = !showSeparator
 
         let url = clan.logo.trimmingCharacters(in: .whitespacesAndNewlines)
         if !url.isEmpty {

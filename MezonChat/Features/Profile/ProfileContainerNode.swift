@@ -58,7 +58,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let statusBubbleContainer = UIView()
     private let statusBubbleShapeLayer = CAShapeLayer()
     private let statusTextLabel = UILabel()
-    private static let maxStatusLines = 3
+    private static let maxStatusLines = 2
     private static let statusFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
     private var statusBubbleText: String = ""
     private var statusBubbleHasCustom: Bool = false
