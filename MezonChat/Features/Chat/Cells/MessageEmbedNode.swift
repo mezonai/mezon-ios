@@ -351,6 +351,18 @@ final class EmbedItemNode: ASDisplayNode {
             let tap = UITapGestureRecognizer(target: self, action: #selector(handleEmbedMainImageTap))
             imageNode.view.addGestureRecognizer(tap)
         }
+        if let thumbnailNode {
+            thumbnailNode.isUserInteractionEnabled = true
+            thumbnailNode.view.isUserInteractionEnabled = true
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleEmbedThumbnailTap))
+            thumbnailNode.view.addGestureRecognizer(tap)
+        }
+        if let titleNode, embed.url != nil {
+            titleNode.isUserInteractionEnabled = true
+            titleNode.view.isUserInteractionEnabled = true
+            let tap = UITapGestureRecognizer(target: self, action: #selector(handleTitleTap))
+            titleNode.view.addGestureRecognizer(tap)
+        }
     }
 
     @objc private func handleTitleTap() {
@@ -360,6 +372,11 @@ final class EmbedItemNode: ASDisplayNode {
 
     @objc private func handleEmbedMainImageTap() {
         guard let url = embed.imageURL, !url.isEmpty else { return }
+        onEmbedImageTapped?(url)
+    }
+
+    @objc private func handleEmbedThumbnailTap() {
+        guard let url = embed.thumbnailURL, !url.isEmpty else { return }
         onEmbedImageTapped?(url)
     }
 
