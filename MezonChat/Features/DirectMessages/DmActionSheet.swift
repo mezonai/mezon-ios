@@ -504,12 +504,12 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
             if action.isDestructive {
                 icon.image = base.withRenderingMode(.alwaysTemplate)
                 icon.tintColor = .mezonError
+            } else if action == .unblockUser {
+                icon.image = base.withRenderingMode(.alwaysTemplate)
+                icon.tintColor = .gray
             } else {
                 icon.image = base.withRenderingMode(.alwaysOriginal)
             }
-        } else if action == .unblockUser {
-            icon.image = UIImage(systemName: "hand.raised.slash", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf))
-            icon.tintColor = UIColor.theme.textStrong
         } else if case .leaveOrDeleteGroup = action {
             icon.image = UIImage(systemName: "rectangle.portrait.and.arrow.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf))
             icon.tintColor = .mezonError

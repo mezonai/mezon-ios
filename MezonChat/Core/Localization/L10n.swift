@@ -147,6 +147,7 @@ enum L10n {
         static let username           = "accountSetting.username"
         static let displayName        = "accountSetting.displayName"
         static let blockedUsers       = "accountSetting.blockedUsers"
+        static let unblock            = "accountSetting.unblock"
         static let setPassword        = "accountSetting.setPassword"
         static let phoneSectionTitle  = "accountSetting.phoneNumberSetting.title"
         static let emailSectionTitle  = "accountSetting.emailSetting.title"
@@ -159,7 +160,8 @@ enum L10n {
 
         static let requireLinkEmailTitle = "accountSetting.requireLinkEmail.title"
         static let requireLinkEmailMessage = "accountSetting.requireLinkEmail.description"
-        static let requireLinkEmailAction = "accountSetting.requireLinkEmail.action"
+        static let requireLinkEmailAction = "accountSetting.requireLinkEmail.action"       
+        static let noBlockedUsers = "accountSetting.noBlockedUsers"
     }
 
     enum SetPassword {
@@ -1403,6 +1405,8 @@ extension L10n {
         "accountSetting.username": "Username",
         "accountSetting.displayName": "Display Name",
         "accountSetting.blockedUsers": "Blocked Users",
+        "accountSetting.unblock": "Unblock",
+        "accountSetting.noBlockedUsers": "You don't have any blocked users.",
         "accountSetting.setPassword": "Set Password",
         "accountSetting.phoneNumberSetting.title": "Phone",
         "accountSetting.emailSetting.title": "Email",
@@ -2607,6 +2611,8 @@ extension L10n {
         "accountSetting.username": "Tên đăng nhập",
         "accountSetting.displayName": "Tên hiển thị",
         "accountSetting.blockedUsers": "Người dùng bị chặn",
+        "accountSetting.unblock": "Bỏ chặn",
+        "accountSetting.noBlockedUsers": "Bạn chưa chặn ai cả.",
         "accountSetting.setPassword": "Đặt mật khẩu",
         "accountSetting.phoneNumberSetting.title": "Số điện thoại",
         "accountSetting.emailSetting.title": "Email",
