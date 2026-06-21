@@ -2221,7 +2221,7 @@ final class ChannelListHeaderView: UIView {
     }()
 
     private var mainStackTopConstraint: NSLayoutConstraint!
-    private let mainStackTopBase: CGFloat = 6
+    private let mainStackTopBase: CGFloat = 12
     private let topInsetExtraWhenNoClanBanner: CGFloat = 6
 
     override init(frame: CGRect) {
@@ -2266,8 +2266,8 @@ final class ChannelListHeaderView: UIView {
 
         let clanTitleBlock = UIStackView(arrangedSubviews: [titleStack, infoRow])
         clanTitleBlock.axis = .vertical
-        clanTitleBlock.spacing = 4
-        clanTitleBlock.setCustomSpacing(2, after: titleStack)
+        clanTitleBlock.spacing = 0
+        clanTitleBlock.setCustomSpacing(0, after: titleStack)
         clanTitleBlock.translatesAutoresizingMaskIntoConstraints = false
 
         let mainStack = UIStackView(arrangedSubviews: [clanTitleBlock, actionRow])

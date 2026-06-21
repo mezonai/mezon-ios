@@ -239,6 +239,7 @@ enum L10n {
         static let appVersion        = "settings.appVersion"
         static let appearance        = "settings.appearance"
         static let logout            = "settings.logout"
+        static let noSearchResults   = "settings.noSearchResults"
     }
 
     enum QRScanner {
@@ -1478,6 +1479,7 @@ extension L10n {
         "settings.appVersion":      "App Version",
         "settings.appearance":      "Appearance",
         "settings.logout":          "Logout",
+        "settings.noSearchResults": "No search results found",
 
         "language.title":         "Language Settings",
 
@@ -2681,6 +2683,7 @@ extension L10n {
         "settings.appVersion":      "Phiên bản ứng dụng",
         "settings.appearance":      "Giao diện",
         "settings.logout":          "Đăng xuất",
+        "settings.noSearchResults": "Không tìm thấy kết quả",
 
         "language.title":         "Cài đặt ngôn ngữ",
 

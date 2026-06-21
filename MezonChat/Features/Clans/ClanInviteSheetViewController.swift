@@ -291,7 +291,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
 
-        groupIconNode.image = UIImage(systemName: "person.2.fill")
+        groupIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
         groupIconNode.tintColor = .white
         groupIconNode.contentMode = .scaleAspectFit
 

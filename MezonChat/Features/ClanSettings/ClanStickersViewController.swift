@@ -262,14 +262,13 @@ final class ClanStickersViewController: BaseViewController {
     }
 
     private func applyStickerListChrome() {
-        let hasStickers = !stickers.isEmpty
-        tableView.isHidden = !hasStickers
-        if hasStickers {
+        tableView.isHidden = false
+        if stickers.isEmpty {
+            tableView.backgroundColor = UIColor.theme.primary
+            tableView.layer.cornerRadius = 0
+        } else {
             tableView.backgroundColor = UIColor.theme.secondary
             tableView.layer.cornerRadius = 12.swh
-        } else {
-            tableView.backgroundColor = .clear
-            tableView.layer.cornerRadius = 0
         }
     }
 
@@ -293,16 +292,19 @@ final class ClanStickersViewController: BaseViewController {
             height: tableHeaderHeight
         )
         let listTop = safeTop + headerH + tableHeaderHeight
-        let hasStickers = !stickers.isEmpty
         applyStickerListChrome()
         tableView.tableHeaderView = nil
         tableView.frame = CGRect(
             x: inset,
             y: listTop,
             width: contentWidth,
-            height: hasStickers ? layout.size.height - listTop : 0
+            height: layout.size.height - listTop
         )
-        if abs(lastTableHeaderWidth - layout.size.width) > 0.5 {
+        if stickers.isEmpty {
+            UIView.performWithoutAnimation {
+                tableView.reloadData()
+            }
+        } else if abs(lastTableHeaderWidth - layout.size.width) > 0.5 {
             lastTableHeaderWidth = layout.size.width
             tableView.beginUpdates()
             tableView.endUpdates()
@@ -356,14 +358,7 @@ final class ClanStickersViewController: BaseViewController {
         reloadData()
     }
 
-    private func showUploadLimitToastIfNeeded() -> Bool {
-        guard repository.isAtUploadLimit(clanId: clanId) else { return false }
-        Toast.error(L(L10n.ClanSetting.Stickers.uploadLimit))
-        return true
-    }
-
     @objc private func addStickerTapped() {
-        if showUploadLimitToastIfNeeded() { return }
         let picker = UIImagePickerController()
         picker.delegate = self
         picker.sourceType = .photoLibrary
@@ -377,7 +372,7 @@ final class ClanStickersViewController: BaseViewController {
         clanMembers = Dictionary(uniqueKeysWithValues: members.map { ($0.userId, $0) })
 
         let atLimit = repository.isAtUploadLimit(clanId: clanId)
-        uploadButton.isEnabled = true
+        uploadButton.isEnabled = !atLimit
         uploadButton.alpha = atLimit ? 0.5 : 1.0
         tableView.reloadData()
         applyStickerListChrome()
@@ -485,12 +480,31 @@ final class ClanStickersViewController: BaseViewController {
 }
 
 extension ClanStickersViewController: UITableViewDataSource, UITableViewDelegate {
+    private func emptyRowHeight(for tableView: UITableView) -> CGFloat {
+        let boundsHeight = tableView.bounds.height
+        if boundsHeight > 0 { return boundsHeight }
+        guard let layout = currentlyAppliedLayout else { return 0 }
+        let safeTop = resolvedSafeTop(for: layout)
+        let listTop = safeTop + headerBarHeight + tableHeaderHeight
+        return max(0, layout.size.height - listTop)
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        stickers.count
+        stickers.isEmpty ? 1 : stickers.count
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard stickers.isEmpty else { return UITableView.automaticDimension }
+        let height = emptyRowHeight(for: tableView)
+        return height > 0 ? height : UITableView.automaticDimension
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: StickerItemCell.reuseId, for: indexPath) as! StickerItemCell
+        if stickers.isEmpty {
+            cell.configureEmpty(text: L(L10n.ClanSetting.Stickers.empty))
+            return cell
+        }
         let rowCount = stickers.count
         let isLast = indexPath.row == rowCount - 1
         let sticker = stickers[indexPath.row]
@@ -556,7 +570,6 @@ extension ClanStickersViewController: UIImagePickerControllerDelegate, UINavigat
             Toast.error(L(L10n.ClanSetting.Stickers.uploadFileTooLarge))
             return
         }
-        if showUploadLimitToastIfNeeded() { return }
         presentStickerPreview(image: image, picked: picked)
     }
 
@@ -579,7 +592,6 @@ extension ClanStickersViewController: UIImagePickerControllerDelegate, UINavigat
 
     private func uploadSticker(image: UIImage, picked: PickedStickerImage, shortname: String, isForSale: Bool) async {
         if repository.isAtUploadLimit(clanId: clanId) {
-            Toast.error(L(L10n.ClanSetting.Stickers.uploadLimit))
             return
         }
         let uploadId = Int64(Date().timeIntervalSince1970 * 1000)

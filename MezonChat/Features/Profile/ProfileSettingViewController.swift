@@ -237,12 +237,16 @@ final class ProfileSettingViewController: BaseViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
-    private let clanSelectorAvatar: UIImageView = {
+    private lazy var clanSelectorAvatar: TextAvatarView = {
+        let view = TextAvatarView(username: "", size: 28.swh, fontSize: 12.sf)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+    private let clanSelectorAvatarImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFill
         iv.clipsToBounds = true
         iv.layer.cornerRadius = 14.swh
-        iv.backgroundColor = .outgoingBubble
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
@@ -700,6 +704,7 @@ final class ProfileSettingViewController: BaseViewController {
         contentStack.insertArrangedSubview(clanSelectorView, at: 0)
 
         clanSelectorView.addSubview(clanSelectorAvatar)
+        clanSelectorAvatar.addSubview(clanSelectorAvatarImageView)
         clanSelectorView.addSubview(clanSelectorNameLabel)
         clanSelectorView.addSubview(clanSelectorChevron)
 
@@ -712,8 +717,15 @@ final class ProfileSettingViewController: BaseViewController {
             clanSelectorAvatar.centerYAnchor.constraint(equalTo: clanSelectorView.centerYAnchor),
             clanSelectorAvatar.widthAnchor.constraint(equalToConstant: 28.swh),
             clanSelectorAvatar.heightAnchor.constraint(equalToConstant: 28.swh),
+            
+            clanSelectorAvatarImageView.topAnchor.constraint(equalTo: clanSelectorAvatar.topAnchor),
+            clanSelectorAvatarImageView.leadingAnchor.constraint(equalTo: clanSelectorAvatar.leadingAnchor),
+            clanSelectorAvatarImageView.trailingAnchor.constraint(equalTo: clanSelectorAvatar.trailingAnchor),
+            clanSelectorAvatarImageView.bottomAnchor.constraint(equalTo: clanSelectorAvatar.bottomAnchor),
+
             clanSelectorNameLabel.leadingAnchor.constraint(equalTo: clanSelectorAvatar.trailingAnchor, constant: 12.sw),
             clanSelectorNameLabel.centerYAnchor.constraint(equalTo: clanSelectorView.centerYAnchor),
+            clanSelectorNameLabel.trailingAnchor.constraint(lessThanOrEqualTo: clanSelectorChevron.leadingAnchor, constant: -8.sw),
             clanSelectorChevron.trailingAnchor.constraint(equalTo: clanSelectorView.trailingAnchor, constant: -16.sw),
             clanSelectorChevron.centerYAnchor.constraint(equalTo: clanSelectorView.centerYAnchor),
             clanSelectorChevron.widthAnchor.constraint(equalToConstant: 14),
@@ -897,6 +909,7 @@ final class ProfileSettingViewController: BaseViewController {
 
             if let clan = selectedClan {
                 clanSelectorNameLabel.text = clan.clanName
+                clanSelectorAvatar.configure(username: clan.clanName, fontSize: 12.sf)
                 loadClanSelectorAvatar(urlString: clan.logo)
             }
             let avatarToShow = clanAvatarUrl.isEmpty ? userAvatarUrl : clanAvatarUrl
@@ -971,7 +984,7 @@ final class ProfileSettingViewController: BaseViewController {
         let text = clanNicknamePreviewWhenEmpty()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.mezonTextSecondary,
+            .foregroundColor: UIColor.mezonTextMuted,
         ]
         displayNameField.attributedPlaceholder = NSAttributedString(string: text, attributes: attrs)
     }
@@ -1045,15 +1058,21 @@ final class ProfileSettingViewController: BaseViewController {
 
     private func loadClanSelectorAvatar(urlString: String) {
         guard !urlString.isEmpty else {
-            clanSelectorAvatar.image = nil
+            clanSelectorAvatarImageView.image = nil
             return
         }
         if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
-            clanSelectorAvatar.image = cached
+            clanSelectorAvatarImageView.image = cached
+            clanSelectorAvatar.showImageMode()
             return
         }
         ImageCache.shared.loadImage(urlString: urlString) { [weak self] img in
-            DispatchQueue.main.async { self?.clanSelectorAvatar.image = img }
+            DispatchQueue.main.async { 
+                self?.clanSelectorAvatarImageView.image = img
+                if img != nil {
+                    self?.clanSelectorAvatar.showImageMode()
+                }
+            }
         }
     }
 

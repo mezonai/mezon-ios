@@ -37,13 +37,15 @@ final class ProfileOnlineStatusSheetController: UIViewController {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.backgroundColor = .clear
+        tableView.separatorInset = .zero
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.register(ProfileSheetPresenceCell.self, forCellReuseIdentifier: ProfileSheetPresenceCell.reuseId)
         tableView.register(ProfileSheetCustomStatusCell.self, forCellReuseIdentifier: ProfileSheetCustomStatusCell.reuseId)
         tableView.rowHeight = 56
         if #available(iOS 15.0, *) {
-            tableView.sectionHeaderTopPadding = 6
+            tableView.sectionHeaderTopPadding = 0
         }
+        tableView.tableHeaderView = UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CGFloat.leastNormalMagnitude))
         view.addSubview(tableView)
 
         NSLayoutConstraint.activate([
@@ -199,6 +201,7 @@ extension ProfileOnlineStatusSheetController: UITableViewDataSource, UITableView
             let current = context.currentUser?.status ?? .offline
             let selected = current == item.0
             cell.configure(title: L(item.1), icon: iconForPresence(item.0), selected: selected)
+            cell.separatorInset = .zero
             return cell
         case .custom:
             guard let cell = tableView.dequeueReusableCell(withIdentifier: ProfileSheetCustomStatusCell.reuseId, for: indexPath) as? ProfileSheetCustomStatusCell else {
@@ -213,6 +216,7 @@ extension ProfileOnlineStatusSheetController: UITableViewDataSource, UITableView
                 clearTarget: self,
                 clearAction: #selector(clearAccessoryTapped)
             )
+            cell.separatorInset = .zero
             return cell
         }
     }

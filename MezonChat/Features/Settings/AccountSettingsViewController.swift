@@ -242,10 +242,10 @@ final class AccountSettingsViewController: BaseViewController {
 
             if i < rows.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = .mezonSeparator
+                sep.backgroundColor = UIColor.theme.border
                 sep.translatesAutoresizingMaskIntoConstraints = false
                 stack.addArrangedSubview(sep)
-                sep.heightAnchor.constraint(equalToConstant: 1).isActive = true
+                sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
         }
 

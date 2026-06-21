@@ -29,7 +29,11 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private var validLayout: ContainerViewLayout?
     
     private let nameLabel = UILabel()
-    private let initialsLabel = UILabel()
+    private lazy var textAvatar: TextAvatarView = {
+        let view = TextAvatarView(username: clanName, size: 56.swh, fontSize: 14.sf)
+        view.layer.cornerRadius = 16.swh
+        return view
+    }()
     private let avatarContainer = UIView()
     private let avatarImageView = UIImageView()
     private let removeAvatarBtn = UIButton(type: .system)
@@ -47,7 +51,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         self.canShowOverview = canShowOverview
         self.canShowAuditLog = canShowAuditLog
         super.init()
-        backgroundColor = .mezonSecondary
+        backgroundColor = UIColor.theme.primary
     }
 
     override func didLoad() {
@@ -202,8 +206,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         v.translatesAutoresizingMaskIntoConstraints = false
 
         let avatarSize: CGFloat = 56.swh
-        avatarContainer.backgroundColor = colorFor(name: clanName)
-        avatarContainer.layer.cornerRadius = 16.swh
+        avatarContainer.backgroundColor = .clear
         avatarContainer.layer.shadowColor = UIColor.black.cgColor
         avatarContainer.layer.shadowOffset = CGSize(width: 0, height: 4.sh)
         avatarContainer.layer.shadowRadius = 8.swh
@@ -211,30 +214,26 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         avatarContainer.clipsToBounds = false
         v.addSubview(avatarContainer)
 
-        initialsLabel.text = initials(for: clanName)
-        initialsLabel.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        initialsLabel.textColor = .mezonTextPrimary
-        initialsLabel.textAlignment = .center
-        avatarContainer.addSubview(initialsLabel)
+        avatarContainer.addSubview(textAvatar)
 
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
         avatarImageView.layer.cornerRadius = 16.swh
-        avatarContainer.addSubview(avatarImageView)
+        textAvatar.addSubview(avatarImageView)
 
         if !avatarURL.isEmpty {
             ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) {
-                [weak avatarImageView, weak initialsLabel] image in
+                [weak avatarImageView, weak textAvatar] image in
                 if let image = image {
                     avatarImageView?.image = image
-                    initialsLabel?.isHidden = true
+                    textAvatar?.showImageMode()
                 }
             }
         }
 
         nameLabel.text = clanName
         nameLabel.font = .systemFont(ofSize: 16.sf, weight: .medium)
-        nameLabel.textColor = .mezonTextMuted
+        nameLabel.textColor = UIColor.theme.textStrong
         nameLabel.textAlignment = .center
         v.addSubview(nameLabel)
 
@@ -249,7 +248,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         v.addSubview(removeAvatarBtn)
 
         avatarContainer.translatesAutoresizingMaskIntoConstraints = false
-        initialsLabel.translatesAutoresizingMaskIntoConstraints = false
+        textAvatar.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         removeAvatarBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -260,18 +259,20 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             avatarContainer.widthAnchor.constraint(equalToConstant: avatarSize),
             avatarContainer.heightAnchor.constraint(equalToConstant: avatarSize),
 
-            initialsLabel.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
-            initialsLabel.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
-            initialsLabel.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
-            initialsLabel.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+            textAvatar.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            textAvatar.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            textAvatar.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            textAvatar.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
 
-            avatarImageView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
-            avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
-            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
-            avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+            avatarImageView.topAnchor.constraint(equalTo: textAvatar.topAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: textAvatar.bottomAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: textAvatar.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor),
 
             nameLabel.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 16.sh),
             nameLabel.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: v.leadingAnchor, constant: 16.sw),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -16.sw),
             nameLabel.bottomAnchor.constraint(equalTo: v.bottomAnchor, constant: -8.sh),
 
             removeAvatarBtn.topAnchor.constraint(equalTo: avatarContainer.topAnchor, constant: -4.sh),
@@ -300,21 +301,19 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         self.avatarURL = avatarURL
         
         nameLabel.text = name
-        initialsLabel.text = initials(for: name)
-        avatarContainer.backgroundColor = colorFor(name: name)
         
         if !avatarURL.isEmpty {
             ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) {
                 [weak self] image in
                 if let image = image {
                     self?.avatarImageView.image = image
-                    self?.initialsLabel.isHidden = true
+                    self?.textAvatar.showImageMode()
                 }
             }
             removeAvatarBtn.isHidden = !canShowOverview
         } else {
             avatarImageView.image = nil
-            initialsLabel.isHidden = false
+            textAvatar.configure(username: name, fontSize: 14.sf)
             removeAvatarBtn.isHidden = true
         }
     }
@@ -337,7 +336,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     private func createGroup(actions: [SettingAction]) -> UIView {
         let container = UIView()
-        container.backgroundColor = .mezonBorder
+        container.backgroundColor = UIColor.theme.secondary
         container.layer.cornerRadius = 12.swh
         container.clipsToBounds = true
 
@@ -358,8 +357,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             stack.addArrangedSubview(row)
             if i < actions.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.tertiary
-                sep.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
+                sep.backgroundColor = UIColor.theme.border
+                sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
                 stack.addArrangedSubview(sep)
             }
         }
@@ -474,23 +473,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         }
     }
 
-    private func initials(for name: String) -> String {
-        let words = name.split(separator: " ").prefix(2)
-        return words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-    }
 
-    private func colorFor(name: String) -> UIColor {
-        let colors: [UIColor] = [
-            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
-            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
-            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
-            UIColor(red: 0.75, green: 0.52, blue: 0.18, alpha: 1),
-            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
-            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
-        ]
-        let hash = abs(name.hashValue)
-        return colors[hash % colors.count]
-    }
 }
 
 private enum ClanSettingsNavigateAction: Int {

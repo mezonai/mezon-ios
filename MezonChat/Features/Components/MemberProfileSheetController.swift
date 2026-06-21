@@ -767,7 +767,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         transferButton.cornerRadius = 18.sf
         transferButton.clipsToBounds = true
         let transferIcon = UIImage(named: "Profile/TransferIcon", in: Bundle.main, compatibleWith: nil)?
-            .withTintColor(t.textStrong, renderingMode: .alwaysOriginal)
+            .withRenderingMode(.alwaysOriginal)
         transferButton.setImage(transferIcon, for: .normal)
         transferButton.imageNode.contentMode = .scaleAspectFit
         transferButton.imageNode.style.preferredSize = CGSize(width: 20.sf, height: 20.sf)

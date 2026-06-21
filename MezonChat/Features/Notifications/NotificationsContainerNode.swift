@@ -677,7 +677,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                 var cfg = btn.configuration
                 if selected {
                     cfg?.baseBackgroundColor = t.bgViolet
-                    cfg?.baseForegroundColor = t.channelUnread
+                    cfg?.baseForegroundColor = .white
                     cfg?.background.strokeWidth = 0
                 } else {
                     cfg?.baseBackgroundColor = t.secondaryLight
@@ -689,7 +689,7 @@ final class NotificationsContainerNode: ASDisplayNode {
             } else {
                 if selected {
                     btn.backgroundColor = t.bgViolet
-                    btn.setTitleColor(t.channelUnread, for: .normal)
+                    btn.setTitleColor(.white, for: .normal)
                     btn.layer.borderWidth = 0
                 } else {
                     btn.backgroundColor = t.secondaryLight

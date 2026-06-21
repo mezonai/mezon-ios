@@ -91,7 +91,7 @@ final class TransactionItemCell: UITableViewCell {
         
         if isIncoming {
             iconContainer.backgroundColor = UIColor(hex: 0x14532D, alpha: 0.2) 
-            chevronIcon.image = UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate)
+            chevronIcon.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
             chevronIcon.tintColor = UIColor.theme.textSuccess
             titleLabel.textColor = UIColor.theme.textSuccess
             statusLabel.text = L(L10n.Profile.historyReceived)

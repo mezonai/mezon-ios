@@ -378,14 +378,7 @@ final class ClanEmojisViewController: BaseViewController {
         reloadData()
     }
 
-    private func showUploadLimitToastIfNeeded() -> Bool {
-        guard repository.isAtUploadLimit(clanId: clanId) else { return false }
-        Toast.error(L(L10n.ClanSetting.Emojis.uploadLimit))
-        return true
-    }
-
     @objc private func addEmojiTapped() {
-        if showUploadLimitToastIfNeeded() { return }
         let picker = UIImagePickerController()
         picker.delegate = self
         picker.sourceType = .photoLibrary
@@ -399,7 +392,7 @@ final class ClanEmojisViewController: BaseViewController {
         clanMembers = Dictionary(uniqueKeysWithValues: members.map { ($0.userId, $0) })
 
         let atLimit = repository.isAtUploadLimit(clanId: clanId)
-        uploadButton.isEnabled = true
+        uploadButton.isEnabled = !atLimit
         uploadButton.alpha = atLimit ? 0.5 : 1.0
         applyEmojiListChrome()
     }
@@ -602,7 +595,6 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
             Toast.error(L(L10n.ClanSetting.Emojis.uploadFileTooLarge))
             return
         }
-        if showUploadLimitToastIfNeeded() { return }
         presentEmojiPreview(image: image, picked: picked)
     }
 
@@ -626,7 +618,6 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
 
     private func uploadEmoji(image: UIImage, picked: PickedEmojiImage, shortname: String, isForSale: Bool) async {
         if repository.isAtUploadLimit(clanId: clanId) {
-            Toast.error(L(L10n.ClanSetting.Emojis.uploadLimit))
             return
         }
         guard let uploadPayload = Self.prepareUploadPayload(image: image, picked: picked) else {
