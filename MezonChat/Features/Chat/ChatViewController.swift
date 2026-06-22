@@ -5719,16 +5719,27 @@ final class ChatViewController: ViewController {
     }
 
     private func makeMessageGalleryItem(attachment: ParsedAttachment, display: ChatMessageDisplay) -> GalleryItemInfo {
-        let placeholderURL: String? = attachment.isVideo
-            ? nil
-            : ImgproxyURL.attachmentURL(
+        let url: String
+        let placeholderURL: String?
+        if attachment.isVideo {
+            url = attachment.url
+            placeholderURL = nil
+        } else {
+            url = ImgproxyURL.attachmentURL(
+                from: attachment.url,
+                width: 700,
+                height: 700,
+                resizeType: "fit"
+            )
+            placeholderURL = ImgproxyURL.attachmentURL(
                 from: attachment.url,
                 width: 400,
                 height: 400,
                 resizeType: "fit"
             )
+        }
         return GalleryItemInfo(
-            url: attachment.url,
+            url: url,
             sourceURL: attachment.url,
             image: attachment.localImage,
             placeholderURL: placeholderURL,

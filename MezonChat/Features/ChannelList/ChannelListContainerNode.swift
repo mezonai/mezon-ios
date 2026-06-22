@@ -120,6 +120,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         return section == channelAppsTableSection
     }
 
+    private var pendingChannelAppsTableSync = false
     private var skipNextLoadingFinishedReveal: Bool = false
 
     private let newUnreadButton: UIButton = {
@@ -225,6 +226,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             } else if !newCats.isEmpty {
                 applyRowDiff(prev: prevState, new: newState)
             }
+            reconcileChannelAppsTableIfNeeded()
         } else if !nodeIsVisible && structureChanged {
             cachedHeaders = [:]
             pendingVisibleReconcile = true
@@ -238,6 +240,9 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         maybeRevealSelectedChannel(prevState: prevState, newState: newState, wasClanSwitching: wasClanSwitching)
         refreshNewUnreadButton()
+        if !isClanSwitching {
+            reconcileChannelAppsTableIfNeeded()
+        }
     }
 
     private func maybeRevealSelectedChannel(
@@ -1397,16 +1402,27 @@ final class ChannelListContainerNode: ASDisplayNode {
         let filtered = Self.normalizeChannelAppsList(clanScoped.filter { $0.hasListableChannelAppContent })
         let beforeHadStripe = channelAppsStripeVisible
         channelAppsLoading = false
-        if channelAppsUIEqual(channelApps, filtered), beforeHadStripe == (!filtered.isEmpty) { return }
+        if channelAppsUIEqual(channelApps, filtered), beforeHadStripe == (!filtered.isEmpty) {
+            reconcileChannelAppsTableIfNeeded()
+            return
+        }
 
         let beforeHad = beforeHadStripe
         channelApps = filtered
-        let afterHad = channelAppsStripeVisible
+        applyChannelAppsTableMutation(beforeHad: beforeHad)
+    }
 
+    private func applyChannelAppsTableMutation(beforeHad: Bool) {
+        let afterHad = channelAppsStripeVisible
         cachedRows = [:]
         cachedHeaders = [:]
 
-        guard !shouldDeferLeadingSectionTableMutations else { return }
+        if shouldDeferLeadingSectionTableMutations {
+            pendingChannelAppsTableSync = true
+            return
+        }
+        pendingChannelAppsTableSync = false
+
         if !beforeHad && afterHad {
             let section = self.channelAppsTableSection
             CATransaction.begin()
@@ -1434,6 +1450,19 @@ final class ChannelListContainerNode: ASDisplayNode {
         } else if beforeHad && afterHad {
             reloadChannelAppsSectionOnly()
         }
+    }
+
+    private func reconcileChannelAppsTableIfNeeded() {
+        guard pendingChannelAppsTableSync || channelAppsStripeVisible != tableShowsChannelAppsStripe else { return }
+        pendingChannelAppsTableSync = false
+        let beforeHad = tableShowsChannelAppsStripe
+        applyChannelAppsTableMutation(beforeHad: beforeHad)
+    }
+
+    private var tableShowsChannelAppsStripe: Bool {
+        guard channelAppsStripeVisible else { return false }
+        guard tableNode.numberOfSections > channelAppsTableSection else { return false }
+        return isChannelAppsTableSection(channelAppsTableSection)
     }
 
     func updateMemberCount(_ count: Int) {

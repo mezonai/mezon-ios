@@ -317,18 +317,19 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === imgNode, !didLoadImage else { return }
-        if retryCount < Self.maxRetries {
-            retryCount += 1
-            let delay = Double(retryCount) * 1.5
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.reloadAvatar()
-            }
-        } else if !usingFallback, let originalURL, originalURL != proxiedURL {
+        if !usingFallback, let originalURL, originalURL != proxiedURL {
             usingFallback = true
             retryCount = 0
             DispatchQueue.main.async { [weak self] in
                 self?.reloadAvatar()
             }
+            return
+        }
+        guard retryCount < Self.maxRetries else { return }
+        retryCount += 1
+        let delay = Double(retryCount) * 1.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.reloadAvatar()
         }
     }
 }

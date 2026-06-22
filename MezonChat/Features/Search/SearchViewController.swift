@@ -164,6 +164,7 @@ final class SearchViewController: ViewController {
             switchTab(.messages)
         }
         searchNode.searchBar.textField.delegate = self
+        searchNode.searchBar.textField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
         searchNode.tabBar.onTabSelected = { [weak self] tab in
             self?.switchTab(tab)
         }
@@ -974,11 +975,15 @@ extension SearchViewController: UITextFieldDelegate {
             return false
         }
 
-        searchQuery = newText
+        return true
+    }
+
+    @objc private func searchTextChanged(_ textField: UITextField) {
+        if textField.markedTextRange != nil { return }
+        searchQuery = textField.text ?? ""
 
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
         perform(#selector(debouncedSearch), with: nil, afterDelay: 0.3)
-        return true
     }
 
     @objc private func debouncedSearch() {
@@ -1903,9 +1908,15 @@ final class MessageSearchCellNode: ASCellNode {
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = t.tertiary
-        let resolvedAvatar = (clanAvatar?.isEmpty == false ? clanAvatar : nil) ?? (document.avatarURL.isEmpty ? nil : document.avatarURL)
-        if let resolvedAvatar, let url = URL(string: ImgproxyURL.create(from: resolvedAvatar, width: 150, height: 150)) {
-            avatarNode.url = url
+        if document.senderID == "\(MezonConstants.anonymousUserId)" {
+            avatarNode.contentMode = .scaleAspectFit
+            avatarNode.image = Self.anonymousAvatarImage(size: Self.avatarSize)
+        } else {
+            avatarNode.contentMode = .scaleAspectFill
+            let resolvedAvatar = (clanAvatar?.isEmpty == false ? clanAvatar : nil) ?? (document.avatarURL.isEmpty ? nil : document.avatarURL)
+            if let resolvedAvatar, let url = URL(string: ImgproxyURL.create(from: resolvedAvatar, width: 150, height: 150)) {
+                avatarNode.url = url
+            }
         }
 
         let displayName: String = {
@@ -1939,6 +1950,24 @@ final class MessageSearchCellNode: ASCellNode {
         addSubnode(senderNode)
         addSubnode(contentNode)
         addSubnode(timeNode)
+    }
+
+    private static func anonymousAvatarImage(size: CGFloat) -> UIImage? {
+        guard let raw = UIImage(named: "Chat/AnonymousIcon") else { return nil }
+        let canvas = CGSize(width: size, height: size)
+        let iconSz = CGSize(width: size * 0.55, height: size * 0.55)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
+            let tinted = raw.withRenderingMode(.alwaysTemplate)
+                .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+            let origin = CGPoint(
+                x: (canvas.width - iconSz.width) / 2,
+                y: (canvas.height - iconSz.height) / 2
+            )
+            tinted.draw(in: CGRect(origin: origin, size: iconSz))
+        }
     }
 
     private static func formatSearchTime(_ timeStr: String) -> String {
