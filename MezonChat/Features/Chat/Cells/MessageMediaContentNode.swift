@@ -195,7 +195,11 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var isAnimatedStandaloneImage = false
     private var isMultiple = false
     private var lastRemoteProxyURLByIndex: [Int: String] = [:]
+    private var remoteLoadInFlightByIndex: Set<Int> = []
+    private var remoteLoadRetryCountByIndex: [Int: Int] = [:]
     private var uploadingOverlayByProgressKey: [String: MediaUploadingOverlayNode] = [:]
+
+    private static let maxRemoteLoadRetries = 3
 
     private var mediaTapGesture: UITapGestureRecognizer?
 
@@ -323,6 +327,8 @@ final class MessageMediaContentNode: ASDisplayNode {
     func prepareForMeasurement(media: [ParsedAttachment]) {
         attachments = media
         lastRemoteProxyURLByIndex.removeAll()
+        remoteLoadInFlightByIndex.removeAll()
+        remoteLoadRetryCountByIndex.removeAll()
         cachedImageFrames = []
         cachedPositions = []
         isUploading = media.contains { $0.isUploading }
@@ -355,6 +361,8 @@ final class MessageMediaContentNode: ASDisplayNode {
         stickerNode = nil
         attachments = media
         lastRemoteProxyURLByIndex.removeAll()
+        remoteLoadInFlightByIndex.removeAll()
+        remoteLoadRetryCountByIndex.removeAll()
         uploadingOverlayByProgressKey.removeAll()
         cachedImageFrames = []
         cachedPositions = []
@@ -698,8 +706,12 @@ final class MessageMediaContentNode: ASDisplayNode {
             height: h,
             resizeType: isMultiple ? "fill" : "fit"
         )
-        if lastRemoteProxyURLByIndex[index] == proxyURL, node.image != nil { return }
+        if lastRemoteProxyURLByIndex[index] == proxyURL {
+            if node.image != nil { return }
+            if remoteLoadInFlightByIndex.contains(index) { return }
+        }
         lastRemoteProxyURLByIndex[index] = proxyURL
+        remoteLoadInFlightByIndex.insert(index)
         node.reset()
         if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
             insertSubnode(skeleton, belowSubnode: node)
@@ -760,6 +772,18 @@ final class MessageMediaContentNode: ASDisplayNode {
     func currentImage(at index: Int) -> UIImage? {
         guard index >= 0, index < imageNodes.count else { return nil }
         return imageNodes[index].image
+    }
+
+    func displayImage(at index: Int) -> UIImage? {
+        guard index >= 0, index < imageNodes.count else { return nil }
+        let node = imageNodes[index]
+        if let image = node.image {
+            return image
+        }
+        guard let contents = node.layer.contents else { return nil }
+        let typeID = CFGetTypeID(contents as CFTypeRef)
+        guard typeID == CGImage.typeID else { return nil }
+        return UIImage(cgImage: contents as! CGImage)
     }
 
     @discardableResult
@@ -851,15 +875,34 @@ final class MessageMediaContentNode: ASDisplayNode {
         return skeleton
     }
 
+    private func scheduleRemoteImageRetry(at index: Int) {
+        let retries = remoteLoadRetryCountByIndex[index, default: 0]
+        guard retries < Self.maxRemoteLoadRetries else { return }
+        guard index < attachments.count else { return }
+        remoteLoadRetryCountByIndex[index] = retries + 1
+        lastRemoteProxyURLByIndex.removeValue(forKey: index)
+        let delay = 0.8 * Double(retries + 1)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, index < self.attachments.count else { return }
+            self.ensureRemoteImageLoaded(
+                at: index,
+                media: self.attachments[index],
+                isMultiple: self.isMultiple
+            )
+        }
+    }
+
     private func wireImageLoadCallbacks(
         index: Int,
         node: TransformImageNode,
         skeleton: MediaSkeletonNode?,
         placeholder: MediaPlaceholderNode
     ) {
-        node.imageUpdated = { [weak self, weak node, weak skeleton, weak placeholder] _ in
+        node.imageUpdated = { [weak self, weak node, weak skeleton, weak placeholder] image in
             guard let self, let node else { return }
-            if node.image != nil {
+            self.remoteLoadInFlightByIndex.remove(index)
+            if image != nil {
+                self.remoteLoadRetryCountByIndex.removeValue(forKey: index)
                 skeleton?.removeFromSupernode()
                 self.skeletonNodesByIndex.removeValue(forKey: index)
                 placeholder?.isHidden = true
@@ -871,6 +914,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 } else if Self.shouldShowLoadingSkeleton(for: media) {
                     skeleton?.isHidden = false
                     placeholder?.isHidden = true
+                    self.scheduleRemoteImageRetry(at: index)
                 }
             }
         }

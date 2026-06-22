@@ -35,6 +35,10 @@ final class AccountContextImpl: AccountContext {
     private(set) var isSessionReady: Bool = false
     private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
     private var activeRefreshTask: Task<Bool, Never>?
+    private var activeBearerRecoveryTask: Task<String?, Never>?
+    private var lastRecoveryIssuedToken: String?
+    private var lastRecoveryIssuedRefreshToken: String?
+    private var didNotifySessionExpired = false
     private var heavyAccountBootstrapTask: Task<Void, Never>?
     func waitForSessionReady() async {
         if isSessionReady { return }
@@ -180,20 +184,29 @@ final class AccountContextImpl: AccountContext {
 
     private func ensureRefreshed() async -> Bool {
         if let inflight = activeRefreshTask {
+            SessionRefreshDebugLog.log("account.ensureRefreshed join-active")
             return await inflight.value
         }
+        SessionRefreshDebugLog.log("account.ensureRefreshed start session=\(SessionRefreshDebugLog.session(session))")
         let task = Task<Bool, Never> { @MainActor in
-            defer { self.activeRefreshTask = nil }
+            defer {
+                SessionRefreshDebugLog.log("account.ensureRefreshed clear-active")
+                self.activeRefreshTask = nil
+            }
             for attempt in 1...2 {
                 do {
+                    SessionRefreshDebugLog.log("account.ensureRefreshed attempt=\(attempt)")
                     try await self.refreshSession()
+                    SessionRefreshDebugLog.log("account.ensureRefreshed success attempt=\(attempt)")
                     return true
                 } catch {
+                    SessionRefreshDebugLog.log("account.ensureRefreshed fail attempt=\(attempt) error=\(SessionRefreshDebugLog.error(error))")
                     if attempt < 2 {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
                     }
                 }
             }
+            SessionRefreshDebugLog.log("account.ensureRefreshed exhausted")
             return false
         }
         activeRefreshTask = task
@@ -249,6 +262,10 @@ final class AccountContextImpl: AccountContext {
     func login(user: User, session: MezonSession) {
         sessionEpoch &+= 1
         let startEpoch = sessionEpoch
+        SessionRefreshDebugLog.log("account.login epoch=\(startEpoch) session=\(SessionRefreshDebugLog.session(session))")
+        didNotifySessionExpired = false
+        lastRecoveryIssuedToken = nil
+        lastRecoveryIssuedRefreshToken = nil
         VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
@@ -259,8 +276,11 @@ final class AccountContextImpl: AccountContext {
 
         Task { @MainActor in
             do {
+                SessionRefreshDebugLog.log("account.login bootstrap-refresh start epoch=\(startEpoch)")
                 try await refreshSession()
+                SessionRefreshDebugLog.log("account.login bootstrap-refresh success epoch=\(startEpoch) session=\(SessionRefreshDebugLog.session(self.session))")
             } catch {
+                SessionRefreshDebugLog.log("account.login bootstrap-refresh fail epoch=\(startEpoch) error=\(SessionRefreshDebugLog.error(error))")
             }
             guard self.isStillCurrentSession(epoch: startEpoch) else { return }
             if let freshSession = self.session {
@@ -272,6 +292,10 @@ final class AccountContextImpl: AccountContext {
     }
 
     func replaceCurrentSession(user: User, session: MezonSession) {
+        SessionRefreshDebugLog.log("account.replaceCurrentSession session=\(SessionRefreshDebugLog.session(session))")
+        didNotifySessionExpired = false
+        lastRecoveryIssuedToken = nil
+        lastRecoveryIssuedRefreshToken = nil
         VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: !session.created, fetchAccount: false)
         setLoggedIn(true)
@@ -285,8 +309,16 @@ final class AccountContextImpl: AccountContext {
 
     func logout() {
         sessionEpoch &+= 1
+        SessionRefreshDebugLog.log("account.logout epoch=\(sessionEpoch) session=\(SessionRefreshDebugLog.session(session))")
         heavyAccountBootstrapTask?.cancel()
         heavyAccountBootstrapTask = nil
+        activeRefreshTask?.cancel()
+        activeRefreshTask = nil
+        activeBearerRecoveryTask?.cancel()
+        activeBearerRecoveryTask = nil
+        didNotifySessionExpired = false
+        lastRecoveryIssuedToken = nil
+        lastRecoveryIssuedRefreshToken = nil
         fcmRegistrationTask?.cancel()
         fcmRegistrationTask = nil
         lastRegisteredFcmKey = nil
@@ -377,10 +409,135 @@ final class AccountContextImpl: AccountContext {
     }
 
     func refreshSession() async throws {
-        guard let current = session else { throw SessionError.noSession }
-        let new = try await engine.auth.sessionRefresh(session: current)
-        let merged = mergeIdToken(into: new, previous: current)
-        applySession(merged, user: currentUser, connectSocket: false, fetchAccount: false)
+        guard let current = session else {
+            SessionRefreshDebugLog.log("account.refreshSession stop noSession")
+            throw SessionError.noSession
+        }
+        SessionRefreshDebugLog.log("account.refreshSession start current=\(SessionRefreshDebugLog.session(current))")
+        do {
+            let new = try await engine.auth.sessionRefresh(session: current)
+            let merged = mergeIdToken(into: new, previous: current)
+            SessionRefreshDebugLog.log("account.refreshSession success merged=\(SessionRefreshDebugLog.session(merged))")
+            applySession(merged, user: currentUser, connectSocket: false, fetchAccount: false)
+        } catch {
+            SessionRefreshDebugLog.log("account.refreshSession fail error=\(SessionRefreshDebugLog.error(error))")
+            throw error
+        }
+    }
+
+    private func tokenForSocketReconnect() async throws -> String {
+        if let session,
+           !session.token.isEmpty,
+           !session.isExpired {
+            SessionRefreshDebugLog.log("account.socketToken cached session=\(SessionRefreshDebugLog.session(session))")
+            return session.token
+        }
+        SessionRefreshDebugLog.log("account.socketToken refresh-needed session=\(SessionRefreshDebugLog.session(session))")
+        try await refreshSession()
+        guard let token = session?.token, !token.isEmpty else {
+            SessionRefreshDebugLog.log("account.socketToken stop noSessionAfterRefresh")
+            throw SessionError.noSession
+        }
+        SessionRefreshDebugLog.log("account.socketToken refreshed token=\(SessionRefreshDebugLog.token(token))")
+        return token
+    }
+
+    private func recoverBearerTokenAfterUnauthorized(failedToken: String, statusCode: Int) async -> String? {
+        SessionRefreshDebugLog.log("account.bearerRecovery start status=\(statusCode) failed=\(SessionRefreshDebugLog.token(failedToken)) session=\(SessionRefreshDebugLog.session(session))")
+        if let session,
+           !session.token.isEmpty,
+           session.token != failedToken,
+           !session.isExpired {
+            SessionRefreshDebugLog.log("account.bearerRecovery use-current current=\(SessionRefreshDebugLog.token(session.token))")
+            return session.token
+        }
+
+        if let session,
+           !session.isExpired,
+           failedToken == lastRecoveryIssuedToken,
+           session.refreshToken == lastRecoveryIssuedRefreshToken {
+            SessionRefreshDebugLog.log("account.bearerRecovery stop refreshed-token-rejected failed=\(SessionRefreshDebugLog.token(failedToken))")
+            notifySessionExpiredAndStopRecovery()
+            return nil
+        }
+
+        if let inflight = activeBearerRecoveryTask {
+            SessionRefreshDebugLog.log("account.bearerRecovery join-active")
+            return await inflight.value
+        }
+
+        let task = Task<String?, Never> { @MainActor in
+            defer {
+                SessionRefreshDebugLog.log("account.bearerRecovery clear-active")
+                self.activeBearerRecoveryTask = nil
+            }
+
+            if let session = self.session,
+               !session.token.isEmpty,
+               session.token != failedToken,
+               !session.isExpired {
+                SessionRefreshDebugLog.log("account.bearerRecovery task-use-current current=\(SessionRefreshDebugLog.token(session.token))")
+                return session.token
+            }
+
+            do {
+                SessionRefreshDebugLog.log("account.bearerRecovery task-refresh start")
+                try await self.refreshSession()
+                guard let refreshed = self.session,
+                      !refreshed.token.isEmpty,
+                      refreshed.token != failedToken else {
+                    SessionRefreshDebugLog.log("account.bearerRecovery task-refresh stop invalidResult session=\(SessionRefreshDebugLog.session(self.session))")
+                    self.notifySessionExpiredAndStopRecovery()
+                    return nil
+                }
+                self.lastRecoveryIssuedToken = refreshed.token
+                self.lastRecoveryIssuedRefreshToken = refreshed.refreshToken
+                SessionRefreshDebugLog.log("account.bearerRecovery task-refresh success session=\(SessionRefreshDebugLog.session(refreshed))")
+                return refreshed.token
+            } catch let error as MezonError {
+                if case .httpError(let code, _) = error, code == 401 || code == 403 {
+                    SessionRefreshDebugLog.log("account.bearerRecovery task-refresh authFail error=\(SessionRefreshDebugLog.error(error))")
+                    self.notifySessionExpiredAndStopRecovery()
+                } else {
+                    SessionRefreshDebugLog.log("account.bearerRecovery task-refresh mezonFail error=\(SessionRefreshDebugLog.error(error))")
+                }
+                return nil
+            } catch is SessionError {
+                SessionRefreshDebugLog.log("account.bearerRecovery task-refresh sessionError")
+                self.notifySessionExpiredAndStopRecovery()
+                return nil
+            } catch {
+                SessionRefreshDebugLog.log("account.bearerRecovery task-refresh fail error=\(SessionRefreshDebugLog.error(error))")
+                return nil
+            }
+        }
+
+        activeBearerRecoveryTask = task
+        return await task.value
+    }
+
+    @discardableResult
+    private func stopSessionRecovery() -> Bool {
+        guard !didNotifySessionExpired else {
+            SessionRefreshDebugLog.log("account.stopRecovery ignored alreadyNotified")
+            return false
+        }
+        SessionRefreshDebugLog.log("account.stopRecovery session=\(SessionRefreshDebugLog.session(session))")
+        didNotifySessionExpired = true
+        activeRefreshTask?.cancel()
+        activeRefreshTask = nil
+        activeBearerRecoveryTask?.cancel()
+        activeBearerRecoveryTask = nil
+        account.network.bearerUnauthorizedRecovery = nil
+        account.socket.disconnect()
+        SessionRefreshManager.shared.reset()
+        return true
+    }
+
+    private func notifySessionExpiredAndStopRecovery() {
+        guard stopSessionRecovery() else { return }
+        SessionRefreshDebugLog.log("account.notifySessionExpired post")
+        NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
     }
 
     private func mergeIdToken(into newSession: MezonSession, previous: MezonSession?) -> MezonSession {
@@ -393,19 +550,32 @@ final class AccountContextImpl: AccountContext {
     private let maxForegroundRecoverRetries = 3
 
     func recoverFromForeground() {
-        guard hasCompletedInitialSetup, session != nil, isLoggedIn else { return }
+        guard hasCompletedInitialSetup, session != nil, isLoggedIn else {
+            SessionRefreshDebugLog.log("account.foregroundRecover skip setup=\(hasCompletedInitialSetup) hasSession=\(session != nil) loggedIn=\(isLoggedIn)")
+            return
+        }
         let now = Date()
-        if let last = lastRecoverTime, now.timeIntervalSince(last) < recoverThrottle { return }
+        if let last = lastRecoverTime, now.timeIntervalSince(last) < recoverThrottle {
+            SessionRefreshDebugLog.log("account.foregroundRecover throttle elapsed=\(String(format: "%.2f", now.timeIntervalSince(last)))")
+            return
+        }
         lastRecoverTime = now
 
         let needsRefresh = session?.isExpired ?? true
+        SessionRefreshDebugLog.log("account.foregroundRecover start needsRefresh=\(needsRefresh) session=\(SessionRefreshDebugLog.session(session))")
 
         if needsRefresh {
             let task = Task<Bool, Never> { @MainActor in
-                defer { self.activeRefreshTask = nil }
+                defer {
+                    SessionRefreshDebugLog.log("account.foregroundRecover clear-active")
+                    self.activeRefreshTask = nil
+                }
                 let refreshed = await self.refreshSessionWithRetry()
                 if refreshed, let token = self.session?.token {
+                    SessionRefreshDebugLog.log("account.foregroundRecover connectAfterRefresh token=\(SessionRefreshDebugLog.token(token))")
                     self.account.socket.connect(token: token, wsHostOverride: nil)
+                } else {
+                    SessionRefreshDebugLog.log("account.foregroundRecover noConnect refreshed=\(refreshed) session=\(SessionRefreshDebugLog.session(self.session))")
                 }
                 return refreshed
             }
@@ -414,6 +584,7 @@ final class AccountContextImpl: AccountContext {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let token = self.session?.token else { return }
                 if self.account.socket.isConnected { return }
+                SessionRefreshDebugLog.log("account.foregroundRecover connectExisting token=\(SessionRefreshDebugLog.token(token))")
                 self.account.socket.connect(token: token, wsHostOverride: nil)
             }
         }
@@ -423,14 +594,23 @@ final class AccountContextImpl: AccountContext {
     private func refreshSessionWithRetry() async -> Bool {
         for attempt in 1...maxForegroundRecoverRetries {
             do {
+                SessionRefreshDebugLog.log("account.refreshWithRetry attempt=\(attempt) max=\(maxForegroundRecoverRetries)")
                 try await refreshSession()
+                SessionRefreshDebugLog.log("account.refreshWithRetry success attempt=\(attempt)")
                 return true
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, (code == 401 || code == 403) {
-                    SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
+                    SessionRefreshDebugLog.log("account.refreshWithRetry authFail attempt=\(attempt) error=\(SessionRefreshDebugLog.error(error))")
+                    notifySessionExpiredAndStopRecovery()
                     return false
                 }
+                SessionRefreshDebugLog.log("account.refreshWithRetry mezonFail attempt=\(attempt) error=\(SessionRefreshDebugLog.error(error))")
+            } catch is SessionError {
+                SessionRefreshDebugLog.log("account.refreshWithRetry sessionError attempt=\(attempt)")
+                notifySessionExpiredAndStopRecovery()
+                return false
             } catch {
+                SessionRefreshDebugLog.log("account.refreshWithRetry fail attempt=\(attempt) error=\(SessionRefreshDebugLog.error(error))")
             }
 
             if attempt < maxForegroundRecoverRetries {
@@ -439,11 +619,13 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
-        account.socket.reconnectFromForeground()
+        SessionRefreshDebugLog.log("account.refreshWithRetry exhausted max=\(maxForegroundRecoverRetries)")
         return false
     }
 
     @objc private func handleSessionExpired() {
+        SessionRefreshDebugLog.log("account.handleSessionExpired notification")
+        stopSessionRecovery()
         SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
     }
 
@@ -456,6 +638,7 @@ final class AccountContextImpl: AccountContext {
         saved: MezonSession,
         onReady: @escaping @MainActor (AccountContextImpl) -> Void
     ) {
+        SessionRefreshDebugLog.log("account.restore start saved=\(SessionRefreshDebugLog.session(saved))")
         session = saved
         applyCurrentUser(User(
             id: saved.userId ?? UUID().uuidString,
@@ -473,6 +656,7 @@ final class AccountContextImpl: AccountContext {
             onSuccess: { [weak self] newSession in
                 guard let self else { return }
                 guard self.isStillCurrentSession(epoch: startEpoch) else { return }
+                SessionRefreshDebugLog.log("account.restore launchSuccess new=\(SessionRefreshDebugLog.session(newSession))")
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
                 self.applySession(merged, user: self.currentUser, connectSocket: !merged.created, fetchAccount: false)
                 self.scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
@@ -487,12 +671,14 @@ final class AccountContextImpl: AccountContext {
             onExpired: { [weak self] in
                 guard let self else { return }
                 guard self.isStillCurrentSession(epoch: startEpoch) else { return }
+                SessionRefreshDebugLog.log("account.restore launchExpired saved=\(SessionRefreshDebugLog.session(saved))")
                 self.markSessionReady()
                 SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
             },
             onReady: { [weak self] in
                 guard let self else { return }
                 guard self.isStillCurrentSession(epoch: startEpoch) else { return }
+                SessionRefreshDebugLog.log("account.restore onReady")
                 self.markSessionReady()
                 onReady(self)
             }
@@ -505,6 +691,7 @@ final class AccountContextImpl: AccountContext {
         connectSocket: Bool = true,
         fetchAccount: Bool = true
     ) {
+        SessionRefreshDebugLog.log("account.applySession connectSocket=\(connectSocket) fetchAccount=\(fetchAccount) session=\(SessionRefreshDebugLog.session(session))")
         self.session = session
         SessionStore.save(session)
         if let uid = session.userId, !uid.isEmpty {
@@ -512,14 +699,12 @@ final class AccountContextImpl: AccountContext {
         }
         account.network.updateBaseURL(from: session)
 
-        account.network.bearerUnauthorizedRecovery = { [weak self] in
+        account.network.bearerUnauthorizedRecovery = { [weak self] failedToken, statusCode in
             guard let self else { return nil }
-            do {
-                try await self.refreshSession()
-                return self.session?.token
-            } catch {
-                return nil
-            }
+            return await self.recoverBearerTokenAfterUnauthorized(
+                failedToken: failedToken,
+                statusCode: statusCode
+            )
         }
 
         if socketEventsDisposable == nil {
@@ -532,10 +717,10 @@ final class AccountContextImpl: AccountContext {
         if connectSocket {
             account.socket.tokenProvider = { [weak self] in
                 guard let self else { throw SessionError.noSession }
-                try await self.refreshSession()
-                guard let t = self.session?.token else { throw SessionError.noSession }
-                return t
+                SessionRefreshDebugLog.log("account.socketTokenProvider invoked")
+                return try await self.tokenForSocketReconnect()
             }
+            SessionRefreshDebugLog.log("account.applySession socketConnect token=\(SessionRefreshDebugLog.token(session.token))")
             account.socket.connect(token: session.token, wsHostOverride: nil)
             if !session.token.isEmpty {
                 hasCompletedInitialSetup = true
@@ -579,14 +764,18 @@ final class AccountContextImpl: AccountContext {
         let disk = SessionStore.load()
         let candidates = [session, disk].compactMap { $0 }
         guard let baseSession = candidates.first(where: { !$0.isExpired }) ?? candidates.first else {
+            SessionRefreshDebugLog.log("account.voipPrepare stop noSession")
             return false
         }
+        SessionRefreshDebugLog.log("account.voipPrepare start base=\(SessionRefreshDebugLog.session(baseSession)) memory=\(SessionRefreshDebugLog.session(session)) socketConnected=\(account.socket.isConnected)")
         if let s = session, !s.isExpired, account.socket.isConnected {
             markSessionReady()
+            SessionRefreshDebugLog.log("account.voipPrepare ready existingSocket session=\(SessionRefreshDebugLog.session(s))")
             return true
         }
         if !baseSession.isExpired {
             account.network.updateBaseURL(from: baseSession)
+            SessionRefreshDebugLog.log("account.voipPrepare use-valid-base")
             applySession(baseSession, user: currentUser, connectSocket: true, fetchAccount: false)
             markSessionReady()
             return true
@@ -594,14 +783,18 @@ final class AccountContextImpl: AccountContext {
         account.network.updateBaseURL(from: baseSession)
         let refreshed: MezonSession
         do {
+            SessionRefreshDebugLog.log("account.voipPrepare refresh expiredBase")
             refreshed = try await SessionRefreshManager.shared.refresh(session: baseSession)
         } catch {
             if baseSession.isExpired {
+                SessionRefreshDebugLog.log("account.voipPrepare refresh-fail expiredBase error=\(SessionRefreshDebugLog.error(error))")
                 return false
             }
+            SessionRefreshDebugLog.log("account.voipPrepare refresh-fail useBase error=\(SessionRefreshDebugLog.error(error))")
             refreshed = baseSession
         }
         let merged = mergeIdToken(into: refreshed, previous: session ?? baseSession)
+        SessionRefreshDebugLog.log("account.voipPrepare apply merged=\(SessionRefreshDebugLog.session(merged))")
         applySession(merged, user: currentUser, connectSocket: true, fetchAccount: false)
         scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
         markSessionReady()

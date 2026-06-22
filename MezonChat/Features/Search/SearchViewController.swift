@@ -208,10 +208,13 @@ final class SearchViewController: ViewController {
         let allUsersCache = context.engine.clanData.getAllUserClans()
         let allChCache = context.engine.clanData.getAllChannelsByUser()
 
+        if let clanUsers = clanUsersCache {
+            Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
+        }
+
         if isChannelScoped {
             if let clanUsers = clanUsersCache {
                 allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-                Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
             }
         } else {
             if let allUsers = allUsersCache {
@@ -268,6 +271,17 @@ final class SearchViewController: ViewController {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
             do {
+                let needsClanProfileHydration =
+                    clanId > 0
+                    && (clanAvatars.isEmpty || clanNicks.isEmpty || (isChannelScoped && allMembers.isEmpty))
+                if needsClanProfileHydration {
+                    if let clanUsers = try? await context.account.network.listClanUsers(clanId: clanId, token: token) {
+                        Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
+                        if isChannelScoped && allMembers.isEmpty {
+                            allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+                        }
+                    }
+                }
                 if allMembers.isEmpty {
                     if isChannelScoped {
                         let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
@@ -315,6 +329,17 @@ final class SearchViewController: ViewController {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
             do {
+                let needsClanProfileHydration =
+                    clanId > 0
+                    && (allMembers.isEmpty || clanAvatars.isEmpty || clanNicks.isEmpty)
+                if needsClanProfileHydration {
+                    if let clanUsers = try? await context.account.network.listClanUsers(clanId: clanId, token: token) {
+                        Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
+                        if allMembers.isEmpty {
+                            allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+                        }
+                    }
+                }
                 if allMembers.isEmpty {
                     let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
                     allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
@@ -391,6 +416,75 @@ final class SearchViewController: ViewController {
 
     private func parentChannelLabel(forParentId parentId: Int64) -> String {
         allChannels.first(where: { $0.channelID == parentId })?.channelLabel ?? ""
+    }
+
+    private func nonEmptyChannelLabel(_ label: String?) -> String {
+        label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func displayLabel(for channel: Mezon_Api_ChannelDescription) -> String {
+        let label = nonEmptyChannelLabel(channel.channelLabel)
+        let isDMOrGroup =
+            channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
+        if isDMOrGroup {
+            let displayName = Self.dmGroupDisplayName(for: channel)
+            return nonEmptyChannelLabel(displayName)
+        }
+        if !label.isEmpty { return label }
+        let topic = nonEmptyChannelLabel(channel.topic)
+        if !topic.isEmpty { return topic }
+        return ""
+    }
+
+    private func resolvedChannelDescriptionForSearchMessage(
+        channelId: Int64,
+        clanId docClanId: Int64
+    ) -> Mezon_Api_ChannelDescription? {
+        if let channel = allChannels.first(where: { $0.channelID == channelId }) {
+            return channel
+        }
+        let resolvedClanId = docClanId != 0 ? docClanId : clanId
+        if let channel = context.account.postbox.resolvedChannelDescription(
+            clanId: resolvedClanId,
+            channelId: channelId
+        ) {
+            return channel
+        }
+        if resolvedClanId != clanId,
+            let channel = context.account.postbox.resolvedChannelDescription(
+                clanId: clanId,
+                channelId: channelId
+            )
+        {
+            return channel
+        }
+        return nil
+    }
+
+    private func resolvedChannelLabel(for document: Mezon_Api_SearchMessageDocument) -> String {
+        let documentLabel = nonEmptyChannelLabel(document.channelLabel)
+        if !documentLabel.isEmpty { return documentLabel }
+
+        guard let channelId = Int64(document.channelID) else {
+            return "Channel"
+        }
+
+        if scopedChannelId == channelId {
+            let scopedLabel = nonEmptyChannelLabel(scopedChannelLabel)
+            if !scopedLabel.isEmpty { return scopedLabel }
+        }
+
+        let docClanId = Int64(document.clanID) ?? 0
+        if let channel = resolvedChannelDescriptionForSearchMessage(
+            channelId: channelId,
+            clanId: docClanId
+        ) {
+            let label = displayLabel(for: channel)
+            if !label.isEmpty { return label }
+        }
+
+        return "Channel \(channelId)"
     }
 
     private func channelTabRowMatchesQuery(_ ch: Mezon_Api_ChannelDescription, query: String) -> Bool {
@@ -474,11 +568,19 @@ final class SearchViewController: ViewController {
     }
 
     private func prefetchMemberAvatarURLs(_ users: [Mezon_Api_User]) {
-        for user in users.prefix(56) where !user.avatarURL.isEmpty {
-            let s = ImgproxyURL.create(from: user.avatarURL, width: 120, height: 120)
+        for user in users.prefix(56) {
+            guard let raw = resolvedMemberAvatarURL(for: user) else { continue }
+            let s = ImgproxyURL.create(from: raw, width: 120, height: 120)
             guard let url = URL(string: s) else { continue }
             URLSession.shared.dataTask(with: url).resume()
         }
+    }
+
+    private func resolvedMemberAvatarURL(for user: Mezon_Api_User) -> String? {
+        let clanAvatar = clanAvatars[user.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !clanAvatar.isEmpty { return clanAvatar }
+        let profileAvatar = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return profileAvatar.isEmpty ? nil : profileAvatar
     }
 
     private func scoreMember(_ user: Mezon_Api_User, query: String) -> Int {
@@ -501,10 +603,15 @@ final class SearchViewController: ViewController {
     private func rebuildGroupedMessages() {
         var groups: [(channelId: String, channelLabel: String, messages: [Mezon_Api_SearchMessageDocument])] = []
         for msg in searchMessages {
+            let resolvedLabel = resolvedChannelLabel(for: msg)
             if let idx = groups.firstIndex(where: { $0.channelId == msg.channelID }) {
+                let currentLabel = nonEmptyChannelLabel(groups[idx].channelLabel)
+                if currentLabel.isEmpty || currentLabel == "Channel" || currentLabel == "Channel \(msg.channelID)" {
+                    groups[idx].channelLabel = resolvedLabel
+                }
                 groups[idx].messages.append(msg)
             } else {
-                groups.append((channelId: msg.channelID, channelLabel: msg.channelLabel, messages: [msg]))
+                groups.append((channelId: msg.channelID, channelLabel: resolvedLabel, messages: [msg]))
             }
         }
         groupedMessages = groups
@@ -617,6 +724,7 @@ final class SearchViewController: ViewController {
 
     private func switchTab(_ tab: SearchTab) {
         activeTab = tab
+        searchNode.tabBar.setSelectedTab(tab)
         reloadSearchTable()
         searchNode.tableNode.setContentOffset(.zero, animated: false)
 
@@ -682,17 +790,23 @@ final class SearchViewController: ViewController {
         searchNode.tabBar.isHidden = false
         searchNode.searchBar.clearFilterBadge()
         searchNode.setNeedsLayout()
+        switchTab(.members)
     }
 
     private func navigateToMember(_ user: Mezon_Api_User) {
-        let isCurrentUser = "\(user.id)" == context.currentUser?.id
+        var sheetUser = user
+        if let avatarURL = resolvedMemberAvatarURL(for: user) {
+            sheetUser.avatarURL = avatarURL
+        }
+        let isCurrentUser = "\(sheetUser.id)" == context.currentUser?.id
 
         view.endEditing(true)
 
         let sheet = MemberProfileSheetController(
-            user: user,
+            user: sheetUser,
             context: context,
             isCurrentUser: isCurrentUser,
+            clanId: clanId,
             onSendMessage: { [weak self] dmChannel in
                 guard let self else { return }
                 self.context.currentClanId = 0
@@ -730,14 +844,19 @@ final class SearchViewController: ViewController {
     private func navigateToMessage(_ doc: Mezon_Api_SearchMessageDocument) {
         guard let channelId = Int64(doc.channelID) else { return }
         let docClanId = Int64(doc.clanID) ?? clanId
+        let resolvedLabel = resolvedChannelLabel(for: doc)
 
         let channel: Mezon_Api_ChannelDescription
-        if let full = allChannels.first(where: { $0.channelID == channelId }) {
-            channel = full
+        if let full = resolvedChannelDescriptionForSearchMessage(channelId: channelId, clanId: docClanId) {
+            var resolved = full
+            if nonEmptyChannelLabel(resolved.channelLabel).isEmpty {
+                resolved.channelLabel = resolvedLabel
+            }
+            channel = resolved
         } else {
             var minimal = Mezon_Api_ChannelDescription()
             minimal.channelID = channelId
-            minimal.channelLabel = doc.channelLabel
+            minimal.channelLabel = resolvedLabel
             minimal.type = doc.channelType
             minimal.clanID = docClanId
             channel = minimal
@@ -1037,12 +1156,13 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
         guard activeTab == .messages, !groupedMessages.isEmpty, section < groupedMessages.count else { return nil }
-        let label = groupedMessages[section].channelLabel
+        let label = nonEmptyChannelLabel(groupedMessages[section].channelLabel)
+        let title = label.isEmpty ? "Channel" : label
         let header = UIView()
         header.backgroundColor = UIColor.theme.primary
         let titleLabel = UILabel()
         titleLabel.attributedText = NSAttributedString(
-            string: "# \(label)",
+            string: "# \(title)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
                 .foregroundColor: UIColor.theme.textStrong,
@@ -1080,10 +1200,11 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
             }
             let user = filteredMembers[row]
             let nick = clanNicks[user.id]
+            let clanAvatar = clanAvatars[user.id]
             let count = filteredMembers.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { MemberSearchCellNode(user: user, clanNick: nick, isFirst: isFirst, isLast: isLast) }
+            return { MemberSearchCellNode(user: user, clanNick: nick, clanAvatar: clanAvatar, isFirst: isFirst, isLast: isLast) }
 
         case .channels:
             if filteredChannels.isEmpty {
@@ -1437,9 +1558,14 @@ final class SearchTabBarNode: ASDisplayNode {
     }
 
     private func selectTab(_ tab: SearchTab) {
+        setSelectedTab(tab)
+        onTabSelected?(tab)
+    }
+
+    func setSelectedTab(_ tab: SearchTab) {
+        guard tabNodes.contains(where: { $0.tab == tab }) else { return }
         selectedTab = tab
         updateTabAppearance()
-        onTabSelected?(tab)
     }
 
     private func updateTabTitles() {
@@ -1573,7 +1699,7 @@ final class SearchEmptyCellNode: ASCellNode {
     }
 }
 
-final class MemberSearchCellNode: ASCellNode {
+final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let avatarBackplate = ASDisplayNode()
     private let avatarPlaceholderNode = ASTextNode2()
     private let avatarNode = ASNetworkImageNode()
@@ -1584,6 +1710,10 @@ final class MemberSearchCellNode: ASCellNode {
     private let isFirst: Bool
     private let isLast: Bool
     private let hasUsername: Bool
+    private let avatarColorSeed: String
+    private var avatarURLCandidates: [URL] = []
+    private var avatarURLCandidateIndex: Int = 0
+    private var avatarURLLoadKey: String = ""
 
     private static let avatarSize: CGFloat = 40.sf
     private static let margin: CGFloat = 12.sf
@@ -1591,10 +1721,17 @@ final class MemberSearchCellNode: ASCellNode {
     private static let cellHeight: CGFloat = 60.sh
     private static let radius: CGFloat = 10.sf
 
-    init(user: Mezon_Api_User, clanNick: String? = nil, isFirst: Bool = false, isLast: Bool = false) {
+    init(
+        user: Mezon_Api_User,
+        clanNick: String? = nil,
+        clanAvatar: String? = nil,
+        isFirst: Bool = false,
+        isLast: Bool = false
+    ) {
         self.isFirst = isFirst
         self.isLast = isLast
         self.hasUsername = !user.username.isEmpty
+        self.avatarColorSeed = user.username
         super.init()
         selectionStyle = .none
         let t = UIColor.theme
@@ -1615,7 +1752,7 @@ final class MemberSearchCellNode: ASCellNode {
 
         avatarBackplate.cornerRadius = Self.avatarSize / 2
         avatarBackplate.clipsToBounds = true
-        avatarBackplate.backgroundColor = UIColor.avatarColor(for: user.username)
+        avatarBackplate.backgroundColor = UIColor.avatarColor(for: avatarColorSeed)
 
         avatarPlaceholderNode.maximumNumberOfLines = 1
 
@@ -1624,6 +1761,7 @@ final class MemberSearchCellNode: ASCellNode {
         avatarNode.backgroundColor = .clear
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.shouldRenderProgressImages = false
+        avatarNode.delegate = self
 
         statusDotNode.backgroundColor = user.online
             ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1)
@@ -1664,19 +1802,14 @@ final class MemberSearchCellNode: ASCellNode {
             ]
         )
 
-        let raw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !raw.isEmpty,
-            let url = URL(string: ImgproxyURL.create(from: raw, width: 120, height: 120))
-        {
-            avatarNode.url = url
-            avatarNode.isHidden = false
-            avatarPlaceholderNode.isHidden = true
-            avatarBackplate.backgroundColor = .clear
-        } else {
-            avatarNode.url = nil
-            avatarNode.isHidden = true
-            avatarPlaceholderNode.isHidden = false
+        let rawAvatarValues: [String?] = [clanAvatar, user.avatarURL]
+        var seen = Set<String>()
+        avatarURLCandidates = rawAvatarValues.compactMap { raw in
+            let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
+            return URL(string: ImgproxyURL.create(from: trimmed, width: 120, height: 120))
         }
+        loadAvatarCandidate(at: 0)
 
         addSubnode(avatarBackplate)
         addSubnode(avatarPlaceholderNode)
@@ -1684,6 +1817,50 @@ final class MemberSearchCellNode: ASCellNode {
         addSubnode(statusDotNode)
         addSubnode(nameNode)
         if hasUsername { addSubnode(usernameNode) }
+    }
+
+    private func loadAvatarCandidate(at index: Int) {
+        guard index < avatarURLCandidates.count else {
+            showAvatarPlaceholder()
+            return
+        }
+        let url = avatarURLCandidates[index]
+        avatarURLCandidateIndex = index
+        avatarURLLoadKey = url.absoluteString
+        avatarNode.url = url
+        avatarNode.isHidden = false
+        avatarPlaceholderNode.isHidden = true
+        avatarBackplate.backgroundColor = .clear
+    }
+
+    private func showAvatarPlaceholder() {
+        avatarURLLoadKey = ""
+        avatarNode.url = nil
+        avatarNode.isHidden = true
+        avatarPlaceholderNode.isHidden = false
+        avatarBackplate.backgroundColor = UIColor.avatarColor(for: avatarColorSeed)
+    }
+
+    private func loadNextAvatarCandidateIfKeyMatches(_ key: String) {
+        guard !key.isEmpty, key == avatarURLLoadKey else { return }
+        let nextIndex = avatarURLCandidateIndex + 1
+        if nextIndex < avatarURLCandidates.count {
+            loadAvatarCandidate(at: nextIndex)
+        } else {
+            showAvatarPlaceholder()
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        guard imageNode === avatarNode else { return }
+        if image.size.width < 0.5 || image.size.height < 0.5, let url = imageNode.url {
+            loadNextAvatarCandidateIfKeyMatches(url.absoluteString)
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode === avatarNode, let url = imageNode.url else { return }
+        loadNextAvatarCandidateIfKeyMatches(url.absoluteString)
     }
 
     override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {

@@ -8,6 +8,7 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
 
     private var ignoreZoom = false
     private var currentSize: CGSize = .zero
+    private var needsScrollResetWhenSized = false
 
     public var zoomableContent: (CGSize, ASDisplayNode)? {
         didSet {
@@ -17,8 +18,7 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
                     self.scrollNode.addSubnode(node)
                 }
             }
-            self.resetScrollViewContents()
-            self.centerScrollViewContents()
+            self.resetScrollViewContentsIfPossible()
         }
     }
 
@@ -77,14 +77,22 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         currentSize = size
         if shouldReset {
             transition.updateFrame(node: self.scrollNode, frame: CGRect(origin: .zero, size: size))
-            self.resetScrollViewContents()
+            self.resetScrollViewContentsIfPossible()
         }
     }
 
-    private func resetScrollViewContents() {
+    private func resetScrollViewContentsIfPossible() {
         guard let (contentSize, contentNode) = self.zoomableContent else { return }
         let boundsSize = self.scrollNode.view.bounds.size
-        guard contentSize.width > 0, contentSize.height > 0, boundsSize.width > 0, boundsSize.height > 0 else { return }
+        guard contentSize.width > 0, contentSize.height > 0, boundsSize.width > 0, boundsSize.height > 0 else {
+            needsScrollResetWhenSized = true
+            return
+        }
+        needsScrollResetWhenSized = false
+        resetScrollViewContents(contentSize: contentSize, contentNode: contentNode, boundsSize: boundsSize)
+    }
+
+    private func resetScrollViewContents(contentSize: CGSize, contentNode: ASDisplayNode, boundsSize: CGSize) {
 
         self.ignoreZoom = true
         self.scrollNode.view.minimumZoomScale = 1.0
@@ -99,6 +107,13 @@ open class ZoomableContentGalleryItemNode: GalleryItemNode, ASScrollViewDelegate
         self.scrollNode.view.zoomScale = self.scrollNode.view.minimumZoomScale
         self.centerScrollViewContents()
         self.ignoreZoom = false
+    }
+
+    override open func layout() {
+        super.layout()
+        if needsScrollResetWhenSized {
+            resetScrollViewContentsIfPossible()
+        }
     }
 
     private func updateZoomScales() {

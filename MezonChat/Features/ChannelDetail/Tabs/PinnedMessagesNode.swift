@@ -913,23 +913,26 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     @objc fileprivate func unpinPressed() { onUnpin() }
 
     private func presentMediaGallery(index: Int, media: [ParsedAttachment]) {
-        let items: [GalleryItemInfo] = media.enumerated().map { (_, att) in
-            let placeholderURL: String? = att.isVideo
-                ? nil
-                : ImgproxyURL.attachmentURL(
-                    from: att.url,
-                    width: 400,
-                    height: 400,
-                    resizeType: "fit"
+        let items: [GalleryItemInfo] = media.enumerated().map { (itemIndex, att) in
+            if att.isVideo {
+                return GalleryItemInfo(
+                    url: att.url,
+                    sourceURL: att.url,
+                    image: itemIndex == index ? att.localImage : nil,
+                    placeholderURL: nil,
+                    senderName: displayNameForGallery,
+                    senderAvatarURL: avatarURLForGallery,
+                    timestamp: Self.galleryTimestamp(for: pinForGallery),
+                    isVideo: true
                 )
-            return GalleryItemInfo(
-                url: att.url,
-                image: nil,
-                placeholderURL: placeholderURL,
+            }
+            return GalleryItemInfo.imageItem(
+                sourceURL: att.url,
+                image: itemIndex == index ? att.localImage : nil,
+                pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                 senderName: displayNameForGallery,
                 senderAvatarURL: avatarURLForGallery,
-                timestamp: Self.galleryTimestamp(for: pinForGallery),
-                isVideo: att.isVideo
+                timestamp: Self.galleryTimestamp(for: pinForGallery)
             )
         }
         let gallery = GalleryController(items: items, initialIndex: index)

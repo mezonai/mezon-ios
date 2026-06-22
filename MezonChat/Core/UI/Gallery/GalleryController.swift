@@ -75,14 +75,7 @@ final class GalleryController: UIViewController {
         placeholderImageView.backgroundColor = .black
         placeholderImageView.translatesAutoresizingMaskIntoConstraints = false
         if items.indices.contains(initialIndex) {
-            let initialItem = items[initialIndex]
-            if let placeholderURL = initialItem.placeholderURL,
-               !placeholderURL.isEmpty,
-               let cached = ImageCache.shared.memoryImage(forKey: placeholderURL) {
-                placeholderImageView.image = cached
-            } else {
-                placeholderImageView.image = initialItem.image
-            }
+            applyInitialPlaceholder(for: items[initialIndex])
         }
         view.addSubview(placeholderImageView)
         NSLayoutConstraint.activate([
@@ -91,6 +84,61 @@ final class GalleryController: UIViewController {
             placeholderImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             placeholderImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+
+        DispatchQueue.main.async { [weak self] in
+            self?.performDeferredSetupIfNeeded()
+        }
+    }
+
+    private func applyInitialPlaceholder(for item: GalleryItemInfo) {
+        if let preview = item.image {
+            placeholderImageView.image = preview
+            return
+        }
+        for key in placeholderCacheKeys(for: item) {
+            if let cached = ImageCache.shared.memoryImage(forKey: key) {
+                placeholderImageView.image = cached
+                return
+            }
+        }
+        loadPlaceholderFromDiskIfNeeded(for: item)
+    }
+
+    private func placeholderCacheKeys(for item: GalleryItemInfo) -> [String] {
+        var keys: [String] = []
+        if let placeholderURL = item.placeholderURL, !placeholderURL.isEmpty {
+            keys.append(placeholderURL)
+        }
+        if !item.url.isEmpty {
+            keys.append(item.url)
+        }
+        if let sourceURL = item.sourceURL, !sourceURL.isEmpty {
+            keys.append(contentsOf: GalleryItemInfo.previewCacheKeys(sourceURL: sourceURL, placeholderProxySize: 150))
+            keys.append(contentsOf: GalleryItemInfo.previewCacheKeys(sourceURL: sourceURL, placeholderProxySize: 400))
+        }
+        var unique: [String] = []
+        for key in keys where !unique.contains(key) {
+            unique.append(key)
+        }
+        return unique
+    }
+
+    private func loadPlaceholderFromDiskIfNeeded(for item: GalleryItemInfo) {
+        guard placeholderImageView.image == nil else { return }
+        for key in placeholderCacheKeys(for: item) {
+            guard ImageCache.shared.memoryImage(forKey: key) == nil else { continue }
+            guard ImageCache.shared.hasDiskCache(forKey: key) else { continue }
+            ImageCache.shared.imageFromDisk(forKey: key) { [weak self] image in
+                guard let self, let image, self.placeholderImageView.image == nil else { return }
+                self.placeholderImageView.image = image
+            }
+            return
+        }
+        guard let placeholderURL = item.placeholderURL, !placeholderURL.isEmpty else { return }
+        ImageCache.shared.loadImage(urlString: placeholderURL) { [weak self] image in
+            guard let self, let image, self.placeholderImageView.image == nil else { return }
+            self.placeholderImageView.image = image
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -157,10 +205,30 @@ final class GalleryController: UIViewController {
         pagingNode.updateLayout(size: containerNode.bounds.size, navigationBarHeight: 0)
         loadChannelItemsIfNeeded()
 
-        DispatchQueue.main.async { [weak self] in
-            self?.placeholderImageView.removeFromSuperview()
-        }
+        dismissPlaceholderWhenGalleryReady()
         setupVideoSaveOverlayIfNeeded()
+    }
+
+    private func dismissPlaceholderWhenGalleryReady(attempt: Int = 0) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let hasGalleryImage = (self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode)?.currentImage != nil
+            if hasGalleryImage {
+                UIView.animate(withDuration: 0.12, animations: {
+                    self.placeholderImageView.alpha = 0
+                }, completion: { _ in
+                    self.placeholderImageView.removeFromSuperview()
+                })
+                return
+            }
+            if self.placeholderImageView.image != nil {
+                return
+            }
+            if attempt >= 200 {
+                return
+            }
+            self.dismissPlaceholderWhenGalleryReady(attempt: attempt + 1)
+        }
     }
 
     private func setupVideoSaveOverlayIfNeeded() {

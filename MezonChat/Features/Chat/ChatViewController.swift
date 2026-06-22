@@ -861,8 +861,13 @@ final class ChatViewController: ViewController {
             onMessageNeedsRelayout: nil,
             onEmbedButtonClicked: nil
         )
-        interaction.onMediaTapped = { [weak self] index, media, display in
-            self?.presentMessageMediaGallery(index: index, media: media, display: display)
+        interaction.onMediaTapped = { [weak self] index, media, display, previewImage in
+            self?.presentMessageMediaGallery(
+                index: index,
+                media: media,
+                display: display,
+                previewImage: previewImage
+            )
         }
         interaction.onMediaRetryTapped = { [weak self] index, display in
             guard let self else { return }
@@ -5701,9 +5706,19 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
-    private func presentMessageMediaGallery(index: Int, media: [ParsedAttachment], display: ChatMessageDisplay) {
-        let galleryItems = media.map {
-            makeMessageGalleryItem(attachment: $0, display: display)
+    private func presentMessageMediaGallery(
+        index: Int,
+        media: [ParsedAttachment],
+        display: ChatMessageDisplay,
+        previewImage: UIImage?
+    ) {
+        let galleryItems = media.enumerated().map { (itemIndex, attachment) in
+            let preview = itemIndex == index ? previewImage : nil
+            return makeMessageGalleryItem(
+                attachment: attachment,
+                display: display,
+                previewImage: preview
+            )
         }
         guard !galleryItems.isEmpty else { return }
         let initialIndex = max(0, min(index, galleryItems.count - 1))
@@ -5718,35 +5733,32 @@ final class ChatViewController: ViewController {
         present(gallery, animated: true)
     }
 
-    private func makeMessageGalleryItem(attachment: ParsedAttachment, display: ChatMessageDisplay) -> GalleryItemInfo {
-        let url: String
-        let placeholderURL: String?
+    private func makeMessageGalleryItem(
+        attachment: ParsedAttachment,
+        display: ChatMessageDisplay,
+        previewImage: UIImage? = nil
+    ) -> GalleryItemInfo {
         if attachment.isVideo {
-            url = attachment.url
-            placeholderURL = nil
-        } else {
-            url = ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: 700,
-                height: 700,
-                resizeType: "fit"
-            )
-            placeholderURL = ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: 400,
-                height: 400,
-                resizeType: "fit"
+            return GalleryItemInfo(
+                url: attachment.url,
+                sourceURL: attachment.url,
+                image: previewImage ?? attachment.localImage,
+                placeholderURL: nil,
+                senderName: display.senderDisplayName,
+                senderAvatarURL: display.avatarURL,
+                timestamp: display.message.createdAt,
+                isVideo: true
             )
         }
-        return GalleryItemInfo(
-            url: url,
+        return GalleryItemInfo.imageItem(
             sourceURL: attachment.url,
-            image: attachment.localImage,
-            placeholderURL: placeholderURL,
+            image: GalleryItemInfo.fitCachedPreviewMemory(sourceURL: attachment.url)
+                ?? previewImage
+                ?? attachment.localImage,
+            pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
             senderName: display.senderDisplayName,
             senderAvatarURL: display.avatarURL,
-            timestamp: display.message.createdAt,
-            isVideo: attachment.isVideo
+            timestamp: display.message.createdAt
         )
     }
 
@@ -5776,7 +5788,6 @@ final class ChatViewController: ViewController {
             after: selectedTimestamp
         )
 
-        let fullPx = galleryFullScreenProxyPixels()
         let visualItems = (newer + olderAndCurrent)
             .filter { Self.isVisualChannelAttachment($0) }
             .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
@@ -5787,7 +5798,7 @@ final class ChatViewController: ViewController {
                 }) else { return }
                 result.append(attachment)
             }
-            .map { makeChannelGalleryItem(attachment: $0, fullProxyPixels: fullPx) }
+            .map { makeChannelGalleryItem(attachment: $0) }
         return Array(visualItems.reversed())
     }
 
@@ -5813,40 +5824,31 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func makeChannelGalleryItem(attachment: Mezon_Api_ChannelAttachment, fullProxyPixels: Int) -> GalleryItemInfo {
+    private func makeChannelGalleryItem(attachment: Mezon_Api_ChannelAttachment) -> GalleryItemInfo {
         let isVideo = Self.isVideoChannelAttachment(attachment)
-        let url: String
-        let placeholderURL: String?
-        if isVideo {
-            url = attachment.url
-            placeholderURL = nil
-        } else {
-            url = ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: fullProxyPixels,
-                height: fullProxyPixels,
-                resizeType: "fit"
-            )
-            placeholderURL = ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: 100,
-                height: 100,
-                resizeType: "fit"
-            )
-        }
         let uploader = resolvedUploaderInfo(uploaderId: attachment.uploader)
         let timestamp = attachment.createTimeSeconds > 0
             ? Date(timeIntervalSince1970: TimeInterval(attachment.createTimeSeconds))
             : nil
-        return GalleryItemInfo(
-            url: url,
+        if isVideo {
+            return GalleryItemInfo(
+                url: attachment.url,
+                sourceURL: attachment.url,
+                image: nil,
+                placeholderURL: nil,
+                senderName: uploader.name,
+                senderAvatarURL: uploader.avatarURL,
+                timestamp: timestamp,
+                isVideo: true
+            )
+        }
+        return GalleryItemInfo.imageItem(
             sourceURL: attachment.url,
-            image: nil,
-            placeholderURL: placeholderURL,
+            pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
+            placeholderProxySize: 150,
             senderName: uploader.name,
             senderAvatarURL: uploader.avatarURL,
-            timestamp: timestamp,
-            isVideo: isVideo
+            timestamp: timestamp
         )
     }
 
@@ -5871,12 +5873,6 @@ final class ChatViewController: ViewController {
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
             || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
-    }
-
-    private func galleryFullScreenProxyPixels() -> Int {
-        let longest = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
-        let pixels = Int((longest * UIScreen.main.scale).rounded(.up))
-        return max(512, min(pixels, 2048))
     }
 
     private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {

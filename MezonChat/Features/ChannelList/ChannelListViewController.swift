@@ -161,8 +161,15 @@ private func sortChannelsForCategory(_ channels: [Mezon_Api_ChannelDescription],
 private func inferredCategoryDescs(from channels: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_CategoryDesc] {
     var seen = Set<Int64>()
     var result: [Mezon_Api_CategoryDesc] = []
-    for ch in channels where ch.parentID == 0 {
+    for ch in channels {
         let id = ch.categoryID
+        guard id != 0 else { continue }
+        if let idx = result.firstIndex(where: { $0.categoryID == id }) {
+            if result[idx].categoryName.isEmpty, !ch.categoryName.isEmpty {
+                result[idx].categoryName = ch.categoryName
+            }
+            continue
+        }
         guard !seen.contains(id) else { continue }
         seen.insert(id)
         var c = Mezon_Api_CategoryDesc()
@@ -171,7 +178,301 @@ private func inferredCategoryDescs(from channels: [Mezon_Api_ChannelDescription]
         c.clanID = ch.clanID
         result.append(c)
     }
+    if result.isEmpty {
+        for ch in channels where ch.parentID == 0 {
+            let id = ch.categoryID
+            guard !seen.contains(id) else { continue }
+            seen.insert(id)
+            var c = Mezon_Api_CategoryDesc()
+            c.categoryID = id
+            c.categoryName = ch.categoryName
+            c.clanID = ch.clanID
+            result.append(c)
+        }
+    }
     return result
+}
+
+private func categoryNameLookup(
+    from channels: [Mezon_Api_ChannelDescription],
+    categoryDescs: [Mezon_Api_CategoryDesc]
+) -> [Int64: String] {
+    var names: [Int64: String] = [:]
+    for d in categoryDescs where !d.categoryName.isEmpty {
+        names[d.categoryID] = d.categoryName
+    }
+    for ch in channels where ch.categoryID != 0 && !ch.categoryName.isEmpty {
+        if names[ch.categoryID]?.isEmpty != false {
+            names[ch.categoryID] = ch.categoryName
+        }
+    }
+    return names
+}
+
+private func enrichCategoryNames(
+    _ cats: [ChannelCategory],
+    channels: [Mezon_Api_ChannelDescription],
+    categoryDescs: [Mezon_Api_CategoryDesc]
+) -> [ChannelCategory] {
+    let lookup = categoryNameLookup(from: channels, categoryDescs: categoryDescs)
+    guard !lookup.isEmpty else { return cats }
+    return cats.map { cat in
+        guard cat.id != ChannelCategory.favoritesCategoryId else { return cat }
+        if !cat.name.isEmpty { return cat }
+        guard let name = lookup[cat.id], !name.isEmpty else { return cat }
+        return ChannelCategory(
+            id: cat.id,
+            name: name,
+            isCollapsed: cat.isCollapsed,
+            channels: cat.channels,
+            orderedThreadChildren: cat.orderedThreadChildren,
+            favoriteFlatChannels: cat.favoriteFlatChannels
+        )
+    }
+}
+
+private func overlayCategoryNames(preferred: [ChannelCategory], onto target: [ChannelCategory]) -> [ChannelCategory] {
+    let byId = Dictionary(uniqueKeysWithValues: preferred.map { ($0.id, $0) })
+    return target.map { cat in
+        guard cat.id != ChannelCategory.favoritesCategoryId else { return cat }
+        if !cat.name.isEmpty { return cat }
+        guard let src = byId[cat.id], !src.name.isEmpty else { return cat }
+        return ChannelCategory(
+            id: cat.id,
+            name: src.name,
+            isCollapsed: cat.isCollapsed,
+            channels: cat.channels,
+            orderedThreadChildren: cat.orderedThreadChildren,
+            favoriteFlatChannels: cat.favoriteFlatChannels
+        )
+    }
+}
+
+private let voiceChannelTypesForCategoryRepair: Set<Int32> = [
+    MezonConstants.ChannelType.mezonVoice.rawValue,
+    MezonConstants.ChannelType.streaming.rawValue,
+    MezonConstants.ChannelType.app.rawValue,
+]
+
+private func categoryDescIdMatchingName(_ descs: [Mezon_Api_CategoryDesc], keyword: String) -> Int64? {
+    descs.first(where: { $0.categoryName.localizedCaseInsensitiveContains(keyword) })?.categoryID
+}
+
+private func inferCategoryId(
+    for channel: Mezon_Api_ChannelDescription,
+    categoryDescs: [Mezon_Api_CategoryDesc]
+) -> Int64? {
+    guard !categoryDescs.isEmpty else { return nil }
+    if voiceChannelTypesForCategoryRepair.contains(channel.type),
+       let id = categoryDescIdMatchingName(categoryDescs, keyword: "voice") {
+        return id
+    }
+    if channel.channelPrivate == 1,
+       let id = categoryDescIdMatchingName(categoryDescs, keyword: "private") {
+        return id
+    }
+    if let id = categoryDescIdMatchingName(categoryDescs, keyword: "public") {
+        return id
+    }
+    return categoryDescs.sorted(by: { $0.categoryOrder < $1.categoryOrder }).first?.categoryID
+}
+
+private func channelsMissingCategoryIds(_ channels: [Mezon_Api_ChannelDescription]) -> Bool {
+    let topLevel = channels.filter { $0.parentID == 0 }
+    guard !topLevel.isEmpty else { return false }
+    return topLevel.allSatisfy { $0.categoryID == 0 }
+}
+
+private func categoryPlacementFromSnapshot(_ cats: [ChannelCategory]) -> [Int64: (categoryId: Int64, categoryName: String)] {
+    var map: [Int64: (Int64, String)] = [:]
+    for cat in cats where cat.id != 0 && cat.id != ChannelCategory.favoritesCategoryId {
+        let name = cat.name
+        for ch in cat.channels {
+            map[ch.channelID] = (cat.id, name)
+        }
+        for (_, threads) in cat.orderedThreadChildren {
+            for ch in threads {
+                map[ch.channelID] = (cat.id, name)
+            }
+        }
+        if let fav = cat.favoriteFlatChannels {
+            for ch in fav {
+                map[ch.channelID] = (cat.id, name)
+            }
+        }
+    }
+    return map
+}
+
+private func repairChannelsFromSnapshotPlacement(
+    _ channels: [Mezon_Api_ChannelDescription],
+    snapshot: [ChannelCategory],
+    categoryDescs: [Mezon_Api_CategoryDesc]
+) -> [Mezon_Api_ChannelDescription] {
+    let placement = categoryPlacementFromSnapshot(snapshot)
+    guard !placement.isEmpty else { return channels }
+    let descNames = Dictionary(uniqueKeysWithValues: categoryDescs.map { ($0.categoryID, $0.categoryName) })
+    return channels.map { ch in
+        guard ch.categoryID == 0, let place = placement[ch.channelID], place.categoryId != 0 else { return ch }
+        var repaired = ch
+        repaired.categoryID = place.categoryId
+        if repaired.categoryName.isEmpty {
+            let name = descNames[place.categoryId] ?? place.categoryName
+            if !name.isEmpty {
+                repaired.categoryName = name
+            }
+        }
+        return repaired
+    }
+}
+
+private func repairChannelsMissingCategoryIds(
+    _ channels: [Mezon_Api_ChannelDescription],
+    categoryDescs: [Mezon_Api_CategoryDesc]
+) -> [Mezon_Api_ChannelDescription] {
+    guard !categoryDescs.isEmpty else { return channels }
+    let descNames = Dictionary(uniqueKeysWithValues: categoryDescs.map { ($0.categoryID, $0.categoryName) })
+    var parentCategoryById: [Int64: Int64] = [:]
+    for ch in channels where ch.parentID == 0 {
+        if ch.categoryID != 0 {
+            parentCategoryById[ch.channelID] = ch.categoryID
+        } else if let id = inferCategoryId(for: ch, categoryDescs: categoryDescs) {
+            parentCategoryById[ch.channelID] = id
+        }
+    }
+    return channels.map { ch in
+        guard ch.categoryID == 0 else { return ch }
+        let catId: Int64?
+        if ch.parentID != 0 {
+            catId = parentCategoryById[ch.parentID] ?? inferCategoryId(for: ch, categoryDescs: categoryDescs)
+        } else {
+            catId = parentCategoryById[ch.channelID] ?? inferCategoryId(for: ch, categoryDescs: categoryDescs)
+        }
+        guard let catId, catId != 0 else { return ch }
+        var repaired = ch
+        repaired.categoryID = catId
+        if repaired.categoryName.isEmpty, let name = descNames[catId], !name.isEmpty {
+            repaired.categoryName = name
+        }
+        return repaired
+    }
+}
+
+private func hasOrphanZeroCategoryBucket(
+    _ cats: [ChannelCategory],
+    categoryDescs: [Mezon_Api_CategoryDesc]
+) -> Bool {
+    guard !categoryDescs.isEmpty else { return false }
+    let namedIds = Set(categoryDescs.map(\.categoryID))
+    guard let zero = cats.first(where: { $0.id == 0 && !$0.channels.isEmpty }) else { return false }
+    let namedCats = cats.filter { namedIds.contains($0.id) }
+    guard !namedCats.isEmpty else { return false }
+    let namedHaveChannels = namedCats.contains {
+        !$0.channels.isEmpty || $0.orderedThreadChildren.values.contains(where: { !$0.isEmpty })
+    }
+    return !namedHaveChannels && !zero.channels.isEmpty
+}
+
+private func parentChannelOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64: [Int64]] {
+    var result: [Int64: [Int64]] = [:]
+    for cat in snapshot where cat.id != ChannelCategory.favoritesCategoryId {
+        var ids: [Int64] = []
+        var seen = Set<Int64>()
+        for ch in cat.channels where seen.insert(ch.channelID).inserted {
+            ids.append(ch.channelID)
+        }
+        if !ids.isEmpty {
+            result[cat.id] = ids
+        }
+    }
+    if let orphan = snapshot.first(where: { $0.id == 0 && !$0.channels.isEmpty }) {
+        result[0] = orphan.channels.map(\.channelID)
+    }
+    return result
+}
+
+private func threadOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64: [Int64: [Int64]]] {
+    var result: [Int64: [Int64: [Int64]]] = [:]
+    for cat in snapshot {
+        for (parentId, threads) in cat.orderedThreadChildren where !threads.isEmpty {
+            result[cat.id, default: [:]][parentId] = threads.map(\.channelID)
+        }
+    }
+    return result
+}
+
+private func globalParentChannelOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64] {
+    var order: [Int64] = []
+    var seen = Set<Int64>()
+    for cat in snapshot where cat.id != ChannelCategory.favoritesCategoryId {
+        for ch in cat.channels where seen.insert(ch.channelID).inserted {
+            order.append(ch.channelID)
+        }
+    }
+    if let orphan = snapshot.first(where: { $0.id == 0 }) {
+        for ch in orphan.channels where seen.insert(ch.channelID).inserted {
+            order.append(ch.channelID)
+        }
+    }
+    return order
+}
+
+private func globalParentOrder(from channels: [Mezon_Api_ChannelDescription]) -> [Int64] {
+    var order: [Int64] = []
+    var seen = Set<Int64>()
+    for ch in channels where ch.parentID == 0 {
+        if seen.insert(ch.channelID).inserted {
+            order.append(ch.channelID)
+        }
+    }
+    return order
+}
+
+private func reorderChannels(
+    _ channels: [Mezon_Api_ChannelDescription],
+    preferredOrder: [Int64]
+) -> [Mezon_Api_ChannelDescription] {
+    guard !preferredOrder.isEmpty else { return channels }
+    let byId = Dictionary(uniqueKeysWithValues: channels.map { ($0.channelID, $0) })
+    var used = Set<Int64>()
+    var result: [Mezon_Api_ChannelDescription] = []
+    for id in preferredOrder {
+        if let ch = byId[id], used.insert(id).inserted {
+            result.append(ch)
+        }
+    }
+    for ch in channels where !used.contains(ch.channelID) {
+        result.append(ch)
+    }
+    return result
+}
+
+private func applySnapshotChannelOrder(
+    _ cats: [ChannelCategory],
+    snapshot: [ChannelCategory],
+    globalFallbackOrder: [Int64]
+) -> [ChannelCategory] {
+    let perCategoryOrder = parentChannelOrderFromSnapshot(snapshot)
+    let threadOrders = threadOrderFromSnapshot(snapshot)
+    return cats.map { cat in
+        guard cat.id != ChannelCategory.favoritesCategoryId else { return cat }
+        let parentOrder = perCategoryOrder[cat.id] ?? globalFallbackOrder
+        let orderedParents = reorderChannels(cat.channels, preferredOrder: parentOrder)
+        var newThreads: [Int64: [Mezon_Api_ChannelDescription]] = [:]
+        let catThreadOrders = threadOrders[cat.id] ?? [:]
+        for (parentId, threads) in cat.orderedThreadChildren {
+            let preferred = catThreadOrders[parentId] ?? []
+            newThreads[parentId] = reorderChannels(threads, preferredOrder: preferred)
+        }
+        return ChannelCategory(
+            id: cat.id,
+            name: cat.name,
+            isCollapsed: cat.isCollapsed,
+            channels: orderedParents,
+            orderedThreadChildren: newThreads,
+            favoriteFlatChannels: cat.favoriteFlatChannels
+        )
+    }
 }
 
 private func splitParentsAndOrderedThreads(from flatSorted: [Mezon_Api_ChannelDescription])
@@ -312,9 +613,6 @@ func buildThreadLookup(_ allChannels: [Mezon_Api_ChannelDescription]) -> [Int64:
     var lookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
     for ch in allChannels where ch.parentID != 0 {
         lookup[ch.parentID, default: []].append(ch)
-    }
-    for key in lookup.keys {
-        lookup[key]?.sort { $0.channelLabel < $1.channelLabel }
     }
     return lookup
 }
@@ -612,7 +910,10 @@ final class ChannelListViewController: ViewController {
             onEventTapped: { [weak self] in self?.presentEventBottomSheet() },
             onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) },
             onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() },
-            isShowEmptyCategoriesEnabled: { [weak self] in self?.showEmptyCategoriesEnabled ?? false },
+            isShowEmptyCategoriesEnabled: { [weak self] in
+                guard let self, self.clanId != 0 else { return false }
+                return self.loadShowEmptyCategoriesPreference(clanId: self.clanId)
+            },
             onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) },
             onLongPressCategory: { [weak self] category in self?.presentCategoryActionSheet(category) },
             onBecameVisible: { [weak self] in self?.reconcileChannelListDataIfNeeded() },
@@ -634,6 +935,7 @@ final class ChannelListViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        refreshShowEmptyCategoriesPreferenceFromCache()
         reconcileChannelListDataIfNeeded()
     }
 
@@ -877,22 +1179,14 @@ final class ChannelListViewController: ViewController {
             return
         }
         allChannels = updated
-        let storedCollapsed = loadCollapsedCategoryIds()
-        let built = buildChannelCategories(
-            updated,
-            categoryDescs: channelListCategoryDescs,
-            favoriteChannelIds: channelListFavoriteIds,
-            collapsedIds: storedCollapsed
-        )
-        let cats = applyBuiltCategoriesPreservingCollapse(built)
-        categories = cats
-        categoriesPipe.putNext(cats)
+        applyCategoriesForCurrentChannels(channels: updated, clanId: clanId)
+        categoriesPipe.putNext(categories)
         persistFullChannelListCache(
             clanId: clanId,
             channels: updated,
             categoryDescs: channelListCategoryDescs,
             favoriteIds: channelListFavoriteIds,
-            categories: cats
+            categories: categories
         )
         needsReloadPipe.putNext(())
         postClanSidebarUnreadDerivedFromCurrentChannels()
@@ -908,6 +1202,7 @@ final class ChannelListViewController: ViewController {
         self.clanLogoURL = logoURL ?? ""
         self.sidebarMemberCount = memberCount
         guard clanId != self.clanId else {
+            refreshShowEmptyCategoriesPreferenceFromCache()
             channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
             refreshOnboardingState()
             if clanId != 0 {
@@ -1713,17 +2008,10 @@ final class ChannelListViewController: ViewController {
     private func removeChannelLocally(channelId: Int64) {
         clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
         allChannels.removeAll { $0.channelID == channelId }
-        
-        let built = buildChannelCategories(
-            allChannels,
-            categoryDescs: channelListCategoryDescs,
-            favoriteChannelIds: channelListFavoriteIds,
-            collapsedIds: loadCollapsedCategoryIds()
-        )
-        let cats = applyBuiltCategoriesPreservingCollapse(built)
-        categories = cats
-        categoriesPipe.putNext(cats)
-        persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
+
+        applyCategoriesForCurrentChannels(channels: allChannels, clanId: clanId)
+        categoriesPipe.putNext(categories)
+        persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: categories)
         reconcileSelectionWithLoadedChannels()
         needsReloadPipe.putNext(())
     }
@@ -1970,29 +2258,52 @@ final class ChannelListViewController: ViewController {
         let collapsed = loadCollapsedCategoryIds()
         let resolved: [ChannelCategory]
         if categoriesStructureMatches(built, categories) {
-            resolved = mergeChannelProtosIntoCategoriesSnapshot(categories, authoritative: mergedChannels)
+            let merged = mergeChannelProtosIntoCategoriesSnapshot(categories, authoritative: mergedChannels)
+            resolved = applyBuiltCategoriesPreservingCollapse(
+                overlayCategoryNames(preferred: built, onto: merged)
+            )
         } else {
             resolved = applyBuiltCategoriesPreservingCollapse(built)
         }
-        return injectFavoritesCategoryIfNeeded(
-            resolved,
+        let final = injectFavoritesCategoryIfNeeded(
+            enrichCategoryNames(resolved, channels: mergedChannels, categoryDescs: categoryDescs),
             channels: mergedChannels,
             favoriteChannelIds: favoriteIds,
             collapsedIds: collapsed
         )
+        guard !categories.isEmpty else { return final }
+        let fallback = globalParentOrder(from: mergedChannels)
+        return applySnapshotChannelOrder(final, snapshot: categories, globalFallbackOrder: fallback)
+    }
+
+    private var categoryDescsRefreshScheduled = false
+
+    private func scheduleCategoryDescsRefreshIfNeeded() {
+        guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
+        guard categories.contains(where: {
+            $0.id != ChannelCategory.favoritesCategoryId && $0.name.isEmpty
+        }) else { return }
+        guard !categoryDescsRefreshScheduled else { return }
+        categoryDescsRefreshScheduled = true
+        let clanId = self.clanId
+        Task { @MainActor [weak self] in
+            defer { self?.categoryDescsRefreshScheduled = false }
+            guard let self, self.clanId == clanId else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            let descs = await Self.listCategoryDescsOrEmpty(
+                network: MezonHTTPClient.shared, clanId: clanId, token: token
+            )
+            guard self.clanId == clanId, !descs.isEmpty else { return }
+            self.channelListCategoryDescs = descs
+            self.applyCategoriesForCurrentChannels(channels: self.allChannels, clanId: clanId)
+            self.categoriesPipe.putNext(self.categories)
+            self.needsReloadPipe.putNext(())
+        }
     }
 
     private func rebuildAndReload() {
-        let storedCollapsed = loadCollapsedCategoryIds()
-        let built = buildChannelCategories(
-            allChannels,
-            categoryDescs: channelListCategoryDescs,
-            favoriteChannelIds: channelListFavoriteIds,
-            collapsedIds: storedCollapsed
-        )
-        let cats = applyBuiltCategoriesPreservingCollapse(built)
-        categories = cats
-        categoriesPipe.putNext(cats)
+        applyCategoriesForCurrentChannels(channels: allChannels, clanId: clanId)
+        categoriesPipe.putNext(categories)
         needsReloadPipe.putNext(())
         postClanSidebarUnreadDerivedFromCurrentChannels()
         refreshOnboardingState()
@@ -2149,7 +2460,7 @@ final class ChannelListViewController: ViewController {
         }
         let clanId = self.clanId
         if inflightChannelFetchClanId == clanId { return }
-        let bypassFetchCooldown = channelListNeedsFetch
+        let bypassFetchCooldown = channelListNeedsFetch || needsCategoryMetaRefresh() || needsOrphanCategoryRepair()
         if !bypassFetchCooldown,
            let last = lastChannelFetchAtByClanId[clanId],
            Date().timeIntervalSince(last) < channelFetchCooldown {
@@ -2188,6 +2499,14 @@ final class ChannelListViewController: ViewController {
                 switch result {
                 case .success(let channels, let categoryDescs, let favoriteIds):
                     if channels.isEmpty && hadCachedChannels {
+                        if !categoryDescs.isEmpty || !favoriteIds.isEmpty {
+                            let resolvedCategoryDescs = categoryDescs.isEmpty ? self.channelListCategoryDescs : categoryDescs
+                            let resolvedFavoriteIds = self.resolvedFavoriteIdsForFetch(favoriteIds)
+                            self.channelListCategoryDescs = resolvedCategoryDescs
+                            self.channelListFavoriteIds = resolvedFavoriteIds
+                            self.applyCategoriesForCurrentChannels(channels: self.allChannels, clanId: clanId)
+                            self.categoriesPipe.putNext(self.categories)
+                        }
                         self.channelsLoadedPromise.set(true)
                         self.channelListNode.endRefreshing()
                         self.isLoadingPipe.putNext(false)
@@ -2228,6 +2547,7 @@ final class ChannelListViewController: ViewController {
                             self.channelsLoadedPromise.set(true)
                             self.syncSelectedChannelFromStoredPreferences()
                             self.categoriesPipe.putNext(cats)
+                            self.scheduleCategoryDescsRefreshIfNeeded()
                             self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                             self.persistFullChannelListCache(
                                 clanId: clanId,
@@ -2284,6 +2604,7 @@ final class ChannelListViewController: ViewController {
                         self.channelsLoadedPromise.set(true)
                         self.syncSelectedChannelFromStoredPreferences()
                         self.categoriesPipe.putNext(cats)
+                        self.scheduleCategoryDescsRefreshIfNeeded()
                         self.fetchChannelApps(allowEmptyOverwrite: allowEmptyApps)
                         self.persistFullChannelListCache(
                             clanId: clanId,
@@ -2655,17 +2976,9 @@ final class ChannelListViewController: ViewController {
         }
         let visibleChannels = preservePendingMentionUnread(in: resolvedChannels, clanId: clanId)
         allChannels = visibleChannels
-        let storedCollapsed = loadCollapsedCategoryIds()
-        let built = buildChannelCategories(
-            visibleChannels,
-            categoryDescs: channelListCategoryDescs,
-            favoriteChannelIds: channelListFavoriteIds,
-            collapsedIds: storedCollapsed
-        )
-        let cats = applyBuiltCategoriesPreservingCollapse(built)
-        categories = cats
+        applyCategoriesForCurrentChannels(channels: visibleChannels, clanId: clanId)
         channelsLoadedPromise.set(true)
-        categoriesPipe.putNext(cats)
+        categoriesPipe.putNext(categories)
         needsReloadPipe.putNext(())
         postClanSidebarUnreadDerivedFromCurrentChannels()
         refreshOnboardingState()
@@ -2713,10 +3026,18 @@ final class ChannelListViewController: ViewController {
         guard clanId != 0 else { return }
         guard value != showEmptyCategoriesEnabled else { return }
         showEmptyCategoriesEnabled = value
-        context.account.postbox.setPreferenceData(
+        context.account.postbox.setPreferenceDataSync(
             key: PreferencesKeys.showEmptyCategories(clanId: clanId),
             value: Data([UInt8(value ? 1 : 0)])
         )
+        needsReloadPipe.putNext(())
+    }
+
+    private func refreshShowEmptyCategoriesPreferenceFromCache() {
+        guard clanId != 0 else { return }
+        let loaded = loadShowEmptyCategoriesPreference(clanId: clanId)
+        guard loaded != showEmptyCategoriesEnabled else { return }
+        showEmptyCategoriesEnabled = loaded
         needsReloadPipe.putNext(())
     }
 
@@ -3064,6 +3385,27 @@ final class ChannelListViewController: ViewController {
         categoriesPipe.putNext(categories)
         syncSelectedChannelFromStoredPreferences()
         refreshChannelAppsLabelsFromChannelList()
+        needsReloadPipe.putNext(())
+    }
+
+    private func applyCategoriesForCurrentChannels(
+        channels: [Mezon_Api_ChannelDescription],
+        clanId: Int64
+    ) {
+        guard clanId != 0 else { return }
+        let cachedMeta = readChannelListMetaFromCache(clanId: clanId)
+        if channelListCategoryDescs.isEmpty, !cachedMeta.categoryDescs.isEmpty {
+            channelListCategoryDescs = cachedMeta.categoryDescs
+        }
+        if channelListFavoriteIds.isEmpty, !cachedMeta.favoriteIds.isEmpty {
+            channelListFavoriteIds = cachedMeta.favoriteIds
+        }
+        applyCategoriesFromCache(
+            clanId: clanId,
+            cachedChannels: channels,
+            categoryDescs: channelListCategoryDescs,
+            favoriteIds: channelListFavoriteIds
+        )
     }
 
     private func reorderChannelsLikePersistedList(
@@ -3119,48 +3461,110 @@ final class ChannelListViewController: ViewController {
         favoriteIds: Set<Int64>
     ) {
         let collapsed = loadCollapsedCategoryIds()
-        let built: [ChannelCategory]
-        if let snap = readCategoriesSnapshotFromCache(clanId: clanId),
-           categoriesSnapshotReferencesOnlyKnownChannels(snap, authoritative: cachedChannels) {
-            if categoriesSnapshotConsistentWithChannels(snap, authoritative: cachedChannels) {
-                built = applyBuiltCategoriesPreservingCollapse(
-                    mergeChannelProtosIntoCategoriesSnapshot(snap, authoritative: cachedChannels)
-                )
-            } else {
-                var merged = mergeChannelProtosIntoCategoriesSnapshot(snap, authoritative: cachedChannels)
-                merged = supplementSnapshotCategoriesWithMissingChannels(
-                    merged,
-                    authoritative: cachedChannels,
-                    categoryDescs: categoryDescs,
-                    favoriteIds: favoriteIds
-                )
-                built = applyBuiltCategoriesPreservingCollapse(merged)
-            }
-        } else if !categoryDescs.isEmpty || !favoriteIds.isEmpty {
-            built = applyBuiltCategoriesPreservingCollapse(
-                buildChannelCategories(
-                    cachedChannels,
-                    categoryDescs: categoryDescs,
-                    favoriteChannelIds: favoriteIds,
-                    collapsedIds: collapsed
-                )
-            )
-        } else {
-            built = applyBuiltCategoriesPreservingCollapse(
-                buildChannelCategories(
-                    cachedChannels,
-                    categoryDescs: [],
-                    favoriteChannelIds: [],
-                    collapsedIds: collapsed
-                )
+        let snapshot = readCategoriesSnapshotFromCache(clanId: clanId)
+        var layoutChannels = cachedChannels
+        if let snap = snapshot {
+            layoutChannels = repairChannelsFromSnapshotPlacement(
+                layoutChannels, snapshot: snap, categoryDescs: categoryDescs
             )
         }
-        categories = injectFavoritesCategoryIfNeeded(
-            built,
-            channels: cachedChannels,
+        if !categoryDescs.isEmpty {
+            layoutChannels = repairChannelsMissingCategoryIds(layoutChannels, categoryDescs: categoryDescs)
+        }
+        if layoutChannels != cachedChannels {
+            allChannels = layoutChannels
+        }
+
+        let skipSnapshot = snapshot.map { hasOrphanZeroCategoryBucket($0, categoryDescs: categoryDescs) } ?? false
+
+        let nameReference = buildChannelCategories(
+            layoutChannels,
+            categoryDescs: categoryDescs,
             favoriteChannelIds: favoriteIds,
             collapsedIds: collapsed
         )
+        let built: [ChannelCategory]
+        if !skipSnapshot, let snap = snapshot,
+           categoriesSnapshotReferencesOnlyKnownChannels(snap, authoritative: layoutChannels) {
+            if categoriesSnapshotConsistentWithChannels(snap, authoritative: layoutChannels) {
+                let merged = mergeChannelProtosIntoCategoriesSnapshot(snap, authoritative: layoutChannels)
+                built = applyBuiltCategoriesPreservingCollapse(
+                    overlayCategoryNames(preferred: nameReference, onto: merged)
+                )
+            } else {
+                var merged = mergeChannelProtosIntoCategoriesSnapshot(snap, authoritative: layoutChannels)
+                merged = supplementSnapshotCategoriesWithMissingChannels(
+                    merged,
+                    authoritative: layoutChannels,
+                    categoryDescs: categoryDescs,
+                    favoriteIds: favoriteIds
+                )
+                built = applyBuiltCategoriesPreservingCollapse(
+                    overlayCategoryNames(preferred: nameReference, onto: merged)
+                )
+            }
+        } else {
+            built = applyBuiltCategoriesPreservingCollapse(nameReference)
+        }
+        var finalBuilt = injectFavoritesCategoryIfNeeded(
+            enrichCategoryNames(built, channels: layoutChannels, categoryDescs: categoryDescs),
+            channels: layoutChannels,
+            favoriteChannelIds: favoriteIds,
+            collapsedIds: collapsed
+        )
+        if hasOrphanZeroCategoryBucket(finalBuilt, categoryDescs: categoryDescs) {
+            finalBuilt = injectFavoritesCategoryIfNeeded(
+                enrichCategoryNames(
+                    applyBuiltCategoriesPreservingCollapse(nameReference),
+                    channels: layoutChannels,
+                    categoryDescs: categoryDescs
+                ),
+                channels: layoutChannels,
+                favoriteChannelIds: favoriteIds,
+                collapsedIds: collapsed
+            )
+            scheduleChannelListRefetchIfOrphanCategory()
+        }
+        if let snap = snapshot, !snap.isEmpty {
+            let globalOrder = globalParentChannelOrderFromSnapshot(snap)
+            let fallback = globalOrder.isEmpty ? globalParentOrder(from: layoutChannels) : globalOrder
+            finalBuilt = applySnapshotChannelOrder(finalBuilt, snapshot: snap, globalFallbackOrder: fallback)
+        }
+        categories = finalBuilt
+        scheduleCategoryDescsRefreshIfNeeded()
+    }
+
+    private func needsOrphanCategoryRepair() -> Bool {
+        hasOrphanZeroCategoryBucket(categories, categoryDescs: channelListCategoryDescs)
+    }
+
+    private var orphanCategoryRefetchScheduled = false
+
+    private func scheduleChannelListRefetchIfOrphanCategory() {
+        guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
+        guard needsOrphanCategoryRepair() else { return }
+        guard !orphanCategoryRefetchScheduled else { return }
+        orphanCategoryRefetchScheduled = true
+        let clanId = self.clanId
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.orphanCategoryRefetchScheduled = false
+            guard let self, self.clanId == clanId else { return }
+            guard self.needsOrphanCategoryRepair() else { return }
+            self.fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+        }
+    }
+
+    private func needsCategoryMetaRefresh() -> Bool {
+        guard clanId != 0 else { return false }
+        if channelListCategoryDescs.isEmpty {
+            let meta = readChannelListMetaFromCache(clanId: clanId)
+            if meta.categoryDescs.isEmpty {
+                return !allChannels.isEmpty
+            }
+        }
+        return categories.contains {
+            $0.id != ChannelCategory.favoritesCategoryId && $0.name.isEmpty
+        }
     }
 
     private func supplementSnapshotCategoriesWithMissingChannels(
@@ -3481,7 +3885,16 @@ final class ChannelListViewController: ViewController {
     ) -> [ChannelCategory] {
         let byId = Dictionary(uniqueKeysWithValues: authoritative.map { ($0.channelID, $0) })
         func mergeOne(_ ch: Mezon_Api_ChannelDescription) -> Mezon_Api_ChannelDescription {
-            byId[ch.channelID] ?? ch
+            guard let auth = byId[ch.channelID] else { return ch }
+            if auth.categoryID == 0, ch.categoryID != 0 {
+                var merged = auth
+                merged.categoryID = ch.categoryID
+                if merged.categoryName.isEmpty, !ch.categoryName.isEmpty {
+                    merged.categoryName = ch.categoryName
+                }
+                return merged
+            }
+            return auth
         }
         return cats.map { cat in
             let mergedFav = cat.favoriteFlatChannels?.map(mergeOne)
@@ -3490,9 +3903,16 @@ final class ChannelListViewController: ViewController {
             for (k, arr) in cat.orderedThreadChildren {
                 newThreads[k] = arr.map(mergeOne)
             }
+            var resolvedName = cat.name
+            if resolvedName.isEmpty {
+                for ch in mergedParents where !ch.categoryName.isEmpty {
+                    resolvedName = ch.categoryName
+                    break
+                }
+            }
             return ChannelCategory(
                 id: cat.id,
-                name: cat.name,
+                name: resolvedName,
                 isCollapsed: cat.isCollapsed,
                 channels: mergedParents,
                 orderedThreadChildren: newThreads,

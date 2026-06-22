@@ -203,7 +203,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         let structureChanged = loadingPlaceholderToggled
             || prevCats.count != newCats.count
             || zip(prevCats, newCats).contains(where: {
-                $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.channels.count != $1.channels.count
+                $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.name != $1.name
+                    || $0.channels.count != $1.channels.count
                     || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
             })
 
@@ -239,10 +240,32 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
 
         maybeRevealSelectedChannel(prevState: prevState, newState: newState, wasClanSwitching: wasClanSwitching)
+        reloadCategoryHeadersIfNamesChanged(prev: prevState, new: newState)
         refreshNewUnreadButton()
         if !isClanSwitching {
             reconcileChannelAppsTableIfNeeded()
         }
+    }
+
+    private func reloadCategoryHeadersIfNamesChanged(prev: ChannelListState, new: ChannelListState) {
+        guard isNodeLoaded, prev.categories.count == new.categories.count else { return }
+        let offset = leadingTableSectionsCount
+        var sections = IndexSet()
+        for (i, pair) in zip(prev.categories, new.categories).enumerated() {
+            guard pair.0.name != pair.1.name else { continue }
+            let section = i + offset
+            sections.insert(section)
+            cachedHeaders.removeValue(forKey: section)
+        }
+        guard !sections.isEmpty else { return }
+        guard tableNode.numberOfSections > 0 else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.reloadSections(sections, with: .none)
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        CATransaction.commit()
     }
 
     private func maybeRevealSelectedChannel(
@@ -327,7 +350,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             let section = i + sectionOffset
 
 
-            if pc.isCollapsed != nc.isCollapsed {
+            if pc.isCollapsed != nc.isCollapsed || pc.name != nc.name {
                 sectionsToReload.insert(section)
                 continue
             }
@@ -1122,7 +1145,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         let afterHad = channelAppsStripeVisible
         cachedRows = [:]
         cachedHeaders = [:]
-        guard !shouldDeferLeadingSectionTableMutations else { return }
+        guard !shouldDeferLeadingSectionTableMutations else {
+            if beforeHad != afterHad {
+                scheduleReload()
+            }
+            return
+        }
         if !beforeHad && afterHad {
             let section = self.channelAppsTableSection
             CATransaction.begin()
@@ -1229,6 +1257,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
         guard !shouldDeferLeadingSectionTableMutations else {
             committedSectionCount = totalSections
+            scheduleReload()
             return
         }
         guard tableNode.numberOfSections > 0 else {
@@ -1255,7 +1284,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
         let afterVisible = onboardingBannerVisible
 
-        guard !deferOnboardingTableUpdates else { return }
+        guard !deferOnboardingTableUpdates else {
+            if beforeVisible != afterVisible {
+                scheduleReload()
+            }
+            return
+        }
 
         cachedRows = [:]
         cachedHeaders = [:]
@@ -1309,7 +1343,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         memberOnboardingState = state
         let afterVisible = onboardingBannerVisible
 
-        guard !deferOnboardingTableUpdates else { return }
+        guard !deferOnboardingTableUpdates else {
+            if beforeVisible != afterVisible {
+                scheduleReload()
+            }
+            return
+        }
 
         cachedRows = [:]
         cachedHeaders = [:]
@@ -1419,6 +1458,9 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         if shouldDeferLeadingSectionTableMutations {
             pendingChannelAppsTableSync = true
+            if beforeHad != afterHad {
+                scheduleReload()
+            }
             return
         }
         pendingChannelAppsTableSync = false
@@ -1860,7 +1902,8 @@ extension ChannelListContainerNode: ASTableDataSource {
         let catIdx = categoryIndex(forSection: section)
         guard catIdx < state.categories.count else { return nil }
         let cat = state.categories[catIdx]
-        let header = cachedHeaders[section] ?? CategorySectionHeaderView()
+        cachedHeaders.removeValue(forKey: section)
+        let header = CategorySectionHeaderView()
         header.configure(category: cat)
         header.onTap = { [weak self] in self?.interaction.onToggleCollapse(cat.id) }
         header.onLongPress = { [weak self] in self?.interaction.onLongPressCategory?(cat) }

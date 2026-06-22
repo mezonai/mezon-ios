@@ -93,11 +93,22 @@ struct ChannelMemberRecord: PostboxCoding, Equatable {
         self.username = username
     }
 
+    static func deduplicatedByUserId(_ members: [ChannelMemberRecord]) -> [ChannelMemberRecord] {
+        var seen = Set<Int64>()
+        var result: [ChannelMemberRecord] = []
+        result.reserveCapacity(members.count)
+        for member in members where member.userId != 0 {
+            guard seen.insert(member.userId).inserted else { continue }
+            result.append(member)
+        }
+        return result
+    }
+
     static func mergingProfilesFromChannelUsers(
         _ users: [Mezon_Api_ChannelUserList.ChannelUser],
         postbox: Postbox
     ) -> [ChannelMemberRecord] {
-        postbox.read { tx in
+        let records = postbox.read { tx in
             users.map { u in
                 let profile = tx.getProfile(userId: String(u.userID))
                 return ChannelMemberRecord(
@@ -116,6 +127,7 @@ struct ChannelMemberRecord: PostboxCoding, Equatable {
                 )
             }
         }
+        return deduplicatedByUserId(records)
     }
 }
 
