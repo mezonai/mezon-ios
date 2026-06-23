@@ -686,19 +686,97 @@ final class MezonRootController: NavigationController {
             return
         }
 
-        if let presented = self.view.window?.rootViewController?.presentedViewController,
-           presented is SharingViewController {
-            presented.dismiss(animated: false)
+        let sharingVC = SharingViewController(context: context, sharedContent: content)
+        guard let windowRoot = view.window?.rootViewController else { return }
+
+        dismissShareSheetStack(from: windowRoot) { [weak self] anchor in
+            guard let self else { return }
+            self.presentSharingViewController(sharingVC, on: anchor)
+        }
+    }
+
+    private func isEphemeralShareSheet(_ viewController: UIViewController) -> Bool {
+        if viewController is UIActivityViewController { return true }
+        let className = NSStringFromClass(type(of: viewController))
+        return className.contains("SLComposeViewController")
+            || className.contains("SLRemoteComposeViewController")
+    }
+
+    private func resolvedSharePresentationAnchor(from root: UIViewController) -> UIViewController {
+        var anchor = root
+        while let presented = anchor.presentedViewController {
+            guard presented.viewIfLoaded?.window != nil else { break }
+            if isEphemeralShareSheet(presented) {
+                return anchor
+            }
+            anchor = presented
+        }
+        return anchor
+    }
+
+    private func dismissShareSheetStack(
+        from root: UIViewController,
+        completion: @escaping (UIViewController) -> Void
+    ) {
+        var activityVC: UIActivityViewController?
+        var anchor = root
+        while let presented = anchor.presentedViewController {
+            if let activity = presented as? UIActivityViewController {
+                activityVC = activity
+            }
+            guard presented.viewIfLoaded?.window != nil else { break }
+            anchor = presented
         }
 
-        let sharingVC = SharingViewController(context: context, sharedContent: content)
-        if let windowRoot = self.view.window?.rootViewController {
-            var topVC = windowRoot
-            while let presented = topVC.presentedViewController {
-                topVC = presented
+        if let activityVC {
+            activityVC.dismiss(animated: false) {
+                completion(self.resolvedSharePresentationAnchor(from: root))
             }
-            topVC.present(sharingVC, animated: true)
+            return
         }
+
+        let ephemeral = anchor.presentedViewController
+        if let ephemeral, isEphemeralShareSheet(ephemeral) {
+            ephemeral.dismiss(animated: false) {
+                completion(self.resolvedSharePresentationAnchor(from: root))
+            }
+            return
+        }
+
+        completion(resolvedSharePresentationAnchor(from: root))
+    }
+
+    private func presentSharingViewController(
+        _ sharingVC: SharingViewController,
+        on anchor: UIViewController
+    ) {
+        guard anchor.viewIfLoaded?.window != nil else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak sharingVC] in
+                guard let self, let sharingVC else { return }
+                guard let windowRoot = self.view.window?.rootViewController else { return }
+                let retryAnchor = self.resolvedSharePresentationAnchor(from: windowRoot)
+                guard retryAnchor.viewIfLoaded?.window != nil else { return }
+                self.presentSharingViewController(sharingVC, on: retryAnchor)
+            }
+            return
+        }
+
+        if let presented = anchor.presentedViewController {
+            if presented is SharingViewController {
+                presented.dismiss(animated: false) {
+                    anchor.present(sharingVC, animated: true)
+                }
+                return
+            }
+            if isEphemeralShareSheet(presented) {
+                presented.dismiss(animated: false) {
+                    anchor.present(sharingVC, animated: true)
+                }
+                return
+            }
+        }
+
+        anchor.present(sharingVC, animated: true)
     }
 
     // MARK: - Deep links

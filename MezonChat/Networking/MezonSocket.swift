@@ -117,11 +117,9 @@ final class MezonSocket: NSObject {
     func connect(token: String, wsHostOverride: String? = nil, resetReconnectState: Bool = true) {
         if self.token == token, self.wsHostOverride == wsHostOverride,
            webSocketTask != nil {
-            SessionRefreshDebugLog.log("socket.connect dedupe token=\(SessionRefreshDebugLog.token(token)) connected=\(isConnected)")
             return
         }
 
-        SessionRefreshDebugLog.log("socket.connect start resetReconnectState=\(resetReconnectState) token=\(SessionRefreshDebugLog.token(token)) attempts=\(reconnectAttempts)")
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         stableReconnectResetTask?.cancel()
@@ -143,7 +141,6 @@ final class MezonSocket: NSObject {
         urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
-        SessionRefreshDebugLog.log("socket.connect resumed urlHost=\(url.host ?? "")")
         receiveLoop()
     }
 
@@ -160,7 +157,6 @@ final class MezonSocket: NSObject {
     }
 
     func disconnect() {
-        SessionRefreshDebugLog.log("socket.disconnect connected=\(isConnected) attempts=\(reconnectAttempts) token=\(SessionRefreshDebugLog.token(token))")
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         stableReconnectResetTask?.cancel()
@@ -182,10 +178,8 @@ final class MezonSocket: NSObject {
 
     func reconnectFromForeground() {
         guard token != nil || tokenProvider != nil else {
-            SessionRefreshDebugLog.log("socket.reconnectFromForeground skip noTokenProvider")
             return
         }
-        SessionRefreshDebugLog.log("socket.reconnectFromForeground start token=\(SessionRefreshDebugLog.token(token)) hasProvider=\(tokenProvider != nil)")
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         reconnectAttempts = 0
@@ -196,7 +190,6 @@ final class MezonSocket: NSObject {
     }
 
     private func cleanupForReconnect() {
-        SessionRefreshDebugLog.log("socket.cleanupForReconnect connected=\(isConnected) pendingRpc=\(pendingApiRequests.count)")
         isConnected = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         stableReconnectResetTask?.cancel()
@@ -464,7 +457,6 @@ final class MezonSocket: NSObject {
                 guard nsErr.code != NSURLErrorCancelled else { return }
                 Task { @MainActor in
                     MezonRPCLog.response("ws receive-fail domain=\(nsErr.domain) code=\(nsErr.code) desc='\(nsErr.localizedDescription)' pendingRpc=\(self.pendingApiRequests.count)")
-                    SessionRefreshDebugLog.log("socket.receiveLoop fail domain=\(nsErr.domain) code=\(nsErr.code) pendingRpc=\(self.pendingApiRequests.count)")
                     self.cleanupForReconnect()
                     self.eventPipe.putNext(.error(error))
                     self.scheduleReconnect()
@@ -714,13 +706,11 @@ final class MezonSocket: NSObject {
 
     private func scheduleReconnect() {
         guard reconnectAttempts < maxReconnectAttempts else {
-            SessionRefreshDebugLog.log("socket.scheduleReconnect stop attempts=\(reconnectAttempts) max=\(maxReconnectAttempts) hasProvider=\(tokenProvider != nil)")
             return
         }
         reconnectAttempts += 1
         let useRefresh = tokenProvider != nil
         let delay = Double(min(reconnectAttempts * 2, 30))
-        SessionRefreshDebugLog.log("socket.scheduleReconnect attempt=\(reconnectAttempts) max=\(maxReconnectAttempts) delay=\(delay)s useRefresh=\(useRefresh)")
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor in
                 await self?.performReconnect(useTokenRefresh: useRefresh)
@@ -731,37 +721,28 @@ final class MezonSocket: NSObject {
     }
 
     private func performReconnect(useTokenRefresh: Bool = false) async {
-        SessionRefreshDebugLog.log("socket.performReconnect start useTokenRefresh=\(useTokenRefresh) attempts=\(reconnectAttempts) token=\(SessionRefreshDebugLog.token(token))")
         var tokenToUse = token
         if useTokenRefresh, let provider = tokenProvider {
             do {
-                SessionRefreshDebugLog.log("socket.performReconnect tokenProvider start")
                 tokenToUse = try await provider()
-                SessionRefreshDebugLog.log("socket.performReconnect tokenProvider success token=\(SessionRefreshDebugLog.token(tokenToUse))")
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, code == 401 || code == 403 {
-                    SessionRefreshDebugLog.log("socket.performReconnect tokenProvider authFail error=\(SessionRefreshDebugLog.error(error))")
                     NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
                     return
                 }
-                SessionRefreshDebugLog.log("socket.performReconnect tokenProvider mezonFail retry error=\(SessionRefreshDebugLog.error(error))")
                 scheduleReconnect()
                 return
             } catch is SessionError {
-                SessionRefreshDebugLog.log("socket.performReconnect tokenProvider sessionError")
                 NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
                 return
             } catch {
-                SessionRefreshDebugLog.log("socket.performReconnect tokenProvider fail retry error=\(SessionRefreshDebugLog.error(error))")
                 scheduleReconnect()
                 return
             }
         }
         guard let token = tokenToUse else {
-            SessionRefreshDebugLog.log("socket.performReconnect stop nilToken")
             return
         }
-        SessionRefreshDebugLog.log("socket.performReconnect connect token=\(SessionRefreshDebugLog.token(token))")
         connect(token: token, wsHostOverride: wsHostOverride, resetReconnectState: false)
         eventPipe.putNext(.reconnected)
     }
@@ -775,11 +756,9 @@ final class MezonSocket: NSObject {
                   let currentTask = self.webSocketTask,
                   currentTask === openedTask,
                   self.isConnected else {
-                SessionRefreshDebugLog.log("socket.stableReset skip")
                 return
             }
             self.reconnectAttempts = 0
-            SessionRefreshDebugLog.log("socket.stableReset success")
         }
     }
 
@@ -847,7 +826,6 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = true
-            SessionRefreshDebugLog.log("socket.didOpen attempts=\(self.reconnectAttempts) token=\(SessionRefreshDebugLog.token(self.token))")
             self.scheduleStableReconnectReset(for: currentTask)
             self.eventPipe.putNext(.connected)
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
@@ -865,7 +843,6 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = false
-            SessionRefreshDebugLog.log("socket.didClose code=\(closeCode.rawValue) attempts=\(self.reconnectAttempts) pendingRpc=\(self.pendingApiRequests.count)")
             // Drop the dead task so the connect() dedupe guard knows the
             // socket really needs to be rebuilt next time.
             self.webSocketTask = nil
