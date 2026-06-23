@@ -75,7 +75,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     private func registerFcmDeviceWithBackendIfPossible() {
         Task { @MainActor in
             guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
-            guard let context = self.accountContext else { return }
+            let context = self.accountContext
+                ?? (UIApplication.shared.connectedScenes.first?.delegate as? AppDelegate)?.accountContext
+            guard let context else {
+                return
+            }
             context.registerFCMDeviceTokenIfNeededExternally()
         }
     }
@@ -266,6 +270,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Messaging.messaging().apnsToken = deviceToken
+        registerFcmDeviceWithBackendIfPossible()
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {

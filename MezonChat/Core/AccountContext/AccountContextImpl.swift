@@ -321,7 +321,6 @@ final class AccountContextImpl: AccountContext {
         lastRecoveryIssuedRefreshToken = nil
         fcmRegistrationTask?.cancel()
         fcmRegistrationTask = nil
-        lastRegisteredFcmKey = nil
         if VoIPAnswerAccountBridge.context === self {
             VoIPAnswerAccountBridge.context = nil
         }
@@ -370,7 +369,6 @@ final class AccountContextImpl: AccountContext {
     }
 
     private var fcmRegistrationTask: Task<Void, Never>?
-    private var lastRegisteredFcmKey: String?
 
     func registerFCMDeviceTokenIfNeededExternally() {
         registerFCMTokenIfNeeded()
@@ -385,16 +383,12 @@ final class AccountContextImpl: AccountContext {
             defer { self.fcmRegistrationTask = nil }
             guard let authToken = await self.getToken() else { return }
             let voipToken = CallKitManager.shared.voipToken ?? ""
-            guard let cached = Messaging.messaging().apnsToken, !cached.isEmpty else { return }
-            let fcmToken = cached.map { String(format: "%02.2hhx", $0) }.joined()
-            guard !fcmToken.isEmpty else { return }
-            let key = "\(fcmToken)|\(voipToken)|\(deviceId)|\(authToken)"
-            if key == self.lastRegisteredFcmKey { return }
+            guard let apnsTokenData = Messaging.messaging().apnsToken, !apnsTokenData.isEmpty else { return }
+            let apnsToken = apnsTokenData.map { String(format: "%02.2hhx", $0) }.joined()
             do {
                 _ = try await self.account.network.registFcmDeviceToken(
-                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
+                    fcmToken: apnsToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
                 )
-                self.lastRegisteredFcmKey = key
             } catch {
             }
         }
