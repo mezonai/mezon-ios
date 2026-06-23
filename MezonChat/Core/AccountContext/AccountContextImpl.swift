@@ -385,16 +385,8 @@ final class AccountContextImpl: AccountContext {
             defer { self.fcmRegistrationTask = nil }
             guard let authToken = await self.getToken() else { return }
             let voipToken = CallKitManager.shared.voipToken ?? ""
-            let fcmToken: String
-            if let cached = Messaging.messaging().apnsToken, !cached.isEmpty {
-                fcmToken = cached.map { String(format: "%02.2hhx", $0) }.joined()
-            } else {
-                 do {
-                    fcmToken = try await Messaging.messaging().token()
-                } catch {
-                    return
-                }
-            }
+            guard let cached = Messaging.messaging().apnsToken, !cached.isEmpty else { return }
+            let fcmToken = cached.map { String(format: "%02.2hhx", $0) }.joined()
             guard !fcmToken.isEmpty else { return }
             let key = "\(fcmToken)|\(voipToken)|\(deviceId)|\(authToken)"
             if key == self.lastRegisteredFcmKey { return }
