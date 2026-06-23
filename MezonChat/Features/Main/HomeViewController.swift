@@ -353,6 +353,7 @@ final class HomeViewController: BaseViewController {
                 .start(next: { [weak self] channel in
                     guard let channel, let self else { return }
                     if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue { return }
+                    if channel.type == MezonConstants.ChannelType.streaming.rawValue { return }
                     var parentName: String?
                     if channel.parentID != 0 {
                         parentName = self.channelListVC.allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel

@@ -858,6 +858,17 @@ final class ChannelListViewController: ViewController {
 
     private var channelListFavoriteIds: Set<Int64> = []
 
+    private struct HeaderConfiguration: Equatable {
+        let clanId: Int64
+        let clanName: String
+        let logoURL: String
+        let bannerURL: String
+        let memberCount: Int
+        let isCommunity: Bool
+    }
+
+    private var lastHeaderConfiguration: HeaderConfiguration?
+
     private var channelListNode: ChannelListContainerNode { displayNode as! ChannelListContainerNode }
 
     private var enclosingNavigationController: NavigationController? {
@@ -1044,6 +1055,10 @@ final class ChannelListViewController: ViewController {
     @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
         guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
         guard gid == clanId, clanId != 0 else { return }
+        if let ch = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription,
+           ch.parentID != 0 {
+            insertJoinedThreadIntoCategoriesSnapshotIfNeeded(ch)
+        }
         if let p = resolveChannelCachePayloadForDisplay(clanId: clanId) {
             applyChannelCachePayload(channels: p.channels, meta: p.meta)
         } else if NetworkMonitor.shared.isConnected {
@@ -1051,6 +1066,32 @@ final class ChannelListViewController: ViewController {
         }
         syncSelectedChannelFromStoredPreferences()
         needsReloadPipe.putNext(())
+    }
+
+    private func insertJoinedThreadIntoCategoriesSnapshotIfNeeded(_ thread: Mezon_Api_ChannelDescription) {
+        guard clanId != 0, thread.channelID != 0, thread.parentID != 0 else { return }
+        guard var snap = readCategoriesSnapshotFromCache(clanId: clanId), !snap.isEmpty else { return }
+
+        var didUpdate = false
+        for idx in snap.indices {
+            guard snap[idx].channels.contains(where: { $0.channelID == thread.parentID }) else { continue }
+            var cat = snap[idx]
+            var threads = cat.orderedThreadChildren[thread.parentID] ?? []
+            if let existingIdx = threads.firstIndex(where: { $0.channelID == thread.channelID }) {
+                threads[existingIdx] = thread
+            } else {
+                threads.insert(thread, at: 0)
+            }
+            cat.orderedThreadChildren[thread.parentID] = threads
+            snap[idx] = cat
+            didUpdate = true
+            break
+        }
+        guard didUpdate else { return }
+        context.account.postbox.setPreferenceDataSync(
+            key: PreferencesKeys.channelListCategories(clanId: clanId),
+            value: encodeCategoriesSnapshot(snap)
+        )
     }
 
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
@@ -1198,12 +1239,23 @@ final class ChannelListViewController: ViewController {
     }
 
     func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+        let headerConfiguration = HeaderConfiguration(
+            clanId: clanId,
+            clanName: clanName,
+            logoURL: logoURL ?? "",
+            bannerURL: bannerURL ?? "",
+            memberCount: memberCount,
+            isCommunity: isCommunity
+        )
         self.clanName = clanName
         self.clanLogoURL = logoURL ?? ""
         self.sidebarMemberCount = memberCount
         guard clanId != self.clanId else {
             refreshShowEmptyCategoriesPreferenceFromCache()
-            channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+            if lastHeaderConfiguration != headerConfiguration {
+                channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+                lastHeaderConfiguration = headerConfiguration
+            }
             refreshOnboardingState()
             if clanId != 0 {
                 restoreCachedChannelApps(clanId: clanId)
@@ -1241,6 +1293,7 @@ final class ChannelListViewController: ViewController {
         self.clanId = clanId
         self.clanName = clanName
         channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
+        lastHeaderConfiguration = headerConfiguration
         if !hasCachedChannels {
             channelListNode.clearChannelApps()
         } else if clanId != 0 {
@@ -1252,6 +1305,16 @@ final class ChannelListViewController: ViewController {
     func updateMemberCount(_ count: Int) {
         sidebarMemberCount = count
         channelListNode.updateMemberCount(count)
+        if let current = lastHeaderConfiguration, current.clanId == clanId {
+            lastHeaderConfiguration = HeaderConfiguration(
+                clanId: current.clanId,
+                clanName: current.clanName,
+                logoURL: current.logoURL,
+                bannerURL: current.bannerURL,
+                memberCount: count,
+                isCommunity: current.isCommunity
+            )
+        }
         refreshOnboardingState()
     }
 
@@ -1467,6 +1530,9 @@ final class ChannelListViewController: ViewController {
             },
             presentVoice: { [weak self] channel in
                 self?.presentJoinVoiceSheet(for: channel)
+            },
+            presentStream: { [weak self] channel in
+                self?.presentJoinStreamSheet(for: channel)
             }
         )
     }
@@ -2067,6 +2133,9 @@ final class ChannelListViewController: ViewController {
 
     func fetchChannels() {
         guard clanId != 0 else { return }
+        if !allChannels.isEmpty || !categories.isEmpty {
+            channelListNode.suppressNextLoadingFinishedReveal()
+        }
         isLoading = true
         errorMessage = nil
 
@@ -2336,8 +2405,17 @@ final class ChannelListViewController: ViewController {
     }
 
     private func setCategories(_ v: [ChannelCategory]) { categories = v; categoriesPipe.putNext(v); needsReloadPipe.putNext(()) }
-    private func setSelectedChannelId(_ v: Int64?) { selectedChannelId = v; selectedChannelIdPipe.putNext(v) }
-    private func setSelectedChannel(_ v: Mezon_Api_ChannelDescription?) { selectedChannel = v; selectedChannelPipe.putNext(v) }
+    private func setSelectedChannelId(_ v: Int64?) {
+        guard selectedChannelId != v else { return }
+        selectedChannelId = v
+        selectedChannelIdPipe.putNext(v)
+    }
+
+    private func setSelectedChannel(_ v: Mezon_Api_ChannelDescription?) {
+        guard selectedChannel != v else { return }
+        selectedChannel = v
+        selectedChannelPipe.putNext(v)
+    }
     private func setIsLoading(_ v: Bool) {
         if !v { cancelDeferredSkeletonReveal() }
         isLoading = v
@@ -2691,6 +2769,17 @@ final class ChannelListViewController: ViewController {
             }
             return
         }
+        if channel.type == MezonConstants.ChannelType.streaming.rawValue {
+            presentJoinStreamSheet(for: channel)
+            if lastMemberOnboardingState.isVisible {
+                MemberOnboardingProgress.completeVisitMissionIfNeeded(
+                    context: context,
+                    clanId: clanId,
+                    channelId: channel.channelID
+                )
+            }
+            return
+        }
         select(channel: channel)
         if lastMemberOnboardingState.isVisible {
             MemberOnboardingProgress.completeVisitMissionIfNeeded(
@@ -2842,30 +2931,79 @@ final class ChannelListViewController: ViewController {
         onChat: (() -> Void)? = nil,
         onJoinVoice: (() -> Void)? = nil
     ) {
+        presentJoinMediaSheet(
+            for: channel,
+            kind: .voice,
+            from: presenter,
+            onChat: onChat,
+            onJoin: onJoinVoice
+        )
+    }
+
+    private func presentJoinStreamSheet(
+        for channel: Mezon_Api_ChannelDescription,
+        from presenter: UIViewController? = nil,
+        onChat: (() -> Void)? = nil,
+        onJoinStream: (() -> Void)? = nil
+    ) {
+        presentJoinMediaSheet(
+            for: channel,
+            kind: .streaming,
+            from: presenter,
+            onChat: onChat,
+            onJoin: onJoinStream
+        )
+    }
+
+    private func presentJoinMediaSheet(
+        for channel: Mezon_Api_ChannelDescription,
+        kind: JoinChannelSheetKind,
+        from presenter: UIViewController? = nil,
+        onChat: (() -> Void)? = nil,
+        onJoin: (() -> Void)? = nil
+    ) {
         let title = channel.channelLabel.isEmpty
             ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
             : channel.channelLabel
 
         var voiceUserIds: [String] = []
-        let sources: [Mezon_Api_VoiceChannelUserList?] = [
-            context.engine.clanData.getVoiceUsers(clanId: clanId),
-            context.engine.clanData.getStreamUsers(clanId: clanId),
-        ]
-        for list in sources.compactMap({ $0 }) {
-            for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
-                for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !voiceUserIds.contains(uid) {
-                    voiceUserIds.append(uid)
+        if kind == .streaming {
+            if let list = context.engine.clanData.getStreamUsers(clanId: clanId) {
+                for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                    for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !voiceUserIds.contains(uid) {
+                        voiceUserIds.append(uid)
+                    }
+                }
+            }
+        } else {
+            let sources: [Mezon_Api_VoiceChannelUserList?] = [
+                context.engine.clanData.getVoiceUsers(clanId: clanId),
+                context.engine.clanData.getStreamUsers(clanId: clanId),
+            ]
+            for list in sources.compactMap({ $0 }) {
+                for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                    for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !voiceUserIds.contains(uid) {
+                        voiceUserIds.append(uid)
+                    }
                 }
             }
         }
         let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember($0) }
         let chatAction = onChat ?? { [weak self] in self?.pushChatViewController(for: channel) }
-        let joinAction = onJoinVoice ?? { [weak self] in self?.pushVoiceChannelRoom(for: channel) }
+        let joinAction = onJoin ?? { [weak self] in
+            guard let self else { return }
+            if kind == .streaming {
+                self.pushStreamingRoom(for: channel)
+            } else {
+                self.pushVoiceChannelRoom(for: channel)
+            }
+        }
 
         let sheet = JoinVoiceChannelSheetViewController(
             channelTitle: title,
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
+            kind: kind,
             onChat: chatAction,
             onJoinVoice: joinAction,
             onInvite: {}
@@ -2901,6 +3039,30 @@ final class ChannelListViewController: ViewController {
 
     private func pushChatViewController(for channel: Mezon_Api_ChannelDescription) {
         select(channel: channel)
+        guard let nav = enclosingNavigationController else { return }
+
+        if let existing = nav.viewControllers.last(where: {
+            ($0 as? ChatViewController)?.channel.channelID == channel.channelID
+        }) {
+            nav.popToViewController(existing, animated: true)
+            return
+        }
+
+        let chatVC = ChatViewController(
+            clanId: clanId,
+            channel: channel,
+            context: context,
+            parentName: parentChannelName(for: channel)
+        )
+        if let mezonNav = nav as? NavigationController {
+            mezonNav.pushViewController(
+                chatVC,
+                animated: true,
+                stackPushAnimationDuration: NavigationController.channelListToChatPushAnimationDuration
+            )
+        } else {
+            nav.pushViewController(chatVC, animated: true)
+        }
     }
 
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
@@ -2935,6 +3097,61 @@ final class ChannelListViewController: ViewController {
             context: context, channel: channel,
             parentChannelName: parentChannelName(for: channel))
         nav.pushViewController(vc, animated: true)
+    }
+
+    private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {
+        select(channel: channel)
+        guard let nav = enclosingNavigationController else { return }
+
+        let pip = StreamingPiPOverlay.shared
+        if pip.isActive {
+            if pip.channel?.channelID == channel.channelID {
+                pip.restoreFullScreen(animated: true)
+                return
+            } else {
+                pip.dismiss(disconnectSession: true)
+            }
+        }
+
+        if let existing = nav.viewControllers.last(where: {
+            ($0 as? StreamingRoomViewController)?.streamChannelId == channel.channelID
+        }) {
+            if nav.topViewController !== existing {
+                nav.popToViewController(existing, animated: false)
+            }
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken(),
+                  let userId = self.context.currentUser?.id,
+                  let username = self.context.currentUser?.username else { return }
+
+            await StreamingWebRTCSession.shared.join(
+                clanId: channel.clanID != 0 ? channel.clanID : self.clanId,
+                channelId: channel.channelID,
+                streamId: channel.channelID,
+                userId: userId,
+                username: username,
+                token: token
+            )
+
+            if let uid = Int64(userId) {
+                self.context.engine.clanData.applyStreamJoined(
+                    clanId: channel.clanID != 0 ? channel.clanID : self.clanId,
+                    channelId: channel.channelID,
+                    userId: uid
+                )
+            }
+
+            let vc = StreamingRoomViewController(
+                context: self.context,
+                channel: channel,
+                parentChannelName: self.parentChannelName(for: channel)
+            )
+            nav.pushViewController(vc, animated: true)
+        }
     }
 
     private func parentChannelName(for channel: Mezon_Api_ChannelDescription) -> String? {
@@ -3863,6 +4080,7 @@ final class ChannelListViewController: ViewController {
     ) -> Bool {
         let allowed = Set(authoritative.map(\.channelID))
         var presentTopLevel = Set<Int64>()
+        var presentThreadIds = Set<Int64>()
         for cat in cats {
             if let fav = cat.favoriteFlatChannels {
                 for ch in fav where !allowed.contains(ch.channelID) { return false }
@@ -3872,11 +4090,16 @@ final class ChannelListViewController: ViewController {
                 presentTopLevel.insert(ch.channelID)
             }
             for (_, arr) in cat.orderedThreadChildren {
-                for ch in arr where !allowed.contains(ch.channelID) { return false }
+                for ch in arr {
+                    if !allowed.contains(ch.channelID) { return false }
+                    presentThreadIds.insert(ch.channelID)
+                }
             }
         }
         let requiredTopLevel = Set(authoritative.filter { $0.parentID == 0 }.map(\.channelID))
-        return requiredTopLevel.isSubset(of: presentTopLevel)
+        guard requiredTopLevel.isSubset(of: presentTopLevel) else { return false }
+        let requiredThreadIds = Set(authoritative.filter { $0.parentID != 0 }.map(\.channelID))
+        return requiredThreadIds.isSubset(of: presentThreadIds)
     }
 
     private func mergeChannelProtosIntoCategoriesSnapshot(

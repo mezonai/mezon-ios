@@ -1234,6 +1234,18 @@ final class AccountContextImpl: AccountContext {
         case .voiceLeaved(let ev):
             engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
 
+        case .streamingJoined(let ev):
+            engine.clanData.applyStreamJoined(
+                clanId: ev.clanID,
+                channelId: ev.streamingChannelID,
+                userId: ev.userID,
+                entryId: ev.id,
+                participant: ev.participant
+            )
+
+        case .streamingLeaved(let ev):
+            engine.clanData.applyStreamLeaved(clanId: ev.clanID, entryId: ev.streamingUserID)
+
         case .voiceEnded(let ev):
             let cid = Int64(ev.voiceChannelID) ?? 0
             guard cid != 0 else { return }

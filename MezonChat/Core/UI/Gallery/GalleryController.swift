@@ -212,13 +212,23 @@ final class GalleryController: UIViewController {
     private func dismissPlaceholderWhenGalleryReady(attempt: Int = 0) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let hasGalleryImage = (self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode)?.currentImage != nil
-            if hasGalleryImage {
+            let currentNode = self.pagingNode.currentItemNode()
+            let hasGalleryImage = (currentNode as? ChatImageGalleryItemNode)?.currentImage != nil
+            let hasVideoGalleryItem = currentNode is ChatVideoGalleryItemNode
+            if hasGalleryImage || hasVideoGalleryItem {
                 UIView.animate(withDuration: 0.12, animations: {
                     self.placeholderImageView.alpha = 0
                 }, completion: { _ in
                     self.placeholderImageView.removeFromSuperview()
                 })
+                return
+            }
+            let centralIndex = self.pagingNode.centralItemIndex
+            let currentItemIsVideo =
+                self.items.indices.contains(centralIndex) && self.items[centralIndex].isVideo
+            if currentItemIsVideo {
+                if attempt >= 200 { return }
+                self.dismissPlaceholderWhenGalleryReady(attempt: attempt + 1)
                 return
             }
             if self.placeholderImageView.image != nil {

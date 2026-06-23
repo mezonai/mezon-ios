@@ -88,6 +88,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
     private var nodeIsVisible = false
     private var pendingVisibleReconcile = false
+    private var pendingVisibleReconcileShouldResetScroll = false
 
     private var latestCoalescedChannelListState: ChannelListState?
     private var channelListStateApplyScheduled = false
@@ -218,6 +219,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     applyCrossfadeReload()
                 } else {
                     pendingVisibleReconcile = true
+                    pendingVisibleReconcileShouldResetScroll = true
                     safeReloadData()
                 }
                 clanSwitchTableRefreshDone = true
@@ -231,6 +233,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         } else if !nodeIsVisible && structureChanged {
             cachedHeaders = [:]
             pendingVisibleReconcile = true
+            pendingVisibleReconcileShouldResetScroll = false
             safeReloadData()
         } else if structureChanged {
             cachedHeaders = [:]
@@ -294,35 +297,52 @@ final class ChannelListContainerNode: ASDisplayNode {
         scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
     }
 
-    private func safeReloadData() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        UIView.performWithoutAnimation {
-            self.tableNode.reloadData()
-            self.tableNode.waitUntilAllUpdatesAreProcessed()
-        }
-        CATransaction.commit()
-        committedSectionCount = totalSections
+    func suppressNextLoadingFinishedReveal() {
+        skipNextLoadingFinishedReveal = true
     }
 
-    private func applyCrossfadeReload() {
+    private func safeReloadData(preserving scrollAnchor: ScrollAnchor? = nil, preserveContentOffset: Bool = true) {
+        let previousOffset = tableNode.view.contentOffset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.reloadData()
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
-        tableNode.view.contentOffset = .zero
         CATransaction.commit()
         committedSectionCount = totalSections
+        if let scrollAnchor {
+            restoreScrollAnchor(scrollAnchor)
+        } else if preserveContentOffset {
+            restoreContentOffset(previousOffset)
+        }
+    }
+
+    private func applyCrossfadeReload(resetScroll: Bool = true) {
+        let previousOffset = tableNode.view.contentOffset
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.reloadData()
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+        }
+        if resetScroll {
+            tableNode.view.contentOffset = .zero
+        }
+        CATransaction.commit()
+        committedSectionCount = totalSections
+        if !resetScroll {
+            restoreContentOffset(previousOffset)
+        }
         updateStickyHeaderPosition()
     }
 
     private func applyBatchStructureUpdate(prev: ChannelListState, new: ChannelListState) {
         let expectedAfter = totalSections
+        let fallbackScrollAnchor = captureScrollAnchor(prev: prev)
 
         guard committedSectionCount == tableNode.numberOfSections else {
-            safeReloadData()
+            safeReloadData(preserving: fallbackScrollAnchor)
             return
         }
 
@@ -335,7 +355,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             && zip(prev.categories, new.categories).allSatisfy({ $0.id == $1.id })
 
         guard canPatch else {
-            safeReloadData()
+            safeReloadData(preserving: fallbackScrollAnchor)
             return
         }
 
@@ -430,10 +450,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 return $0.row < $1.row
             }
 
-            let voiceStructureChanged =
-                pathsContainVoiceRow(sortedInserts, in: new)
-                || pathsContainVoiceRow(sortedDeletes, in: prev)
-            let scrollAnchor = voiceStructureChanged ? captureScrollAnchor(prev: prev) : nil
+            let scrollAnchor = captureScrollAnchor(prev: prev)
 
             tableNode.performBatch(animated: false) {
                 if !sortedDeletes.isEmpty {
@@ -475,25 +492,6 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
         }
         committedSectionCount = expectedAfter
-    }
-
-    private func pathsContainVoiceRow(_ paths: [IndexPath], in stateForPaths: ChannelListState) -> Bool {
-        guard !paths.isEmpty else { return false }
-        let sectionOffset = leadingTableSectionsCount
-        for ip in paths {
-            guard ip.section >= sectionOffset else { continue }
-            let catIdx = ip.section - sectionOffset
-            guard catIdx >= 0, catIdx < stateForPaths.categories.count else { continue }
-            let rows = computeRows(for: stateForPaths, categoryIndex: catIdx)
-            guard ip.row >= 0, ip.row < rows.count else { continue }
-            switch rows[ip.row] {
-            case .voiceMembersCollapsed, .voiceMemberExpanded:
-                return true
-            default:
-                continue
-            }
-        }
-        return false
     }
 
     private struct ScrollAnchor {
@@ -545,23 +543,46 @@ final class ChannelListContainerNode: ASDisplayNode {
     private func restoreScrollAnchor(_ anchor: ScrollAnchor) {
         let tv = tableNode.view
         let sectionOffset = leadingTableSectionsCount
-        let section = anchor.section
-        guard section >= sectionOffset, section < tableNode.numberOfSections else { return }
-        let catIdx = section - sectionOffset
-        guard catIdx >= 0, catIdx < state.categories.count else { return }
-        let newRows = rowsForSection(catIdx)
-        guard let newRow = newRows.firstIndex(where: { Self.rowDiffKey($0) == anchor.key }) else { return }
-        guard newRow < tableNode.numberOfRows(inSection: section) else { return }
-        let rect = tv.rectForRow(at: IndexPath(row: newRow, section: section))
+        let preferredSection = anchor.section >= sectionOffset ? anchor.section : nil
+        guard let indexPath = indexPathForRowDiffKey(anchor.key, preferredSection: preferredSection) else { return }
+        let rect = tv.rectForRow(at: indexPath)
         guard rect.height > 0 else { return }
         let targetY = rect.minY - anchor.distanceFromTop
+        restoreContentOffset(CGPoint(x: tv.contentOffset.x, y: targetY))
+    }
+
+    private func indexPathForRowDiffKey(_ key: String, preferredSection: Int?) -> IndexPath? {
+        let sectionOffset = leadingTableSectionsCount
+        func lookup(in section: Int) -> IndexPath? {
+            guard section >= sectionOffset, section < tableNode.numberOfSections else { return nil }
+            let catIdx = section - sectionOffset
+            guard catIdx >= 0, catIdx < state.categories.count else { return nil }
+            let rows = rowsForSection(catIdx)
+            guard let row = rows.firstIndex(where: { Self.rowDiffKey($0) == key }) else { return nil }
+            guard row < tableNode.numberOfRows(inSection: section) else { return nil }
+            return IndexPath(row: row, section: section)
+        }
+        if let preferredSection, let indexPath = lookup(in: preferredSection) {
+            return indexPath
+        }
+        guard sectionOffset < tableNode.numberOfSections else { return nil }
+        for section in sectionOffset..<tableNode.numberOfSections {
+            if let indexPath = lookup(in: section) {
+                return indexPath
+            }
+        }
+        return nil
+    }
+
+    private func restoreContentOffset(_ offset: CGPoint) {
+        let tv = tableNode.view
         let minY = -tv.adjustedContentInset.top
         let maxY = max(minY, tv.contentSize.height - tv.bounds.height + tv.adjustedContentInset.bottom)
-        let clamped = min(max(targetY, minY), maxY)
+        let clamped = min(max(offset.y, minY), maxY)
         guard abs(clamped - tv.contentOffset.y) > 0.5 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        tv.setContentOffset(CGPoint(x: tv.contentOffset.x, y: clamped), animated: false)
+        tv.setContentOffset(CGPoint(x: offset.x, y: clamped), animated: false)
         CATransaction.commit()
     }
 
@@ -800,7 +821,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func applyRowDiff(prev: ChannelListState, new: ChannelListState) {
         guard committedSectionCount == tableNode.numberOfSections else {
-            safeReloadData()
+            safeReloadData(preserving: captureScrollAnchor(prev: prev))
             return
         }
 
@@ -810,7 +831,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         for s in 0..<new.categories.count {
             let section = s + sectionOffset
             guard section < tableNode.numberOfSections else {
-                safeReloadData()
+                safeReloadData(preserving: captureScrollAnchor(prev: prev))
                 return
             }
             let committedRows = tableNode.numberOfRows(inSection: section)
@@ -1044,10 +1065,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         nodeIsVisible = true
         interaction.onBecameVisible?()
         if pendingVisibleReconcile {
+            let shouldResetScroll = pendingVisibleReconcileShouldResetScroll
             pendingVisibleReconcile = false
+            pendingVisibleReconcileShouldResetScroll = false
             cachedRows = [:]
             cachedHeaders = [:]
-            applyCrossfadeReload()
+            applyCrossfadeReload(resetScroll: shouldResetScroll)
         }
     }
 
@@ -1391,12 +1414,15 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func configure(clanName: String, clanId: Int64 = 0, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
+        let clanChanged = headerClanId != clanId
         self.headerClanId = clanId
         self.clanLogoURL = logoURL ?? ""
         self.isCommunity = isCommunity
         self.memberCount = memberCount
         headerUIView.configure(title: clanName, memberCount: memberCount, isCommunity: isCommunity)
-        isChannelAppsExpanded = true
+        if clanChanged {
+            isChannelAppsExpanded = true
+        }
 
         UIView.performWithoutAnimation {
             if let url = bannerURL, !url.isEmpty {
@@ -1422,7 +1448,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
             }
         }
-        if !isClanSwitching {
+        if clanChanged && !isClanSwitching {
             tableNode.view.contentOffset = .zero
         }
         updateStickyHeaderPosition()

@@ -1046,6 +1046,114 @@ final class SearchViewController: ViewController {
         navigationController?.pushViewController(chatVC, animated: true)
     }
 
+    private func presentJoinStreamSheet(for channel: Mezon_Api_ChannelDescription) {
+        let clanIdForChannel = effectiveClanId(for: channel)
+        let title = channel.channelLabel.isEmpty
+            ? NSLocalizedString("streamingRoom.defaultName", tableName: nil, bundle: .main, value: "Stream", comment: "")
+            : channel.channelLabel
+
+        var streamUserIds: [String] = []
+        if let list = context.engine.clanData.getStreamUsers(clanId: clanIdForChannel) {
+            for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !streamUserIds.contains(uid) {
+                    streamUserIds.append(uid)
+                }
+            }
+        }
+        let resolvedMembers = streamUserIds.compactMap { resolveVoiceMember(uid: $0, clanIdForChannel: clanIdForChannel) }
+
+        let sheet = JoinVoiceChannelSheetViewController(
+            channelTitle: title,
+            chatUnreadCount: Int(channel.countMessUnread),
+            members: resolvedMembers,
+            kind: .streaming,
+            onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
+            onJoinVoice: { [weak self] in self?.pushStreamingRoom(for: channel) },
+            onInvite: {}
+        )
+        sheet.modalPresentationStyle = UIModalPresentationStyle.pageSheet
+        if #available(iOS 15.0, *) {
+            sheet.sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
+                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
+                    min(targetHeight, context.maximumDetentValue)
+                }
+                sheet.sheetPresentationController?.detents = [contentDetent]
+                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheet.sheetPresentationController?.detents = [
+                    UISheetPresentationController.Detent.medium(),
+                    UISheetPresentationController.Detent.large(),
+                ]
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        present(sheet, animated: true)
+        CATransaction.commit()
+    }
+
+    private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {
+        persistSelectedChannelForVoice(channel)
+        context.currentClanId = effectiveClanId(for: channel)
+        guard let nav = navigationController else { return }
+
+        let pip = StreamingPiPOverlay.shared
+        if pip.isActive {
+            if pip.channel?.channelID == channel.channelID {
+                pip.restoreFullScreen(animated: true)
+                return
+            } else {
+                pip.dismiss(disconnectSession: true)
+            }
+        }
+
+        if let existing = nav.viewControllers.last(where: {
+            ($0 as? StreamingRoomViewController)?.streamChannelId == channel.channelID
+        }) {
+            if nav.topViewController !== existing {
+                nav.popToViewController(existing, animated: false)
+            }
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken(),
+                  let userId = self.context.currentUser?.id,
+                  let username = self.context.currentUser?.username else { return }
+
+            await StreamingWebRTCSession.shared.join(
+                clanId: self.effectiveClanId(for: channel),
+                channelId: channel.channelID,
+                streamId: channel.channelID,
+                userId: userId,
+                username: username,
+                token: token
+            )
+
+            if let uid = Int64(userId) {
+                self.context.engine.clanData.applyStreamJoined(
+                    clanId: self.effectiveClanId(for: channel),
+                    channelId: channel.channelID,
+                    userId: uid
+                )
+            }
+
+            let vc = StreamingRoomViewController(
+                context: self.context,
+                channel: channel,
+                parentChannelName: self.parentChannelName(for: channel)
+            )
+            nav.pushViewController(vc, animated: true)
+        }
+    }
+
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
         persistSelectedChannelForVoice(channel)
         context.currentClanId = effectiveClanId(for: channel)
@@ -1262,6 +1370,10 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
             let channel = filteredChannels[indexPath.row]
             if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
                 presentJoinVoiceSheet(for: channel)
+                return
+            }
+            if channel.type == MezonConstants.ChannelType.streaming.rawValue {
+                presentJoinStreamSheet(for: channel)
                 return
             }
             navigateToChannel(channel)

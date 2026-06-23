@@ -362,12 +362,48 @@ extension MezonEngine {
         private func fetchStreamChannelUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listStreamingChannelUsers(clanId: clanId, token: token)
-                if let data = try? response.serializedData() {
-                    postbox.setPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId), value: data)
-                }
-                clanStreamUsersUpdated.putNext(clanId)
+                persistStreamUsersList(response, clanId: clanId)
             } catch {
             }
+        }
+
+        private func persistStreamUsersList(_ list: Mezon_Api_StreamingChannelUserList, clanId: Int64) {
+            if let data = try? list.serializedData() {
+                postbox.setPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId), value: data)
+            }
+            clanStreamUsersUpdated.putNext(clanId)
+            NotificationCenter.default.post(
+                name: .mezonVoicePresenceChanged,
+                object: nil,
+                userInfo: ["clanId": NSNumber(value: clanId)]
+            )
+        }
+
+        private func resolvedStreamUsersList(clanId: Int64) -> Mezon_Api_StreamingChannelUserList? {
+            guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId)),
+                  let list = try? Mezon_Api_StreamingChannelUserList(serializedBytes: data) else { return nil }
+            return list
+        }
+
+        private func voiceChannelUserList(from streamList: Mezon_Api_StreamingChannelUserList) -> Mezon_Api_VoiceChannelUserList {
+            var grouped: [Int64: [String]] = [:]
+            for user in streamList.streamingChannelUsers {
+                guard user.channelID != 0, user.userID != 0 else { continue }
+                let uid = "\(user.userID)"
+                var ids = grouped[user.channelID] ?? []
+                if !ids.contains(uid) {
+                    ids.append(uid)
+                    grouped[user.channelID] = ids
+                }
+            }
+            var result = Mezon_Api_VoiceChannelUserList()
+            result.voiceChannelUsers = grouped.map { channelId, userIds in
+                var entry = Mezon_Api_VoiceChannelUser()
+                entry.channelID = channelId
+                entry.userIds = userIds
+                return entry
+            }
+            return result
         }
 
 
@@ -553,8 +589,8 @@ extension MezonEngine {
         }
 
         func getStreamUsers(clanId: Int64) -> Mezon_Api_VoiceChannelUserList? {
-            guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId)) else { return nil }
-            return try? Mezon_Api_VoiceChannelUserList(serializedBytes: data)
+            guard let streamList = resolvedStreamUsersList(clanId: clanId) else { return nil }
+            return voiceChannelUserList(from: streamList)
         }
 
         func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
@@ -607,6 +643,43 @@ extension MezonEngine {
             var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
             list.voiceChannelUsers.removeAll { $0.channelID == channelId }
             persistVoiceUsersList(list, clanId: clanId)
+        }
+
+        func applyStreamJoined(
+            clanId: Int64,
+            channelId: Int64,
+            userId: Int64,
+            entryId: Int64 = 0,
+            participant: String = ""
+        ) {
+            guard clanId != 0, channelId != 0, userId != 0 else { return }
+            var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
+            list.streamingChannelUsers.removeAll { $0.channelID == channelId && $0.userID == userId }
+            var user = Mezon_Api_StreamingChannelUser()
+            user.id = entryId
+            user.userID = userId
+            user.channelID = channelId
+            user.participant = participant
+            list.streamingChannelUsers.append(user)
+            persistStreamUsersList(list, clanId: clanId)
+        }
+
+        func applyStreamLeaved(clanId: Int64, channelId: Int64, userId: Int64) {
+            guard clanId != 0, channelId != 0, userId != 0 else { return }
+            var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
+            list.streamingChannelUsers.removeAll { $0.channelID == channelId && $0.userID == userId }
+            persistStreamUsersList(list, clanId: clanId)
+        }
+
+        func applyStreamLeaved(clanId: Int64, entryId: String) {
+            guard clanId != 0, !entryId.isEmpty else { return }
+            var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
+            if let numericId = Int64(entryId) {
+                list.streamingChannelUsers.removeAll { $0.id == numericId }
+            } else {
+                list.streamingChannelUsers.removeAll { "\($0.id)" == entryId }
+            }
+            persistStreamUsersList(list, clanId: clanId)
         }
 
         private func persistVoiceUsersList(_ list: Mezon_Api_VoiceChannelUserList, clanId: Int64) {
@@ -669,16 +742,31 @@ extension MezonEngine {
             return ch
         }
         
-        func applyLocallyCreatedChannel(_ ch: Mezon_Api_ChannelDescription) {
+        func applyLocallyCreatedChannel(
+            _ ch: Mezon_Api_ChannelDescription,
+            skipChannelListFetch: Bool = false
+        ) {
             upsertAllChannelsByUserCache(ch)
             if ch.clanID != 0 {
                 mergeIntoClanChannelListPreferenceIfPresent(clanId: ch.clanID, channel: ch)
+                if ch.parentID != 0 {
+                    mergeIntoThreadListPreferenceIfPresent(
+                        clanId: ch.clanID,
+                        parentChannelId: ch.parentID,
+                        thread: ch
+                    )
+                }
             }
 
             NotificationCenter.default.post(
                 name: .mezonUserChannelAddedFromSocket,
                 object: nil,
-                userInfo: ["clanId": ch.clanID, "channelId": ch.channelID]
+                userInfo: [
+                    "clanId": ch.clanID,
+                    "channelId": ch.channelID,
+                    "channel": ch,
+                    "skipChannelListFetch": skipChannelListFetch
+                ]
             )
         }
 
@@ -729,11 +817,73 @@ extension MezonEngine {
             guard !arr.isEmpty, arr.allSatisfy({ $0.clanID == 0 || $0.clanID == clanId }) else { return }
             if let idx = arr.firstIndex(where: { $0.channelID == channel.channelID }) {
                 arr[idx] = channel
+            } else if channel.parentID != 0,
+                      let parentIdx = arr.firstIndex(where: { $0.channelID == channel.parentID }) {
+                var insertAt = parentIdx + 1
+                while insertAt < arr.count, arr[insertAt].parentID == channel.parentID {
+                    insertAt += 1
+                }
+                arr.insert(channel, at: insertAt)
             } else {
                 arr.append(channel)
             }
             guard let data = ChannelPreferenceListCodec.encode(arr) else { return }
             postbox.setPreferenceDataSync(key: PreferencesKeys.channelList(clanId: clanId), value: data)
+        }
+
+        private func mergeIntoThreadListPreferenceIfPresent(
+            clanId: Int64,
+            parentChannelId: Int64,
+            thread: Mezon_Api_ChannelDescription
+        ) {
+            guard clanId != 0, parentChannelId != 0, thread.channelID != 0 else { return }
+            let key = PreferencesKeys.threadList(clanId: clanId, parentChannelId: parentChannelId)
+            var threads: [Mezon_Api_ChannelDescription] = []
+            if let blob = postbox.getPreferenceData(key: key), !blob.isEmpty {
+                threads = decodeThreadListPreferenceBlob(blob)
+            }
+            if let idx = threads.firstIndex(where: { $0.channelID == thread.channelID }) {
+                threads[idx] = thread
+            } else {
+                threads.insert(thread, at: 0)
+            }
+            guard let data = encodeThreadListPreferenceBlob(threads) else { return }
+            postbox.setPreferenceDataSync(key: key, value: data)
+        }
+
+        private func encodeThreadListPreferenceBlob(_ channels: [Mezon_Api_ChannelDescription]) -> Data? {
+            var result = Data()
+            var ts = Date().timeIntervalSince1970
+            result.append(contentsOf: withUnsafeBytes(of: &ts) { Array($0) })
+            var count = UInt32(channels.count)
+            result.append(contentsOf: withUnsafeBytes(of: &count) { Array($0) })
+            for ch in channels {
+                guard let d = try? ch.serializedData() else { continue }
+                var len = UInt32(d.count)
+                result.append(contentsOf: withUnsafeBytes(of: &len) { Array($0) })
+                result.append(d)
+            }
+            return result
+        }
+
+        private func decodeThreadListPreferenceBlob(_ data: Data) -> [Mezon_Api_ChannelDescription] {
+            guard data.count >= 8 + 4 else { return [] }
+            var offset = 8
+            let count = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            offset += 4
+            guard count >= 0, count < 4096 else { return [] }
+            var channels: [Mezon_Api_ChannelDescription] = []
+            for _ in 0..<count {
+                guard offset + 4 <= data.count else { break }
+                let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+                offset += 4
+                guard offset + len <= data.count, len > 0 else { break }
+                if let ch = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + len))) {
+                    channels.append(ch)
+                }
+                offset += len
+            }
+            return channels
         }
 
         func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {

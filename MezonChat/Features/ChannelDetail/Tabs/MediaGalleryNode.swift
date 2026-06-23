@@ -160,7 +160,12 @@ final class MediaGalleryNode: ASDisplayNode {
     }
 
     private static func isVideo(_ att: Mezon_Api_ChannelAttachment) -> Bool {
-        att.filetype.lowercased().hasPrefix("video/")
+        let filetype = att.filetype.lowercased()
+        if filetype.hasPrefix("video/") { return true }
+        let filenameExtension = (att.filename as NSString).pathExtension.lowercased()
+        let urlExtension = URL(string: att.url)?.pathExtension.lowercased() ?? ""
+        return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
+            || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
     }
 
     private func gridItemSide(collectionWidth: CGFloat) -> CGFloat {
@@ -197,10 +202,16 @@ final class MediaGalleryNode: ASDisplayNode {
                 att.createTimeSeconds > 0
                 ? Date(timeIntervalSince1970: TimeInterval(att.createTimeSeconds)) : nil
             if isVideo {
+                let videoPreview = itemIndex == index
+                    ? (previewImage
+                        ?? ImageCache.shared.memoryImage(forKey: imageThumbURL)
+                        ?? GalleryItemInfo.fitCachedPreviewMemory(
+                            sourceURL: att.url, placeholderProxySize: 150))
+                    : nil
                 return GalleryItemInfo(
                     url: att.url,
                     sourceURL: att.url,
-                    image: nil,
+                    image: videoPreview,
                     placeholderURL: nil,
                     senderName: "",
                     senderAvatarURL: nil,
